@@ -1,9 +1,8 @@
-# Sage Insights Dashboard and Collector
-
+# Dataiku PULSE Dashboard and Collector
 
 ## ANNOUNCEMENT
 
-Due to performance issues, Sage no longer supports `csv` as an output file. All files must not be in the form of `parquet`.
+Due to performance issues, Dataiku PULSE no longer supports `csv` as an output file. All files must not be in the form of `parquet`.
 
 Because of this change, a large number of columns had to be reworked to handle the additional of a true schema being saved with the parquet files.
 
@@ -11,7 +10,7 @@ In a decision to keep things easier to maintain in the future, column names have
 
 * Actions to take migrating >1.6 or higher (if previously installed).
   * Patch to v1.6 or higher
-  * Patch/Update the local code-environment for Sage
+  * Patch/Update the local code-environment for Dataiku PULSE
   * Rebuild the new Streamlit Code-Studio Template
   * Rename both the original `partitioned_data` and `base_data` folders (if wanting to preserve historical data)
     * If you do not want to preserve, drop and delete folders with `Drop data` selected
@@ -61,16 +60,16 @@ Due to the web application being built on Streamlit, installation requires a bit
     1. Migrate to `Waffle::Plugins` and install from GIT: <https://github.com/dataiku/dss-plugin-sage-insights>
     1. Build the code-environment, no containers needed
     1. After the plugin is installed, switch to the plugin settings page and fill in the information ("EXAMPLE BELOW")
-        1. Sage Github Repo
+        1. Dataiku PULSE Github Repo
             1. <https://github.com/dataiku/dss-plugin-sage-insights>
             1. `main`
-        1. Sage Dashboard Information
+        1. Dataiku PULSE Dashboard Information
             1. `SAGE_DASHBOARD`
             1. Hostname or IP:Port
             1. Admin Level Api Key
             1. `SAGE_WORKER`
             1. Ignore certs if needed, Default is `False`
-        1. Sage Worker Information
+        1. Dataiku PULSE Worker Information
             1. Fill out each host including the local host if you want to track the local host. Need both Hostname or IP:Port and Admin level API Key
 1. Code Studios
     1. Create the template name `sage` # this name is important
