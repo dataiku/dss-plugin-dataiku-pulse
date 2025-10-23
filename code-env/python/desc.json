@@ -1,16 +1,10 @@
 {
   "acceptedPythonInterpreters": [
-    "PYTHON36",
-    "PYTHON37",
-    "PYTHON38",
-    "PYTHON39",
-    "PYTHON310",
-    "PYTHON311",
-    "PYTHON312",
-    "PYTHON313"
+    "PYTHON311"
   ],
-  "corePackagesSet": "AUTO",
-  "forceConda": false,
   "installCorePackages": true,
-  "installJupyterSupport": false
+  "corePackagesSet": "PANDAS22",
+  "installJupyterSupport": true,
+  "conda": false,
+  "deploymentMode": "PLUGIN_MANAGED"
 }
