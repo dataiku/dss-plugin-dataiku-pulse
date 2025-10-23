@@ -2,7 +2,7 @@
     "id": "dataiku-pulse",
     "version": "2.0.0",
     "meta": {
-        "label": "Dataiku PULSE Insights",
+        "label": "Dataiku PULSE",
         "description": "This plugin contains the framework for the Dataiku PULSE Dashbaord.",
         "author": "Stephen Mazzei",
         "icon": "fas fa-puzzle-piece",
