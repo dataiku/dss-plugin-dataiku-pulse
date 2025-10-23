@@ -37,7 +37,7 @@ class MyCodeStudioBlock(CodeStudioBlock):
         # Default Packages
         import dataiku
         client = dataiku.api_client()
-        ce = client.get_code_env(env_name="plugin_sage_managed", env_lang="PYTHON")
+        ce = client.get_code_env(env_name="plugin_dataiku-pulse_managed", env_lang="PYTHON")
         actual_packges = ce.get_settings().get_raw()["actualPackageList"].split("\n")
         default_packages = [s for s in actual_packges if s]
         default_packages = " ".join(default_packages)
