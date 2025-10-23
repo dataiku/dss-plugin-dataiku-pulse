@@ -1,7 +1,7 @@
 {
     "meta" : {
-        "label": "Sage Dashboard - Streamlit",
-        "description": "Streamlit framework for creating the Sage Dashboard",
+        "label": "Dataiku Pulse (Streamlit Custom)",
+        "description": "Streamlit framework for creating the Dataiku Pulse Dashboard",
         "icon": "icon-dku-streamlit"
     },
     
