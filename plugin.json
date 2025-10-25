@@ -13,54 +13,54 @@
     "params": [
         {
             "name": "pulse_repo_url",
-            "label": "Sage Github Repo",
+            "label": "Dataiku Pulse Github Repo",
             "type": "STRING",
             "description": "",
             "mandatory": true
         },
         {
             "name": "pulse_repo_branch",
-            "label": "Sage Github Branch",
+            "label": "Dataiku Pulse Github Branch",
             "type": "STRING",
             "description": "",
             "mandatory": true
         },
         {
             "name": "sep_pulse_dashboard",
-            "description": "<hr color='#000000' size='3' noshade><h3>Sage Dashboard Information</h3>",
+            "description": "<hr color='#000000' size='3' noshade><h3>Dataiku Pulse Dashboard Information</h3>",
             "type": "SEPARATOR"
         },
         {
             "name": "pulse_project_key",
-            "label": "Sage Dashboard Project Key",
+            "label": "Dataiku Pulse Dashboard Project Key",
             "type": "STRING",
             "description": "",
             "mandatory": true
         },
         {
             "name": "pulse_project_url",
-            "label": "Sage Dashboard Main Host URL",
+            "label": "Dataiku Pulse Dashboard Main Host URL",
             "type": "STRING",
             "description": "",
             "mandatory": true
         },
         {
             "name": "pulse_project_api",
-            "label": "Sage Dashboard Main Host API",
+            "label": "Dataiku Pulse Dashboard Main Host API",
             "type": "PASSWORD",
             "description": "API Key running as an ADMIN level user",
             "mandatory": true
         },
         {
             "name": "pulse_worker_key",
-            "label": "Sage Worker Project Key",
+            "label": "Dataiku Pulse Worker Project Key",
             "type": "STRING",
             "description": "",
             "mandatory": true
         },
         {
             "name": "pulse_dataiku_user",
-            "label": "Sage Worker Dataiku User",
+            "label": "Dataiku Pulse Worker Dataiku User",
             "type": "STRING",
             "description": "",
             "mandatory": true
@@ -73,19 +73,19 @@
         },
         {
             "name": "pulse_folder_connection",
-            "label": "Sage Folder Connection",
+            "label": "Dataiku Pulse Folder Connection",
             "type": "STRING",
             "description": "",
             "mandatory": true
         },
         {
             "name": "sep_pulse_workers",
-            "description": "<hr color='#000000' size='3' noshade><h3>Sage Worker Information</h3>",
+            "description": "<hr color='#000000' size='3' noshade><h3>Dataiku Pulse Worker Information</h3>",
             "type": "SEPARATOR"
         },
         {
             "name": "api_configs",
-            "label": "Sage Worker Host URLs and API Keys",
+            "label": "Dataiku Pulse Worker Host URLs and API Keys",
             "type": "OBJECT_LIST",
             "subParams": [
                 {
