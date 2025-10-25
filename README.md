@@ -64,22 +64,22 @@ Due to the web application being built on Streamlit, installation requires a bit
             1. <https://github.com/dataiku/dss-plugin-sage-insights>
             1. `main`
         1. Dataiku PULSE Dashboard Information
-            1. `SAGE_DASHBOARD`
+            1. `DATAIKU_PULSE_DASHBOARD`
             1. Hostname or IP:Port
             1. Admin Level Api Key
-            1. `SAGE_WORKER`
+            1. `DATAIKU_PULSE_WORKER`
             1. Ignore certs if needed, Default is `False`
         1. Dataiku PULSE Worker Information
             1. Fill out each host including the local host if you want to track the local host. Need both Hostname or IP:Port and Admin level API Key
 1. Code Studios
-    1. Create the template name `sage` # this name is important
+    1. Create the template name `dataiku_pulse_dashboard` # this name is important
     1. Setup K8s to run on
-    1. Add the `Sage Dashboard - Streamlit` block
+    1. Add the `Dataiku Pulse (Streamlit Custom)` block
     1. Disable permissions for users
     1. Build
-1. Create the Sage Dashboard project based off 1.4.2 information
+1. Create the Dataiku PULSE Dashboard project based off 1.4.2 information
     1. Go to Macros
-    1. Filter on `Sage Insights: Initialize`
+    1. Filter on `Dataiku Pulse: Initialize`
     1. Run `Initialize Dashboard`
     1. Run `Initialize Workers`
     1. Switch to Code Studios page under the Code tab
@@ -89,4 +89,4 @@ Due to the web application being built on Streamlit, installation requires a bit
 
 ## Data Flow Diagrams
 
-![Data Flow Diagram](<images/SAGE Data Flow.svg>)
+![Data Flow Diagram](<images/PULSE Data Flow.svg>)
