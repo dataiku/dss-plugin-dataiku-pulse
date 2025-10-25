@@ -32,19 +32,10 @@ class MyRunnable(Runnable):
         if cont:
             try:
                 f = dss_folder.get_local_folder(self, project_handle, "partitioned_data")
-                f = dss_folder.get_local_folder(self, project_handle, "base_data")
                 results.append(["Create Folders", True, None])
             except Exception as e:
                 results.append(["Create Folders", False, f"An error occurred: {e}"])
                 cont = False
-        # Create scenario to build base data 
-        if cont:
-            try:
-                dss_init.create_scenarios(project_handle, "DASHBOARD", self.pulse_dataiku_user)
-                results.append(["Update Scenarios", True, None])
-            except Exception as e:
-                cont = False
-                results.append(["Update Scenarios", False, e])
         # Get plugin directory
         if cont:
             root_path = local_client.get_instance_info().raw["dataDirPath"]
@@ -53,22 +44,24 @@ class MyRunnable(Runnable):
             path_dev = f"{root_path}/plugins/dev/dataiku-pulse"
             if os.path.isdir(path_install):
                 source_path = path_install
+                results.append(["plugin directory found", True, None])
             elif os.path.isdir(path_dev):
                 source_path = path_dev
+                results.append(["plugin directory found", True, None])
             else:
                 results.append(["plugin directory", False, "Cannot find plugin Directory"])
                 cont = False
-            results.append(["plugin directory", True, None])
         # Get Dashboard library directory
         if cont:
             project_path = f"{root_path}/config/projects/{self.pulse_project_key}/lib/python"
             if not os.path.isdir(project_path):
-                results.append(["Project Library Confirmed", False, "Cannot find project library"])
+                results.append(["Project Library Confirmed", False, f"Cannot find project library {project_path}"])
                 cont = False
-            results.append(["Project Library Confirmed", True, None])
+            else:
+                results.append(["Project Library Confirmed", True, None])
         # Delete the current running version
         if cont:
-            project_path = f"{root_path}/config/projects/{self.pulse_project_key}/lib/python/pulse"
+            project_path = f"{root_path}/config/projects/{self.pulse_project_key}/lib/python/dataikupulse"
             if os.path.exists(project_path) and os.path.isdir(project_path):
                 try:
                     shutil.rmtree(project_path)
@@ -104,11 +97,11 @@ class MyRunnable(Runnable):
             try:
                 found = False
                 for cs in project_handle.list_code_studios():
-                    if cs.name == "pulse Dashboard":
+                    if cs.name == "Dataiku Pulse Dashboard":
                         found = True
                         break
                 if not found:
-                    code_studio = project_handle.create_code_studio(name="pulse Dashboard", template_id="pulse")
+                    code_studio = project_handle.create_code_studio(name="Dataiku Pulse Dashboard", template_id="dataiku_pulse_dashboard")
                 results.append(["Create Code Studio", True, None])
             except Exception as e:
                 results.append(["Create Code Studio", False, f"An error occurred: {e}"])
