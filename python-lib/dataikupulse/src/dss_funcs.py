@@ -1,3 +1,6 @@
+# dataikupulse/src/dss_folder.py
+## Last Modified: 2025-10-25
+# -----------------------------------------------------------------------------------------
 import dataiku
 import dataikuapi
 import os
@@ -70,7 +73,7 @@ def run_modules(self, dss_objs, handle, client_d = {}, project_key = None):
                 continue # nothing to write, skip
             try:
                 # Remote client and DT parsing
-                remote_client = build_remote_client(self.sage_project_url, self.sage_project_api, self.ignore_certs)
+                remote_client = build_remote_client(self.pulse_project_url, self.pulse_project_api, self.ignore_certs)
                 dt_year  = str(self.dt.year)
                 dt_month = str(f'{self.dt.month:02d}')
                 dt_day   = str(f'{self.dt.day:02d}')
