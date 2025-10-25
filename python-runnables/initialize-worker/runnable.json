@@ -19,6 +19,12 @@
             "name": "update_github",
             "label": "Check to force refresh latest git repo (Will not undo settings)",
             "defaultValue": false
+        },
+        {
+            "type": "BOOLEAN",
+            "name": "force_scenarios",
+            "label": "Check to force refresh latest git repo",
+            "defaultValue": false
         }
     ]
 }
