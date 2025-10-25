@@ -1,6 +1,6 @@
-from sage.src import dss_folder
-from sage.src import dss_funcs
-from sage.src import dss_init
+from dataikupulse.src import dss_folder
+from dataikupulse.src import dss_funcs
+from dataikupulse.src import dss_init
 
 import os
 import shutil
@@ -13,11 +13,11 @@ class MyRunnable(Runnable):
         self.project_key = project_key
         self.config = config
         self.plugin_config = plugin_config
-        self.sage_project_key = plugin_config.get("sage_project_key", None)
-        self.sage_dataiku_user  = plugin_config.get("sage_dataiku_user", "admin")
+        self.pulse_project_key = plugin_config.get("pulse_project_key", None)
+        self.pulse_dataiku_user  = plugin_config.get("pulse_dataiku_user", "admin")
 
         # Set environment variable
-        self.sage_folder_connection = plugin_config.get("sage_folder_connection", "filesystem_folders")
+        self.pulse_folder_connection = plugin_config.get("pulse_folder_connection", "filesystem_folders")
         
     def get_progress_target(self):
         return None
@@ -28,7 +28,7 @@ class MyRunnable(Runnable):
         # Get local client and name
         local_client = dss_funcs.build_local_client()
         instance_name = dss_funcs.get_dss_name(local_client)
-        project_handle = local_client.get_project(self.sage_project_key)
+        project_handle = local_client.get_project(self.pulse_project_key)
         library = project_handle.get_library()
         # Create the folders
         if cont:
@@ -42,7 +42,7 @@ class MyRunnable(Runnable):
         # Create scenario to build base data 
         if cont:
             try:
-                dss_init.create_scenarios(project_handle, "DASHBOARD", self.sage_dataiku_user)
+                dss_init.create_scenarios(project_handle, "DASHBOARD", self.pulse_dataiku_user)
                 results.append(["Update Scenarios", True, None])
             except Exception as e:
                 cont = False
@@ -51,8 +51,8 @@ class MyRunnable(Runnable):
         if cont:
             root_path = local_client.get_instance_info().raw["dataDirPath"]
             source_path = None
-            path_install = f"{root_path}/plugins/installed/sage"
-            path_dev = f"{root_path}/plugins/dev/sage"
+            path_install = f"{root_path}/plugins/installed/dataiku-pulse"
+            path_dev = f"{root_path}/plugins/dev/dataiku-pulse"
             if os.path.isdir(path_install):
                 source_path = path_install
             elif os.path.isdir(path_dev):
@@ -63,14 +63,14 @@ class MyRunnable(Runnable):
             results.append(["plugin directory", True, None])
         # Get Dashboard library directory
         if cont:
-            project_path = f"{root_path}/config/projects/{self.sage_project_key}/lib/python"
+            project_path = f"{root_path}/config/projects/{self.pulse_project_key}/lib/python"
             if not os.path.isdir(project_path):
                 results.append(["Project Library Confirmed", False, "Cannot find project library"])
                 cont = False
             results.append(["Project Library Confirmed", True, None])
         # Delete the current running version
         if cont:
-            project_path = f"{root_path}/config/projects/{self.sage_project_key}/lib/python/sage"
+            project_path = f"{root_path}/config/projects/{self.pulse_project_key}/lib/python/pulse"
             if os.path.exists(project_path) and os.path.isdir(project_path):
                 try:
                     shutil.rmtree(project_path)
@@ -91,7 +91,7 @@ class MyRunnable(Runnable):
         # Clean up Library
         if cont:
             try:
-                file = library.add_file("python/sage_init.txt")
+                file = library.add_file("python/pulse_init.txt")
                 file.delete()
                 results.append(["Library Refresh", True, None])
             except Exception as e:
@@ -106,11 +106,11 @@ class MyRunnable(Runnable):
             try:
                 found = False
                 for cs in project_handle.list_code_studios():
-                    if cs.name == "Sage Dashboard":
+                    if cs.name == "pulse Dashboard":
                         found = True
                         break
                 if not found:
-                    code_studio = project_handle.create_code_studio(name="Sage Dashboard", template_id="sage")
+                    code_studio = project_handle.create_code_studio(name="pulse Dashboard", template_id="pulse")
                 results.append(["Create Code Studio", True, None])
             except Exception as e:
                 results.append(["Create Code Studio", False, f"An error occurred: {e}"])
