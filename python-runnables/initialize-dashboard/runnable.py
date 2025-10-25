@@ -15,8 +15,6 @@ class MyRunnable(Runnable):
         self.plugin_config = plugin_config
         self.pulse_project_key = plugin_config.get("pulse_project_key", None)
         self.pulse_dataiku_user  = plugin_config.get("pulse_dataiku_user", "admin")
-
-        # Set environment variable
         self.pulse_folder_connection = plugin_config.get("pulse_folder_connection", "filesystem_folders")
         
     def get_progress_target(self):
