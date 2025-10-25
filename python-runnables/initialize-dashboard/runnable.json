@@ -1,9 +1,9 @@
 {
     "meta": {
         "label": "Initialize Dashboard",
-        "description": "Create Dashboard and components into the Sage project",
+        "description": "Create Dashboard and components into the Dataiku PULSE project",
         "icon": "fas fa-puzzle-piece",
-        "category": "Sage Insights: Initialize"
+        "category": "Dataiku PULSE Insights: Initialize"
     },
     "impersonate": false,
     "permissions": ["ADMIN"],
