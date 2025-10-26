@@ -87,6 +87,14 @@ class MyRunnable(Runnable):
                     cont = False
             else:
                 results.append(["Delete Existing", True, "Initial Setup"])
+        # Copy the streamlit application
+        if cont:
+            try:
+                r = shutil.copytree(f"{source_path}/streamlit", streamlit_path)
+                results.append(["Copy Streamlit", True, None])
+            except Exception as e:
+                results.append(["Copy Streamlit", False, f"An error occurred: {e}"])
+                cont = False
         # return results
         if results:
             df = pd.DataFrame(results, columns=["step", "result", "message"])
