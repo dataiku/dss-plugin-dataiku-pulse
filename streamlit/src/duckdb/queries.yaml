@@ -1,0 +1,51 @@
+blob_setup:
+  aws_modules: INSTALL httpfs; LOAD httpfs;
+  aws_headers_assume: |
+    CREATE OR REPLACE SECRET duckdb_s3_secret (
+      TYPE s3, 
+      PROVIDER credential_chain,
+      chain 'sts',
+      assume_role_arn '{assume_role_arn}',
+      external_id 'sage-duckdb-session',
+      region '{aws_region}'
+    )
+  gcp_modules: TBD;
+  gcp_headers: |
+    CREATE OR REPLACE SECRET gcp_secret (
+    )
+  azure_modules: TBD;
+  azure_headers: |
+    CREATE OR REPLACE SECRET azure_secret (
+    )
+
+base_data:
+  main: |
+    CREATE OR REPLACE TABLE {table_name} AS
+    SELECT *
+    FROM read_parquet([{path_list}], union_by_name = true)
+
+dataiku_usage: 
+  overview: |
+    CREATE OR REPLACE TABLE dataiku_usage_overview AS
+    SELECT 
+      timestamp, callpath, msgtypebase, dataiku_category, instance_name,
+      try_cast(project_key AS VARCHAR) AS project_key,
+      try_cast(login AS VARCHAR) AS login
+    FROM read_parquet(
+      '{blob_header}://{blob_bket}/{blob_root}/*/dataiku_usage/**/*.parquet',
+      union_by_name = true
+    )
+  module: |
+    CREATE OR REPLACE TABLE {table_name} AS
+    SELECT *
+    FROM read_parquet(
+      '{blob_header}://{blob_bket}/{blob_root}/*/dataiku_usage/{module}/**/*.parquet',
+      union_by_name = true
+    )
+
+addon_data:
+  metadata_primary_keys: |
+    CREATE OR REPLACE TABLE metadata_primary_keys AS
+    SELECT UM.instance_name, UM.login, UM.enabled, UM.userprofile, PM.project_key
+    FROM users_metadata AS UM
+    LEFT JOIN projects_metadata AS PM ON UM.instance_name=PM.instance_name AND UM.login=PM.login
