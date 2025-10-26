@@ -77,7 +77,7 @@ class MyRunnable(Runnable):
                 results.append(["Project Library Confirmed", True, None])
         # Delete the current running version
         if cont:
-            streamlit_path = f"{code_studio_path}/dataiku-pulse"
+            streamlit_path = f"{code_studio_path}/dataiku_pulse"
             if os.path.exists(streamlit_path) and os.path.isdir(streamlit_path):
                 try:
                     shutil.rmtree(streamlit_path)
