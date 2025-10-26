@@ -51,10 +51,6 @@ class MyRunnable(Runnable):
             else:
                 results.append(["plugin directory", False, "Cannot find plugin Directory"])
                 cont = False
-        # -- future release create the CS in admin as well so I control the whole naming
-        if cont:
-            # todo: create CS in admin settings for users removing a setup step
-            print()
         # Create the Code Studio Template
         if cont:
             try:
