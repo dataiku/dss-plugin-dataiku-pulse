@@ -25,8 +25,8 @@ class MyCodeStudioBlock(CodeStudioBlock):
     def build_spec(self, spec, env, template):
         port = self._get_port()
         entrypoint_path = self._get_entrypoint_path()
-        start_file = "__CODE_STUDIO_VERSIONED__/streamlit/app.py"
-        settings_path = "__CODE_STUDIO_VERSIONED__/streamlit"
+        start_file = "__CODE_STUDIO_VERSIONED__/dataiku-pulse/app.py"
+        settings_path = "__CODE_STUDIO_VERSIONED__/dataiku-pulse"
         enable_xsrf = False
         
         # replace the lib locations in settings_path and open_in_path
