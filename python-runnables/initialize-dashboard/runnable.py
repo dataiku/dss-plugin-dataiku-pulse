@@ -67,6 +67,14 @@ class MyRunnable(Runnable):
             except Exception as e:
                 results.append(["Create Code Studio", False, f"An error occurred: {e}"])
                 cont = False
+        # Get Code Studio directory
+        if cont:
+            project_path = f"{root_path}/config/projects/{self.pulse_project_key}/code_studios/{cs_id}"
+            if not os.path.isdir(project_path):
+                results.append(["Project Library Confirmed", False, f"Cannot find project library {project_path}"])
+                cont = False
+            else:
+                results.append(["Project Library Confirmed", True, None])
         # return results
         if results:
             df = pd.DataFrame(results, columns=["step", "result", "message"])
