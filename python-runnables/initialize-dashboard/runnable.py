@@ -75,6 +75,18 @@ class MyRunnable(Runnable):
                 cont = False
             else:
                 results.append(["Project Library Confirmed", True, None])
+        # Delete the current running version
+        if cont:
+            project_path = f"{root_path}/config/projects/{self.pulse_project_key}/lib/python/dataikupulse"
+            if os.path.exists(project_path) and os.path.isdir(project_path):
+                try:
+                    shutil.rmtree(project_path)
+                    results.append(["Delete Existing", True, None])
+                except OSError as e:
+                    results.append(["Delete Existing", False, f"Error deleting directory '{project_path}': {e}"])
+                    cont = False
+            else:
+                results.append(["Delete Existing", True, "Initial Setup"])
         # return results
         if results:
             df = pd.DataFrame(results, columns=["step", "result", "message"])
