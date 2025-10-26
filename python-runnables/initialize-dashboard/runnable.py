@@ -51,43 +51,6 @@ class MyRunnable(Runnable):
             else:
                 results.append(["plugin directory", False, "Cannot find plugin Directory"])
                 cont = False
-        # Get Dashboard library directory
-        if cont:
-            project_path = f"{root_path}/config/projects/{self.pulse_project_key}/lib/python"
-            if not os.path.isdir(project_path):
-                results.append(["Project Library Confirmed", False, f"Cannot find project library {project_path}"])
-                cont = False
-            else:
-                results.append(["Project Library Confirmed", True, None])
-        # Delete the current running version
-        if cont:
-            project_path = f"{root_path}/config/projects/{self.pulse_project_key}/lib/python/dataikupulse"
-            if os.path.exists(project_path) and os.path.isdir(project_path):
-                try:
-                    shutil.rmtree(project_path)
-                    results.append(["Delete Existing", True, None])
-                except OSError as e:
-                    results.append(["Delete Existing", False, f"Error deleting directory '{project_path}': {e}"])
-                    cont = False
-            else:
-                results.append(["Delete Existing", True, "Initial Setup"])
-        # Copy the streamlit application
-        if cont:
-            try:
-                r = shutil.copytree(f"{source_path}/streamlit", project_path)
-                results.append(["Copy Streamlit", True, None])
-            except Exception as e:
-                results.append(["Copy Streamlit", False, f"An error occurred: {e}"])
-                cont = False
-        # Clean up Library
-        if cont:
-            try:
-                file = library.add_file("python/pulse_init.txt")
-                file.delete()
-                results.append(["Library Refresh", True, None])
-            except Exception as e:
-                results.append(["Library Refresh", False, f"An error occurred: {e}"])
-                cont = False
         # -- future release create the CS in admin as well so I control the whole naming
         if cont:
             # todo: create CS in admin settings for users removing a setup step
