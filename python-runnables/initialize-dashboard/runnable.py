@@ -69,21 +69,21 @@ class MyRunnable(Runnable):
                 cont = False
         # Get Code Studio directory
         if cont:
-            project_path = f"{root_path}/config/projects/{self.pulse_project_key}/code_studios/{cs_id}"
-            if not os.path.isdir(project_path):
-                results.append(["Project Library Confirmed", False, f"Cannot find project library {project_path}"])
+            code_studio_path = f"{root_path}/config/projects/{self.pulse_project_key}/code_studios/{cs_id}"
+            if not os.path.isdir(code_studio_path):
+                results.append(["Project Library Confirmed", False, f"Cannot find project library {code_studio_path}"])
                 cont = False
             else:
                 results.append(["Project Library Confirmed", True, None])
         # Delete the current running version
         if cont:
-            project_path = f"{root_path}/config/projects/{self.pulse_project_key}/lib/python/dataikupulse"
-            if os.path.exists(project_path) and os.path.isdir(project_path):
+            streamlit_path = f"{code_studio_path}/streamlit"
+            if os.path.exists(streamlit_path) and os.path.isdir(streamlit_path):
                 try:
-                    shutil.rmtree(project_path)
+                    shutil.rmtree(streamlit_path)
                     results.append(["Delete Existing", True, None])
                 except OSError as e:
-                    results.append(["Delete Existing", False, f"Error deleting directory '{project_path}': {e}"])
+                    results.append(["Delete Existing", False, f"Error deleting directory '{streamlit_path}': {e}"])
                     cont = False
             else:
                 results.append(["Delete Existing", True, "Initial Setup"])
