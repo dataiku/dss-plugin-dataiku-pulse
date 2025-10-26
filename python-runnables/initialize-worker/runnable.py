@@ -1,5 +1,5 @@
-from sage.src import dss_funcs
-from sage.src import dss_init
+from dataikupulse.src import dss_funcs
+from dataikupulse.src import dss_init
 
 import os
 import pandas as pd
@@ -11,19 +11,19 @@ class MyRunnable(Runnable):
         self.project_key = project_key
         self.config = config
         self.plugin_config = plugin_config
-        self.sage_project_key   = plugin_config.get("sage_project_key", None)
-        self.sage_project_url   = plugin_config.get("sage_project_url", None)
-        self.sage_project_api   = plugin_config.get("sage_project_api", None)
-        self.sage_worker_key    = plugin_config.get("sage_worker_key", None)
-        self.sage_dataiku_user  = plugin_config.get("sage_dataiku_user", "admin")
-        self.ignore_certs       = plugin_config.get("ignore_certs", False)
-        self.sage_repo_url      = plugin_config.get("sage_repo_url", "https://github.com/dataiku/dss-plugin-sage-insights")
-        self.sage_repo_branch   = plugin_config.get("sage_repo_branch", "main")
-        self.update_github      = config.get("update_github", False)
+        self.pulse_project_key   = plugin_config.get("pulse_project_key", None)
+        self.pulse_project_url   = plugin_config.get("pulse_project_url", None)
+        self.pulse_project_api   = plugin_config.get("pulse_project_api", None)
+        self.pulse_worker_key    = plugin_config.get("pulse_worker_key", None)
+        self.pulse_dataiku_user  = plugin_config.get("pulse_dataiku_user", "admin")
+        self.ignore_certs        = plugin_config.get("ignore_certs", False)
+        self.pulse_repo_url      = plugin_config.get("pulse_repo_url", "https://github.com/dataiku/dss-plugin-sage-insights")
+        self.pulse_repo_branch   = plugin_config.get("pulse_repo_branch", "main")
+        self.update_github       = config.get("update_github", False)
         
         # Set environment variable
-        self.sage_folder_connection = plugin_config.get("sage_folder_connection", "filesystem_folders")
-        os.environ["SAGE_FOLDER_CONNECTION"] = self.sage_folder_connection
+        self.pulse_folder_connection = plugin_config.get("pulse_folder_connection", "filesystem_folders")
+        os.environ["pulse_FOLDER_CONNECTION"] = self.pulse_folder_connection
         
     def get_progress_target(self):
         return None
@@ -38,7 +38,7 @@ class MyRunnable(Runnable):
             
             # Install/Update Plugin if not found
             cont = True
-            if self.sage_project_url != worker_url:
+            if self.pulse_project_url != worker_url:
                 try:
                     dss_init.install_plugin(self, remote_client)
                     results.append([worker_url, "Plugin Configured", True, None])
@@ -46,13 +46,13 @@ class MyRunnable(Runnable):
                     results.append([worker_url, "Plugin Configured", False, e])
                     cont = False
 
-            # Create the Sage Worker Project
+            # Create the Worker Project
             if cont:
                 try:
-                    project_handle = dss_init.create_worker(remote_client, self.sage_worker_key)
-                    results.append([worker_url, "Sage Worker Created", True, None])
+                    project_handle = dss_init.create_worker(remote_client, self.pulse_worker_key)
+                    results.append([worker_url, "Worker Created", True, None])
                 except Exception as e:
-                    results.append([worker_url, "Sage Worker Created", False, e])
+                    results.append([worker_url, "Worker Created", False, e])
                     cont = False
 
             # Create the DSS Commit Table
@@ -67,7 +67,7 @@ class MyRunnable(Runnable):
             # Create the Phone Home Scenarios
             if cont:
                 try:
-                    dss_init.create_scenarios(project_handle, "WORKER", self.sage_dataiku_user)
+                    dss_init.create_scenarios(project_handle, "WORKER", self.pulse_dataiku_user)
                     results.append([worker_url, "Update Scenarios", True, None])
                 except Exception as e:
                     cont = False
