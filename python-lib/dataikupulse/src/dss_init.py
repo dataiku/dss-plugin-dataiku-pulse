@@ -123,10 +123,7 @@ def create_scenarios(project_handle, location, run_as_user):
             r = scenario_handle.delete()
     
     # Create the scenarios
-    if location ==  "WORKER":
-        macros = load_yaml()
-    else:
-        macros = tomllib.loads(dashboard_scenarios)
+    macros = load_yaml()
     for key in macros["macros"]:
         # rebase and setup macro in step
         trigger = json.loads(macros["worker"]["trigger"])
