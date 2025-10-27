@@ -1,4 +1,4 @@
-from sage.src import dss_funcs, dss_folder
+from dataikupulse.src import dss_funcs, dss_folder
 
 import os
 import subprocess
