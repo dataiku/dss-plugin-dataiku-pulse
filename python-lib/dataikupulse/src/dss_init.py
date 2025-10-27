@@ -1,39 +1,4 @@
-import tomllib
-import json
-
-
-worker_scenarios = """
-[default]
-trigger = '{"type": "temporal", "name": "Time-based", "delay": 5, "active": true, "params": {"repeatFrequency": 1, "frequency": "Daily", "startingFrom": "2025-07-16", "daysOfWeek": ["Wednesday"], "monthlyRunOn": "ON_THE_DAY", "minute": 0, "hour": 17, "timezone": "Canada/Eastern"}}'
-step = '{"type": "runnable", "name": "run_macro", "enabled": true, "alwaysShowComment": false, "runConditionType": "RUN_IF_STATUS_MATCH", "runConditionStatuses": ["SUCCESS", "WARNING"], "runConditionExpression": "", "resetScenarioStatus": false, "delayBetweenRetries": 10, "maxRetriesOnFail": 0, "params": {"runnableType": "REPLACE_MACRO_HERE",   "config": {}, "adminConfig": {}, "proceedOnFailure": false}}'
-
-[data_gather_instance]
-macro = "pyrunnable_pulse_data-gather-instance"
-
-[data_gather_project]
-macro = "pyrunnable_pulse_data-gather-project"
-
-[data_gather_audit_logs]
-macro = "pyrunnable_pulse_data-gather-audit-logs"
-
-[data_gather_diskspace]
-macro = "pyrunnable_pulse_data-gather-diskspace"
-
-[data_gather_filesystem]
-macro = "pyrunnable_pulse_data-gather-filesystem"
-"""
-
-dashboard_scenarios = """
-[default]
-trigger = '{"type": "temporal", "name": "Time-based", "delay": 5, "active": true, "params": {"repeatFrequency": 1, "frequency": "Daily", "startingFrom": "2025-07-16", "daysOfWeek": ["Wednesday"], "monthlyRunOn": "ON_THE_DAY", "minute": 0, "hour": 18, "timezone": "Canada/Eastern"}}'
-step = '{"type": "runnable", "name": "run_macro", "enabled": true, "alwaysShowComment": false, "runConditionType": "RUN_IF_STATUS_MATCH", "runConditionStatuses": ["SUCCESS", "WARNING"], "runConditionExpression": "", "resetScenarioStatus": false, "delayBetweenRetries": 10, "maxRetriesOnFail": 0, "params": {"runnableType": "REPLACE_MACRO_HERE",   "config": {}, "adminConfig": {}, "proceedOnFailure": false}}'
-
-[refresh_base_data]
-macro = "pyrunnable_pulse_data-smoothing-base"
-
-[addon_base_data]
-macro = "pyrunnable_pulse_data-gather-partition-history"
-"""
+import yaml
 
 def update_plugin_config(self, plugin_handle):
     settings = plugin_handle.get_settings()
