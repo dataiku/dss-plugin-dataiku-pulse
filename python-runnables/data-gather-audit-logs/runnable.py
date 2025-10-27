@@ -40,9 +40,9 @@ class MyRunnable(Runnable):
         self.project_key = project_key
         self.config = config
         self.plugin_config = plugin_config
-        self.sage_project_key = plugin_config.get("sage_project_key", None)
-        self.sage_project_url = plugin_config.get("sage_project_url", None)
-        self.sage_project_api = plugin_config.get("sage_project_api", None)
+        self.pulseproject_key = plugin_config.get("pulseproject_key", None)
+        self.pulseproject_url = plugin_config.get("pulseproject_url", None)
+        self.pulseproject_api = plugin_config.get("pulseproject_api", None)
         self.ignore_certs     = plugin_config.get("ignore_certs", False)
         self.debug = True
         self.dt = datetime.utcnow()
@@ -53,7 +53,7 @@ class MyRunnable(Runnable):
     def run(self, progress_callback):
         results = []
         remote_client = dss_funcs.build_remote_client(
-            self.sage_project_url, self.sage_project_api, self.ignore_certs
+            self.pulseproject_url, self.pulseproject_api, self.ignore_certs
         )
         
         # Get local client and name
@@ -100,7 +100,7 @@ class MyRunnable(Runnable):
         results.append(["Gather Audit Logs", True, None])
         
         # Expand Messages and join
-        jdf = pd.json_normalize(df["message"]).add_prefix("message_").reset_index(drop=True)
+        jdf = pd.json_normalize(df["message"]).add_prefix("mespulse").reset_index(drop=True)
         df = df.drop(columns=["message", "mdc"]).reset_index(drop=True)
         df = pd.concat([df, jdf], axis=1)
         
@@ -108,12 +108,12 @@ class MyRunnable(Runnable):
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df["date"] = df["timestamp"].dt.date
         df["instance_name"] = instance_name
-        if "message_projectKey" in df.columns:
-            df = df.rename(columns={"message_projectKey": "message_project_key"})
-        if "message_login" in df.columns:
-            df = df.rename(columns={"message_login": "message_logged_in"})
-        if "message_authUser" in df.columns:
-            df = df.rename(columns={"message_authUser": "message_login"})
+        if "mespulseprojectKey" in df.columns:
+            df = df.rename(columns={"mespulseprojectKey": "mespulseproject_key"})
+        if "mespulselogin" in df.columns:
+            df = df.rename(columns={"mespulselogin": "mespulselogged_in"})
+        if "mespulseauthUser" in df.columns:
+            df = df.rename(columns={"mespulseauthUser": "mespulselogin"})
 
         # Module Import
         results += run_module(self, user_login, remote_client, df)
