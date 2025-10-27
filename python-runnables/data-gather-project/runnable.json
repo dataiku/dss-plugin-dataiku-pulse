@@ -3,7 +3,7 @@
         "label": "Data Gather Project level",
         "description": "Data gather the project level metadata",
         "icon": "fas fa-puzzle-piece",
-        "category": "Sage Insights: Data Gather"
+        "category": "Dataiku PULSE Insights: Data Gather"
     },
     "impersonate": false,
     "permissions": ["ADMIN"],
