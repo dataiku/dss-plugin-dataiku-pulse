@@ -137,7 +137,7 @@ def create_scenarios(self, project_handle): #location run_as_user
             scenario_handle = project_handle.create_scenario(scenario_name=key, type="step_based")
             settings = scenario_handle.get_settings()
         # Run As User
-        settings.data["runAsUser"] = run_as_user
+        settings.data["runAsUser"] = self.run_as_user
         # Trigger
         del settings.raw_triggers[:]
         settings.raw_triggers.append(trigger)
