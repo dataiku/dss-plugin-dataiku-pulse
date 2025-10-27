@@ -1,4 +1,4 @@
-default:
+worker:
   trigger: |
     {
       "type": "temporal",
@@ -36,9 +36,9 @@ default:
         "proceedOnFailure": false
       }
     }
-macros:
-  data_gather_instance: pyrunnable_pulse_data-gather-instance
-  data_gather_project: pyrunnable_pulse_data-gather-project
-  data_gather_audit_logs: pyrunnable_pulse_data-gather-audit-logs
-  data_gather_diskspace: pyrunnable_pulse_data-gather-diskspace
-  data_gather_filesystem: pyrunnable_pulse_data-gather-filesystem
+  macros:
+    data_gather_instance: pyrunnable_pulse_data-gather-instance
+    data_gather_project: pyrunnable_pulse_data-gather-project
+    data_gather_audit_logs: pyrunnable_pulse_data-gather-audit-logs
+    data_gather_diskspace: pyrunnable_pulse_data-gather-diskspace
+    data_gather_filesystem: pyrunnable_pulse_data-gather-filesystem
