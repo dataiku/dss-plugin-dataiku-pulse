@@ -1,6 +1,16 @@
 import yaml
 import json
 
+def load_yaml(path="./scenarios.yaml"):
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    try:
+        yaml_path = os.path.join(script_dir, path)
+        with open(yaml_path, "r") as f:
+            config = yaml.safe_load(f)
+    except:
+        config = {}
+    return config
+
 def update_plugin_config(self, plugin_handle):
     settings = plugin_handle.get_settings()
     settings.settings["defaultPermission"] = {"admin": True, "canViewComponents": False}
