@@ -1,4 +1,5 @@
 import yaml
+import json
 
 def update_plugin_config(self, plugin_handle):
     settings = plugin_handle.get_settings()
