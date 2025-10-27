@@ -3,7 +3,7 @@
         "label": "Data Gather Audit Logs",
         "description": "Review Audit logs for numerous features and information.",
         "icon": "fas fa-puzzle-piece",
-        "category": "Dataiku Pulse: Data Gather"
+        "category": "Dataiku PULSE Insights: Data Gather"
     },
     "impersonate": false,
     "permissions": ["ADMIN"],
