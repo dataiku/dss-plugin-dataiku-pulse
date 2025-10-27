@@ -1,8 +1,8 @@
 try:
-    from sage.base_data import project_handle as dss_objs
+    from dataikupulse.base_data import project_handle as dss_objs
 except:
     dss_objs = False
-from sage.src import dss_funcs
+from dataikupulse.src import dss_funcs
 
 import dataiku
 import os
