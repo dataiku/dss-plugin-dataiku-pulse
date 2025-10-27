@@ -115,7 +115,7 @@ def get_dss_commits(project_handle):
     return
 
 
-def create_scenarios(self, project_handle):
+def create_scenarios(self, project_handle): #location run_as_user
     # Clear out any old
     for scenario in project_handle.list_scenarios():
         if "data_gather_" in scenario["name"]:
@@ -148,6 +148,6 @@ def create_scenarios(self, project_handle):
         settings.active = True
         settings.save()
         # RUN
-        if location ==  "WORKER":
+        if self.
             run = scenario_handle.run()
     return
