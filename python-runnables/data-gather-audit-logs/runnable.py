@@ -5,8 +5,8 @@ import pandas as pd
 import dataiku
 from datetime import timedelta, datetime
 
-from sage.src import dss_funcs
-from sage.base_data.audit_log import user_login, event_mapping
+from dataikupulse.src import dss_funcs
+from dataikupulse.base_data.audit_log import user_login, event_mapping
 
 from dataiku.runnables import Runnable, ResultTable
 
