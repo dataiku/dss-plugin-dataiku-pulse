@@ -126,8 +126,8 @@ def create_scenarios(project_handle, location, run_as_user):
     macros = load_yaml()
     for key in macros["macros"]:
         # rebase and setup macro in step
-        trigger = json.loads(macros["worker"]["trigger"])
-        step = json.loads(macros["worker"]["step"])
+        trigger = json.loads(macros["trigger"])
+        step = json.loads(macros["step"])
         step["params"]["runnableType"] = macros[key]["macro"]
         # create or connect to scenario
         try:
