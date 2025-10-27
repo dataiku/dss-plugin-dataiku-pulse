@@ -124,16 +124,13 @@ def create_scenarios(project_handle, location, run_as_user):
     
     # Create the scenarios
     if location ==  "WORKER":
-        macros = tomllib.loads(worker_scenarios)
+        macros = load_yaml()
     else:
         macros = tomllib.loads(dashboard_scenarios)
-    for key in macros:
-        # skip default
-        if key == "default":
-            continue
+    for key in macros["macros"]:
         # rebase and setup macro in step
-        trigger = json.loads(macros["default"]["trigger"])
-        step = json.loads(macros["default"]["step"])
+        trigger = json.loads(macros["worker"]["trigger"])
+        step = json.loads(macros["worker"]["step"])
         step["params"]["runnableType"] = macros[key]["macro"]
         # create or connect to scenario
         try:
