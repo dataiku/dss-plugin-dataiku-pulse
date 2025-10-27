@@ -128,7 +128,7 @@ def create_scenarios(project_handle, location, run_as_user):
         # rebase and setup macro in step
         trigger = json.loads(macros["trigger"])
         step = json.loads(macros["step"])
-        step["params"]["runnableType"] = macros[key]["macro"]
+        step["params"]["runnableType"] = macros[key]
         # create or connect to scenario
         try:
             scenario_handle = project_handle.get_scenario(scenario_id=key)
