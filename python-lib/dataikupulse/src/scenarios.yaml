@@ -1,44 +1,43 @@
-worker:
-  trigger: |
-    {
-      "type": "temporal",
-      "name": "Time-based",
-      "delay": 5,
-      "active": true,
-      "params": {
-        "repeatFrequency": 1,
-        "frequency": "Daily",
-        "startingFrom":
-        "2025-07-16",
-        "daysOfWeek": ["Wednesday"],
-        "monthlyRunOn": "ON_THE_DAY",
-        "minute": 0,
-        "hour": 17,
-        "timezone": "Canada/Eastern"
-      }
+trigger: |
+  {
+    "type": "temporal",
+    "name": "Time-based",
+    "delay": 5,
+    "active": true,
+    "params": {
+      "repeatFrequency": 1,
+      "frequency": "Daily",
+      "startingFrom":
+      "2025-07-16",
+      "daysOfWeek": ["Wednesday"],
+      "monthlyRunOn": "ON_THE_DAY",
+      "minute": 0,
+      "hour": 17,
+      "timezone": "Canada/Eastern"
     }
-  step: |
-    {
-      "type": "runnable",
-      "name": "run_macro",
-      "enabled": true,
-      "alwaysShowComment": false,
-      "runConditionType": "RUN_IF_STATUS_MATCH",
-      "runConditionStatuses": ["SUCCESS", "WARNING"],
-      "runConditionExpression": "",
-      "resetScenarioStatus": false,
-      "delayBetweenRetries": 10,
-      "maxRetriesOnFail": 0,
-      "params": {
-        "runnableType": "REPLACE_MACRO_HERE",
-        "config": {},
-        "adminConfig": {},
-        "proceedOnFailure": false
-      }
+  }
+step: |
+  {
+    "type": "runnable",
+    "name": "run_macro",
+    "enabled": true,
+    "alwaysShowComment": false,
+    "runConditionType": "RUN_IF_STATUS_MATCH",
+    "runConditionStatuses": ["SUCCESS", "WARNING"],
+    "runConditionExpression": "",
+    "resetScenarioStatus": false,
+    "delayBetweenRetries": 10,
+    "maxRetriesOnFail": 0,
+    "params": {
+      "runnableType": "REPLACE_MACRO_HERE",
+      "config": {},
+      "adminConfig": {},
+      "proceedOnFailure": false
     }
-  macros:
-    data_gather_instance: pyrunnable_pulse_data-gather-instance
-    data_gather_project: pyrunnable_pulse_data-gather-project
-    data_gather_audit_logs: pyrunnable_pulse_data-gather-audit-logs
-    data_gather_diskspace: pyrunnable_pulse_data-gather-diskspace
-    data_gather_filesystem: pyrunnable_pulse_data-gather-filesystem
+  }
+macros:
+  data_gather_instance: pyrunnable_pulse_data-gather-instance
+  data_gather_project: pyrunnable_pulse_data-gather-project
+  data_gather_audit_logs: pyrunnable_pulse_data-gather-audit-logs
+  data_gather_diskspace: pyrunnable_pulse_data-gather-diskspace
+  data_gather_filesystem: pyrunnable_pulse_data-gather-filesystem
