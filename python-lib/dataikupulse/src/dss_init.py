@@ -17,7 +17,7 @@ def update_plugin_config(self, plugin_handle):
     settings.settings["defaultPermission"] = {"admin": True, "canViewComponents": False}
     settings.settings["excludedFromCDE"] = True
     settings.settings["detailsNotVisible"] = False 
-    settings.settings["codeEnvName"] = "plugin_pulse_managed"
+    settings.settings["codeEnvName"] = "plugin_dataiku-pulse_managed"
     settings.settings["config"]["pulse_repo_url"]    = self.pulse_repo_url
     settings.settings["config"]["pulse_repo_branch"] = self.pulse_repo_branch 
     settings.settings["config"]["pulse_project_key"]   = self.pulse_project_key
