@@ -20,6 +20,7 @@ class MyRunnable(Runnable):
         self.pulse_repo_url      = plugin_config.get("pulse_repo_url", "https://github.com/dataiku/dss-plugin-sage-insights")
         self.pulse_repo_branch   = plugin_config.get("pulse_repo_branch", "main")
         self.update_github       = config.get("update_github", False)
+        self.force_scenarios     = config.get("force_scenarios", False)
         
         # Set environment variable
         self.pulse_folder_connection = plugin_config.get("pulse_folder_connection", "filesystem_folders")
