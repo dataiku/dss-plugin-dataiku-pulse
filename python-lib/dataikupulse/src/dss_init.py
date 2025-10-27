@@ -115,7 +115,7 @@ def get_dss_commits(project_handle):
     return
 
 
-def create_scenarios(project_handle, location, run_as_user):
+def create_scenarios(self, project_handle):
     # Clear out any old
     for scenario in project_handle.list_scenarios():
         if "data_gather_" in scenario["name"]:
