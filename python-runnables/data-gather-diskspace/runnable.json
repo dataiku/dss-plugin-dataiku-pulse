@@ -3,7 +3,7 @@
         "label": "Data Gather Diskspace",
         "description": "Data gather the OS/VM Diskspace",
         "icon": "fas fa-puzzle-piece",
-        "category": "Sage Insights: Data Gather"
+        "category": "Dataiku PULSE Insights: Data Gather"
     },
     "impersonate": false,
     "permissions": ["ADMIN"],
