@@ -67,7 +67,7 @@ class MyRunnable(Runnable):
             # Create the Phone Home Scenarios
             if cont:
                 try:
-                    dss_init.create_scenarios(project_handle, "WORKER", self.pulse_dataiku_user)
+                    dss_init.create_scenarios(self, project_handle)
                     results.append([worker_url, "Update Scenarios", True, None])
                 except Exception as e:
                     cont = False
