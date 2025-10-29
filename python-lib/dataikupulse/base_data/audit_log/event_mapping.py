@@ -1,7 +1,6 @@
 import pandas as pd
 from io import StringIO
 from dataikupulse.src import dss_folder, dss_funcs
-from dataikupulse.base_data.audit_log import mapping
 
 
 def parse_authvia(s):
@@ -32,7 +31,8 @@ def parse_authvia(s):
 def main(self, remote_client, df):
     results = []
     instance_name = df["instance_name"].iloc[0]
-    mapping_df = pd.read_csv(StringIO(mapping.raw_csv))
+    path = os.path.dirname(os.path.realpath(__file__))
+    mapping_df = pd.read_csv(StringIO(f"{path}/mapping.csv")
     
     df = df[df["topic"] == "generic"].reset_index(drop=True)
 
