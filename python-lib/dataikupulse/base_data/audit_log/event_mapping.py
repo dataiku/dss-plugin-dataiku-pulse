@@ -7,13 +7,13 @@ from dataikupulse.base_data.audit_log import mapping
 def parse_authvia(s):
     project_key, webapp_id = None, None
     if "scenario=" in s:
-        project_key, scenario_id = s[s.find("scenario="):].split(" ")[0].replace("scenario=", "").split(".")
+        project_key, scenario_id = s[s.find("scenario="):].split(" ")[0].replace("scenario=", "").split(".", maxsplit=1)
     elif "ticket:python_trigger:" in s:
-        project_key, scenario_id = s.replace("ticket:python_trigger:", "").split(".")
+        project_key, scenario_id = s.replace("ticket:python_trigger:", "").split(".", maxsplit=1)
     elif "ticket:Standard webapp backend:" in s:
-        project_key, d = s.replace("ticket:Standard webapp backend: ", "").split(".")
+        project_key, d = s.replace("ticket:Standard webapp backend: ", "").split(".", maxsplit=1)
         if "," in d:
-            webapp_id, login = d.split(",")
+            webapp_id, login = d.split(",", maxsplit=1)
         elif isinstance(d, str):
             webapp_id = d
         else:
