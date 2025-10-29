@@ -1,4 +1,4 @@
-from sage.src import dss_folder
+from dataikupulse.src import dss_folder
 
 import pandas as pd
 
