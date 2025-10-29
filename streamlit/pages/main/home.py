@@ -1,23 +1,31 @@
 import streamlit as st
-from sage.src import dss_duck
+from src import dss_duck
 
 st.set_page_config(initial_sidebar_state="collapsed")
-st.set_page_config(layout="centered")
 
 # -----------------------------------------------------------------------------
 # Variables
-partition = dss_duck.funcs.partition_df["date"].max()
+if "partition_df" not in st.session_state:
+    st.session_state["partition_df"] = dss_duck.funcs.build_partition_df()
+
+if not st.session_state["partition_df"].empty:
+    partition = st.session_state["partition_df"]["date"].max()
+else:
+    partition = False
 
 # -----------------------------------------------------------------------------
 # Homepage
-st.markdown(f"""# 📊 Dataiku Sage Dashboard
-
-People, Usage, Lifecycle, System Evaluation
+st.markdown(f"""# 📊 Dataiku PULSE Insights Dashboard
 
 ## Overview
 
 This dashboard provides key administrative insights into the Dataiku platform to help platform owners, administrators, and governance teams monitor usage, performance, project activity, and compliance metrics.
 
+* PULSE
+    * People (Developers, Readers, Consumers)
+    * Usage (Objects and Patterns)
+    * Lifecycle (Scope, Design, Govern, Automation)
+    * System Evaluation (Performance and Expectations)
 * **Latest Snapshot Partition:** {partition}
 
 ---
@@ -55,7 +63,7 @@ This dashboard provides key administrative insights into the Dataiku platform to
 
 ---
 
-## 🔃 Refresh Sage Data
+## 🔃 Refresh Dataiku PULSE Insight Data
 
 """)
 

@@ -6,16 +6,16 @@ blob_setup:
       PROVIDER credential_chain,
       chain 'sts',
       assume_role_arn '{assume_role_arn}',
-      external_id 'sage-duckdb-session',
+      external_id 'dss-pulse-duckdb-session',
       region '{aws_region}'
-    )
-  gcp_modules: TBD;
-  gcp_headers: |
-    CREATE OR REPLACE SECRET gcp_secret (
     )
   azure_modules: TBD;
   azure_headers: |
     CREATE OR REPLACE SECRET azure_secret (
+    )
+  gcp_modules: TBD;
+  gcp_headers: |
+    CREATE OR REPLACE SECRET gcp_secret (
     )
 
 base_data:

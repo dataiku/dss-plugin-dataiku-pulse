@@ -2,9 +2,9 @@ import streamlit as st
 import pandas as pd
 import random
 
-from sage.src import dss_streamlit
-from sage.src import dss_duck
-from sage.dashboards.data_structures import display_graph
+from src import dss_streamlit
+from src import dss_duck
+from dashboards.data_structures import display_graph
 
 filter_df = df = dss_duck.funcs.query_direct_sql("SELECT * FROM metadata_primary_keys")
 if "filter_df" not in st.session_state:

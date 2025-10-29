@@ -1,9 +1,10 @@
+import streamlit as st
 import sys
+import os
+
 sys.dont_write_bytecode = True
 
-import streamlit as st
-from sage.src import dss_duck
-import os
+from src import dss_duck
 
 # -----------------------------------------------------------------------------
 # Initialization
@@ -13,7 +14,7 @@ if not os.path.isfile(dss_duck.funcs.duckdb_home):
 # -----------------------------------------------------------------------------
 # Setup streamlit configs
 st.set_page_config(
-    page_title="Dataiku Sage Dashboard",
+    page_title="Dataiku PULSE Insight Dashboard",
     page_icon="🏂",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -35,11 +36,12 @@ projects  = st.Page("pages/insights/projects.py",  title="Projects")
 datasets  = st.Page("pages/insights/datasets.py",  title="Datasets")
 recipes   = st.Page("pages/insights/recipes.py",   title="Recipes")
 scenarios = st.Page("pages/insights/scenarios.py", title="Scenarios")
-genai_llm = st.Page("pages/insights/genai_llm.py", title="GEN AI / LLM")
+llms_connections = st.Page("pages/insights/llms_connections.py", title="LLM Connections")
 
 # -----------------------------------------------------------------------------
 # Dataiku Usage Patterns
-dataiku_usage = st.Page("pages/usages/dataiku_usage.py", title="Dataiku Usage")
+dataiku_usage  = st.Page("pages/usages/dataiku_usage.py", title="Dataiku Usage")
+genai_llm = st.Page("pages/usages/genai_llm.py",     title="GEN AI / LLM")
 
 # -----------------------------------------------------------------------------
 # Navigation Panel
@@ -56,10 +58,11 @@ pages = {
         datasets,
         recipes,
         scenarios,
-        genai_llm
+        llms_connections
     ],
     "Usage Patterns": [
-        dataiku_usage
+        dataiku_usage,
+        genai_llm
     ]
 }
 

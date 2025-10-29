@@ -1,6 +1,10 @@
 import streamlit as st
 import plotly.express as px
-from sage.src import dss_duck
+from src import dss_duck
+
+year_month_range = st.session_state["partition_df"]["date"].dt.to_period('M').astype(str).unique().tolist()
+
+
 
 # FUNCS
 def make_category_chart(df, instance_name):
@@ -44,7 +48,7 @@ instances.insert(0, "All")
 # SIDE BAR
 with st.sidebar:
     # Get Values
-    dt_range = st.selectbox("Select Month Range", dss_duck.funcs.year_month_range)
+    dt_range = st.selectbox("Select Month Range", year_month_range)
     metric = st.radio("Heat Map Metric", ["msg_count", "pct_of_instance"])
     add_radio = st.radio("Bar Chart Instance Filter", (instances))
     # Get DF

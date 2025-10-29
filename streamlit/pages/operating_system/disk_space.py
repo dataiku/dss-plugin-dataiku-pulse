@@ -1,6 +1,6 @@
-from sage.pages.layouts import dashboard_main
+from pages.layouts import dashboard_main
 try:
-    from sage.dashboards import disk_space as stock_dashboards
+    from dashboards import disk_space as stock_dashboards
 except:
     stock_dashboards = False
 custom_dashboards = False

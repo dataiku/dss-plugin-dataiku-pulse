@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 # -----------------------------------------------------------------------------
 # DuckDB
-duckdb_path = "/tmp/sage"
-duckdb_name = "sage.duckdb"
+duckdb_path = "/tmp/dataikupulse"
+duckdb_name = "dataikupulse.duckdb"
 duckdb_home = f"{duckdb_path}/{duckdb_name}"
 
 
@@ -49,35 +49,60 @@ queries = load_yaml("./queries.yaml")
 
 # -----------------------------------------------------------------------------
 # BLOB Folder
+
+## Basic Folder Information / Blob Path
 folder = dataiku.Folder(
     lookup="partitioned_data",
     project_key=dataiku.default_project_key(),
     ignore_flow=True
 )
-
 blob_bket = folder.get_info()["accessInfo"]["bucket"]
 blob_root = folder.get_info()["accessInfo"]["root"][1:]
-blob_type = folder.get_info()["type"]
-blob_creds = load_yaml("./blob_credentials.yaml")
 
-if blob_type == "S3":
+## Pull Connection Name From Admin Settings
+client = dataiku.api_client()
+project_handle = client.get_default_project()
+folder_handle = project_handle.get_managed_folder(odb_id=folder.get_id())
+connection_name = folder_handle.get_settings().settings["params"]["connection"]
+connection_handle = client.get_connection(name=connection_name)
+
+## Pull Connection Setup/Permissions
+connection_type = connection_handle.get_info()["type"]
+if connection_type == "EC2":
     blob_header = "s3"
     blob_module = queries["blob_setup"]["aws_modules"]
-    if blob_creds["aws_access_key_id"]:
-        print("TBD")
-    else:
-        blob_credentials = render_query(queries["blob_setup"]["aws_headers_assume"],
-            assume_role_arn=blob_creds["assume_role_arn"], aws_region=blob_creds["aws_region"]
+    aws_region = connection_handle.get_info()["params"]["regionOrEndpoint"]
+    credentials_mode = connection_handle.get_info()["params"]["credentialsMode"]
+    if credentials_mode == "KEYPAIR":
+        accessKey = connection_handle.get_info()["params"]["accessKey"]
+        secretKey = connection_handle.get_info()["params"]["secretKey"]
+    elif credentials_mode == "STS_ASSUME_ROLE":
+        assume_role_arn = connection_handle.get_info()["params"]["stsRoleToAssume"]
+        blob_credentials = render_query(
+            queries["blob_setup"]["aws_headers_assume"],
+            assume_role_arn=assume_role_arn,
+            aws_region=aws_region
         )
-    blob_credentials = blob_credentials
-elif blob_type == "AZURE":
-    blob_header = "AZ"
+    elif credentials_mode == "ENVIRONMENT":
+        logger.error("Do not accept ENVIRONMENT MODE")
+        raise Exception("Failed to find proper BLOB information. Check logs for detail.")
+
+
+elif connection_type == "Azure":
+    blob_header = "s3"
     blob_module = queries["blob_setup"]["azure_modules"]
-    blob_credentials = queries["blob_setup"]["azure_headers"]
-elif blob_type == "GCS":
-    blob_header = "GCS"
-    blob_module = queries["blob_setup"]["gcs_modules"]
-    blob_credentials = queries["blob_setup"]["gcs_headers"]
+    storageAccount = connection_handle.get_info()["params"]["storageAccount"]
+    credentials_mode = connection_handle.get_info()["params"]["authType"]
+    if credentials_mode == "SHARED_KEY":
+        accessKey = connection_handle.get_info()["params"]["accessKey"]
+    elif credentials_mode == "OATH2":
+        print("TBD")
+
+
+elif connection_type == "GCS":
+    blob_header = "s3"
+    blob_module = queries["blob_setup"]["gcp_modules"]
+
 else:
     logger.error("Unknown Blob storage type")
     logger.error(folder.get_info())
@@ -85,18 +110,12 @@ else:
 
 
 # -----------------------------------------------------------------------------
-# Dataiku
+# Dataiku Folder Partition
 def build_partition_df():
     df = pd.DataFrame(folder.list_partitions(), columns=["partitions"])
     df[["instance_name", "category", "module", "date"]] = df["partitions"].str.split("|", expand=True)
     df["date"] = pd.to_datetime(df["date"])
     return df
-
-
-## Partition
-partition_df = build_partition_df()
-year_month_range = partition_df["date"].dt.to_period('M').astype(str).unique().tolist()
-
 
 # -----------------------------------------------------------------------------
 # DuckDB -- LOADING
@@ -127,7 +146,7 @@ def create_duckdb():
     return True
 
 
-def load_base_tables():
+def load_base_tables(partition_df):
     base_data_df = partition_df[
         (partition_df["date"] == partition_df["date"].max())
         &(partition_df["category"] != "dataiku_usage")
@@ -165,7 +184,7 @@ def load_base_tables():
     return True
 
 
-def load_dataiku_usage():
+def load_dataiku_usage(partition_df):
     progress_text = "Copying Dataiku Usage Data into database"
     progress_bar = st.progress(0, text=progress_text)
     status_text = st.empty()

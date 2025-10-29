@@ -1,8 +1,8 @@
 import streamlit as st
 
-from sage.src import dss_streamlit
-from sage.pages.layouts import dashboard_metrics
-from sage.pages.layouts import dashboard_graphs
+from src import dss_streamlit
+from pages.layouts import dashboard_metrics
+from pages.layouts import dashboard_graphs
 
 
 # ------------------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 import pandas as pd
 import plotly.express as px
-from sage.src import dss_duck
-from sage.dashboards.data_structures import structures
+from src import dss_duck
+from dashboards.data_structures import structures
 
 
 def main(filters = {}):

@@ -1,6 +1,6 @@
-from sage.pages.layouts import dashboard_main
+from pages.layouts import dashboard_main
 try:
-    from sage.dashboards import recipes as stock_dashboards
+    from dashboards import recipes as stock_dashboards
 except:
     stock_dashboards = False
 custom_dashboards = False

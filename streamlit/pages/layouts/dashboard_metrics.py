@@ -1,7 +1,7 @@
 import streamlit as st
 
-from sage.src import dss_streamlit
-from sage.dashboards.data_structures import display_graph
+from src import dss_streamlit
+from dashboards.data_structures import display_graph
 
 
 # ------------------------------------------------------------------------------------

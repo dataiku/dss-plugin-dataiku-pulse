@@ -7,13 +7,13 @@ import tempfile
 import os
 from filelock import FileLock, Timeout
 import datetime, time
-from .duckdb import funcs
+from src.duckdb import funcs
+
 
 # -----------------------------------------------------------------------------
 ## Logger
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.ERROR)
 logger = logging.getLogger(__name__)
-
 
 # -----------------------------------------------------------------------------
 # Initiate DB
@@ -24,9 +24,13 @@ def initiate_db():
         lock = FileLock(lock_path, timeout=900)
         with lock:
             start_time = time.perf_counter()
-            progress_text = "Setting up Sage Database. Please wait......"
+            progress_text = "Setting up Dataiku PULSE Insights Database. Please wait......"
             progress_bar = st.progress(0, text=progress_text)
             status_text = st.empty()
+            # partition df
+            partition_df = funcs.build_partition_df()
+            st.session_state["partition_df"] = partition_df
+            # functions
             init_funcs = [
                 funcs.create_duckdb,
                 funcs.load_base_tables,
@@ -38,9 +42,13 @@ def initiate_db():
                 try:
                     func_name = func.__name__
                     logger.info(func_name)
-                    r = func()
+                    if func_name in ["load_base_tables","load_dataiku_usage"]:
+                        r = func(partition_df)
+                    else:
+                        r = func()
                 except Exception as e:
                     logger.error(e)
+                    r = False
                     raise Exception(f"Failed in function {func_name}. Check Logs.")
                 if not r:
                     raise Exception(f"Failed in function {func_name}. Check Logs.")
@@ -50,7 +58,7 @@ def initiate_db():
                 time.sleep(1)
             end_time = time.perf_counter()
             elapsed_time = end_time - start_time
-            st.success(f"Sage data loaded Successful!! ({elapsed_time:.6f} seconds)")
+            st.success(f"Dataiku PULSE Insights data loaded Successful!! ({elapsed_time:.6f} seconds)")
         os.remove(lock_path)
     except Timeout:
         logger.error("Could not acquire lock. Another process is using the resource.")
