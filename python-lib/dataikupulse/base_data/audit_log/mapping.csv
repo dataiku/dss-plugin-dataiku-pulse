@@ -1663,4 +1663,3 @@ workspaces-remove-object-open,workspaces,WORKSPACES
 workspaces-remove-object-success,workspaces,WORKSPACES
 workspaces-star-object,workspaces,WORKSPACES
 zones-read-meta,zones,READING_LISTING
-"""
