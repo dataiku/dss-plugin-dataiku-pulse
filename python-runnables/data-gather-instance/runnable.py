@@ -33,9 +33,6 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
-        # Set environment variable
-        os.environ["pulse_WORKER"] = self.pulse_worker_key
-        
         # Test if modules are found
         if not dss_objs:
             raise Exception("No categories or modules found")
