@@ -32,7 +32,7 @@ def main(self, remote_client, df):
     results = []
     instance_name = df["instance_name"].iloc[0]
     path = os.path.dirname(os.path.realpath(__file__))
-    mapping_df = pd.read_csv(StringIO(f"{path}/mapping.csv")
+    mapping_df = pd.read_csv(f"{path}/mapping.csv")
     
     df = df[df["topic"] == "generic"].reset_index(drop=True)
 
