@@ -57,7 +57,7 @@ Due to the web application being built on Streamlit, installation requires a bit
 
 1. Plugin
     1. Login as an admin account
-    1. Migrate to `Waffle::Plugins` and install from GIT: <https://github.com/dataiku/dss-plugin-sage-insights>
+    1. Migrate to `Waffle::Plugins` and install from GIT: <https://github.com/dataiku/dss-plugin-dataiku-pulse.git>
     1. Build the code-environment, no containers needed
     1. After the plugin is installed, switch to the plugin settings page and fill in the information ("EXAMPLE BELOW")
         1. Dataiku PULSE Github Repo
