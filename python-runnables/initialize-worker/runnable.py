@@ -17,7 +17,7 @@ class MyRunnable(Runnable):
         self.pulse_worker_key    = plugin_config.get("pulse_worker_key", None)
         self.pulse_dataiku_user  = plugin_config.get("pulse_dataiku_user", "admin")
         self.ignore_certs        = plugin_config.get("ignore_certs", False)
-        self.pulse_repo_url      = plugin_config.get("pulse_repo_url", "https://github.com/dataiku/dss-plugin-sage-insights")
+        self.pulse_repo_url      = plugin_config.get("pulse_repo_url", "https://github.com/dataiku/dss-plugin-dataiku-pulse.git")
         self.pulse_repo_branch   = plugin_config.get("pulse_repo_branch", "main")
         self.update_github       = config.get("update_github", False)
         self.force_scenarios     = config.get("force_scenarios", False)
