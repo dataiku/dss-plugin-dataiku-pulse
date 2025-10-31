@@ -93,6 +93,8 @@ def run_modules(self, dss_objs, handle, client_d = {}, project_key = None):
                         df[col] = df[col].astype(str)
                 df = df.reset_index(drop=True)
                 # Write the output finally
+                if "timestamp" not in df.columns:
+                    df["timestamp"] = self.dt
                 dss_folder.write_remote_folder_output(self, remote_client, write_path, df)
                 results.append([project_key, path, module_name, "write/save", True, None])
             except Exception as e:
