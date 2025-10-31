@@ -48,6 +48,7 @@ class MyRunnable(Runnable):
         dt_month = str(f'{self.dt.month:02d}')
         dt_day   = str(f'{self.dt.day:02d}')
         df["instance_name"] = instance_name
+        df["timestamp"] = self.dt
         try:
             write_path = f"/{instance_name}/operating_system/filesystem/{dt_year}/{dt_month}/{dt_day}/data.parquet"
             dss_folder.write_remote_folder_output(self, remote_client, write_path, df)
