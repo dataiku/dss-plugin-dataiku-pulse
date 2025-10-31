@@ -149,7 +149,7 @@ def create_duckdb():
 def load_base_tables(partition_df):
     base_data_df = partition_df[
         (partition_df["date"] == partition_df["date"].max())
-        &(partition_df["category"] != "dataiku_usage")
+        &((partition_df["module"] == "metadata") | (partition_df["category"] == "instance"))
     ]
     if base_data_df.empty:
         raise Exception("No Base Data Grps")
@@ -197,14 +197,21 @@ def load_dataiku_usage(partition_df):
             blob_root=blob_root
         )
     ]
-    for module in partition_df[partition_df["category"] == "dataiku_usage"]["module"].unique():
+    history_df = partition_df[
+        (partition_df["date"] == partition_df["date"].max())
+        &((partition_df["module"] != "metadata") & (partition_df["category"] != "instance"))
+    ]
+    for row in history_df.itertuples():
+        category = getattr(row, "category")
+        module = getattr(row, "module")
         usage_queries.append(
             render_query(
                 queries["dataiku_usage"]["module"], 
-                table_name=f"dataiku_usage_{module}",
+                table_name=f"{category}_{module}",
                 blob_header=blob_header,
                 blob_bket=blob_bket,
                 blob_root=blob_root,
+                category=category,
                 module=module
             )
         )

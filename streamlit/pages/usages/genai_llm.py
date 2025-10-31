@@ -80,3 +80,32 @@ with st.container(border=True):
         paper_bgcolor="rgba(0,0,0,0)"
     )
     st.plotly_chart(fig)
+
+
+# Testing
+msgtypes = dss_duck.funcs.query_direct_sql(f"""
+        SELECT DISTINCT msgtypebase FROM {usage_table}
+    """)["msgtypebase"].tolist()
+msgtype_str = ", ".join([f"'{m}'" for m in msgtypes])
+
+query = f"""
+SELECT *
+FROM (
+    SELECT instance_name, project_key, msgtypebase
+    FROM {usage_table}
+)
+PIVOT (
+    COUNT(msgtypebase)
+    FOR msgtypebase IN ({msgtype_str})
+)
+"""
+project_df = dss_duck.funcs.query_direct_sql(query)
+project_df["total"] = project_df[msgtypes].sum(axis=1)
+col_to_move = "total"
+new_index = 2
+cols = project_df.columns.tolist()
+cols.remove(col_to_move)
+cols.insert(new_index, col_to_move)
+project_df = project_df[cols]
+project_df = project_df.sort_values(by=["total"], ascending=False)
+st.dataframe(project_df)

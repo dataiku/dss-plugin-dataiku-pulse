@@ -39,7 +39,7 @@ dataiku_usage:
     CREATE OR REPLACE TABLE {table_name} AS
     SELECT *
     FROM read_parquet(
-      '{blob_header}://{blob_bket}/{blob_root}/*/dataiku_usage/{module}/**/*.parquet',
+      '{blob_header}://{blob_bket}/{blob_root}/*/{category}/{module}/**/*.parquet',
       union_by_name = true
     )
 
@@ -49,3 +49,48 @@ addon_data:
     SELECT UM.instance_name, UM.login, UM.enabled, UM.userprofile, PM.project_key
     FROM users_metadata AS UM
     LEFT JOIN projects_metadata AS PM ON UM.instance_name=PM.instance_name AND UM.login=PM.login
+  addon_llm_mapping: |
+    CREATE OR REPLACE TABLE addon_llm_mapping AS
+    SELECT *
+    FROM (
+      WITH llm_mesh AS (
+        SELECT 
+          instance_name,
+          project_key,
+          agents_versions_toolsUsingAgentSettings_llmId as llms_mesh_id,
+          'AGENTS' AS llms_mesh_source
+        FROM agents_metadata
+        UNION ALL
+        SELECT 
+          instance_name,
+          project_key,
+          knowledge_banks_embeddingLLMId as llms_mesh_id,
+          'KBS' AS llms_mesh_source
+        FROM knowledge_banks_metadata
+        UNION ALL
+        SELECT 
+          instance_name,
+          project_key,
+          recipes_params_llmid as llms_mesh_id,
+          'RECIPES' AS llms_mesh_source
+        FROM recipes_metadata
+      )
+      SELECT 
+        llm_mesh.instance_name,
+        llm_mesh.project_key,
+        llm_mesh.llms_mesh_source,
+        llm_mesh.llms_mesh_id,
+        llms_metadata.llms_friendlyName,
+        llms_metadata.llms_friendlyNameShort,
+        SPLIT_PART(llm_mesh.llms_mesh_id, ':', 1) AS llms_conn,
+        SPLIT_PART(llm_mesh.llms_mesh_id, ':', 2) AS llms_conn_name,
+        SPLIT_PART(llm_mesh.llms_mesh_id, ':', 3) AS llms_model,
+        SPLIT_PART(llm_mesh.llms_mesh_id, ':', 4) AS llms_model_version
+      FROM llm_mesh
+      LEFT JOIN llms_metadata
+        ON (llm_mesh.llms_mesh_id = llms_metadata.llms_id
+        AND llm_mesh.instance_name = llms_metadata.instance_name)
+      WHERE
+        llm_mesh.llms_mesh_id <> ''
+        AND llm_mesh.llms_mesh_id <> 'False'
+    );

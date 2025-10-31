@@ -1,6 +1,7 @@
-from dashboards.data_structures import structures
-from src import dss_duck
+import pandas as pd
 import plotly.express as px
+from src import dss_duck
+from dashboards.data_structures import structures
 
 
 def main(filters = {}):
@@ -8,14 +9,16 @@ def main(filters = {}):
     query = structures.get_query_dict()
     query["select"] = ["*"]
     query["from"]   = ["operating_system_filesystem as base"]
+    query["where"]  = ["timestamp = (SELECT MAX(timestamp) FROM operating_system_filesystem);"]
     df = dss_duck.funcs.query_build_sql(query, filters)
 
     # Perform logic here
-    df = df.groupby(["instance_name", "mounted_on"])["used_pct"].max().reset_index(name="used_pct")
-
+    filtered_df = df.groupby(["instance_name", "mounted_on"])["used_pct"].max().reset_index(name="used_pct")
+    filtered_df["used_pct"] = pd.to_numeric(filtered_df["used_pct"])
+    
     # Plot
     fig = px.bar(
-        df,
+        filtered_df,
         y="mounted_on",
         x="used_pct",
         color="instance_name",
