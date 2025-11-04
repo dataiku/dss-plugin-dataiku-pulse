@@ -17,11 +17,12 @@ def run(project_keys):
     for key in project_keys:
         project_handle = local_client.get_project(project_key=key)
         results += dss_funcs.run_modules(self, dss_objs, project_handle, client_d, key)
+        cols = ["project_key", "path", "module_name", "step", "result", "message"]
         if results:
-            df = pd.DataFrame(results, columns=["project_key", "path", "module_name", "step", "result", "message"])
+            df = pd.DataFrame(results, columns=cols)
         else:
-            df = pd.DataFrame(columns = ["project_key", "path", "module_name", "step", "result", "message"])
-    return results
+            df = pd.DataFrame(columns=cols)
+    return df
 
 
 class MyRunnable(Runnable):
