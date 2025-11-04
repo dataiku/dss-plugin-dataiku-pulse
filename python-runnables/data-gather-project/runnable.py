@@ -16,7 +16,7 @@ import numpy as np
 from dataiku.runnables import Runnable, ResultTable
 
 
-def run(project_keys):
+def data_gather(project_keys):
     results = []
     for key in project_keys:
         project_handle = local_client.get_project(project_key=key)
@@ -80,15 +80,13 @@ class MyRunnable(Runnable):
             client_d["container_env_name"] = "DSS_LOCAL"
         
         # Collect the modules && Run the modules
-
-
         project_keys = local_client.list_project_keys()
         if do_parallel:
             pk_arrays = np.array_split(project_keys, cores)
-            dfs = Parallel(n_jobs=cores)(delayed(run)(i) for i in pk_arrays)
+            dfs = Parallel(n_jobs=cores)(delayed(data_gather)(i) for i in pk_arrays)
             df = pd.concat(dfs, ignore_index=True)
         else:
-            df = run(project_keys)            
+            df = data_gather(project_keys)            
             
         # return results
         if results:
