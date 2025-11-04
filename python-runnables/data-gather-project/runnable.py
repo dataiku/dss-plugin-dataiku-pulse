@@ -1,17 +1,12 @@
-try:
-    from dataikupulse.base_data import project_handle as dss_objs
-except:
-    dss_objs = False
+from dataikupulse.base_data import project_handle as dss_objs
 from dataikupulse.src import dss_funcs
 
 import dataiku
-import os
 import pandas as pd
-from datetime import datetime
-
-from joblib import Parallel, delayed
 import numpy as np
-
+import os
+from joblib import Parallel, delayed
+from datetime import datetime
 
 from dataiku.runnables import Runnable, ResultTable
 
