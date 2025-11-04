@@ -39,8 +39,8 @@ class MyRunnable(Runnable):
         self.pulse_project_url = plugin_config.get("pulse_project_url", None)
         self.pulse_project_api = plugin_config.get("pulse_project_api", None)
         self.ignore_certs      = plugin_config.get("ignore_certs", False)
-        self.do_parallel       = False
-        self.cores             = 2
+        self.do_parallel       = plugin_config.get("do_parallel", False)
+        self.cores             = plugin_config.get("cores", 2)
         self.dt                = datetime.utcnow()
         
         # Set environment variable
