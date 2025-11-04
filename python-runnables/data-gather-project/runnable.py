@@ -83,7 +83,7 @@ class MyRunnable(Runnable):
         project_keys = local_client.list_project_keys()
         if self.do_parallel:
             pk_arrays = np.array_split(project_keys, self.cores)
-            dfs = Parallel(n_jobs=cores)(delayed(data_gather)(i) for i in pk_arrays)
+            dfs = Parallel(n_jobs=self.cores)(delayed(data_gather)(i) for i in pk_arrays)
             df = pd.concat(dfs, ignore_index=True)
         else:
             df = data_gather(project_keys)            
