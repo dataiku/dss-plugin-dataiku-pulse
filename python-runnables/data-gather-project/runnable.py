@@ -12,6 +12,18 @@ from datetime import datetime
 from dataiku.runnables import Runnable, ResultTable
 
 
+def run(project_keys):
+    results = []
+    for key in project_keys:
+        project_handle = local_client.get_project(project_key=key)
+        results += dss_funcs.run_modules(self, dss_objs, project_handle, client_d, key)
+        if results:
+            df = pd.DataFrame(results, columns=["project_key", "path", "module_name", "step", "result", "message"])
+        else:
+            df = pd.DataFrame(columns = ["project_key", "path", "module_name", "step", "result", "message"])
+    return results
+
+
 class MyRunnable(Runnable):
     def __init__(self, project_key, config, plugin_config):
         self.project_key = project_key
@@ -60,14 +72,12 @@ class MyRunnable(Runnable):
             client_d["container_env_name"] = "DSS_LOCAL"
         
         # Collect the modules && Run the modules
-        results = []
-        for key in local_client.list_project_keys():
-            project_handle = local_client.get_project(project_key=key)
-            results += dss_funcs.run_modules(self, dss_objs, project_handle, client_d, key)
+
+            
             
         # return results
         if results:
-            df = pd.DataFrame(results, columns=["project_key", "path", "module_name", "step", "result", "message"])
+            
             df = df.astype(str)
             rt = ResultTable()
             n = 1
