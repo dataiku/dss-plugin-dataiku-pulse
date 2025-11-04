@@ -89,8 +89,7 @@ class MyRunnable(Runnable):
             df = data_gather(project_keys)            
             
         # return results
-        if results:
-            
+        if not df.empty:
             df = df.astype(str)
             rt = ResultTable()
             n = 1
