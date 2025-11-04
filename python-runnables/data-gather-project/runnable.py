@@ -83,17 +83,10 @@ class MyRunnable(Runnable):
         project_keys = local_client.list_project_keys()
         if do_parallel:
             pk_arrays = np.array_split(project_keys, cores)
-            results = Parallel(n_jobs=cores)(delayed(run)(i) for i in pk_arrays)
-
-            flattened_data = []
-            for outer_list in results:
-                for inner_list in outer_list:
-                    flattened_data.append(inner_list)
-            df = pd.DataFrame(flattened_data)
+            dfs = Parallel(n_jobs=cores)(delayed(run)(i) for i in pk_arrays)
+            df = pd.concat(dfs, ignore_index=True)
         else:
-            results = run(project_keys)
-            df = pd.DataFrame(results)
-            
+            df = run(project_keys)            
             
         # return results
         if results:
