@@ -34,11 +34,14 @@ class MyRunnable(Runnable):
         self.project_key = project_key
         self.config = config
         self.plugin_config = plugin_config
+        
         self.pulse_project_key = plugin_config.get("pulse_project_key", None)
         self.pulse_project_url = plugin_config.get("pulse_project_url", None)
         self.pulse_project_api = plugin_config.get("pulse_project_api", None)
-        self.ignore_certs     = plugin_config.get("ignore_certs", False)
-        self.dt = datetime.utcnow()
+        self.ignore_certs      = plugin_config.get("ignore_certs", False)
+        self.do_parallel       = False
+        self.cores             = 2
+        self.dt                = datetime.utcnow()
         
         # Set environment variable
         self.pulse_folder_connection = plugin_config.get("pulse_folder_connection", "filesystem_folders")
@@ -77,8 +80,7 @@ class MyRunnable(Runnable):
             client_d["container_env_name"] = "DSS_LOCAL"
         
         # Collect the modules && Run the modules
-        do_parallel = False
-        cores = 2
+
 
         project_keys = local_client.list_project_keys()
         if do_parallel:
