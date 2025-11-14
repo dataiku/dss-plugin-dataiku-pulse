@@ -142,6 +142,16 @@ def create_scenarios(self, project_handle):
         # Trigger
         del settings.raw_triggers[:]
         settings.raw_triggers.append(trigger)
+        # Custom
+        if key == "data_gather_filesystem":
+            adj_trigger = json.loads(macros["audit_trigger"])
+            settings.raw_triggers[0]["params"]["repeatFrequency"] = adj_trigger["repeatFrequency"]
+            settings.raw_triggers[0]["params"]["frequency"] = adj_trigger["frequency"]
+        if key == "data_gather_cleanup":
+            adj_trigger = json.loads(macros["cleanup_trigger"])
+            settings.raw_triggers[0]["params"]["repeatFrequency"] = adj_trigger["repeatFrequency"]
+            settings.raw_triggers[0]["params"]["frequency"] = adj_trigger["frequency"]
+            step = json.loads(macros["cleanup_step"])
         # Steps
         del settings.raw_steps[:]
         settings.raw_steps.append(step)
