@@ -51,7 +51,7 @@ def get_dss_name_id_mapping(client):
 
 # ---------- DATA GATHER MODULES -----------------------------
 def run_modules(self, mode, handle, client_d = {}, project_key = None):
-    if mode = projects:
+    if mode == "projects":
         from dataikupulse.base_data import project_handle as dss_objs
     else:
         from dataikupulse.base_data import client_handle as dss_objs
