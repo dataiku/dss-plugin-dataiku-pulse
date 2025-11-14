@@ -8,7 +8,7 @@ import re
 import importlib
 import pandas as pd
 from dataikupulse.src import dss_folder
-from dataikupulse.base_data import project_handle as dss_objs
+
 
 
 
@@ -50,7 +50,11 @@ def get_dss_name_id_mapping(client):
 
 
 # ---------- DATA GATHER MODULES -----------------------------
-def run_modules(self, dss_objs, handle, client_d = {}, project_key = None):
+def run_modules(self, mode, handle, client_d = {}, project_key = None):
+    if mode = projects:
+        from dataikupulse.base_data import project_handle as dss_objs
+    else:
+        
     results = []
     directory = dss_objs.__path__[0]
     for root, _, files in os.walk(directory):
