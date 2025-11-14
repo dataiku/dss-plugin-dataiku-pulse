@@ -49,18 +49,18 @@ cleanup_step: |
     "type": "runnable",
     "name": "run_macro",
     "enabled": True,
-    "alwaysShowComment": False,
+    "alwaysShowComment": false,
     "runConditionType": "RUN_IF_STATUS_MATCH",
     "runConditionStatuses": ["SUCCESS", "WARNING"],
     "runConditionExpression": "",
-    "resetScenarioStatus": False,
+    "resetScenarioStatus": false,
     "delayBetweenRetries": 10,
     "maxRetriesOnFail": 0,
     "params": {
       "runnableType": "pyrunnable_builtin-macros_clear-scenario-logs",
       "config": {"age": 3, "performDeletion": True},
-      "adminConfig": {"allProjects": False},
-      "proceedOnFailure": False
+      "adminConfig": {"allProjects": false},
+      "proceedOnFailure": false
     }
   }
 macros:
