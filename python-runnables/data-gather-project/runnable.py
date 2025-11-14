@@ -34,7 +34,7 @@ class MyRunnable(Runnable):
         return None
 
     
-    def data_gather(self, client_d, project_keys):
+    def data_gather(self, project_keys):
         local_client = dss_funcs.build_local_client()
         results = []
         for key in project_keys:
