@@ -81,7 +81,7 @@ class MyRunnable(Runnable):
             dfs = Parallel(n_jobs=self.cores)(delayed(data_gather)(i) for i in pk_arrays)
             df = pd.concat(dfs, ignore_index=True)
         else:
-            df = data_gather(project_keys)            
+            df = data_gather(self, project_keys)            
             
         # return results
         if not df.empty:
