@@ -11,7 +11,7 @@ from datetime import datetime
 from dataiku.runnables import Runnable, ResultTable
 
 
-def data_gather(self, project_keys, client_d):
+def data_gather(self, client_d, project_keys):
     local_client = dss_funcs.build_local_client()
     results = []
     for key in project_keys:
