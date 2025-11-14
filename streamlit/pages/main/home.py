@@ -6,12 +6,17 @@ st.set_page_config(initial_sidebar_state="collapsed")
 # -----------------------------------------------------------------------------
 # Variables
 if "partition_df" not in st.session_state:
-    st.session_state["partition_df"] = dss_duck.funcs.build_partition_df()
+    st.session_state["partition_df"] = dss_duck.funcs.query_direct_sql("SELECT * FROM partition_table")
 
-if not st.session_state["partition_df"].empty:
-    partition = st.session_state["partition_df"]["date"].max()
-else:
-    partition = False
+try:
+    if not st.session_state["partition_df"].empty:
+        partition = st.session_state["partition_df"]["date"].max()
+    else:
+        st.session_state["partition_df"] = dss_duck.funcs.query_direct_sql("SELECT * FROM partition_table")
+        partition = st.session_state["partition_df"]["date"].max()
+        partition = False
+except:
+    partition = "Error to load proper partition date information"
 
 # -----------------------------------------------------------------------------
 # Homepage
@@ -69,3 +74,5 @@ This dashboard provides key administrative insights into the Dataiku platform to
 
 if st.button("Refresh"):
     dss_duck.initiate_db()
+
+st.dataframe(dss_duck.funcs.query_direct_sql("SHOW TABLES;"))
