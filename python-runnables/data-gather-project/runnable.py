@@ -50,25 +50,23 @@ class MyRunnable(Runnable):
         if not dss_objs:
             raise Exception("No categories or modules found")
 
-        # Build Local Client
-        local_client = dss_funcs.build_local_client()
-        
         # Grab some exra details
+        local_client = dss_funcs.build_local_client()
         client_d = {}
         try:
-            client_d["python_env_name"] = client.get_general_settings().settings["codeEnvs"]["defaultPythonEnv"]
+            client_d["python_env_name"] = local_client.get_general_settings().settings["codeEnvs"]["defaultPythonEnv"]
             if not client_d["python_env_name"]:
                 client_d["python_env_name"] = "USE_BUILTIN_MODE"
         except:
             client_d["python_env_name"] = "USE_BUILTIN_MODE"
         try:
-            client_d["r_env_name"] = client.get_general_settings().settings["codeEnvs"]["defaultREnv"]
+            client_d["r_env_name"] = local_client.get_general_settings().settings["codeEnvs"]["defaultREnv"]
             if not client_d["r_env_name"]:
                 client_d["r_env_name"] = "USE_BUILTIN_MODE"
         except:
             client_d["r_env_name"] = "USE_BUILTIN_MODE"
         try:
-            client["container_env_name"] = client.get_general_settings().settings["containerSettings"]["defaultExecutionConfig"]
+            client["container_env_name"] = local_client.get_general_settings().settings["containerSettings"]["defaultExecutionConfig"]
             if not client_d["container_env_name"]:
                 client_d["container_env_name"] = "DSS_LOCAL"
         except:
