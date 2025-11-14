@@ -41,8 +41,7 @@ audit_trigger: |
   }
 cleanup_trigger: |
   {
-    "repeatFrequency": 1,
-    "frequency": "daily"
+    "repeatFrequency": 1
   }
 cleanup_step: |
   {
