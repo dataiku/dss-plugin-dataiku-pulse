@@ -48,7 +48,7 @@ cleanup_step: |
   {
     "type": "runnable",
     "name": "run_macro",
-    "enabled": True,
+    "enabled": true,
     "alwaysShowComment": false,
     "runConditionType": "RUN_IF_STATUS_MATCH",
     "runConditionStatuses": ["SUCCESS", "WARNING"],
@@ -58,7 +58,7 @@ cleanup_step: |
     "maxRetriesOnFail": 0,
     "params": {
       "runnableType": "pyrunnable_builtin-macros_clear-scenario-logs",
-      "config": {"age": 3, "performDeletion": True},
+      "config": {"age": 3, "performDeletion": true},
       "adminConfig": {"allProjects": false},
       "proceedOnFailure": false
     }
