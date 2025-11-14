@@ -36,7 +36,7 @@ class MyRunnable(Runnable):
         
         # Collect the modules && Run the modules
         local_client = dss_funcs.build_local_client()
-        results = dss_funcs.run_modules(self, dss_objs, local_client)
+        results = dss_funcs.run_modules(self, "client", local_client)
         
         # return results
         if results:
