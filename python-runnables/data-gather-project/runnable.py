@@ -29,9 +29,25 @@ class MyRunnable(Runnable):
         self.pulse_folder_connection = plugin_config.get("pulse_folder_connection", "filesystem_folders")
         os.environ["pulse_FOLDER_CONNECTION"] = self.pulse_folder_connection
         
+    
     def get_progress_target(self):
         return None
 
+    
+    def data_gather(self, client_d, project_keys):
+        local_client = dss_funcs.build_local_client()
+        results = []
+        for key in project_keys:
+            project_handle = local_client.get_project(project_key=key)
+            results += dss_funcs.run_modules(self, dss_objs, project_handle, client_d, key)
+        cols = ["project_key", "path", "module_name", "step", "result", "message"]
+        if results:
+            df = pd.DataFrame(results, columns=cols)
+        else:
+            df = pd.DataFrame(columns=cols)
+        return df
+    
+    
     def run(self, progress_callback):
         # Test if modules are found
         if not dss_objs:
@@ -83,16 +99,5 @@ class MyRunnable(Runnable):
         raise Exception("Something went wrong")
 
         
-    def data_gather(self, client_d, project_keys):
-        local_client = dss_funcs.build_local_client()
-        results = []
-        for key in project_keys:
-            project_handle = local_client.get_project(project_key=key)
-            results += dss_funcs.run_modules(self, dss_objs, project_handle, client_d, key)
-        cols = ["project_key", "path", "module_name", "step", "result", "message"]
-        if results:
-            df = pd.DataFrame(results, columns=cols)
-        else:
-            df = pd.DataFrame(columns=cols)
-        return df
+
 # EOF
