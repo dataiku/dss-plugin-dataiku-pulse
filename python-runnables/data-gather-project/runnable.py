@@ -11,20 +11,6 @@ from datetime import datetime
 from dataiku.runnables import Runnable, ResultTable
 
 
-def data_gather(self, client_d, project_keys):
-    local_client = dss_funcs.build_local_client()
-    results = []
-    for key in project_keys:
-        project_handle = local_client.get_project(project_key=key)
-        results += dss_funcs.run_modules(self, dss_objs, project_handle, client_d, key)
-    cols = ["project_key", "path", "module_name", "step", "result", "message"]
-    if results:
-        df = pd.DataFrame(results, columns=cols)
-    else:
-        df = pd.DataFrame(columns=cols)
-    return df
-
-
 class MyRunnable(Runnable):
     def __init__(self, project_key, config, plugin_config):
         self.project_key = project_key
@@ -77,11 +63,11 @@ class MyRunnable(Runnable):
         project_keys = local_client.list_project_keys()
         if self.do_parallel:
             pk_arrays = np.array_split(project_keys, self.cores)
-            dfs = Parallel(n_jobs=self.cores)(delayed(data_gather)(self, client_d, project_keys)
+            dfs = Parallel(n_jobs=self.cores)(delayed(self.data_gather)(client_d, project_keys)
                                               for project_keys in pk_arrays)
             df = pd.concat(dfs, ignore_index=True)
         else:
-            df = data_gather(self, client_d, project_keys)            
+            df = self.data_gather(client_d, project_keys)            
             
         # return results
         if not df.empty:
@@ -96,4 +82,17 @@ class MyRunnable(Runnable):
             return rt
         raise Exception("Something went wrong")
 
+        
+    def data_gather(self, client_d, project_keys):
+        local_client = dss_funcs.build_local_client()
+        results = []
+        for key in project_keys:
+            project_handle = local_client.get_project(project_key=key)
+            results += dss_funcs.run_modules(self, dss_objs, project_handle, client_d, key)
+        cols = ["project_key", "path", "module_name", "step", "result", "message"]
+        if results:
+            df = pd.DataFrame(results, columns=cols)
+        else:
+            df = pd.DataFrame(columns=cols)
+        return df
 # EOF
