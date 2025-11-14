@@ -1,4 +1,3 @@
-from dataikupulse.base_data import project_handle as dss_objs
 from dataikupulse.src import dss_funcs
 
 import dataiku
@@ -49,10 +48,6 @@ class MyRunnable(Runnable):
     
     
     def run(self, progress_callback):
-        # Test if modules are found
-        if not dss_objs:
-            raise Exception("No categories or modules found")
-
         # Grab some exra details
         local_client = dss_funcs.build_local_client()
         client_d = {}
