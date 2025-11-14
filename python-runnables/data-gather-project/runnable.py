@@ -12,6 +12,7 @@ from dataiku.runnables import Runnable, ResultTable
 
 
 def data_gather(self, project_keys, client_d):
+    local_client = dss_funcs.build_local_client()
     results = []
     for key in project_keys:
         project_handle = local_client.get_project(project_key=key)
