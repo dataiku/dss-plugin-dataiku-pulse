@@ -147,6 +147,9 @@ def create_duckdb():
 
 
 def load_base_tables(partition_df):
+    # Create initial partition table
+    load_table_df("CREATE TABLE partition_table AS SELECT * FROM df_view", partition_df)
+    # Create bae tables
     base_data_df = partition_df[
         (partition_df["date"] == partition_df["date"].max())
         &((partition_df["module"] == "metadata") | (partition_df["category"] == "instance"))
@@ -268,6 +271,17 @@ def load_parquet_sql(query):
 def load_table_sql(query):
     try:
         with duckdb.connect(duckdb_home) as con:
+            df = con.execute(query).df()
+    except Exception as e:
+        logger.error(e)
+        return False
+    return True
+
+
+def load_table_df(query, df):
+    try:
+        with duckdb.connect(duckdb_home) as con:
+            con.register("df_view", df)
             df = con.execute(query).df()
     except Exception as e:
         logger.error(e)
