@@ -39,10 +39,6 @@ audit_trigger: |
     "repeatFrequency": 4,
     "frequency": "Hourly"
   }
-cleanup_trigger: |
-  {
-    "repeatFrequency": 1
-  }
 cleanup_step: |
   {
     "type": "runnable",
