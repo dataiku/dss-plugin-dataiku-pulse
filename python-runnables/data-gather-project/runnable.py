@@ -74,6 +74,7 @@ class MyRunnable(Runnable):
                 client_d["container_env_name"] = "DSS_LOCAL"
         except:
             client_d["container_env_name"] = "DSS_LOCAL"
+        self.client_d = client_d
         
         # Collect the modules && Run the modules
         project_keys = local_client.list_project_keys()
