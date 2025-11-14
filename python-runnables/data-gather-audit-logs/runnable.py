@@ -44,7 +44,7 @@ class MyRunnable(Runnable):
         self.pulse_project_url = plugin_config.get("pulse_project_url", None)
         self.pulse_project_api = plugin_config.get("pulse_project_api", None)
         self.ignore_certs     = plugin_config.get("ignore_certs", False)
-        self.debug = True
+        self.debug = False
         self.dt = datetime.utcnow()
         
     def get_progress_target(self):
