@@ -1,7 +1,4 @@
-try:
-    from dataikupulse.base_data import client_handle as dss_objs
-except:
-    dss_objs = False
+
 from dataikupulse.src import dss_funcs
 
 import os
