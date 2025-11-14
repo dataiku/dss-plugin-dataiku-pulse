@@ -147,7 +147,6 @@ def create_scenarios(self, project_handle):
             adj_trigger = json.loads(macros["audit_trigger"])
             settings.raw_triggers[0]["params"]["repeatFrequency"] = adj_trigger["repeatFrequency"]
             settings.raw_triggers[0]["params"]["frequency"] = adj_trigger["frequency"]
-            
         if key == "data_gather_cleanup":
             step = json.loads(macros["cleanup_step"])
         # Steps
