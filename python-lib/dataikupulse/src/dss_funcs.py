@@ -8,6 +8,8 @@ import re
 import importlib
 import pandas as pd
 from dataikupulse.src import dss_folder
+from dataikupulse.base_data import project_handle as dss_objs
+
 
 
 # ---------- DATAIKU CLIENT HANDLES -----------------------------
