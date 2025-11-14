@@ -143,7 +143,7 @@ def create_scenarios(self, project_handle):
         del settings.raw_triggers[:]
         settings.raw_triggers.append(trigger)
         # Custom
-        if key == "data_gather_filesystem":
+        if key == "data_gather_audit_logs":
             adj_trigger = json.loads(macros["audit_trigger"])
             settings.raw_triggers[0]["params"]["repeatFrequency"] = adj_trigger["repeatFrequency"]
             settings.raw_triggers[0]["params"]["frequency"] = adj_trigger["frequency"]
