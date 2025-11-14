@@ -24,9 +24,9 @@ class MyRunnable(Runnable):
         self.do_parallel       = plugin_config.get("do_parallel", False)
         self.cores             = plugin_config.get("cores", 2)
         self.dt                = datetime.utcnow()
-        
-        # Set environment variable
         self.pulse_folder_connection = plugin_config.get("pulse_folder_connection", "filesystem_folders")
+
+        # Set environment variable
         os.environ["pulse_FOLDER_CONNECTION"] = self.pulse_folder_connection
         
     
