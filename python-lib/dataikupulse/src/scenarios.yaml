@@ -7,8 +7,7 @@ trigger: |
     "params": {
       "repeatFrequency": 1,
       "frequency": "Daily",
-      "startingFrom":
-      "2025-07-16",
+      "startingFrom": "2025-07-16",
       "daysOfWeek": ["Wednesday"],
       "monthlyRunOn": "ON_THE_DAY",
       "minute": 0,
@@ -34,6 +33,16 @@ step: |
       "adminConfig": {},
       "proceedOnFailure": false
     }
+  }
+audit_trigger: |
+  {
+    "repeatFrequency": 4,
+    "frequency": "Hourly"
+  }
+cleanup_trigger: |
+  {
+    "repeatFrequency": 1,
+    "frequency": "daily"
   }
 macros:
   data_gather_instance:   pyrunnable_dataiku-pulse_data-gather-instance
