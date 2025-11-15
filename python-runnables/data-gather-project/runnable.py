@@ -49,7 +49,7 @@ class MyRunnable(Runnable):
         os.environ["pulse_FOLDER_CONNECTION"] = self.pulse_folder_connection
         
         # Grab some exra details
-        local_client = dss_funcs.build_local_client()
+        local_client = self.local_client
         client_d = {}
         try:
             client_d["python_env_name"] = local_client.get_general_settings().settings["codeEnvs"]["defaultPythonEnv"]
