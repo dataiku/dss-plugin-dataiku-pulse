@@ -21,7 +21,7 @@ class MyRunnable(Runnable):
         #self.ignore_certs      = plugin_config.get("ignore_certs", False)
         #self.do_parallel       = plugin_config.get("do_parallel", False)
         #self.cores             = plugin_config.get("cores", 2)
-        #self.dt                = datetime.utcnow()
+        self.dt                = datetime.utcnow()
         #self.pulse_folder_connection = plugin_config.get("pulse_folder_connection", "filesystem_folders")
 
 
