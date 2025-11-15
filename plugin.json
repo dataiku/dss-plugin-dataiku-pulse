@@ -83,7 +83,8 @@
             "label": "Collect Project Data in Parallel",
             "type": "BOOLEAN",
             "description": "",
-            "mandatory": true
+            "mandatory": true,
+            "defaultValue": false
         },
         {
             "name": "cores",
