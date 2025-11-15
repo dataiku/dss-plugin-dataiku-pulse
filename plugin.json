@@ -16,7 +16,8 @@
             "label": "Dataiku Pulse Github Repo",
             "type": "STRING",
             "description": "",
-            "mandatory": true
+            "mandatory": true,
+            "defaultValue": ""
         },
         {
             "name": "pulse_repo_branch",
