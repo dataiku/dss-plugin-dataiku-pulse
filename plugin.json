@@ -17,7 +17,7 @@
             "type": "STRING",
             "description": "",
             "mandatory": true,
-            "defaultValue": ""
+            "defaultValue": "https://github.com/dataiku/dss-plugin-dataiku-pulse.git"
         },
         {
             "name": "pulse_repo_branch",
