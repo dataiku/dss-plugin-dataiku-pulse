@@ -35,7 +35,8 @@
             "label": "Dataiku Pulse Dashboard Project Key",
             "type": "STRING",
             "description": "",
-            "mandatory": true
+            "mandatory": true,
+            "defaultValue": "DATAIKU_PULSE_DASHBOARD"
         },
         {
             "name": "pulse_project_url",
@@ -56,7 +57,8 @@
             "label": "Dataiku Pulse Worker Project Key",
             "type": "STRING",
             "description": "",
-            "mandatory": true
+            "mandatory": true,
+            "defaultValue": "DATAIKU_PULSE_WORKER"
         },
         {
             "name": "pulse_dataiku_user",
