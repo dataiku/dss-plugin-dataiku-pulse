@@ -19,6 +19,8 @@ class MyRunnable(Runnable):
         self.ignore_certs        = plugin_config.get("ignore_certs", False)
         self.pulse_repo_url      = plugin_config.get("pulse_repo_url", "https://github.com/dataiku/dss-plugin-dataiku-pulse.git")
         self.pulse_repo_branch   = plugin_config.get("pulse_repo_branch", "main")
+        self.do_parallel       = plugin_config.get("do_parallel", False)
+        self.cores             = plugin_config.get("cores", 2)
         self.update_github       = config.get("update_github", False)
         self.force_scenarios     = config.get("force_scenarios", False)
         
