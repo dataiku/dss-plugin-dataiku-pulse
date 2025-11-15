@@ -26,7 +26,7 @@ class MyRunnable(Runnable):
         self.pulse_folder_connection = plugin_config.get("pulse_folder_connection", "filesystem_folders")
 
         # Set environment variable
-        os.environ["pulse_FOLDER_CONNECTION"] = self.pulse_folder_connection
+        #os.environ["pulse_FOLDER_CONNECTION"] = self.pulse_folder_connection
         
     
     def get_progress_target(self):
