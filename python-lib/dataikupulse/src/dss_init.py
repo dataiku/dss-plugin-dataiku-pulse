@@ -27,8 +27,8 @@ def update_plugin_config(self, plugin_handle):
     settings.settings["config"]["pulse_dataiku_user"]  = self.pulse_dataiku_user 
     settings.settings["config"]["ignore_certs"]       = self.ignore_certs
     settings.settings["config"]["pulse_folder_connection"] = self.pulse_folder_connection
-    settings.settings["config"]["pulse_folder_connection"] = self.pulse_folder_connection
-    settings.settings["config"]["pulse_folder_connection"] = self.pulse_folder_connection
+    settings.settings["config"]["do_parallel"] = self.pulse_folder_connection
+    settings.settings["config"]["cores"] = self.pulse_folder_connection
     settings.save()
     return
 
