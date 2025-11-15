@@ -97,7 +97,8 @@
             "type": "INT",
             "description": "",
             "mandatory": true,
-            "defaultValue": 2
+            "defaultValue": 2,
+            "visibilityCondition": "!model.do_parallel"
         },
         {
             "name": "sep_pulse_workers",
