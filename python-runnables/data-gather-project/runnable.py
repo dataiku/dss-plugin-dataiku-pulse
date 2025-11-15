@@ -36,8 +36,8 @@ class MyRunnable(Runnable):
     def data_gather(self, project_keys):
         local_client = dss_funcs.build_local_client()
         results = []
-        for key in project_keys:
-            project_handle = local_client.get_project(project_key=key)
+        #for key in project_keys:
+            #project_handle = local_client.get_project(project_key=key)
             #results += dss_funcs.run_modules(self, "projects", project_handle, self.client_d, key)
         cols = ["project_key", "path", "module_name", "step", "result", "message"]
         if results:
