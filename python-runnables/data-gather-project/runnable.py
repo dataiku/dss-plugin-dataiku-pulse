@@ -29,7 +29,7 @@ class MyRunnable(Runnable):
         return None
 
     
-    def data_gather(project_keys):
+    def data_gather(self, project_keys):
         results = [[1,1,1,1,1,1]]
         #for key in project_keys:
         #    project_handle = self.local_client.get_project(project_key=key)
