@@ -24,15 +24,14 @@ class MyRunnable(Runnable):
         self.dt                = datetime.utcnow()
         self.pulse_folder_connection = plugin_config.get("pulse_folder_connection", "filesystem_folders")
 
-        # Set environment variable
-        #os.environ["pulse_FOLDER_CONNECTION"] = self.pulse_folder_connection
-        
-    
     def get_progress_target(self):
         return None
 
     
     def data_gather(self, project_keys):
+        # Set environment variable
+        os.environ["pulse_FOLDER_CONNECTION"] = self.pulse_folder_connection
+        
         results = [[1,1,1,1,1,1]]
         #for key in project_keys:
         #    project_handle = self.local_client.get_project(project_key=key)
