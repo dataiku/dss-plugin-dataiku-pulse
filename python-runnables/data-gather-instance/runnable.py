@@ -8,7 +8,6 @@ from joblib import Parallel, delayed
 from datetime import datetime
 
 from dataiku.runnables import Runnable, ResultTable
-from dataiku.customrecipe import get_recipe_config
 
 
 # Run Macro
