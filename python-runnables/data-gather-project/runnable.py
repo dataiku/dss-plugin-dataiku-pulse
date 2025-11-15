@@ -10,6 +10,20 @@ from datetime import datetime
 from dataiku.runnables import Runnable, ResultTable
 
 
+def data_gather(project_keys):
+    results = [[1,1,1,1,1,1]]
+    #for key in project_keys:
+    #    project_handle = self.local_client.get_project(project_key=key)
+    #    results += dss_funcs.run_modules(self, "projects", project_handle, self.client_d, key)
+    #    break
+    cols = ["project_key", "path", "module_name", "step", "result", "message"]
+    if results:
+        df = pd.DataFrame(results, columns=cols)
+    else:
+        df = pd.DataFrame(columns=cols)
+    return df
+
+
 class MyRunnable(Runnable):
     def __init__(self, project_key, config, plugin_config):
         self.project_key = project_key
@@ -27,20 +41,6 @@ class MyRunnable(Runnable):
 
     def get_progress_target(self):
         return None
-
-    
-    def data_gather(self, project_keys):
-        results = [[1,1,1,1,1,1]]
-        #for key in project_keys:
-        #    project_handle = self.local_client.get_project(project_key=key)
-        #    results += dss_funcs.run_modules(self, "projects", project_handle, self.client_d, key)
-        #    break
-        cols = ["project_key", "path", "module_name", "step", "result", "message"]
-        if results:
-            df = pd.DataFrame(results, columns=cols)
-        else:
-            df = pd.DataFrame(columns=cols)
-        return df
     
     
     def run(self, progress_callback):
