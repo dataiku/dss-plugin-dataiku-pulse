@@ -38,7 +38,7 @@ class MyRunnable(Runnable):
         results = []
         for key in project_keys:
             project_handle = local_client.get_project(project_key=key)
-            results += dss_funcs.run_modules(self, "projects", project_handle, self.client_d, key)
+            #results += dss_funcs.run_modules(self, "projects", project_handle, self.client_d, key)
         cols = ["project_key", "path", "module_name", "step", "result", "message"]
         if results:
             df = pd.DataFrame(results, columns=cols)
