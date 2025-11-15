@@ -24,7 +24,8 @@ class MyRunnable(Runnable):
         self.dt                = datetime.utcnow()
         self.pulse_folder_connection = plugin_config.get("pulse_folder_connection", "filesystem_folders")
 
-    def get_progress_target(self):
+
+        def get_progress_target(self):
         return None
 
     
