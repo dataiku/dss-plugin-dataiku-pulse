@@ -90,7 +90,8 @@
             "label": "Number of cores for Parallel",
             "type": "INT",
             "description": "",
-            "mandatory": true
+            "mandatory": true,
+            "defaultValue": 2
         },
         {
             "name": "sep_pulse_workers",
