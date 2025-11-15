@@ -24,7 +24,6 @@ class MyRunnable(Runnable):
         self.cores             = plugin_config.get("cores", 2)
         self.dt                = datetime.utcnow()
         self.pulse_folder_connection = plugin_config.get("pulse_folder_connection", "filesystem_folders")
-        self.local_client      = dss_funcs.build_local_client()
 
         # Set environment variable
         os.environ["pulse_FOLDER_CONNECTION"] = self.pulse_folder_connection
