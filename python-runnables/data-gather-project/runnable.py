@@ -1,4 +1,3 @@
-from dataikupulse.base_data import project_handle as dss_objs
 from dataikupulse.src import dss_funcs
 
 import dataiku
@@ -11,25 +10,11 @@ from datetime import datetime
 from dataiku.runnables import Runnable, ResultTable
 
 
-def data_gather(project_keys):
-    results = []
-    for key in project_keys:
-        project_handle = local_client.get_project(project_key=key)
-        results += dss_funcs.run_modules(self, dss_objs, project_handle, client_d, key)
-    cols = ["project_key", "path", "module_name", "step", "result", "message"]
-    if results:
-        df = pd.DataFrame(results, columns=cols)
-    else:
-        df = pd.DataFrame(columns=cols)
-    return df
-
-
 class MyRunnable(Runnable):
     def __init__(self, project_key, config, plugin_config):
         self.project_key = project_key
         self.config = config
         self.plugin_config = plugin_config
-        
         self.pulse_project_key = plugin_config.get("pulse_project_key", None)
         self.pulse_project_url = plugin_config.get("pulse_project_url", None)
         self.pulse_project_api = plugin_config.get("pulse_project_api", None)
@@ -37,51 +22,63 @@ class MyRunnable(Runnable):
         self.do_parallel       = plugin_config.get("do_parallel", False)
         self.cores             = plugin_config.get("cores", 2)
         self.dt                = datetime.utcnow()
-        
-        # Set environment variable
         self.pulse_folder_connection = plugin_config.get("pulse_folder_connection", "filesystem_folders")
-        os.environ["pulse_FOLDER_CONNECTION"] = self.pulse_folder_connection
-        
+        self.local_client = dss_funcs.build_local_client()
+
+
     def get_progress_target(self):
         return None
 
+    
+    def data_gather(self, project_keys):
+        results = []
+        for key in project_keys:
+            project_handle = self.local_client.get_project(project_key=key)
+            results += dss_funcs.run_modules(self, "projects", project_handle, self.client_d, key)
+        cols = ["project_key", "path", "module_name", "step", "result", "message"]
+        if results:
+            df = pd.DataFrame(results, columns=cols)
+        else:
+            df = pd.DataFrame(columns=cols)
+        return df
+    
+    
     def run(self, progress_callback):
-        # Test if modules are found
-        if not dss_objs:
-            raise Exception("No categories or modules found")
-
-        # Build Local Client
-        local_client = dss_funcs.build_local_client()
+        # Set environment variable
+        os.environ["pulse_FOLDER_CONNECTION"] = self.pulse_folder_connection
         
         # Grab some exra details
+        local_client = self.local_client
         client_d = {}
         try:
-            client_d["python_env_name"] = client.get_general_settings().settings["codeEnvs"]["defaultPythonEnv"]
+            client_d["python_env_name"] = local_client.get_general_settings().settings["codeEnvs"]["defaultPythonEnv"]
             if not client_d["python_env_name"]:
                 client_d["python_env_name"] = "USE_BUILTIN_MODE"
         except:
             client_d["python_env_name"] = "USE_BUILTIN_MODE"
         try:
-            client_d["r_env_name"] = client.get_general_settings().settings["codeEnvs"]["defaultREnv"]
+            client_d["r_env_name"] = local_client.get_general_settings().settings["codeEnvs"]["defaultREnv"]
             if not client_d["r_env_name"]:
                 client_d["r_env_name"] = "USE_BUILTIN_MODE"
         except:
             client_d["r_env_name"] = "USE_BUILTIN_MODE"
         try:
-            client["container_env_name"] = client.get_general_settings().settings["containerSettings"]["defaultExecutionConfig"]
+            client["container_env_name"] = local_client.get_general_settings().settings["containerSettings"]["defaultExecutionConfig"]
             if not client_d["container_env_name"]:
                 client_d["container_env_name"] = "DSS_LOCAL"
         except:
             client_d["container_env_name"] = "DSS_LOCAL"
+        self.client_d = client_d
         
         # Collect the modules && Run the modules
         project_keys = local_client.list_project_keys()
         if self.do_parallel:
             pk_arrays = np.array_split(project_keys, self.cores)
-            dfs = Parallel(n_jobs=self.cores)(delayed(data_gather)(i) for i in pk_arrays)
+            dfs = Parallel(n_jobs=self.cores, backend="threading")(delayed(self.data_gather)(project_keys)
+                                              for project_keys in pk_arrays)
             df = pd.concat(dfs, ignore_index=True)
         else:
-            df = data_gather(project_keys)            
+            df = self.data_gather(project_keys)            
             
         # return results
         if not df.empty:
@@ -95,5 +92,7 @@ class MyRunnable(Runnable):
                 rt.add_record(row.tolist())
             return rt
         raise Exception("Something went wrong")
+
+        
 
 # EOF

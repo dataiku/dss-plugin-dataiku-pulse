@@ -1,18 +1,15 @@
-try:
-    from dataikupulse.base_data import client_handle as dss_objs
-except:
-    dss_objs = False
 from dataikupulse.src import dss_funcs
 
-import os
+import dataiku
 import pandas as pd
+import numpy as np
+import os
+from joblib import Parallel, delayed
 from datetime import datetime
 
 from dataiku.runnables import Runnable, ResultTable
-from dataiku.customrecipe import get_recipe_config
 
 
-# Run Macro
 class MyRunnable(Runnable):
     def __init__(self, project_key, config, plugin_config):
         self.project_key = project_key
@@ -33,13 +30,9 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
-        # Test if modules are found
-        if not dss_objs:
-            raise Exception("No categories or modules found")
-        
         # Collect the modules && Run the modules
         local_client = dss_funcs.build_local_client()
-        results = dss_funcs.run_modules(self, dss_objs, local_client)
+        results = dss_funcs.run_modules(self, "client", local_client)
         
         # return results
         if results:
