@@ -16,14 +16,16 @@
             "label": "Dataiku Pulse Github Repo",
             "type": "STRING",
             "description": "",
-            "mandatory": true
+            "mandatory": true,
+            "defaultValue": "https://github.com/dataiku/dss-plugin-dataiku-pulse.git"
         },
         {
             "name": "pulse_repo_branch",
             "label": "Dataiku Pulse Github Branch",
             "type": "STRING",
             "description": "",
-            "mandatory": true
+            "mandatory": true,
+            "defaultValue": "main"
         },
         {
             "name": "sep_pulse_dashboard",
@@ -35,7 +37,8 @@
             "label": "Dataiku Pulse Dashboard Project Key",
             "type": "STRING",
             "description": "",
-            "mandatory": true
+            "mandatory": true,
+            "defaultValue": "DATAIKU_PULSE_DASHBOARD"
         },
         {
             "name": "pulse_project_url",
@@ -56,14 +59,16 @@
             "label": "Dataiku Pulse Worker Project Key",
             "type": "STRING",
             "description": "",
-            "mandatory": true
+            "mandatory": true,
+            "defaultValue": "DATAIKU_PULSE_WORKER"
         },
         {
             "name": "pulse_dataiku_user",
             "label": "Dataiku Pulse Worker Dataiku User",
             "type": "STRING",
             "description": "",
-            "mandatory": true
+            "mandatory": true,
+            "defaultValue": "admin"
         },
         {
             "type": "BOOLEAN",
@@ -83,14 +88,17 @@
             "label": "Collect Project Data in Parallel",
             "type": "BOOLEAN",
             "description": "",
-            "mandatory": true
+            "mandatory": true,
+            "defaultValue": false
         },
         {
             "name": "cores",
             "label": "Number of cores for Parallel",
             "type": "INT",
             "description": "",
-            "mandatory": true
+            "mandatory": true,
+            "defaultValue": 2,
+            "visibilityCondition": "model.do_parallel"
         },
         {
             "name": "sep_pulse_workers",
