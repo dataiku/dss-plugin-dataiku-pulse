@@ -68,9 +68,9 @@
             "defaultValue": "admin"
         },
         {
-            "type": "BOOLEAN",
             "name": "ignore_certs",
             "label": "Ignore Certificates and force trust TLS",
+            "type": "BOOLEAN",
             "defaultValue": false
         },
         {
