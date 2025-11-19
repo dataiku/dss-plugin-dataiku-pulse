@@ -123,11 +123,6 @@
                     "type": "PASSWORD",
                     "description": "API Key running as an ADMIN level user",
                     "mandatory": true
-                },
-                {
-                    "name": "sep_pulse_dashboard",
-                    "description": "<hr color='#000000' size='3' noshade></hr>",
-                    "type": "SEPARATOR"
                 }
             ]
         }
