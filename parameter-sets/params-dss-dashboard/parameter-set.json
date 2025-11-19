@@ -43,12 +43,94 @@
     */
 
     "pluginParams": [
-        {
-            "name": "parameter1",
-            "label": "User-readable name",
+{
+            "name": "pulse_repo_url",
+            "label": "Dataiku Pulse Github Repo",
             "type": "STRING",
-            "description": "Some documentation for parameter1",
+            "description": "",
+            "mandatory": true,
+            "defaultValue": "https://github.com/dataiku/dss-plugin-dataiku-pulse.git"
+        },
+        {
+            "name": "pulse_repo_branch",
+            "label": "Dataiku Pulse Github Branch",
+            "type": "STRING",
+            "description": "",
+            "mandatory": true,
+            "defaultValue": "main"
+        },
+        {
+            "name": "sep_pulse_dashboard",
+            "description": "<hr color='#000000' size='3' noshade><h3>Dataiku Pulse Dashboard Information</h3>",
+            "type": "SEPARATOR"
+        },
+        {
+            "name": "pulse_project_key",
+            "label": "Dataiku Pulse Dashboard Project Key",
+            "type": "STRING",
+            "description": "",
+            "mandatory": true,
+            "defaultValue": "DATAIKU_PULSE_DASHBOARD"
+        },
+        {
+            "name": "pulse_project_url",
+            "label": "Dataiku Pulse Dashboard Main Host URL",
+            "type": "STRING",
+            "description": "",
             "mandatory": true
+        },
+        {
+            "name": "pulse_project_api",
+            "label": "Dataiku Pulse Dashboard Main Host API",
+            "type": "PASSWORD",
+            "description": "API Key running as an ADMIN level user",
+            "mandatory": true
+        },
+        {
+            "name": "pulse_worker_key",
+            "label": "Dataiku Pulse Worker Project Key",
+            "type": "STRING",
+            "description": "",
+            "mandatory": true,
+            "defaultValue": "DATAIKU_PULSE_WORKER"
+        },
+        {
+            "name": "pulse_dataiku_user",
+            "label": "Dataiku Pulse Worker Dataiku User",
+            "type": "STRING",
+            "description": "",
+            "mandatory": true,
+            "defaultValue": "admin"
+        },
+        {
+            "type": "BOOLEAN",
+            "name": "ignore_certs",
+            "label": "Ignore Certificates and force trust TLS",
+            "defaultValue": false
+        },
+        {
+            "name": "pulse_folder_connection",
+            "label": "Dataiku Pulse Folder Connection",
+            "type": "STRING",
+            "description": "",
+            "mandatory": true
+        },
+        {
+            "name": "do_parallel",
+            "label": "Collect Project Data in Parallel",
+            "type": "BOOLEAN",
+            "description": "",
+            "mandatory": true,
+            "defaultValue": false
+        },
+        {
+            "name": "cores",
+            "label": "Number of cores for Parallel",
+            "type": "INT",
+            "description": "",
+            "mandatory": true,
+            "defaultValue": 2,
+            "visibilityCondition": "model.do_parallel"
         }
     ],
 
