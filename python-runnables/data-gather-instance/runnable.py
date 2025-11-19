@@ -31,6 +31,10 @@ class MyRunnable(Runnable):
 
     def run(self, progress_callback):
         
+        
+        rt = ResultTable()
+        rt.add_column(1, "Column1", "STRING")
+        rt.add_record(["hi"])
         return "hi"
     
     
