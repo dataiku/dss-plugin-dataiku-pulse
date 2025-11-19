@@ -25,6 +25,7 @@
         },
         {
             "name": "sep_pulse_dashboard",
+            "label": "",
             "type": "SEPARATOR",
             "description": "<hr color='#000000' size='3' noshade><h3>Dataiku Pulse Dashboard Information</h3>"
         },
