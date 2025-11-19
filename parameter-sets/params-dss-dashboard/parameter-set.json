@@ -46,7 +46,7 @@
         },
         {
             "name": "pulse_project_api",
-            "label": "Dashboard Main Host API",
+            "label": "Dashboard Host API",
             "type": "PASSWORD",
             "description": "API Key running as an ADMIN level user",
             "mandatory": true
