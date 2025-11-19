@@ -1,7 +1,7 @@
 {
     "meta" : {
         "label": "Dataiku Instances",
-        "description": "",
+        "description": "Dataiku Pulse Worker Host URLs and API Keys. Design nodes ONLY.",
         "icon": "fas fa-puzzle-piece"
     },
     "defaultDefinableInline": false,
