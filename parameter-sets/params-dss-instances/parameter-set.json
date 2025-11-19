@@ -8,10 +8,17 @@
     "defaultDefinableAtProjectLevel": false,
     "pluginParams": [
         {
-            "name": "parameter1",
-            "label": "User-readable name",
+            "name": "worker_url",
+            "label": "Worker Host URL",
             "type": "STRING",
-            "description": "Some documentation for parameter1",
+            "description": "",
+            "mandatory": true
+        },
+        {
+            "name": "worker_api",
+            "label": "Worker Host API",
+            "type": "PASSWORD",
+            "description": "API Key running as an ADMIN level user",
             "mandatory": true
         }
     ],
