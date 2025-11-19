@@ -2,7 +2,7 @@
 {
     "meta" : {
         // label: name of the parameter set as displayed, should be short
-        "label": "Parameter set params-dss-dashboard",
+        "label": "Dataiku Pulse Dashboard",
 
         // description: longer string to help end users understand what these parameter correspond to
         "description": "",
@@ -16,11 +16,11 @@
        to select already defined presets (default value, can be changed in plugin
        settings)
     */
-    "defaultDefinableInline": true,
+    "defaultDefinableInline": false,
 
     /* if users are allowed to define presets at the project level in addition
        to the instance level (default value, can be changed in plugin settings) */
-    "defaultDefinableAtProjectLevel": true,
+    "defaultDefinableAtProjectLevel": false,
 
 
     /* The field "params" holds a list of all the params
