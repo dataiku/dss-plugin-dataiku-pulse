@@ -71,6 +71,7 @@
             "name": "ignore_certs",
             "label": "Trust TLS Certs",
             "type": "BOOLEAN",
+            "description": "",
             "defaultValue": false
         },
         {
