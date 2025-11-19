@@ -1,7 +1,7 @@
 {
     "meta" : {
         "label": "Dataiku Instances",
-        "description": "Dataiku Pulse Worker Host URLs and API Keys. Design nodes ONLY. Ensure Definanable in-line and project level are disabled.",
+        "description": "COMING SOON v2.1.0 -- Dataiku Pulse Worker Host URLs and API Keys. Design nodes ONLY. Ensure Definanable in-line and project level are disabled.",
         "icon": "fa fa-server"
     },
     "defaultDefinableInline": false,
