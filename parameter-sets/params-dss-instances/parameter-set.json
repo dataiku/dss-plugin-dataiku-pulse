@@ -1,6 +1,6 @@
 {
     "meta" : {
-        "label": "Parameter set params-dss-instances",
+        "label": "Dataiku Instances",
         "description": "",
         "icon": "fas fa-puzzle-piece"
     },
