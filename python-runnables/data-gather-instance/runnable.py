@@ -30,8 +30,7 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
-        keys = self.config.keys()
-        raise Exception(keys)
+        raise Exception(self.config.keys())
         
         rt = ResultTable()
         rt.add_column(1, "Column1", "STRING")
