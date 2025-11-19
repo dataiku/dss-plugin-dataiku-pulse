@@ -30,7 +30,7 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
-        keys = self.plugin_config.keys()
+        keys = self.config.keys()
         raise Exception(keys)
         
         rt = ResultTable()
