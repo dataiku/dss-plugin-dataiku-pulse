@@ -75,7 +75,7 @@
         },
         {
             "name": "pulse_folder_connection",
-            "label": "Folder Connection",
+            "label": "BLOB Connection",
             "type": "STRING",
             "description": "",
             "mandatory": true
