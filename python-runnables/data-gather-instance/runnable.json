@@ -19,7 +19,8 @@
             "label": "params dss dashboard",
             "type": "PRESET",
             "parameterSetId": "params-dss-dashboard",
-            "mandatory": true
+            "mandatory": true,
+            "defaultValue": "main"
         }
     ]
 }
