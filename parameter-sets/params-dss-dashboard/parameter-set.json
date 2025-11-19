@@ -69,7 +69,7 @@
         },
         {
             "name": "ignore_certs",
-            "label": "Ignore Certificates and force trust TLS",
+            "label": "Trust TLS Certs",
             "type": "BOOLEAN",
             "defaultValue": false
         },
