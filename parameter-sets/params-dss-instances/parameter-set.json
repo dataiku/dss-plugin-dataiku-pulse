@@ -22,5 +22,20 @@
             "mandatory": true
         }
     ],
-    "params": []
+    "params": [
+        {
+            "name": "worker_url",
+            "label": "Worker Host URL",
+            "type": "STRING",
+            "description": "",
+            "mandatory": true
+        },
+        {
+            "name": "worker_api",
+            "label": "Worker Host API",
+            "type": "PASSWORD",
+            "description": "API Key running as an ADMIN level user",
+            "mandatory": true
+        }
+    ]
 }
