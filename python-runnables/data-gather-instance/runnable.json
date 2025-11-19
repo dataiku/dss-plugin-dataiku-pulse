@@ -13,5 +13,13 @@
     "extension": "txt",
     "mimeType": "text/plain",
     "macroRoles": [],
-    "params": []
+    "params": [
+        {
+            "name": "params_dss_dashboard",
+            "label": "params dss dashboard",
+            "type": "PRESET",
+            "parameterSetId": "params-dss-dashboard",
+            "mandatory": true
+        }
+    ]
 }
