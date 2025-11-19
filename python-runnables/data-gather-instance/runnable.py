@@ -30,7 +30,10 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
-        raise Exception(self.plugin_config)
+        if self.plugin_config:
+            raise Exception(self.plugin_config)
+        else:
+            raise Exception("empty dict")
         
         rt = ResultTable()
         rt.add_column(1, "Column1", "STRING")
