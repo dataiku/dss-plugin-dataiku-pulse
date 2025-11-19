@@ -20,7 +20,7 @@
             "type": "PRESET",
             "parameterSetId": "params-dss-dashboard",
             "mandatory": true,
-            "defaultValue": "main"
+            "defaultValue": "pie"
         }
     ]
 }
