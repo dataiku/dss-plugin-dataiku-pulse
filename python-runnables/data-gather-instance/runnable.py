@@ -30,7 +30,7 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
-        raise Exception(self.config)
+        raise Exception(self.plugin_config)
         
         rt = ResultTable()
         rt.add_column(1, "Column1", "STRING")
