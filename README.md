@@ -23,7 +23,7 @@ In a decision to keep things easier to maintain in the future, column names have
 
 * Author - Stephen Mazzei
 * Email - <Stephen.Mazzei@dataiku.com>
-* Version - 2.0.0
+* Version - 2.1.0
 * Special Thanks
   * Development
     * Jordan Burke
