@@ -82,7 +82,7 @@
         },
         {
             "name": "do_parallel",
-            "label": "Collect Project Data in Parallel",
+            "label": "Gather Parallel",
             "type": "BOOLEAN",
             "description": "",
             "mandatory": true,
