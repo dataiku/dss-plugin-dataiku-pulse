@@ -46,9 +46,12 @@ This dashboard is designed to give Dataiku Admins insights into the DSS instance
 
 ## Tested Versions
 
-1. v14.1.0 (v1.6 and below)
-1. v14.0.0 (v1.5 and below)
-1. v13.5.5 (v1.5 and below)
+1. v2.1/0
+  1. v14.2
+1. V1.X
+  1. v14.1
+  1. v14.0
+  1. v13.5
 
 
 ## Installation Notes
