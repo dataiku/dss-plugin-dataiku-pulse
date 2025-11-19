@@ -90,7 +90,7 @@
         },
         {
             "name": "cores",
-            "label": "Number of cores for Parallel",
+            "label": "Parallel Cores",
             "type": "INT",
             "description": "",
             "mandatory": true,
