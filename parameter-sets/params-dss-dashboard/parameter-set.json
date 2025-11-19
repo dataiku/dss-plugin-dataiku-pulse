@@ -9,7 +9,7 @@
     "pluginParams": [
         {
             "name": "pulse_repo_url",
-            "label": "Dataiku Pulse Github Repo",
+            "label": "Github Repo",
             "type": "STRING",
             "description": "",
             "mandatory": true,
@@ -17,7 +17,7 @@
         },
         {
             "name": "pulse_repo_branch",
-            "label": "Dataiku Pulse Github Branch",
+            "label": "Github Branch",
             "type": "STRING",
             "description": "",
             "mandatory": true,
@@ -31,7 +31,7 @@
         },
         {
             "name": "pulse_project_key",
-            "label": "Dataiku Pulse Dashboard Project Key",
+            "label": "Dashboard Project Key",
             "type": "STRING",
             "description": "",
             "mandatory": true,
@@ -39,21 +39,21 @@
         },
         {
             "name": "pulse_project_url",
-            "label": "Dataiku Pulse Dashboard Main Host URL",
+            "label": "Dashboard Host URL",
             "type": "STRING",
             "description": "",
             "mandatory": true
         },
         {
             "name": "pulse_project_api",
-            "label": "Dataiku Pulse Dashboard Main Host API",
+            "label": "Dashboard Main Host API",
             "type": "PASSWORD",
             "description": "API Key running as an ADMIN level user",
             "mandatory": true
         },
         {
             "name": "pulse_worker_key",
-            "label": "Dataiku Pulse Worker Project Key",
+            "label": "Worker Project Key",
             "type": "STRING",
             "description": "",
             "mandatory": true,
@@ -61,7 +61,7 @@
         },
         {
             "name": "pulse_dataiku_user",
-            "label": "Dataiku Pulse Worker Dataiku User",
+            "label": "Worker Dataiku User",
             "type": "STRING",
             "description": "",
             "mandatory": true,
@@ -75,7 +75,7 @@
         },
         {
             "name": "pulse_folder_connection",
-            "label": "Dataiku Pulse Folder Connection",
+            "label": "Folder Connection",
             "type": "STRING",
             "description": "",
             "mandatory": true
