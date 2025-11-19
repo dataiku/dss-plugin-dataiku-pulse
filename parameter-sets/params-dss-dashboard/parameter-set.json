@@ -61,7 +61,7 @@
         },
         {
             "name": "pulse_dataiku_user",
-            "label": "Worker Dataiku User",
+            "label": "Worker Dataiku Account",
             "type": "STRING",
             "description": "",
             "mandatory": true,
