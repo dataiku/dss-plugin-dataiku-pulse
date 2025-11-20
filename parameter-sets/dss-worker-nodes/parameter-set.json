@@ -16,7 +16,7 @@
                     "name": "sep3",
                     "label": "Select a Macro",
                     "type": "SEPARATOR"
-                }
+                },
                 {
                     "name": "macro_name",
                     "label": "Macro Name",
