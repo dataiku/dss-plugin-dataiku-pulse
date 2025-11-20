@@ -2,7 +2,7 @@
     "meta" : {
         "label": "Parameter set dss-worker-nodes",
         "description": "",
-        "icon": "fas fa-puzzle-piece"
+        "icon": "fa fa-calendar"
     },
     "defaultDefinableInline": false,
     "defaultDefinableAtProjectLevel": false,
