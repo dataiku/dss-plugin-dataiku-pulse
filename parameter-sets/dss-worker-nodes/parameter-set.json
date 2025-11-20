@@ -40,7 +40,7 @@
                     "label": "Hour of Day",
                     "type": "INTEGER",
                     "mandatory": true,
-                    "visibilityCondition": "model.macro_name == 'Daily'"
+                    "visibilityCondition": "model.frequency == 'Daily'"
                 }
             ]
         }
