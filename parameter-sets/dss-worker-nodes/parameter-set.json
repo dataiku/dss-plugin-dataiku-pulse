@@ -39,6 +39,7 @@
                     "name": "day_frequency",
                     "label": "Hour of Day",
                     "type": "INT",
+                    "defaultValue": 17,
                     "mandatory": true,
                     "visibilityCondition": "model.frequency == 'Daily'"
                 }
@@ -47,6 +48,7 @@
                     "name": "hour_frequency",
                     "label": "How many hours between",
                     "type": "INT",
+                    "defaultValue": 4,
                     "mandatory": true,
                     "visibilityCondition": "model.frequency == 'Hourly'"
                 }
