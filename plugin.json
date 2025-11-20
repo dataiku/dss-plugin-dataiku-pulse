@@ -18,7 +18,7 @@
         {
             "name": "pulse_repo_url",
             "label": "Github Repo",
-            "type": "STRING",
+            "type": "PASSWORD",
             "description": "",
             "mandatory": true,
             "defaultValue": "https://github.com/dataiku/dss-plugin-dataiku-pulse.git"
