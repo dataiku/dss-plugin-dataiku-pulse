@@ -21,15 +21,5 @@
             "parameterSetId": "params-dss-dashboard",
             "mandatory": true
         }
-    ],
-    "adminParams": [
-        {
-            "name": "pulse_repo_url",
-            "label": "Github Repo",
-            "type": "STRING",
-            "description": "",
-            "mandatory": true,
-            "defaultValue": "https://github.com/dataiku/dss-plugin-dataiku-pulse.git"
-        }
     ]
 }
