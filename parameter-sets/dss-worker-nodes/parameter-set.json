@@ -7,24 +7,16 @@
     "defaultDefinableInline": false,
     "defaultDefinableAtProjectLevel": false,
     "pluginParams": [
-        /*
-        data_gather_audit_logs: pyrunnable_dataiku-pulse_data-gather-audit-logs
-        data_gather_cleanup:    runmacro_pyrunnable_builtin-macros_clear-scenario-logs
-        data_gather_diskspace:  pyrunnable_dataiku-pulse_data-gather-diskspace
-        data_gather_filesystem: pyrunnable_dataiku-pulse_data-gather-filesystem
-        data_gather_instance:   pyrunnable_dataiku-pulse_data-gather-instance
-        data_gather_project:    pyrunnable_dataiku-pulse_data-gather-project
-        */
         {
             "name": "macro_name",
             "label": "Macro Name",
             "type": "SELECT",
             "selectChoices" : [
                 { "value": "data_gather_audit_logs", "label": "Data Gather Audit Logs"},
-                { "value": "data_gather_audit_logs", "label": "Data Gather Audit Logs"},
-                { "value": "data_gather_audit_logs", "label": "Data Gather Audit Logs"},
-                { "value": "data_gather_audit_logs", "label": "Data Gather Audit Logs"},
-                { "value": "data_gather_audit_logs", "label": "Data Gather Audit Logs"}
+                { "value": "data_gather_diskspace",  "label": "Data Gather Audit Logs"},
+                { "value": "data_gather_filesystem", "label": "Data Gather Audit Logs"},
+                { "value": "data_gather_instance",   "label": "Data Gather Audit Logs"},
+                { "value": "data_gather_project",    "label": "Data Gather Audit Logs"}
             ],
             "mandatory": true
         }
