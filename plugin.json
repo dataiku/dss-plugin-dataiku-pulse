@@ -16,6 +16,11 @@
     },
     "params": [
         {
+            "name": "sep_pulse_dashboard",
+            "description": "<hr color='#000000' size='3' noshade><h3>GitHub Repository Information</h3>",
+            "type": "SEPARATOR"
+        },
+        {
             "name": "pulse_repo_url",
             "label": "Dataiku Pulse Github Repo",
             "type": "STRING",
