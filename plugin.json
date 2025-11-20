@@ -3,6 +3,7 @@
     "version": "2.1.0",
     "meta": {
         "label": "Dataiku PULSE",
+        "category": "Dataiku Usage & Insights",
         "description": "This plugin contains the framework for the Dataiku PULSE Dashbaord.",
         "author": "Stephen Mazzei",
         "icon": "fa fa-heartbeat",
