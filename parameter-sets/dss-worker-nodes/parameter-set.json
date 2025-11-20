@@ -4,8 +4,8 @@
         "description": "",
         "icon": "fas fa-puzzle-piece"
     },
-    "defaultDefinableInline": true,
-    "defaultDefinableAtProjectLevel": true,
+    "defaultDefinableInline": false,
+    "defaultDefinableAtProjectLevel": false,
     "pluginParams": [
     ],
     "params": [    ]
