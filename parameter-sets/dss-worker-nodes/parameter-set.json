@@ -8,17 +8,24 @@
     "defaultDefinableAtProjectLevel": false,
     "pluginParams": [
         {
-            "name": "macro_name",
-            "label": "Macro Name",
-            "type": "SELECT",
-            "selectChoices" : [
-                { "value": "data_gather_audit_logs", "label": "Data Gather Audit Logs"},
-                { "value": "data_gather_diskspace",  "label": "Data Gather Diskspace"},
-                { "value": "data_gather_filesystem", "label": "Data Gather Filesystem"},
-                { "value": "data_gather_instance",   "label": "Data Gather Instance Level"},
-                { "value": "data_gather_project",    "label": "Data Gather Project Level"}
-            ],
-            "mandatory": true
+            "name": "api_configs",
+            "label": "Dataiku Pulse Worker Host URLs and API Keys",
+            "type": "OBJECT_LIST",
+            "subParams": [
+                {
+                    "name": "macro_name",
+                    "label": "Macro Name",
+                    "type": "SELECT",
+                    "selectChoices" : [
+                        { "value": "data_gather_audit_logs", "label": "Data Gather Audit Logs"},
+                        { "value": "data_gather_diskspace",  "label": "Data Gather Diskspace"},
+                        { "value": "data_gather_filesystem", "label": "Data Gather Filesystem"},
+                        { "value": "data_gather_instance",   "label": "Data Gather Instance Level"},
+                        { "value": "data_gather_project",    "label": "Data Gather Project Level"}
+                    ],
+                    "mandatory": true
+                }
+            ]
         }
     ],
     "params": []
