@@ -8,8 +8,8 @@
     "defaultDefinableAtProjectLevel": false,
     "pluginParams": [
         {
-            "name": "api_configs",
-            "label": "Dataiku Pulse Worker Host URLs and API Keys",
+            "name": "macro_configs",
+            "label": "Worker Node Macro Configuration",
             "type": "OBJECT_LIST",
             "subParams": [
                 {
