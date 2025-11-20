@@ -9,7 +9,7 @@
     "pluginParams": [
         {
             "name": "macro_configs",
-            "label": "Worker Node Macro Configuration",
+            "label": "Macro Configuration",
             "type": "OBJECT_LIST",
             "subParams": [
                 {
