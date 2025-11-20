@@ -7,9 +7,12 @@
         "description": "This plugin contains the framework for the Dataiku PULSE Dashbaord.",
         "author": "Stephen Mazzei",
         "icon": "fa fa-heartbeat",
-        "tags": ["Administration", "PULSE", "Data Gather", "Insights", "Usages"],
+        "tags": [
+            "Administration", "PULSE", "Data Gather", "Insights", "Usages"
+        ],
         "url": "https://github.com/dataiku/dss-plugin-dataiku-pulse.git",
-        "licenseInfo": "Apache Software License"
+        "licenseInfo": "Apache Software License",
+        "supportLevel": "NOT_SUPPORTED"
     },
     "params": [
         {
