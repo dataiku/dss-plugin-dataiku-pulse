@@ -24,6 +24,22 @@
                         { "value": "data_gather_project",    "label": "Data Gather Project Level"}
                     ],
                     "mandatory": true
+                },
+                {
+                    "name": "frequency",
+                    "label": "Trigger Frequency",
+                    "type": "SELECT",
+                    "selectChoices" : [
+                        { "value": "Daily",   "label": "Daily"},
+                        { "value": "Hourly",  "label": "Hourly"}
+                    ],
+                    "mandatory": true
+                },
+                {
+                    "name": "repeat_frequency",
+                    "label": "Hour of Day",
+                    "type": "INTEGER",
+                    "mandatory": true
                 }
             ]
         }
