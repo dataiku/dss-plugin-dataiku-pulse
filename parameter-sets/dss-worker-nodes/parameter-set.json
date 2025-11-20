@@ -39,7 +39,8 @@
                     "name": "repeat_frequency",
                     "label": "Hour of Day",
                     "type": "INTEGER",
-                    "mandatory": true
+                    "mandatory": true,
+                    "visibilityCondition": "model.macro_name == Daily"
                 }
             ]
         }
