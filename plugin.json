@@ -19,5 +19,17 @@
             "mandatory": true,
             "defaultValue": "https://github.com/dataiku/dss-plugin-dataiku-pulse.git"
         }
-    ]
+    ],
+    "subParams": [
+                {
+                    "type": "SEPARATOR",
+                    "label": "Infrastructure info"
+                },
+                {
+                    "name": "infra_id",
+                    "label": "Infrastructure ID",
+                    "type": "STRING",
+                    "mandatory": true
+                }
+        ]
 }
