@@ -36,11 +36,19 @@
                     "mandatory": true
                 },
                 {
-                    "name": "repeat_frequency",
+                    "name": "day_frequency",
                     "label": "Hour of Day",
                     "type": "INT",
                     "mandatory": true,
                     "visibilityCondition": "model.frequency == 'Daily'"
+                }
+                ,
+                {
+                    "name": "hour_frequency",
+                    "label": "How many hours between",
+                    "type": "INT",
+                    "mandatory": true,
+                    "visibilityCondition": "model.frequency == 'Hourly'"
                 }
             ]
         }
