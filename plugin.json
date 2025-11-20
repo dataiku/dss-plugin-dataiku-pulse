@@ -64,6 +64,13 @@
             "mandatory": true
         },
         {
+            "name": "pulse_folder_connection",
+            "label": "Dataiku Pulse Folder Connection",
+            "type": "STRING",
+            "description": "",
+            "mandatory": true
+        },
+        {
             "name": "sep_pulse_dashboard",
             "description": "<hr color='#000000' size='3' noshade><h3>Worker Information</h3>",
             "type": "SEPARATOR"
@@ -89,13 +96,6 @@
             "name": "ignore_certs",
             "label": "Ignore Certificates and force trust TLS",
             "defaultValue": false
-        },
-        {
-            "name": "pulse_folder_connection",
-            "label": "Dataiku Pulse Folder Connection",
-            "type": "STRING",
-            "description": "",
-            "mandatory": true
         },
         {
             "name": "do_parallel",
