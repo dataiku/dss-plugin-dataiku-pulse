@@ -7,16 +7,16 @@
     "defaultDefinableInline": false,
     "defaultDefinableAtProjectLevel": false,
     "pluginParams": [
-    {
-        "name": "prediction_type",
-        "label": "Regression or Classification",
-        "type": "SELECT",
-        "selectChoices" : [
-            { "value": "regression", "label": "Regression"},
-            { "value": "classification", "label": "Classification"}
-        ],
-        "mandatory": true
-    }
+        {
+            "name": "prediction_type",
+            "label": "Regression or Classification",
+            "type": "SELECT",
+            "selectChoices" : [
+                { "value": "regression", "label": "Regression"},
+                { "value": "classification", "label": "Classification"}
+            ],
+            "mandatory": true
+        }
     ],
     "params": []
 }
