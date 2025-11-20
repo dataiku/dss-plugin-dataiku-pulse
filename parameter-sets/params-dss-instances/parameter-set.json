@@ -22,5 +22,13 @@
             "mandatory": true
         }
     ],
-    "params": []
+    "params": [
+        {
+            "name": "worker_url",
+            "label": "Worker Host URL",
+            "type": "STRING",
+            "description": "",
+            "mandatory": true
+        }
+    ]
 }
