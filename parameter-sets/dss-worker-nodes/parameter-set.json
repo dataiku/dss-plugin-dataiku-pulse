@@ -13,6 +13,11 @@
             "type": "OBJECT_LIST",
             "subParams": [
                 {
+                    "name": "sep3",
+                    "label": "Select a Macro",
+                    "type": "SEPARATOR"
+                }
+                {
                     "name": "macro_name",
                     "label": "Macro Name",
                     "type": "SELECT",
@@ -51,12 +56,7 @@
                     "defaultValue": 4,
                     "visibilityCondition": "model.frequency == 'Hourly'",
                     "mandatory": true
-                },
-                  {
-    "name": "sep3",
-    "label": "Reads",
-    "type": "SEPARATOR"
-  }
+                }
             ]
         }
     ],
