@@ -13,10 +13,10 @@
             "type": "SELECT",
             "selectChoices" : [
                 { "value": "data_gather_audit_logs", "label": "Data Gather Audit Logs"},
-                { "value": "data_gather_diskspace",  "label": "Data Gather Audit Logs"},
-                { "value": "data_gather_filesystem", "label": "Data Gather Audit Logs"},
-                { "value": "data_gather_instance",   "label": "Data Gather Audit Logs"},
-                { "value": "data_gather_project",    "label": "Data Gather Audit Logs"}
+                { "value": "data_gather_diskspace",  "label": "Data Gather Diskspace"},
+                { "value": "data_gather_filesystem", "label": "Data Gather Filesystem"},
+                { "value": "data_gather_instance",   "label": "Data Gather Instance Level"},
+                { "value": "data_gather_project",    "label": "Data Gather Project Level"}
             ],
             "mandatory": true
         }
