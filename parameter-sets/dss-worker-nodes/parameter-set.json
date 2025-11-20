@@ -40,8 +40,8 @@
                     "label": "Hour of Day",
                     "type": "INT",
                     "defaultValue": 17,
-                    "mandatory": true,
-                    "visibilityCondition": "model.frequency == 'Daily'"
+                    "visibilityCondition": "model.frequency == 'Daily'",
+                    "mandatory": true
                 }
                 ,
                 {
@@ -49,8 +49,8 @@
                     "label": "How many hours between",
                     "type": "INT",
                     "defaultValue": 4,
-                    "mandatory": true,
-                    "visibilityCondition": "model.frequency == 'Hourly'"
+                    "visibilityCondition": "model.frequency == 'Hourly'",
+                    "mandatory": true
                 }
             ]
         }
