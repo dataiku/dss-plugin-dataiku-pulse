@@ -8,8 +8,8 @@
     "defaultDefinableAtProjectLevel": false,
     "pluginParams": [
         {
-            "name": "prediction_type",
-            "label": "Regression or Classification",
+            "name": "macro_name",
+            "label": "Macro Name",
             "type": "SELECT",
             "selectChoices" : [
                 { "value": "regression", "label": "Regression"},
