@@ -9,5 +9,8 @@
         "tags": ["Administration", "PULSE", "Data Gather", "Insights", "Usages"],
         "url": "https://github.com/dataiku/dss-plugin-dataiku-pulse.git",
         "licenseInfo": "Apache Software License"
-    }
+    },
+    "adminParams": [
+        
+    ]
 }
