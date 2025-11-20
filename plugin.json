@@ -10,7 +10,7 @@
         "url": "https://github.com/dataiku/dss-plugin-dataiku-pulse.git",
         "licenseInfo": "Apache Software License"
     },
-    "adminParams": [
+    "params": [
         {
             "name": "pulse_repo_url",
             "label": "Github Repo",
