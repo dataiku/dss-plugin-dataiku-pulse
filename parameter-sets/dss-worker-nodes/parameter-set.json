@@ -38,7 +38,7 @@
                 {
                     "name": "repeat_frequency",
                     "label": "Hour of Day",
-                    "type": "INTEGER",
+                    "type": "INT",
                     "mandatory": true,
                     "visibilityCondition": "model.frequency == 'Daily'"
                 }
