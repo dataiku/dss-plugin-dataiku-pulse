@@ -102,7 +102,7 @@
                     "label": "Parameter Set",
                     "type": "STRING",
                     "description": "Match this string to the Worker Param Set to use custom settings.",
-                    "mandatory": true
+                    "mandatory": false
                 }
             ]
         },
