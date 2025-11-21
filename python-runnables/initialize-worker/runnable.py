@@ -32,8 +32,10 @@ class MyRunnable(Runnable):
             # Get the respective param_set if available
             param_set = settings.get_parameter_set(parameter_set_name="params-worker-instances")
             preset = param_set.get_preset(preset_name=preset_name)
-            preset.plugin_config["macro_configs"]
-            
+            try:
+                preset_pc = preset.plugin_config["macro_configs"]
+            except:
+                preset_pc = {}
             
             # Create a remote client
             remote_client = dss_funcs.build_remote_client(worker_url, worker_api, self.params["worker_hosts"]ignore_certs)
