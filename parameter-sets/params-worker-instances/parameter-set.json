@@ -7,6 +7,22 @@
     "defaultDefinableInline": false,
     "defaultDefinableAtProjectLevel": false,
     "pluginParams": [
+        
+        {
+            "name": "worker_url",
+            "label": "Worker Host URL",
+            "type": "STRING",
+            "description": "",
+            "mandatory": true
+        },
+        {
+            "name": "worker_api",
+            "label": "Worker Host API",
+            "type": "PASSWORD",
+            "description": "API Key running as an ADMIN level user",
+            "mandatory": true
+        },
+        
         {
             "name": "macro_configs",
             "label": "Macro Configuration",
