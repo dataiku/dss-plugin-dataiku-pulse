@@ -37,7 +37,9 @@ def update_default_node(self, plugin_handle):
     preset.get_raw()["description"] = "This is automatically generated from the Pulse Init Worker Macro. Do not delete. Update from the Primary Plugin Settings."
     param_set.save()
     return
-    
+
+
+
 def install_plugin(self, remote_client):
     # Only install if not found, if found and set to update, patch
     pulse_found = False
