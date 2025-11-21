@@ -22,6 +22,7 @@ class MyRunnable(Runnable):
 
     def run(self, progress_callback):
         raise Exception(self.plugin_config)
+        
         results = []
         cont = True
         # Get local client and name
