@@ -48,6 +48,9 @@ def get_dss_name_id_mapping(client):
     mapping = [instance_name, instance_name_base, instance_id_base]
     return mapping
 
+def get_params_pc():
+    
+
 
 # ---------- DATA GATHER MODULES -----------------------------
 def run_modules(self, mode, handle, client_d = {}, project_key = None):
