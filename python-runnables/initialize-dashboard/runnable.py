@@ -79,6 +79,7 @@ class MyRunnable(Runnable):
                 cont = False
             else:
                 results.append(["Project Library Confirmed", True, None])
+        
         # Delete the current running version
         if cont:
             streamlit_path = f"{code_studio_path}/dataiku_pulse"
@@ -91,6 +92,7 @@ class MyRunnable(Runnable):
                     cont = False
             else:
                 results.append(["Delete Existing", True, "Initial Setup"])
+        
         # Copy the streamlit application
         if cont:
             try:
@@ -99,6 +101,7 @@ class MyRunnable(Runnable):
             except Exception as e:
                 results.append(["Copy Streamlit", False, f"An error occurred: {e}"])
                 cont = False
+        
         # return results
         if results:
             df = pd.DataFrame(results, columns=["step", "result", "message"])
