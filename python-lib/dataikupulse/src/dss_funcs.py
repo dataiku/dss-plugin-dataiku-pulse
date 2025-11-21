@@ -49,6 +49,19 @@ def get_dss_name_id_mapping(client):
     return mapping
 
 def get_preset_pc():
+    # Connect to the plugin
+    local_client = build_local_client()
+    plugin_handle = local_client.get_plugin(plugin_id="dataiku-pulse")
+    plugin_settings = plugin_handle.get_settings()
+    preset_pc = {
+        "pulse_dataiku_user": "admin",
+        "ignore_certs": False,
+        "do_parallel": False,
+        "cores": 2,
+        "macro_configs": [],
+    }
+    
+    
     return
 
 
