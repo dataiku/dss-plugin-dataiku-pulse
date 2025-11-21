@@ -18,16 +18,16 @@ class MyRunnable(Runnable):
     def get_progress_target(self):
         return None
 
-    def run(self, progress_callback):
-        raise Exception(self.params)
-        
+    def run(self, progress_callback):        
         results = []
         cont = True
+        
         # Get local client and name
         local_client = dss_funcs.build_local_client()
         instance_name = dss_funcs.get_dss_name(local_client)
-        project_handle = local_client.get_project(self.pulse_project_key)
+        project_handle = local_client.get_project(self.params["pulse_project_key"])
         library = project_handle.get_library()
+        
         # Create the folders
         if cont:
             try:
