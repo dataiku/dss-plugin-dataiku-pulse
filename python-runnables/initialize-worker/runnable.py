@@ -80,8 +80,14 @@ class MyRunnable(Runnable):
                     cont = False
                     results.append([worker_url, "Load DSS Commits Table", False, e])
             
-            
-            
+            # Create the Phone Home Scenarios
+            if cont:
+                try:
+                    dss_init.create_scenarios(self, project_handle)
+                    results.append([worker_url, "Create/Update Scenarios", True, None])
+                except Exception as e:
+                    cont = False
+                    results.append([worker_url, "Create/Update Scenarios", False, e])
             
             
         # return results
