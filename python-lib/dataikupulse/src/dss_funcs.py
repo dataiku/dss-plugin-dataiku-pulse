@@ -48,7 +48,7 @@ def get_dss_name_id_mapping(client):
     mapping = [instance_name, instance_name_base, instance_id_base]
     return mapping
 
-def get_preset_pc():
+def get_preset_pc(preset_name):
     # Connect to the plugin
     local_client = build_local_client()
     plugin_handle = local_client.get_plugin(plugin_id="dataiku-pulse")
@@ -60,9 +60,15 @@ def get_preset_pc():
         "cores": 2,
         "macro_configs": [],
     }
-    
-    
-    return
+    # Get the respective param_set if available
+    if preset_name:
+        param_set = plugin_settings.get_parameter_set(parameter_set_name="params-worker-instances")
+        preset = param_set.get_preset(preset_name=preset_name)
+        try:
+            preset_pc = preset.plugin_config
+        except:
+            pass
+    return preset_pc
 
 
 # ---------- DATA GATHER MODULES -----------------------------
