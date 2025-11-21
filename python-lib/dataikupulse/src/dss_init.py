@@ -16,8 +16,16 @@ def load_yaml(path="./scenarios.yaml"):
 
 def update_plugin_config(self, plugin_handle):
     settings = plugin_handle.get_settings()
+    # Dashboard
     param_set = settings.get_parameter_set(parameter_set_name="params-dashboard-instance")
     preset = param_set.get_preset(preset_name="primary")
+    if not preset:
+        preset = param_set.create_preset(preset_name="primary")
+    preset.get_raw()["pluginConfig"] = self.params
+    param_set.save()
+    # Node
+    param_set = settings.get_parameter_set(parameter_set_name="params-worker-instances")
+    preset = param_set.get_preset(preset_name=self.preset_pc_name)
     if not preset:
         preset = param_set.create_preset(preset_name="primary")
     preset.get_raw()["pluginConfig"] = self.params
