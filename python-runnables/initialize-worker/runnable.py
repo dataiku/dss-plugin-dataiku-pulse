@@ -12,13 +12,6 @@ class MyRunnable(Runnable):
         self.config = config
         self.plugin_config = plugin_config
         self.params = plugin_config.get("pulse_primary", {})
-        self.preset_pc = {
-            "pulse_dataiku_user": "admin",
-            "ignore_certs": False,
-            "do_parallel": False,
-            "cores": 2,
-            "macro_configs": [],
-        }
         
     def get_progress_target(self):
         return None
@@ -27,10 +20,7 @@ class MyRunnable(Runnable):
         cont = True
         results = []
 
-        # Connect to the plugin
-        local_client = dss_funcs.build_local_client()
-        plugin_handle = local_client.get_plugin(plugin_id="dataiku-pulse")
-        plugin_settings = plugin_handle.get_settings()
+
         for worker_host in self.params["worker_hosts"]:
             worker_url = worker_host.get("worker_url", None)
             worker_api = worker_host.get("worker_api", None)
