@@ -20,13 +20,18 @@ class MyRunnable(Runnable):
     def run(self, progress_callback):
         results = []
         for api_config in self.params["worker_hosts"]:
-            # Create a remote client
             worker_url = api_config["worker_url"]
             worker_api = api_config["worker_api"]
             
+            # Get the respective param_set if available
+            plugin_handle = client.get_plugin(plugin_id="dataiku-pulse")
+            settings = plugin_handle.get_settings()
+            param_set = settings.get_parameter_set(parameter_set_name="params-macro-config")
+            preset = param_set.get_preset(preset_name="mazzei-designer")
+            preset.plugin_config["macro_configs"]
             
             
-            
+            # Create a remote client
             remote_client = dss_funcs.build_remote_client(worker_url, worker_api, self.params["worker_hosts"]ignore_certs)
             
             # Install/Update Plugin if not found
