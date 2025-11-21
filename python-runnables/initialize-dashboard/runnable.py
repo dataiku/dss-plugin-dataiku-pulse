@@ -27,9 +27,7 @@ class MyRunnable(Runnable):
         instance_name = dss_funcs.get_dss_name(local_client)
         project_handle = local_client.get_project(self.params["pulse_project_key"])
         library = project_handle.get_library()
-        
-        raise Exception()
-        
+                
         # Create the folders
         if cont:
             try:
@@ -38,7 +36,8 @@ class MyRunnable(Runnable):
             except Exception as e:
                 results.append(["Create Folders", False, f"An error occurred: {e}"])
                 cont = False
-                
+        raise Exception()
+
         # Get plugin directory
         if cont:
             root_path = local_client.get_instance_info().raw["dataDirPath"]
