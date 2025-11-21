@@ -1,6 +1,5 @@
 from dataikupulse.src import dss_folder
 from dataikupulse.src import dss_funcs
-from dataikupulse.src import dss_init
 
 import os
 import shutil
