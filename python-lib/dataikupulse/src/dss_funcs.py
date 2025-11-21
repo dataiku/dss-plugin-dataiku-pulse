@@ -49,7 +49,7 @@ def get_dss_name_id_mapping(client):
     return mapping
 
 def get_preset_pc():
-    
+    return
 
 
 # ---------- DATA GATHER MODULES -----------------------------
