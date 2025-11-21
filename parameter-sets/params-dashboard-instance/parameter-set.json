@@ -63,6 +63,20 @@
             "type": "STRING",
             "description": "",
             "mandatory": true
+        },
+        {
+            "name": "worker_separator",
+            "labe": "",
+            "description": "<hr color='#000000' size='3' noshade><h3>Worker Nodes</h3>",
+            "type": "SEPARATOR"
+        },
+        {
+            "name": "pulse_worker_key",
+            "label": "Dataiku Pulse Worker Project Key",
+            "type": "STRING",
+            "description": "",
+            "mandatory": true,
+            "defaultValue": "DATAIKU_PULSE_WORKER"
         }
     ],
     "params": []
