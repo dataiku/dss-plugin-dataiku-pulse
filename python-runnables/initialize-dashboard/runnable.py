@@ -36,7 +36,6 @@ class MyRunnable(Runnable):
             except Exception as e:
                 results.append(["Create Folders", False, f"An error occurred: {e}"])
                 cont = False
-        raise Exception()
 
         # Get plugin directory
         if cont:
@@ -53,6 +52,8 @@ class MyRunnable(Runnable):
             else:
                 results.append(["plugin directory", False, "Cannot find plugin Directory"])
                 cont = False
+        raise Exception()
+
         # Create the Code Studio Template
         if cont:
             try:
