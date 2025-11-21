@@ -30,7 +30,7 @@ class MyRunnable(Runnable):
             preset_name  = worker_host["preset_name"]
             
             # Get the respective param_set if available
-            param_set = settings.get_parameter_set(parameter_set_name="params-worker-instances")
+            param_set = plugin_settings.get_parameter_set(parameter_set_name="params-worker-instances")
             preset = param_set.get_preset(preset_name=preset_name)
             try:
                 preset_pc = preset.plugin_config["macro_configs"]
