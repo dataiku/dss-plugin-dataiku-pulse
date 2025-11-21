@@ -50,7 +50,9 @@ def install_plugin(self, remote_client):
         update_plugin_config(self, plugin_handle)
     else:
         plugin_install = remote_client.install_plugin_from_git(
-            repository_url=self.pulse_repo_url, checkout=self.pulse_repo_branch, subpath=None
+            repository_url = self.params["pulse_repo_url"],
+            checkout = self.params["pulse_repo_branch"],
+            subpath = None
         )
         r = plugin_install.wait_for_result()
         r = plugin_install.get_result()
