@@ -30,7 +30,7 @@ class MyRunnable(Runnable):
             param_set  = worker_host["param_set"]
             
             # Get the respective param_set if available
-            param_set = settings.get_parameter_set(parameter_set_name=param_set)
+            param_set = settings.get_parameter_set(parameter_set_name="params-worker-instances")
             preset = param_set.get_preset(preset_name="mazzei-designer")
             preset.plugin_config["macro_configs"]
             
