@@ -21,7 +21,7 @@ class MyRunnable(Runnable):
         # Connect to the plugin
         local_client = dss_funcs.build_local_client()
         plugin_handle = local_client.get_plugin(plugin_id="dataiku-pulse")
-        settings = plugin_handle.get_settings()
+        plugin_settings = plugin_handle.get_settings()
             
         results = []
         for worker_host in self.params["worker_hosts"]:
