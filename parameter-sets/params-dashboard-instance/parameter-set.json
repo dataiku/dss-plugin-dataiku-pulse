@@ -96,7 +96,7 @@
                     "type": "PASSWORD",
                     "description": "API Key running as an ADMIN level user",
                     "mandatory": true
-                },
+                }
             ]
         }
     ],
