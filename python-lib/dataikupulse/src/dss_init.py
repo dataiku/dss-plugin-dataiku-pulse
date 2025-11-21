@@ -27,7 +27,7 @@ def update_plugin_config(self, plugin_handle):
     param_set = settings.get_parameter_set(parameter_set_name="params-worker-instances")
     preset = param_set.get_preset(preset_name=self.preset_pc_name)
     if not preset:
-        preset = param_set.create_preset(preset_name="primary")
+        preset = param_set.create_preset(preset_name=self.preset_pc_name)
     preset.get_raw()["pluginConfig"] = self.params
     param_set.save()
     return
