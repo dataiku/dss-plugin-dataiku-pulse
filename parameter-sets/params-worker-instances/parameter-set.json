@@ -7,14 +7,7 @@
     "defaultDefinableInline": false,
     "defaultDefinableAtProjectLevel": false,
     "pluginParams": [
-        {
-            "name": "pulse_worker_key",
-            "label": "Dataiku Pulse Worker Project Key",
-            "type": "STRING",
-            "description": "",
-            "mandatory": true,
-            "defaultValue": "DATAIKU_PULSE_WORKER"
-        },
+
         {
             "name": "pulse_dataiku_user",
             "label": "Dataiku Pulse Worker Dataiku User",
