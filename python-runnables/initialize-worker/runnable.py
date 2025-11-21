@@ -18,6 +18,11 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
+        # Connect to the plugin
+        
+        plugin_handle = client.get_plugin(plugin_id="dataiku-pulse")
+        settings = plugin_handle.get_settings()
+            
         results = []
         for worker_host in self.params["worker_hosts"]:
             worker_url = worker_host["worker_url"]
@@ -25,8 +30,7 @@ class MyRunnable(Runnable):
             param_set  = worker_host["param_set"]
             
             # Get the respective param_set if available
-            plugin_handle = client.get_plugin(plugin_id="dataiku-pulse")
-            settings = plugin_handle.get_settings()
+
             param_set = settings.get_parameter_set(parameter_set_name="params-macro-config")
             preset = param_set.get_preset(preset_name="mazzei-designer")
             preset.plugin_config["macro_configs"]
