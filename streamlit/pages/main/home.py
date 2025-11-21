@@ -70,9 +70,17 @@ This dashboard provides key administrative insights into the Dataiku platform to
 
 ## 🔃 Refresh Dataiku PULSE Insight Data
 
+* This is an "administration" function and is locked behind a password.
+
 """)
+pwd = st.text_input("Password", type="password")
+run = st.button("Refresh")
+if run:
+    if pwd == "dataikupulse2026":
+        dss_duck.initiate_db()
+    else:
+        st.error("Invalid password.")
 
-if st.button("Refresh"):
-    dss_duck.initiate_db()
-
-st.dataframe(dss_duck.funcs.query_direct_sql("SHOW TABLES;"))
+with st.container(border=True):
+    st.markdown("### DuckDB Debug -- To be deleted")
+    st.dataframe(dss_duck.funcs.query_direct_sql("SHOW TABLES;"))

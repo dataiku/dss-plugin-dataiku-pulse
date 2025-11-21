@@ -1,3 +1,4 @@
+# BLOB SETUP FOR AWS, AZURE, GCS
 blob_setup:
   aws_modules: INSTALL httpfs; LOAD httpfs;
   aws_headers_assume: |
@@ -9,21 +10,32 @@ blob_setup:
       external_id 'dss-pulse-duckdb-session',
       region '{aws_region}'
     )
-  azure_modules: TBD;
-  azure_headers: |
-    CREATE OR REPLACE SECRET azure_secret (
+  azure_modules: INSTALL azure; LOAD azure;
+  azure_oauth2_headers: |
+    CREATE OR REPLACE SECRET duckdb_az_secret (
+      TYPE azure,
+      PROVIDER service_principal,
+      TENANT_ID '{tenant_id}',
+      CLIENT_ID '{client_id}',
+      CLIENT_SECRET '{client_secret}',
+      ACCOUNT_NAME '{account_name}'
     )
-  gcp_modules: TBD;
+  gcp_modules: INSTALL httpfs; LOAD httpfs;
   gcp_headers: |
-    CREATE OR REPLACE SECRET gcp_secret (
-    )
+    CREATE OR REPLACE SECRET duckdb_gs_secret (
+        TYPE gcs,
+        KEY_ID '{hmac_id}',
+        SECRET '{hmac_secret}'
+    );
 
+# BASE DATA QUERY
 base_data:
   main: |
     CREATE OR REPLACE TABLE {table_name} AS
     SELECT *
     FROM read_parquet([{path_list}], union_by_name = true)
 
+# DATAIKU USAGE QUERY WRAPPER
 dataiku_usage: 
   overview: |
     CREATE OR REPLACE TABLE dataiku_usage_overview AS
@@ -43,6 +55,7 @@ dataiku_usage:
       union_by_name = true
     )
 
+# ADD ON QUERIES FOR MORE COMPLEX AGGRAGATIONS
 addon_data:
   metadata_primary_keys: |
     CREATE OR REPLACE TABLE metadata_primary_keys AS
