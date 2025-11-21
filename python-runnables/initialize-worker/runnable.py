@@ -11,7 +11,7 @@ class MyRunnable(Runnable):
         self.project_key = project_key
         self.config = config
         self.plugin_config = plugin_config
-        self.params = plugin_config["pulse_primary"]
+        self.params = plugin_config.get("pulse_primary", {})
         self.preset_pc = {
             "pulse_dataiku_user": "admin",
             "ignore_certs": False,
