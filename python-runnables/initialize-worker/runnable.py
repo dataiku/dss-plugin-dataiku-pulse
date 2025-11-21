@@ -79,7 +79,11 @@ class MyRunnable(Runnable):
                 except Exception as e:
                     cont = False
                     results.append([worker_url, "Load DSS Commits Table", False, e])
-                        
+            
+            
+            
+            
+            
         # return results
         if results:
             df = pd.DataFrame(results, columns=["worker_url", "step", "results", "message"])
