@@ -28,6 +28,8 @@ class MyRunnable(Runnable):
         project_handle = local_client.get_project(self.params["pulse_project_key"])
         library = project_handle.get_library()
         
+        raise Exception()
+        
         # Create the folders
         if cont:
             try:
