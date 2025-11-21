@@ -21,7 +21,6 @@ def update_plugin_config(self, plugin_handle):
     if not preset:
         preset = param_set.create_preset(preset_name="primary")
     preset.get_raw()["pluginConfig"] = self.params
-    preset.get_raw()["pluginConfig"]["worker_hosts"] = []
     param_set.save()
     return
 
