@@ -87,7 +87,7 @@
                     "name": "worker_url",
                     "label": "URL",
                     "type": "STRING",
-                    "description": "",
+                    "description": "Worker Host DNS or Private_IP:PORT",
                     "mandatory": true
                 },
                 {
