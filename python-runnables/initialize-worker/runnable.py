@@ -45,5 +45,5 @@ class MyRunnable(Runnable):
                     pass
             
             # Create a remote client
-            remote_client = dss_funcs.build_remote_client(worker_url, worker_api, self.preset_pc["ignore_certs"])
+            remote_client = dss_funcs.build_remote_client(worker_url, worker_api)#, self.preset_pc["ignore_certs"])
             
