@@ -15,10 +15,11 @@
     "macroRoles": [],
     "params": [
         {
-          "type": "PRESET",
-          "name": "pulse_primary",
-          "label": "Choose PULSE Primary Configuration",
-          "parameterSetId": "params-dashboard-instance"
+            "type": "PRESET",
+            "name": "pulse_primary",
+            "label": "Choose PULSE Primary Configuration",
+            "parameterSetId": "params-dashboard-instance",
+            "defaultValue": "primary"
         }
     ]
 }
