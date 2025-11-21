@@ -153,6 +153,6 @@ def create_scenarios(self, project_handle):
         settings.active = True
         settings.save()
         # RUN
-        if self.config["force_scenarios"]:
-            run = scenario_handle.run()
+        #if self.config["force_scenarios"]:
+        #    run = scenario_handle.run()
     return
