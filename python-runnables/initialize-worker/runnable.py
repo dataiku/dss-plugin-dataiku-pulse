@@ -24,12 +24,13 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
+        cont = True
+        results = []
+
         # Connect to the plugin
         local_client = dss_funcs.build_local_client()
         plugin_handle = local_client.get_plugin(plugin_id="dataiku-pulse")
         plugin_settings = plugin_handle.get_settings()
-            
-        results = []
         for worker_host in self.params["worker_hosts"]:
             worker_url = worker_host.get("worker_url", None)
             worker_api = worker_host.get("worker_api", None)
@@ -51,7 +52,7 @@ class MyRunnable(Runnable):
                 cont = False
             
             # Install/Update Plugin if not found
-            cont = True
+            
             if self.pulse_project_url != worker_url:
                 try:
                     dss_init.install_plugin(self, remote_client)
