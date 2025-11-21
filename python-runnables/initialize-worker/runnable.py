@@ -48,5 +48,14 @@ class MyRunnable(Runnable):
             try:
                 remote_client = dss_funcs.build_remote_client(worker_url, worker_api, self.preset_pc["ignore_certs"])
             except:
-                raise Exception(self.preset_pc)
+                cont = False
             
+            # Install/Update Plugin if not found
+            cont = True
+            if self.pulse_project_url != worker_url:
+                try:
+                    dss_init.install_plugin(self, remote_client)
+                    results.append([worker_url, "Plugin Configured", True, None])
+                except Exception as e:
+                    results.append([worker_url, "Plugin Configured", False, e])
+                    cont = False
