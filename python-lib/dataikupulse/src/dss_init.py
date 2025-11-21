@@ -133,8 +133,6 @@ def create_scenarios(self, project_handle):
         except:
             scenario_handle = project_handle.create_scenario(scenario_name=key, type="step_based")
             settings = scenario_handle.get_settings()
-        # Enable
-        settings.data["active"] = True
         # Run As User
         settings.data["runAsUser"] = self.preset_pc["pulse_dataiku_user"]
         # Trigger
@@ -152,8 +150,9 @@ def create_scenarios(self, project_handle):
         del settings.raw_steps[:]
         settings.raw_steps.append(step)
         # Save
+        settings.data["active"] = True
         settings.save()
         # RUN
-        #if self.config["force_scenarios"]:
-        #    run = scenario_handle.run()
+        if self.config["force_scenarios"]:
+            run = scenario_handle.run()
     return
