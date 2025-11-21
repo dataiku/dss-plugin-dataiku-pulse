@@ -35,13 +35,14 @@ class MyRunnable(Runnable):
             worker_api = worker_host["worker_api"]
             preset_name  = worker_host.get("preset_name", None)
             
-            
             # Get the respective param_set if available
-            param_set = plugin_settings.get_parameter_set(parameter_set_name="params-worker-instances")
-            preset = param_set.get_preset(preset_name=preset_name)
-            try:
-                self.preset_pc = preset.plugin_config["macro_configs"]
-            except:
+            if preset_name:
+                param_set = plugin_settings.get_parameter_set(parameter_set_name="params-worker-instances")
+                preset = param_set.get_preset(preset_name=preset_name)
+                try:
+                    self.preset_pc = preset.plugin_config["macro_configs"]
+                except:
+                    pass
                 
             
             # Create a remote client
