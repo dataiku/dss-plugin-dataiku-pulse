@@ -28,7 +28,7 @@ def update_plugin_config(self, plugin_handle):
     preset = param_set.get_preset(preset_name=self.preset_pc_name)
     if not preset:
         preset = param_set.create_preset(preset_name=self.preset_pc_name)
-    preset.get_raw()["pluginConfig"] = self.params
+    preset.get_raw()["pluginConfig"] = self.preset_pc
     param_set.save()
     return
 
