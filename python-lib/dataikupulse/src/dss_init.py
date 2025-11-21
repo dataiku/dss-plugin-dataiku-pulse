@@ -2,6 +2,7 @@ import os
 import yaml
 import json
 
+
 def load_yaml(path="./scenarios.yaml"):
     script_dir = os.path.dirname(os.path.realpath(__file__))
     try:
@@ -11,6 +12,7 @@ def load_yaml(path="./scenarios.yaml"):
     except:
         config = {}
     return config
+
 
 def update_plugin_config(self, plugin_handle):
     settings = plugin_handle.get_settings()
