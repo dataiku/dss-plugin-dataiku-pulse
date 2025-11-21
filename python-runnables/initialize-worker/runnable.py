@@ -19,21 +19,10 @@ class MyRunnable(Runnable):
     def run(self, progress_callback):
         cont = True
         results = []
-
-
         for worker_host in self.params["worker_hosts"]:
             worker_url = worker_host.get("worker_url", None)
             worker_api = worker_host.get("worker_api", None)
-            preset_name  = worker_host.get("preset_name", None)
-            
-            # Get the respective param_set if available
-            if preset_name:
-                param_set = plugin_settings.get_parameter_set(parameter_set_name="params-worker-instances")
-                preset = param_set.get_preset(preset_name=preset_name)
-                try:
-                    self.preset_pc = preset.plugin_config
-                except:
-                    pass
+            self.preset = dss_funcs.get_preset_pc(worker_host.get("preset_name", None))
             
             # Create a remote client
             try:
