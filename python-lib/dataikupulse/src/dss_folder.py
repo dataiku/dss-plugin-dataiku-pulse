@@ -27,7 +27,7 @@ def create_local_folder(self, project_handle, folder_name):
 def get_local_folder(self, project_handle, folder_name):
     folder = dataiku.Folder(
         lookup = folder_name,
-        project_key = self.pulse_project_key,
+        project_key = self.params["pulse_project_key"],
         ignore_flow = True
     )
     try:
