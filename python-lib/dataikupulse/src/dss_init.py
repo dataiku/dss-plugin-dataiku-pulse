@@ -67,7 +67,6 @@ def install_plugin(self, remote_client):
             raise Exception(r["messages"]["messages"])
         # Update the plugin config
         update_plugin_config(self, plugin_handle)
-    
     return
 
 
