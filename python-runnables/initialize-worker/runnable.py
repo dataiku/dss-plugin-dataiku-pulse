@@ -35,7 +35,14 @@ class MyRunnable(Runnable):
             try:
                 preset_pc = preset.plugin_config["macro_configs"]
             except:
-                preset_pc = {}
+                preset_pc = {
+                    "pulse_dataiku_user": "admin",
+                    "ignore_certs": False,
+                    "do_parallel": False,
+                    "cores": 2,
+                    "macro_configs": [],
+                    
+                }
             
             # Create a remote client
             remote_client = dss_funcs.build_remote_client(worker_url, worker_api, self.params["worker_hosts"]ignore_certs)
