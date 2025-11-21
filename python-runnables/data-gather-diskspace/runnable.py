@@ -23,7 +23,7 @@ class MyRunnable(Runnable):
         self.project_key = project_key
         self.config = config
         self.plugin_config = plugin_config
-        self.preset_pc = dss_funcs.get_preset_pc(preset_name)
+        self.preset_pc = dss_funcs.get_preset_pc("DATAIKU-PULSE")
         
         
         
