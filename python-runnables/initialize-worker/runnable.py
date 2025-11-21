@@ -24,6 +24,8 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
+        if self.config["force_scenarios"]:
+            raise Exception("Apple")
         raise Exception(self.config["force_scenarios"])
         cont = True
         results = []
