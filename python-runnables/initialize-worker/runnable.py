@@ -61,9 +61,15 @@ class MyRunnable(Runnable):
                     except Exception as e:
                         results.append([worker_url, "Plugin Configured", False, e])
                         cont = False
-                        
-                        
-                        
+
+            # Create the Worker Project
+            if cont:
+                try:
+                    project_handle = dss_init.create_worker(remote_client, self.pulse_worker_key)
+                    results.append([worker_url, "Worker Created", True, None])
+                except Exception as e:
+                    results.append([worker_url, "Worker Created", False, e])
+                    cont = False                        
                         
                         
         # return results
