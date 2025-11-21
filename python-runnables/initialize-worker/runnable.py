@@ -31,8 +31,8 @@ class MyRunnable(Runnable):
             
         results = []
         for worker_host in self.params["worker_hosts"]:
-            worker_url = worker_host["worker_url"]
-            worker_api = worker_host["worker_api"]
+            worker_url = worker_host.get("worker_url", None)
+            worker_api = worker_host.get("worker_api", None)
             preset_name  = worker_host.get("preset_name", None)
             
             # Get the respective param_set if available
