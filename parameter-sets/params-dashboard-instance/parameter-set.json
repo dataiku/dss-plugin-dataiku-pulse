@@ -79,8 +79,8 @@
             "defaultValue": "DATAIKU_PULSE_WORKER"
         },
         {
-            "name": "worker_nodes",
-            "label": "Worker Nodes",
+            "name": "worker_hosts",
+            "label": "Worker Hosts",
             "type": "OBJECT_LIST",
             "subParams": [
                 {
