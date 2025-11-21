@@ -54,7 +54,7 @@ class MyRunnable(Runnable):
             
             # Install/Update Plugin if not found
             if cont:
-                if self.pulse_project_url != worker_url:
+                if self.params["pulse_project_url"] != worker_url:
                     try:
                         dss_init.install_plugin(self, remote_client)
                         results.append([worker_url, "Plugin Configured", True, None])
