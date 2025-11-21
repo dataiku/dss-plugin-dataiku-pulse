@@ -134,7 +134,7 @@ def create_scenarios(self, project_handle):
             scenario_handle = project_handle.create_scenario(scenario_name=key, type="step_based")
             settings = scenario_handle.get_settings()
         # Run As User
-        settings.data["runAsUser"] = self.params["pulse_dataiku_user"]
+        settings.data["runAsUser"] = self.preset_pc["pulse_dataiku_user"]
         # Trigger
         del settings.raw_triggers[:]
         settings.raw_triggers.append(trigger)
