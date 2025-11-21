@@ -24,6 +24,7 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
+        raise Exception(self.config["force_scenarios"])
         cont = True
         results = []
 
