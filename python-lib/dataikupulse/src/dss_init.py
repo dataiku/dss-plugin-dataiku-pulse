@@ -34,6 +34,7 @@ def update_default_node(self, plugin_handle):
     if not preset:
         preset = param_set.create_preset(preset_name=self.preset_pc_name)
     preset.get_raw()["pluginConfig"] = self.preset_pc
+    preset.get_raw()["description"] = "This is automatically generated from the Pulse Init Worker Macro. Do not delete. Update from the Primary Plugin Settings."
     param_set.save()
     return
     
