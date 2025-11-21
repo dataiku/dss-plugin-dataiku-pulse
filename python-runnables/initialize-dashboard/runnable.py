@@ -36,6 +36,7 @@ class MyRunnable(Runnable):
             except Exception as e:
                 results.append(["Create Folders", False, f"An error occurred: {e}"])
                 cont = False
+                
         # Get plugin directory
         if cont:
             root_path = local_client.get_instance_info().raw["dataDirPath"]
