@@ -9,6 +9,7 @@
     "pluginParams": [
         {
             "name": "github_separator",
+            "labe": "",
             "description": "<hr color='#000000' size='3' noshade><h3>GitHub Repository Information</h3>",
             "type": "SEPARATOR"
         },
