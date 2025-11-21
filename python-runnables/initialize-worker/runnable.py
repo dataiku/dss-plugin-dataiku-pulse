@@ -43,6 +43,17 @@ class MyRunnable(Runnable):
                         results.append([worker_url, "Plugin Configured", False, e])
                         cont = False
             
+            # Create/Update the default call home config
+            if cont:
+                    try:
+                        plugin_handle = remote_client.get_plugin(plugin_id="dataiku-pulse") 
+                        dss_init.update_default_node(self, plugin_handle)
+                        results.append([worker_url, "Default Preset Built", True, None])
+                    except Exception as e:
+                        results.append([worker_url, "Default Preset Built", False, e])
+                        cont = False
+
+            
             # Create the Worker Project
             if cont:
                 try:
