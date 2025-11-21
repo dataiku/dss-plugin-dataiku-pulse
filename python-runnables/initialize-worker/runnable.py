@@ -12,7 +12,13 @@ class MyRunnable(Runnable):
         self.config = config
         self.plugin_config = plugin_config
         self.params = plugin_config["pulse_primary"]
-
+        self.preset_pc = {
+            "pulse_dataiku_user": "admin",
+            "ignore_certs": False,
+            "do_parallel": False,
+            "cores": 2,
+            "macro_configs": [],
+        }
         
     def get_progress_target(self):
         return None
@@ -29,20 +35,14 @@ class MyRunnable(Runnable):
             worker_api = worker_host["worker_api"]
             preset_name  = worker_host.get("preset_name", None)
             
+            
             # Get the respective param_set if available
             param_set = plugin_settings.get_parameter_set(parameter_set_name="params-worker-instances")
             preset = param_set.get_preset(preset_name=preset_name)
             try:
                 self.preset_pc = preset.plugin_config["macro_configs"]
             except:
-                self.preset_pc = {
-                    "pulse_dataiku_user": "admin",
-                    "ignore_certs": False,
-                    "do_parallel": False,
-                    "cores": 2,
-                    "macro_configs": [],
-                    
-                }
+                
             
             # Create a remote client
             #remote_client = dss_funcs.build_remote_client(worker_url, worker_api, self.preset_pc["ignore_certs"])
