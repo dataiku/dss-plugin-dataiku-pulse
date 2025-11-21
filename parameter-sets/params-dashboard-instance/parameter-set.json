@@ -98,6 +98,12 @@
                     "mandatory": true
                 }
             ]
+        },
+        {
+            "name": "enf_separator",
+            "labe": "",
+            "description": "<hr color='#000000' size='3' noshade><h3></h3>",
+            "type": "SEPARATOR"
         }
     ],
     "params": []
