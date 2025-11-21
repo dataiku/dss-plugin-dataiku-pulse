@@ -152,7 +152,6 @@ def create_scenarios(self, project_handle):
         del settings.raw_steps[:]
         settings.raw_steps.append(step)
         # Save
-        
         settings.save()
         # RUN
         #if self.config["force_scenarios"]:
