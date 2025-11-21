@@ -25,6 +25,8 @@ def update_plugin_config(self, plugin_handle):
     param_set.save()
     # Node
     param_set = settings.get_parameter_set(parameter_set_name="params-worker-instances")
+    for preset_name in param_set.list_preset_names():
+        param_set.delete_preset(preset_name=preset_name)
     preset = param_set.get_preset(preset_name=self.preset_pc_name)
     if not preset:
         preset = param_set.create_preset(preset_name=self.preset_pc_name)
