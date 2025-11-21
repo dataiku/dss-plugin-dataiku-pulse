@@ -19,10 +19,10 @@ class MyRunnable(Runnable):
 
     def run(self, progress_callback):
         results = []
-        for api_config in self.params["worker_hosts"]:
-            worker_url = api_config["worker_url"]
-            worker_api = api_config["worker_api"]
-            param_set  = api_config["param_set"]
+        for worker_host in self.params["worker_hosts"]:
+            worker_url = worker_host["worker_url"]
+            worker_api = worker_host["worker_api"]
+            param_set  = worker_host["param_set"]
             
             
             # Get the respective param_set if available
