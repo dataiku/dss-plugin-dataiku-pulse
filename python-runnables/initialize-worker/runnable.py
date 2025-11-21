@@ -23,6 +23,7 @@ class MyRunnable(Runnable):
             worker_url = api_config["worker_url"]
             worker_api = api_config["worker_api"]
             
+            
             # Get the respective param_set if available
             plugin_handle = client.get_plugin(plugin_id="dataiku-pulse")
             settings = plugin_handle.get_settings()
