@@ -101,7 +101,7 @@
                     "name": "param_set",
                     "label": "Parameter Set",
                     "type": "STRING",
-                    "description": "Match this string to the Worker Param Set to use custom settings.",
+                    "description": "Match this string to the Worker Node Parameter Set to use custom settings.",
                     "mandatory": false
                 }
             ]
