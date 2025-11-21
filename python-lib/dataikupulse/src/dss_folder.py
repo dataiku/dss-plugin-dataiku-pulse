@@ -10,7 +10,7 @@ import io
 def create_local_folder(self, project_handle, folder_name):
     folder_handle = project_handle.create_managed_folder(
         name = folder_name,
-        connection_name = self.pulse_folder_connection
+        connection_name = self.params["pulse_folder_connection"]
     )
     if folder_name == "partitioned_data":
         settings = folder_handle.get_settings()
