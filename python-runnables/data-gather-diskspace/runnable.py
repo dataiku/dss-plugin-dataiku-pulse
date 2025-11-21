@@ -23,6 +23,10 @@ class MyRunnable(Runnable):
         self.project_key = project_key
         self.config = config
         self.plugin_config = plugin_config
+        self.preset_pc = dss_funcs.get_preset_pc(preset_name)
+        
+        
+        
         self.pulse_project_key = plugin_config.get("pulse_project_key", None)
         self.pulse_project_url = plugin_config.get("pulse_project_url", None)
         self.pulse_project_api = plugin_config.get("pulse_project_api", None)
