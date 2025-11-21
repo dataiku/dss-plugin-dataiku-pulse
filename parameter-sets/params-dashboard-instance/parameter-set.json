@@ -74,7 +74,7 @@
             "name": "pulse_worker_key",
             "label": "Worker Node Project Key Name",
             "type": "STRING",
-            "description": "",
+            "description": "Static name to use for the worker nodes project key to be named.",
             "mandatory": true,
             "defaultValue": "DATAIKU_PULSE_WORKER"
         },
