@@ -27,7 +27,7 @@ class MyRunnable(Runnable):
         for worker_host in self.params["worker_hosts"]:
             worker_url = worker_host["worker_url"]
             worker_api = worker_host["worker_api"]
-            preset_name  = worker_host["preset_name"]
+            preset_name  = worker_host.get("preset_name", None)
             
             # Get the respective param_set if available
             param_set = plugin_settings.get_parameter_set(parameter_set_name="params-worker-instances")
