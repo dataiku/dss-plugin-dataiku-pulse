@@ -85,16 +85,16 @@
             "subParams": [
                 {
                     "name": "worker_url",
-                    "label": "Worker Host URL",
+                    "label": "URL",
                     "type": "STRING",
                     "description": "",
                     "mandatory": true
                 },
                 {
                     "name": "worker_api",
-                    "label": "Worker Host API",
+                    "label": "Admin API",
                     "type": "PASSWORD",
-                    "description": "API Key running as an ADMIN level user",
+                    "description": "Global Level Administrative API Key",
                     "mandatory": true
                 },
                 {
