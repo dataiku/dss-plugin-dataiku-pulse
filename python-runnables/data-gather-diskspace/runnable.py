@@ -23,14 +23,8 @@ class MyRunnable(Runnable):
         self.project_key = project_key
         self.config = config
         self.plugin_config = plugin_config
+        self.params = plugin_config.get("pulse_primary", {})
         self.preset_pc = dss_funcs.get_preset_pc("DATAIKU-PULSE")
-        
-        
-        
-        self.pulse_project_key = plugin_config.get("pulse_project_key", None)
-        self.pulse_project_url = plugin_config.get("pulse_project_url", None)
-        self.pulse_project_api = plugin_config.get("pulse_project_api", None)
-        self.ignore_certs     = plugin_config.get("ignore_certs", False)
         self.dt = datetime.utcnow()
         
     def get_progress_target(self):
