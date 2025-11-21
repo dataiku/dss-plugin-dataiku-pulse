@@ -24,7 +24,7 @@ class MyRunnable(Runnable):
             worker_api = worker_host.get("worker_api", None)
             preset_name = worker_host.get("preset_name", None)
             self.preset_pc = dss_funcs.get_preset_pc(preset_name)
-            self.preset_pc_name = "Default-Auto-Enabled"
+            self.preset_pc_name = "DATAIKU-PULSE"
             
             # Create a remote client
             try:
