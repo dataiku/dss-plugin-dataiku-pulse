@@ -24,7 +24,6 @@ class MyRunnable(Runnable):
             worker_api = worker_host["worker_api"]
             param_set  = worker_host["param_set"]
             
-            
             # Get the respective param_set if available
             plugin_handle = client.get_plugin(plugin_id="dataiku-pulse")
             settings = plugin_handle.get_settings()
@@ -36,54 +35,3 @@ class MyRunnable(Runnable):
             # Create a remote client
             remote_client = dss_funcs.build_remote_client(worker_url, worker_api, self.params["worker_hosts"]ignore_certs)
             
-            # Install/Update Plugin if not found
-            cont = True
-            if self.pulse_project_url != worker_url:
-                try:
-                    dss_init.install_plugin(self, remote_client)
-                    results.append([worker_url, "Plugin Configured", True, None])
-                except Exception as e:
-                    results.append([worker_url, "Plugin Configured", False, e])
-                    cont = False
-
-            # Create the Worker Project
-            if cont:
-                try:
-                    project_handle = dss_init.create_worker(remote_client, self.pulse_worker_key)
-                    results.append([worker_url, "Worker Created", True, None])
-                except Exception as e:
-                    results.append([worker_url, "Worker Created", False, e])
-                    cont = False
-
-            # Create the DSS Commit Table
-            if cont:
-                try:
-                    dss_init.get_dss_commits(project_handle)
-                    results.append([worker_url, "Load DSS Commits Table", True, None])
-                except Exception as e:
-                    cont = False
-                    results.append([worker_url, "Load DSS Commits Table", False, e])
-            
-            # Create the Phone Home Scenarios
-            if cont:
-                try:
-                    dss_init.create_scenarios(self, project_handle)
-                    results.append([worker_url, "Create/Update Scenarios", True, None])
-                except Exception as e:
-                    cont = False
-                    results.append([worker_url, "Create/Update Scenarios", False, e])
-        
-        # return results
-        if results:
-            df = pd.DataFrame(results, columns=["worker_url", "step", "results", "message"])
-            df = df.astype(str)
-            rt = ResultTable()
-            n = 1
-            for col in df.columns:
-                rt.add_column(n, col, "STRING")
-                n +=1
-            for index, row in df.iterrows():
-                rt.add_record(row.tolist())
-            return rt
-        else:
-            raise Exception("Something went wrong")
