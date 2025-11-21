@@ -79,8 +79,8 @@
             "defaultValue": "DATAIKU_PULSE_WORKER"
         },
         {
-            "name": "macro_configs",
-            "label": "Macro Configuration",
+            "name": "worker_nodes",
+            "label": "Worker Nodes",
             "type": "OBJECT_LIST",
             "subParams": [
                 {
