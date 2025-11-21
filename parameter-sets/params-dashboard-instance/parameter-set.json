@@ -72,7 +72,7 @@
         },
         {
             "name": "pulse_worker_key",
-            "label": "Dataiku Pulse Worker Project Key",
+            "label": "Worker Node Project Key Name",
             "type": "STRING",
             "description": "",
             "mandatory": true,
