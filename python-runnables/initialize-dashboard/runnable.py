@@ -70,6 +70,7 @@ class MyRunnable(Runnable):
             except Exception as e:
                 results.append(["Create Code Studio", False, f"An error occurred: {e}"])
                 cont = False
+        
         # Get Code Studio directory
         if cont:
             code_studio_path = f"{root_path}/config/projects/{self.pulse_project_key}/code_studios/{cs_id}"
