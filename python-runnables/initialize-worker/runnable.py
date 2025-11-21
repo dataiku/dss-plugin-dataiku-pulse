@@ -11,22 +11,7 @@ class MyRunnable(Runnable):
         self.project_key = project_key
         self.config = config
         self.plugin_config = plugin_config
-        self.pulse_project_key   = plugin_config.get("pulse_project_key", None)
-        self.pulse_project_url   = plugin_config.get("pulse_project_url", None)
-        self.pulse_project_api   = plugin_config.get("pulse_project_api", None)
-        self.pulse_worker_key    = plugin_config.get("pulse_worker_key", None)
-        self.pulse_dataiku_user  = plugin_config.get("pulse_dataiku_user", "admin")
-        self.ignore_certs        = plugin_config.get("ignore_certs", False)
-        self.pulse_repo_url      = plugin_config.get("pulse_repo_url", "https://github.com/dataiku/dss-plugin-dataiku-pulse.git")
-        self.pulse_repo_branch   = plugin_config.get("pulse_repo_branch", "main")
-        self.do_parallel         = plugin_config.get("do_parallel", False)
-        self.cores               = plugin_config.get("cores", 2)
-        self.update_github       = config.get("update_github", False)
-        self.force_scenarios     = config.get("force_scenarios", False)
-        
-        # Set environment variable
-        self.pulse_folder_connection = plugin_config.get("pulse_folder_connection", "filesystem_folders")
-        os.environ["pulse_FOLDER_CONNECTION"] = self.pulse_folder_connection
+
         
     def get_progress_target(self):
         return None
