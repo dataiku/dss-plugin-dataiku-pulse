@@ -23,6 +23,10 @@ def update_plugin_config(self, plugin_handle):
         preset = param_set.create_preset(preset_name="primary")
     preset.get_raw()["pluginConfig"] = self.params
     param_set.save()
+    return
+
+
+def update_default_node(self, plugin_handle):
     # Node
     param_set = settings.get_parameter_set(parameter_set_name="params-worker-instances")
     for preset_name in param_set.list_preset_names():
@@ -33,7 +37,6 @@ def update_plugin_config(self, plugin_handle):
     preset.get_raw()["pluginConfig"] = self.preset_pc
     param_set.save()
     return
-
     
 def install_plugin(self, remote_client):
     # Only install if not found, if found and set to update, patch
