@@ -12,7 +12,7 @@
     "resultLabel": "RESULTS",
     "extension": "txt",
     "mimeType": "text/plain",
-    "macroRoles": [{"type": "PROJECT_MACROS"}],
+    "macroRoles": [{"type": "PROJECT_CREATOR"}],
     "params": [
         {
             "type": "PRESET",
