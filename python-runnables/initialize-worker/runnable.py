@@ -70,7 +70,15 @@ class MyRunnable(Runnable):
                 except Exception as e:
                     results.append([worker_url, "Worker Created", False, e])
                     cont = False                        
-                        
+            
+            # Create the DSS Commit Table
+            if cont:
+                try:
+                    dss_init.get_dss_commits(project_handle)
+                    results.append([worker_url, "Load DSS Commits Table", True, None])
+                except Exception as e:
+                    cont = False
+                    results.append([worker_url, "Load DSS Commits Table", False, e])
                         
         # return results
         if results:
