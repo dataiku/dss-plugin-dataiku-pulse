@@ -98,7 +98,7 @@
                     "mandatory": true
                 },
                 {
-                    "name": "param_set",
+                    "name": "preset_name",
                     "label": "Parameter Set",
                     "type": "STRING",
                     "description": "Match this string to the Worker Node Parameter Set to use custom settings.",
