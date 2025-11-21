@@ -15,15 +15,9 @@ class MyRunnable(Runnable):
         self.project_key = project_key
         self.config = config
         self.plugin_config = plugin_config
-        self.pulse_project_key = plugin_config.get("pulse_project_key", None)
-        self.pulse_project_url = plugin_config.get("pulse_project_url", None)
-        self.pulse_project_api = plugin_config.get("pulse_project_api", None)
-        self.ignore_certs      = plugin_config.get("ignore_certs", False)
-        self.do_parallel       = plugin_config.get("do_parallel", False)
-        self.cores             = plugin_config.get("cores", 2)
-        self.dt                = datetime.utcnow()
-        self.pulse_folder_connection = plugin_config.get("pulse_folder_connection", "filesystem_folders")
-        self.local_client = dss_funcs.build_local_client()
+        self.params = plugin_config.get("pulse_primary", {})
+        self.preset_pc = dss_funcs.get_preset_pc("DATAIKU-PULSE")
+        self.dt = datetime.utcnow()
 
 
     def get_progress_target(self):
