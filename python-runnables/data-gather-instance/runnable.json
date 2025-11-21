@@ -15,10 +15,10 @@
     "macroRoles": [],
     "params": [
         {
-            "name": "params_dss_dashboard",
-            "label": "params dss dashboard",
             "type": "PRESET",
-            "parameterSetId": "params-dss-dashboard",
+            "name": "pulse_primary",
+            "label": "Choose PULSE Primary Configuration",
+            "parameterSetId": "params-dashboard-instance",
             "mandatory": true
         }
     ]
