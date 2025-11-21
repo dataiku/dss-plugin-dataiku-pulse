@@ -13,7 +13,7 @@ class MyRunnable(Runnable):
         self.project_key = project_key
         self.config = config
         self.plugin_config = plugin_config
-        self.params = self.pulse_primary
+        self.params = plugin_config["pulse_primary"]
         
     def get_progress_target(self):
         return None
