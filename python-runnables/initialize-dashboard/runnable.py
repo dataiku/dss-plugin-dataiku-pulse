@@ -52,7 +52,6 @@ class MyRunnable(Runnable):
             else:
                 results.append(["plugin directory", False, "Cannot find plugin Directory"])
                 cont = False
-        raise Exception()
 
         # Create the Code Studio Template
         if cont:
