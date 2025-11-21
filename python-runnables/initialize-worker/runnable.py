@@ -22,6 +22,7 @@ class MyRunnable(Runnable):
         for api_config in self.params["worker_hosts"]:
             worker_url = api_config["worker_url"]
             worker_api = api_config["worker_api"]
+            param_set  = api_config["param_set"]
             
             
             # Get the respective param_set if available
