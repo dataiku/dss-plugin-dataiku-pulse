@@ -1,8 +1,8 @@
 {
     "meta" : {
-        "label": "Macro Configuration",
+        "label": "Dashboard",
         "description": "",
-        "icon": "fa fa-calendar"
+        "icon": "fa fa-bar-chart"
     },
     "defaultDefinableInline": false,
     "defaultDefinableAtProjectLevel": false,
