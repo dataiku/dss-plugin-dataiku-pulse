@@ -12,6 +12,17 @@ def load_yaml(path="./scenarios.yaml"):
         config = {}
     return config
 
+def update_plugin_config(self, plugin_handle):
+    settings = plugin_handle.get_settings()
+    param_set = settings.get_parameter_set(parameter_set_name="params-dashboard-instance")
+    preset = param_set.get_preset(preset_name="primary")
+    if not preset:
+        preset = param_set.create_preset(preset_name="primary")
+    preset.get_raw()["pluginConfig"] = local_preset.plugin_config
+    preset.get_raw()["pluginConfig"]["worker_hosts"] = []
+    param_set.save()
+    return
+
     
 def install_plugin(self, remote_client):
     # Only install if not found, if found and set to update, patch
