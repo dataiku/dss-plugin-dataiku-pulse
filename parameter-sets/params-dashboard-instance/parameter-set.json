@@ -7,8 +7,8 @@
     "defaultDefinableInline": false,
     "defaultDefinableAtProjectLevel": false,
     "pluginParams": [
-{
-            "name": "sep_pulse_dashboard",
+        {
+            "name": "github_separator",
             "description": "<hr color='#000000' size='3' noshade><h3>GitHub Repository Information</h3>",
             "type": "SEPARATOR"
         },
@@ -29,7 +29,7 @@
             "defaultValue": "main"
         },
         {
-            "name": "sep_pulse_dashboard",
+            "name": "dashboard_separator",
             "description": "<hr color='#000000' size='3' noshade><h3>Dashboard Information</h3>",
             "type": "SEPARATOR"
         },
