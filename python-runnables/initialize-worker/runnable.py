@@ -22,7 +22,8 @@ class MyRunnable(Runnable):
         for worker_host in self.params["worker_hosts"]:
             worker_url = worker_host.get("worker_url", None)
             worker_api = worker_host.get("worker_api", None)
-            self.preset = dss_funcs.get_preset_pc(worker_host.get("preset_name", None))
+            preset_name = worker_host.get("preset_name", None)
+            self.preset = dss_funcs.get_preset_pc(preset_name)
             
             # Create a remote client
             try:
