@@ -73,7 +73,7 @@ class MyRunnable(Runnable):
         
         # Get Code Studio directory
         if cont:
-            code_studio_path = f"{root_path}/config/projects/{self.pulse_project_key}/code_studios/{cs_id}"
+            code_studio_path = f"{root_path}/config/projects/{self.params["pulse_project_key"]}/code_studios/{cs_id}"
             if not os.path.isdir(code_studio_path):
                 results.append(["Project Library Confirmed", False, f"Cannot find project library {code_studio_path}"])
                 cont = False
