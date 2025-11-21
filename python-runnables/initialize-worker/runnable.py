@@ -22,9 +22,9 @@ class MyRunnable(Runnable):
         for worker_host in self.params["worker_hosts"]:
             worker_url = worker_host.get("worker_url", None)
             worker_api = worker_host.get("worker_api", None)
-            preset_name = worker_host.get("preset_name", "Default")
+            preset_name = worker_host.get("preset_name", None)
             self.preset_pc = dss_funcs.get_preset_pc(preset_name)
-            self.preset_pc_name = preset_name
+            self.preset_pc_name = "Default-Auto-Enabled"
             
             # Create a remote client
             try:
