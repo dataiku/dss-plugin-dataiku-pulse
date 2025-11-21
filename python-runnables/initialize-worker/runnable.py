@@ -27,11 +27,11 @@ class MyRunnable(Runnable):
         for worker_host in self.params["worker_hosts"]:
             worker_url = worker_host["worker_url"]
             worker_api = worker_host["worker_api"]
-            param_set  = worker_host["param_set"]
+            preset_name  = worker_host["preset_name"]
             
             # Get the respective param_set if available
             param_set = settings.get_parameter_set(parameter_set_name="params-worker-instances")
-            preset = param_set.get_preset(preset_name="mazzei-designer")
+            preset = param_set.get_preset(preset_name=preset_name)
             preset.plugin_config["macro_configs"]
             
             
