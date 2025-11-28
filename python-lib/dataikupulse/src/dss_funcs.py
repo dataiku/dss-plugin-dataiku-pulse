@@ -57,10 +57,10 @@ def get_preset_pc(self, preset_name):
     plugin_handle = local_client.get_plugin(plugin_id="dataiku-pulse")
     plugin_settings = plugin_handle.get_settings()
     preset_pc = {
-        "pulse_dataiku_user": "admin",
-        "ignore_certs": False,
-        "do_parallel": False,
-        "cores": 2,
+        "pulse_dataiku_user": self.params[""],
+        "ignore_certs": self.params[""],
+        "do_parallel": self.params[""],
+        "cores": self.params[""],
         "macro_configs": [],
     }
     # Get the respective param_set if available
