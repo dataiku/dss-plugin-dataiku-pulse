@@ -5,12 +5,11 @@
 
 This dashboard is designed to give Dataiku Admins insights into the DSS instance.
 
-* DSS at a glance
-* Individual objects, statistics, graphs
-* Maintenance and performance reviews
+* Dataiku Insights (API Dataiku)
+* Dataiku Usage (Audit Logs)
 
 
-## Tested Versions
+## Tested Dataiku Versions
 
 1. v2.1/0
   1. v14.2
