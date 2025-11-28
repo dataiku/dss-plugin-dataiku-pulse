@@ -101,8 +101,8 @@ class MyRunnable(Runnable):
             df = df.rename(columns={"message_authUser": "message_login"})
 
         # Module Import
-        results += run_module(self, user_login, df)
-        results += run_module(self, event_mapping, df)
+        #results += run_module(self, user_login, df)
+        #results += run_module(self, event_mapping, df)
         
         # Reset the audit_log_cache df
         variables["local"]["audit_logs_cache"] = str(df["timestamp"].max())
