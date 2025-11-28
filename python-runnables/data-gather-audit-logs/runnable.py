@@ -105,9 +105,8 @@ class MyRunnable(Runnable):
         results += run_module(self, event_mapping, df)
         
         # Reset the audit_log_cache df
-        last_time_entry = df["timestamp"].max()
-        audit_log_cache_df["timestamp"] = last_time_entry
-        dataset.write_with_schema(audit_log_cache_df)
+        variables["local"]["audit_logs_cache"] = str(df["timestamp"].max())
+        project_handle.set_variables(variables)
         results.append(["Set New Audit Log Cache timestamp", True, last_time_entry])
         
         # return results
