@@ -25,6 +25,8 @@ class MyRunnable(Runnable):
         self.plugin_config = plugin_config
         self.params = plugin_config.get("pulse_primary", {})
         self.preset_pc = dss_funcs.get_preset_pc("DATAIKU-PULSE")
+        self.local_client = dss_funcs.build_local_client()
+        self.remote_client = dss_funcs.build_remote_client(self)
         self.dt = datetime.utcnow()
         
     def get_progress_target(self):
@@ -32,7 +34,6 @@ class MyRunnable(Runnable):
 
     def run(self, progress_callback):
         # Get local client and name
-        local_client = dss_funcs.build_local_client()
         instance_name = dss_funcs.get_dss_name(local_client)
         
         # change directory and get audit logs
@@ -94,7 +95,7 @@ class MyRunnable(Runnable):
         results.append(["read/parse", True, None])
         
         # loop topics and save data
-        remote_client = dss_funcs.build_remote_client(self)
+        remote_client = 
         dt_year  = str(self.dt.year)
         dt_month = str(f'{self.dt.month:02d}')
         dt_day   = str(f'{self.dt.day:02d}')
