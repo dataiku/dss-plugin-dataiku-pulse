@@ -71,7 +71,7 @@ def write_local_folder_output(self, project_handle, folder_name, path, df):
 
 # ---------- DATAIKU REMOTE FOLDERS --------------------------------------------------------
 def write_remote_folder_output(self, path, df):
-    project_handle = self.remote_client.get_project(project_key=self.pulse_project_key)
+    project_handle = self.remote_client.get_project(project_key=self.params["pulse_project_key"])
     fid = None
     for f in project_handle.list_managed_folders():
         if f["name"] == "partitioned_data":
