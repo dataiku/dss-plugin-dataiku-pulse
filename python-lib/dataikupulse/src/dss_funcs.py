@@ -18,7 +18,7 @@ def build_local_client():
     return client
 
 
-def build_remote_client(host, api_key, ignore_certs=False):
+def build_remote_client(self):
     if ignore_certs:
         client = dataikuapi.DSSClient(host, api_key, insecure_tls=True)
     else:
