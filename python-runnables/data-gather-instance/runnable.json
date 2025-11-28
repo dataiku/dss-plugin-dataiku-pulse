@@ -20,5 +20,6 @@
             "label": "Choose PULSE Primary Configuration",
             "parameterSetId": "params-dashboard-instance",
             "mandatory": true
+        }
     ]
 }
