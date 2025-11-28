@@ -68,6 +68,8 @@ class MyRunnable(Runnable):
             logging.error(f"value i: {i}")
             size = get_size(i)
             df.loc[df["level_1"] == i, "level_1_size"] = size
+            
+        raise Exception(df)
                         
         # Filter size on a base number (1gb / adjustable)
         #gb = 1000000 * 1
