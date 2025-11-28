@@ -1,14 +1,12 @@
-import os
-import time
-from pathlib import Path
-import pandas as pd
-import dataiku
-from datetime import timedelta, datetime
-
-from dataikupulse.src import dss_funcs
-from dataikupulse.base_data.audit_log import user_login, event_mapping
-
 from dataiku.runnables import Runnable, ResultTable
+from dataikupulse.base_data.audit_log import user_login, event_mapping
+from dataikupulse.src import dss_funcs
+from datetime import timedelta, datetime
+from pathlib import Path
+import dataiku
+import os
+import pandas as pd
+import time
 
 
 def find_recent_files(file_list, hours=100):
