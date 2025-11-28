@@ -106,7 +106,7 @@
                 }
             ]
         },
-                {
+        {
             "name": "pulse_dataiku_user",
             "label": "Dataiku Pulse Worker Dataiku User",
             "type": "STRING",
@@ -137,7 +137,7 @@
             "mandatory": true,
             "defaultValue": 2,
             "visibilityCondition": "model.do_parallel"
-        }
+        },
         {
             "name": "end_separator",
             "labe": "",
