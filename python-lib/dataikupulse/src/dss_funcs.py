@@ -21,6 +21,7 @@ def build_remote_client(self, remote_url=False, api_key=False):
         host = remote_url
         api_key = api_key
     if ignore_certs:
+        # no_check_certificate v14?
         client = dataikuapi.DSSClient(host, api_key, insecure_tls=True)
     else:
         client = dataikuapi.DSSClient(host, api_key)
