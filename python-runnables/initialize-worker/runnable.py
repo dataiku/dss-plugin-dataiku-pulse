@@ -34,7 +34,7 @@ class MyRunnable(Runnable):
             
             # Create a remote client
             try:
-                remote_client = dss_funcs.build_remote_client(worker_url, worker_api, self.preset_pc["ignore_certs"])
+                remote_client = dss_funcs.build_remote_client(self, worker_url, worker_api)
             except Exception as e:
                 results.append([worker_url, "Failed to connect to host", False, e])
                 cont = False
