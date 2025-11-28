@@ -32,6 +32,7 @@ class MyRunnable(Runnable):
             # Create a remote client
             try:
                 remote_client = dss_funcs.build_remote_client(self, worker_url, worker_api)
+                remote_client.list_projects()
             except Exception as e:
                 results.append([worker_url, f"Failed to connect to host: {worker_url}  {worker_api}", False, e])
                 cont = False
