@@ -20,6 +20,13 @@
             "label": "Choose PULSE Primary Configuration",
             "parameterSetId": "params-dashboard-instance",
             "mandatory": true
+        },
+        {
+            "type": "PRESET",
+            "name": "phone_home",
+            "label": "CRITICAL - SELECT DATAIKU-PULSE ONLY",
+            "parameterSetId": "params-dashboard-instance",
+            "mandatory": true
         }
     ]
 }
