@@ -68,7 +68,7 @@ class MyRunnable(Runnable):
             audit_log_cache_df = pd.DataFrame([yesterday], columns=["timestamp"])
         else:
             try:
-                project_handle = local_client.get_default_project()
+                project_handle = self.local_client.get_default_project()
                 dataset_handle = project_handle.get_dataset(dataset_name="audit_log_cache")
                 if not dataset_handle.exists():
                     builder = project_handle.new_managed_dataset("audit_log_cache")
