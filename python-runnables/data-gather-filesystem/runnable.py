@@ -4,6 +4,7 @@ import os
 import subprocess
 import pandas as pd
 from datetime import datetime, date, timedelta
+import logging
 
 from dataiku.runnables import Runnable, ResultTable
 
