@@ -51,7 +51,7 @@ def get_dss_name_id_mapping(client):
     mapping = [instance_name, instance_name_base, instance_id_base]
     return mapping
 
-def get_preset_pc(preset_name):
+def get_preset_pc(self, preset_name):
     # Connect to the plugin
     local_client = build_local_client()
     plugin_handle = local_client.get_plugin(plugin_id="dataiku-pulse")
