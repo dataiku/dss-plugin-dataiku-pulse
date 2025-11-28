@@ -95,7 +95,6 @@ class MyRunnable(Runnable):
         results.append(["read/parse", True, None])
         
         # loop topics and save data
-        remote_client = 
         dt_year  = str(self.dt.year)
         dt_month = str(f'{self.dt.month:02d}')
         dt_day   = str(f'{self.dt.day:02d}')
