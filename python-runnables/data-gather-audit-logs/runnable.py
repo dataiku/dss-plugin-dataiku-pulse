@@ -105,9 +105,9 @@ class MyRunnable(Runnable):
         #results += run_module(self, event_mapping, df)
         
         # Reset the audit_log_cache df
-        variables["local"]["audit_logs_cache"] = str(df["timestamp"].max())
+        variables["local"]["audit_logs_cache"] = str(df["timestamp"].max()
         project_handle.set_variables(variables)
-        results.append(["Set New Audit Log Cache timestamp", True, str(df["timestamp"].max())
+        results.append(["Set New Audit Log Cache timestamp", True, str(df["timestamp"].max())])
         
         # return results
         if results:
