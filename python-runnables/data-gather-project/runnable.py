@@ -42,9 +42,6 @@ class MyRunnable(Runnable):
     
     
     def run(self, progress_callback):
-        # Set environment variable
-        os.environ["pulse_FOLDER_CONNECTION"] = self.pulse_folder_connection
-        
         # Grab some exra details
         local_client = self.local_client
         client_d = {}
