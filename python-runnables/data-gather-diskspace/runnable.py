@@ -6,9 +6,6 @@ import pandas as pd
 from datetime import datetime, date, timedelta
 import logging
 
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.ERROR)
-logger = logging.getLogger(__name__)
-
 from dataiku.runnables import Runnable, ResultTable
 
 def get_size(d):
