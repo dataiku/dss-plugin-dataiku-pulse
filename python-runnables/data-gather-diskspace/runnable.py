@@ -103,7 +103,7 @@ class MyRunnable(Runnable):
         df["timestamp"] = self.dt
         try:
             write_path = f"/{instance_name}/operating_system/diskspace/{dt_year}/{dt_month}/{dt_day}/data.parquet"
-            dss_folder.write_remote_folder_output(self, remote_client, write_path, df)
+            dss_folder.write_remote_folder_output(self, write_path, df)
             results.append(["write/save", True, None])
         except Exception as e:
             results.append(["write/save", False, e])
