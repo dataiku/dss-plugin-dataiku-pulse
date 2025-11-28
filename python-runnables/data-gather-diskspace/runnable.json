@@ -25,7 +25,7 @@
             "type": "PRESET",
             "name": "phone_home",
             "label": "CRITICAL - SELECT DATAIKU-PULSE ONLY",
-            "parameterSetId": "params-dashboard-instance",
+            "parameterSetId": "params-worker-instances",
             "mandatory": true
         }
     ]
