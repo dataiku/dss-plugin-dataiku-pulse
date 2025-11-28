@@ -19,6 +19,9 @@ def build_local_client():
 
 
 def build_remote_client(self):
+    host = self.params["pulse_project_url"]
+    api_key = self.params["pulse_project_api"]
+    ignore_certs = self.preset_pc["ignore_certs"]
     if ignore_certs:
         client = dataikuapi.DSSClient(host, api_key, insecure_tls=True)
     else:
