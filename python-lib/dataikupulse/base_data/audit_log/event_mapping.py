@@ -65,7 +65,6 @@ def main(self, df):
         merged_df["authvia"] = merged_df["authvia"].apply(lambda x: ', '.join(map(str, x)))
         merged_df[["project_key_temp", "webapp_id_temp"]] = merged_df["authvia"].apply(parse_authvia)
         
-        
         # Update columns from AuthVia
         if "project_key" not in merged_df.columns:
             merged_df["project_key"] = None
@@ -79,7 +78,6 @@ def main(self, df):
             dupes = merged_df.loc[:, merged_df.columns == "webappid"]
             merged_df["webappid"] = dupes.bfill(axis=1).iloc[:, 0]
             merged_df = merged_df.loc[:, ~merged_df.columns.duplicated()]
-        
 
         # lets split the df by category and save
         for category, grp in merged_df.groupby("dataiku_category"):
