@@ -80,11 +80,11 @@ def main(self, df):
             merged_df = merged_df.loc[:, ~merged_df.columns.duplicated()]
 
         # lets split the df by category and save
-        for category, grp in merged_df.groupby("dataiku_category"):
-            grp = grp.dropna(axis=1, how='all').reset_index(drop=True)
+        for category, grp_df in merged_df.groupby("dataiku_category"):
+            grp_df = grp_df.dropna(axis=1, how='all').reset_index(drop=True)
             try:
                 write_path = f"/{instance_name}/dataiku_usage/{category}/{dt_year}/{dt_month}/{dt_day}/data-{dt_epoch}.parquet"
-                dss_folder.write_remote_folder_output(self, write_path, grp)
+                dss_folder.write_remote_folder_output(self, write_path, grp_df)
                 results.append([f"write/save - Dataiku Usage {category}", True, f"data-{dt_epoch}.parquet"])
             except Exception as e:
                 results.append([f"write/save - Dataiku Usage {category}", False, e])
