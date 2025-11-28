@@ -42,14 +42,14 @@ Due to the web application being built on Streamlit, installation requires a bit
                 1. Fill out each host including the local host if you want to track the local host.
                     1. Need both Hostname or IP:Port and Admin level API Key
                     1. For more custom control add a PARAM_SET name specific to the host for the next section
-        1. Worker Nodes: This will container additional auto information or custom information per host (OPTIONAL)
-            1. Create a PARAM_SET matching the name of the worker node PARAM_SET from the previous section
                 1. User: User to own/run the scenarios
                 1. Ignore Certs: Auto trust https between nodes
                 1. Project Data Parallel: Gather Project metadata in parallel
                 1. Cores: How many cores to run for project data
-                1. Macro Configuration:
-                    1. PLACE HOLDER -- Coming v2.2
+        1. (OPTIONAL) Worker Nodes: This will container additional auto information or custom information per host
+            1. Create a PARAM_SET matching the name of the worker node PARAM_SET from the previous section
+            1. Custom User, Certs, Parallel/Cores
+            1. Macro Configuration: PLACE HOLDER -- Coming v2.2
 1. Code Studios
     1. Create the template name `dataiku_pulse_dashboard` # this name is important
     1. Setup K8s to run on
