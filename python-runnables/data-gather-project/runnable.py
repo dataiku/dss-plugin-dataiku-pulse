@@ -9,7 +9,6 @@ import os
 import logging
 
 
-
 class MyRunnable(Runnable):
     def __init__(self, project_key, config, plugin_config):
         self.project_key = project_key
