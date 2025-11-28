@@ -58,9 +58,9 @@ def get_preset_pc(self, preset_name):
     plugin_settings = plugin_handle.get_settings()
     preset_pc = {
         "pulse_dataiku_user": self.params["pulse_dataiku_user"],
-        "ignore_certs": self.params[""],
-        "do_parallel": self.params[""],
-        "cores": self.params[""],
+        "ignore_certs": self.params["ignore_certs"],
+        "do_parallel": self.params["do_parallel"],
+        "cores": self.params["cores"],
         "macro_configs": [],
     }
     # Get the respective param_set if available
