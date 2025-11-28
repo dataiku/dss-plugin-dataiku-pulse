@@ -41,7 +41,7 @@ def main(self, df):
             login_users_df.columns = login_users_df.columns.str.replace('message_', '', regex=False)
             login_users_df.columns = login_users_df.columns.str.lower()
             write_path = f"/{instance_name}/users/viewing_user_logins/{dt_year}/{dt_month}/{dt_day}/data-{dt_epoch}.parquet"
-            dss_folder.write_remote_folder_output(self, remote_client, write_path, login_users_df)
+            dss_folder.write_remote_folder_output(self, write_path, login_users_df)
             results.append(["write/save", True, f"login users data-{dt_epoch}.parquet"])
         except Exception as e:
             results.append(["write/save - All", False, e])
@@ -65,7 +65,7 @@ def main(self, df):
             developer_users_df.columns = developer_users_df.columns.str.replace('message_', '', regex=False)
             developer_users_df.columns = developer_users_df.columns.str.lower()
             write_path = f"/{instance_name}/users/developer_user_logins/{dt_year}/{dt_month}/{dt_day}/data-{dt_epoch}.parquet"
-            dss_folder.write_remote_folder_output(self, remote_client, write_path, developer_users_df)
+            dss_folder.write_remote_folder_output(self, write_path, developer_users_df)
             results.append(["write/save", True, f"developing users data-{dt_epoch}.parquet"])
         except Exception as e:
             results.append(["write/save - All", False, e])
