@@ -39,7 +39,6 @@ class MyRunnable(Runnable):
         # change directory and get audit logs
         root_path = self.local_client.get_instance_info().raw["dataDirPath"]
         os.chdir(root_path)
-        raise Exception(root_path)
         
         # Find directories maxdepth
         results = []
