@@ -29,7 +29,7 @@ def parse_authvia(s):
 
 
 
-def main(self, remote_client, df):
+def main(self, df):
     results = []
     instance_name = df["instance_name"].iloc[0]
     path = os.path.dirname(os.path.realpath(__file__))
