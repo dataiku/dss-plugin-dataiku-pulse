@@ -52,13 +52,8 @@ class MyRunnable(Runnable):
 
     def run(self, progress_callback):
         results = []
-        remote_client = dss_funcs.build_remote_client(
-            self.pulse_project_url, self.pulse_project_api, self.ignore_certs
-        )
-        
         # Get local client and name
-        local_client = dss_funcs.build_local_client()
-        instance_name = dss_funcs.get_dss_name(local_client)
+        instance_name = dss_funcs.get_dss_name(self.local_client)
         
         # change directory and get audit logs
         root_path = local_client.get_instance_info().raw["dataDirPath"]
