@@ -74,7 +74,7 @@ def run_modules(self, mode, client_handle, client_d = {}, project_key = None):
     if mode == "projects":
         from dataikupulse.base_data import project_level as dss_objs
     else:
-        from dataikupulse.base_data import isntance_level as dss_objs
+        from dataikupulse.base_data import instance_level as dss_objs
     results = []
     directory = dss_objs.__path__[0]
     for root, _, files in os.walk(directory):
