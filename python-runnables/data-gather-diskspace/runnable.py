@@ -9,12 +9,9 @@ import logging
 from dataiku.runnables import Runnable, ResultTable
 
 def get_size(d):
-    try:
-        result = subprocess.run(f"du -sc {d}", shell=True, capture_output=True, text=True, check=True)
-        size = result.stdout.split("\t")[0]
-        size = int(size)
-    except:
-        size = 0
+    result = subprocess.run(f"du -sc {d}", shell=True, capture_output=True, text=True, check=True)
+    size = result.stdout.split("\t")[0]
+    size = int(size)
     return size
 
         
@@ -65,7 +62,6 @@ class MyRunnable(Runnable):
         # Get details on sizes - level_1
         df["level_1_size"] = 0
         for i,g in df.groupby(by=["level_1"]):
-            logging.error(f"value i: {i}")
             size = get_size(i)
             df.loc[df["level_1"] == i, "level_1_size"] = size
                                     
