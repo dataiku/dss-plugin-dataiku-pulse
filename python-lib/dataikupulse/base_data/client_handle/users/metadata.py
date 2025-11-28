@@ -10,7 +10,7 @@ def get_column_names_from_schema(schema):
 
 
 def get_remote_dataframe(self, client, table_name):
-    project_handle = client.get_project(project_key=self.pulse_worker_key)
+    project_handle = client.get_project(project_key=self.params["pulse_worker_key"])
     dataset_handle = project_handle.get_dataset(table_name)
     columns = get_column_names_from_schema(dataset_handle.get_schema()["columns"])
     raw_data = dataset_handle.iter_rows()
