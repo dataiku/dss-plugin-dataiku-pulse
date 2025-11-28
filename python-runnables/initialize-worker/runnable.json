@@ -15,6 +15,13 @@
     "macroRoles": [],
     "params": [
         {
+            "type": "PRESET",
+            "name": "pulse_primary",
+            "label": "Choose PULSE Primary Configuration",
+            "parameterSetId": "params-dashboard-instance",
+            "mandatory": true
+        },
+        {
             "type": "BOOLEAN",
             "name": "update_github",
             "label": "Check to force refresh latest git repo. Disable if just wanting to force scenario runs.",

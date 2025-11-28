@@ -1,6 +1,5 @@
 from dataikupulse.src import dss_folder
 from dataikupulse.src import dss_funcs
-from dataikupulse.src import dss_init
 
 import os
 import shutil
@@ -13,21 +12,21 @@ class MyRunnable(Runnable):
         self.project_key = project_key
         self.config = config
         self.plugin_config = plugin_config
-        self.pulse_project_key = plugin_config.get("pulse_project_key", None)
-        self.pulse_dataiku_user  = plugin_config.get("pulse_dataiku_user", "admin")
-        self.pulse_folder_connection = plugin_config.get("pulse_folder_connection", "filesystem_folders")
+        self.params = plugin_config["pulse_primary"]
         
     def get_progress_target(self):
         return None
 
-    def run(self, progress_callback):
+    def run(self, progress_callback):        
         results = []
         cont = True
+        
         # Get local client and name
         local_client = dss_funcs.build_local_client()
         instance_name = dss_funcs.get_dss_name(local_client)
-        project_handle = local_client.get_project(self.pulse_project_key)
+        project_handle = local_client.get_project(self.params["pulse_project_key"])
         library = project_handle.get_library()
+                
         # Create the folders
         if cont:
             try:
@@ -36,6 +35,7 @@ class MyRunnable(Runnable):
             except Exception as e:
                 results.append(["Create Folders", False, f"An error occurred: {e}"])
                 cont = False
+
         # Get plugin directory
         if cont:
             root_path = local_client.get_instance_info().raw["dataDirPath"]
@@ -51,6 +51,7 @@ class MyRunnable(Runnable):
             else:
                 results.append(["plugin directory", False, "Cannot find plugin Directory"])
                 cont = False
+
         # Create the Code Studio Template
         if cont:
             try:
@@ -67,14 +68,16 @@ class MyRunnable(Runnable):
             except Exception as e:
                 results.append(["Create Code Studio", False, f"An error occurred: {e}"])
                 cont = False
+        
         # Get Code Studio directory
         if cont:
-            code_studio_path = f"{root_path}/config/projects/{self.pulse_project_key}/code_studios/{cs_id}"
+            code_studio_path = f"{root_path}/config/projects/{self.params['pulse_project_key']}/code_studios/{cs_id}"
             if not os.path.isdir(code_studio_path):
                 results.append(["Project Library Confirmed", False, f"Cannot find project library {code_studio_path}"])
                 cont = False
             else:
                 results.append(["Project Library Confirmed", True, None])
+        
         # Delete the current running version
         if cont:
             streamlit_path = f"{code_studio_path}/dataiku_pulse"
@@ -87,6 +90,7 @@ class MyRunnable(Runnable):
                     cont = False
             else:
                 results.append(["Delete Existing", True, "Initial Setup"])
+        
         # Copy the streamlit application
         if cont:
             try:
@@ -95,6 +99,7 @@ class MyRunnable(Runnable):
             except Exception as e:
                 results.append(["Copy Streamlit", False, f"An error occurred: {e}"])
                 cont = False
+        
         # return results
         if results:
             df = pd.DataFrame(results, columns=["step", "result", "message"])

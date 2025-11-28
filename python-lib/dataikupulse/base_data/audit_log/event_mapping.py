@@ -29,7 +29,7 @@ def parse_authvia(s):
 
 
 
-def main(self, remote_client, df):
+def main(self, df):
     results = []
     instance_name = df["instance_name"].iloc[0]
     path = os.path.dirname(os.path.realpath(__file__))
@@ -65,7 +65,6 @@ def main(self, remote_client, df):
         merged_df["authvia"] = merged_df["authvia"].apply(lambda x: ', '.join(map(str, x)))
         merged_df[["project_key_temp", "webapp_id_temp"]] = merged_df["authvia"].apply(parse_authvia)
         
-        
         # Update columns from AuthVia
         if "project_key" not in merged_df.columns:
             merged_df["project_key"] = None
@@ -79,15 +78,13 @@ def main(self, remote_client, df):
             dupes = merged_df.loc[:, merged_df.columns == "webappid"]
             merged_df["webappid"] = dupes.bfill(axis=1).iloc[:, 0]
             merged_df = merged_df.loc[:, ~merged_df.columns.duplicated()]
-        
-        
-                
+
         # lets split the df by category and save
-        for category, grp in merged_df.groupby("dataiku_category"):
-            grp = grp.dropna(axis=1, how='all').reset_index(drop=True)
+        for category, grp_df in merged_df.groupby("dataiku_category"):
+            grp_df = grp_df.dropna(axis=1, how='all').reset_index(drop=True)
             try:
                 write_path = f"/{instance_name}/dataiku_usage/{category}/{dt_year}/{dt_month}/{dt_day}/data-{dt_epoch}.parquet"
-                dss_folder.write_remote_folder_output(self, remote_client, write_path, grp)
+                dss_folder.write_remote_folder_output(self, write_path, grp_df)
                 results.append([f"write/save - Dataiku Usage {category}", True, f"data-{dt_epoch}.parquet"])
             except Exception as e:
                 results.append([f"write/save - Dataiku Usage {category}", False, e])

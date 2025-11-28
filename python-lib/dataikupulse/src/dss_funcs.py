@@ -1,15 +1,10 @@
-# dataikupulse/src/dss_folder.py
-## Last Modified: 2025-10-25
-# -----------------------------------------------------------------------------------------
 import dataiku
 import dataikuapi
+import pandas as pd
 import os
 import re
 import importlib
-import pandas as pd
 from dataikupulse.src import dss_folder
-
-
 
 
 # ---------- DATAIKU CLIENT HANDLES -----------------------------
@@ -18,8 +13,16 @@ def build_local_client():
     return client
 
 
-def build_remote_client(host, api_key, ignore_certs=False):
+def build_remote_client(self, remote_url=False, api_key=False):
+    ignore_certs = self.preset_pc["ignore_certs"]
+    if remote_url:
+        host = remote_url
+        api_key = api_key
+    else:
+        host = self.params["pulse_project_url"]
+        api_key = self.params["pulse_project_api"]
     if ignore_certs:
+        # no_check_certificate v14?
         client = dataikuapi.DSSClient(host, api_key, insecure_tls=True)
     else:
         client = dataikuapi.DSSClient(host, api_key)
@@ -48,13 +51,35 @@ def get_dss_name_id_mapping(client):
     mapping = [instance_name, instance_name_base, instance_id_base]
     return mapping
 
+def get_preset_pc(self, preset_name):
+    # Connect to the plugin
+    local_client = build_local_client()
+    plugin_handle = local_client.get_plugin(plugin_id="dataiku-pulse")
+    plugin_settings = plugin_handle.get_settings()
+    preset_pc = {
+        "pulse_dataiku_user": self.params["pulse_dataiku_user"],
+        "ignore_certs": self.params["ignore_certs"],
+        "do_parallel": self.params["do_parallel"],
+        "cores": self.params["cores"],
+        "macro_configs": [],
+    }
+    # Get the respective param_set if available
+    if preset_name:
+        param_set = plugin_settings.get_parameter_set(parameter_set_name="params-worker-instances")
+        preset = param_set.get_preset(preset_name=preset_name)
+        try:
+            preset_pc = preset.plugin_config
+        except:
+            pass
+    return preset_pc
+
 
 # ---------- DATA GATHER MODULES -----------------------------
-def run_modules(self, mode, handle, client_d = {}, project_key = None):
+def run_modules(self, mode, client_handle, client_d = {}, project_key = None):
     if mode == "projects":
-        from dataikupulse.base_data import project_handle as dss_objs
+        from dataikupulse.base_data import project_level as dss_objs
     else:
-        from dataikupulse.base_data import client_handle as dss_objs
+        from dataikupulse.base_data import instance_level as dss_objs
     results = []
     directory = dss_objs.__path__[0]
     for root, _, files in os.walk(directory):
@@ -69,7 +94,7 @@ def run_modules(self, mode, handle, client_d = {}, project_key = None):
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 if hasattr(module, 'main'):
-                    df = module.main(self, handle, client_d)
+                    df = module.main(self, client_handle, client_d)
                     results.append([project_key, path, module_name, "load/run", True, None])
             except Exception as e:
                 df = pd.DataFrame()
@@ -79,7 +104,7 @@ def run_modules(self, mode, handle, client_d = {}, project_key = None):
                 continue # nothing to write, skip
             try:
                 # Remote client and DT parsing
-                remote_client = build_remote_client(self.pulse_project_url, self.pulse_project_api, self.ignore_certs)
+                remote_client = build_remote_client(self)
                 dt_year  = str(self.dt.year)
                 dt_month = str(f'{self.dt.month:02d}')
                 dt_day   = str(f'{self.dt.day:02d}')
@@ -101,7 +126,7 @@ def run_modules(self, mode, handle, client_d = {}, project_key = None):
                 # Write the output finally
                 if "timestamp" not in df.columns:
                     df["timestamp"] = self.dt
-                dss_folder.write_remote_folder_output(self, remote_client, write_path, df)
+                dss_folder.write_remote_folder_output(self, write_path, df)
                 results.append([project_key, path, module_name, "write/save", True, None])
             except Exception as e:
                 results.append([project_key, path, module_name, "write/save", False, e])

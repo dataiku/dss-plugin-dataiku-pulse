@@ -13,5 +13,13 @@
     "extension": "txt",
     "mimeType": "text/plain",
     "macroRoles": [],
-    "params": []
+    "params": [
+        {
+            "type": "PRESET",
+            "name": "pulse_primary",
+            "label": "Choose PULSE Primary Configuration",
+            "parameterSetId": "params-dashboard-instance",
+            "mandatory": true
+        }
+    ]
 }

@@ -11,20 +11,19 @@ import shutil
 import time
 import sqlparse
 import logging
-
+import json
+from google.cloud import storage
 
 # -----------------------------------------------------------------------------
 # Logger
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.ERROR)
 logger = logging.getLogger(__name__)
 
-
 # -----------------------------------------------------------------------------
 # DuckDB
 duckdb_path = "/tmp/dataikupulse"
 duckdb_name = "dataikupulse.duckdb"
 duckdb_home = f"{duckdb_path}/{duckdb_name}"
-
 
 # -----------------------------------------------------------------------------
 # Queries loader
@@ -34,21 +33,30 @@ def load_yaml(path):
         yaml_path = os.path.join(script_dir, path)
         with open(yaml_path, "r") as f:
             config = yaml.safe_load(f)
-    except:
-        config = {}
+    except Exception as e:
+        raise Exception(e)
     return config
-
 
 def render_query(query_str, **kwargs):
     return query_str.format(**kwargs)
 
-
 ## Queries
 queries = load_yaml("./queries.yaml")
 
-
 # -----------------------------------------------------------------------------
 # BLOB Folder
+
+## GCS HMAC generator
+def create_fresh_hmac(service_account_json_path, service_account_email):
+    client = storage.Client.from_service_account_json(service_account_json_path)
+    keys = client.list_hmac_keys(project_id=client.project)
+    for key in keys:
+        if key.service_account_email == service_account_email and key.state == "ACTIVE":
+            key.state = "INACTIVE"
+            key.update()
+            key.delete()
+    new_key = client.create_hmac_key(service_account_email=service_account_email)
+    return new_key[0].access_id, new_key[1]
 
 ## Basic Folder Information / Blob Path
 folder = dataiku.Folder(
@@ -56,8 +64,6 @@ folder = dataiku.Folder(
     project_key=dataiku.default_project_key(),
     ignore_flow=True
 )
-blob_bket = folder.get_info()["accessInfo"]["bucket"]
-blob_root = folder.get_info()["accessInfo"]["root"][1:]
 
 ## Pull Connection Name From Admin Settings
 client = dataiku.api_client()
@@ -65,10 +71,11 @@ project_handle = client.get_default_project()
 folder_handle = project_handle.get_managed_folder(odb_id=folder.get_id())
 connection_name = folder_handle.get_settings().settings["params"]["connection"]
 connection_handle = client.get_connection(name=connection_name)
-
 ## Pull Connection Setup/Permissions
 connection_type = connection_handle.get_info()["type"]
 if connection_type == "EC2":
+    blob_bket = folder.get_info()["accessInfo"]["bucket"]
+    blob_root = folder.get_info()["accessInfo"]["root"][1:]
     blob_header = "s3"
     blob_module = queries["blob_setup"]["aws_modules"]
     aws_region = connection_handle.get_info()["params"]["regionOrEndpoint"]
@@ -76,6 +83,8 @@ if connection_type == "EC2":
     if credentials_mode == "KEYPAIR":
         accessKey = connection_handle.get_info()["params"]["accessKey"]
         secretKey = connection_handle.get_info()["params"]["secretKey"]
+        logger.error("KEYPAIR NEEDS TO BE INIT")
+        raise Exception("Failed to find proper BLOB information. Check logs for detail.")
     elif credentials_mode == "STS_ASSUME_ROLE":
         assume_role_arn = connection_handle.get_info()["params"]["stsRoleToAssume"]
         blob_credentials = render_query(
@@ -87,27 +96,48 @@ if connection_type == "EC2":
         logger.error("Do not accept ENVIRONMENT MODE")
         raise Exception("Failed to find proper BLOB information. Check logs for detail.")
 
-
 elif connection_type == "Azure":
-    blob_header = "s3"
+    blob_bket = folder.get_info()["accessInfo"]["container"]
+    blob_root = folder.get_info()["accessInfo"]["root"][1:]
+    blob_header = "az"
     blob_module = queries["blob_setup"]["azure_modules"]
     storageAccount = connection_handle.get_info()["params"]["storageAccount"]
     credentials_mode = connection_handle.get_info()["params"]["authType"]
     if credentials_mode == "SHARED_KEY":
         accessKey = connection_handle.get_info()["params"]["accessKey"]
-    elif credentials_mode == "OATH2":
-        print("TBD")
-
+        logger.error("SHARED KEY NEEDS TO BE INIT")
+        raise Exception("Failed to find proper BLOB information. Check logs for detail.")
+    elif credentials_mode == "OAUTH2_APP":
+        tenant_id = connection_handle.get_info()["params"]["tenantId"]
+        client_id = connection_handle.get_info()["params"]["appId"]
+        client_secret = connection_handle.get_info()["params"]["appSecret"]
+        blob_credentials = render_query(
+            queries["blob_setup"]["azure_oauth2_headers"],
+            tenant_id=tenant_id,
+            client_id=client_id,
+            client_secret=client_secret,
+            account_name=storageAccount
+        )
 
 elif connection_type == "GCS":
-    blob_header = "s3"
+    blob_bket = folder.get_info()["accessInfo"]["bucket"]
+    blob_root = folder.get_info()["accessInfo"]["root"][1:]
+    blob_header = "gs"
+    sa_json = json.loads(connection_handle.get_info()["params"]["appSecretContent"])
+    with open(f"{duckdb_path}/sa.json", "w") as json_file:
+        json.dump(sa_json, json_file, indent=4)
+    hmac_id, hmac_secret = create_fresh_hmac(f"{duckdb_path}/sa.json", sa_json["client_email"])
     blob_module = queries["blob_setup"]["gcp_modules"]
+    blob_credentials = render_query(
+        queries["blob_setup"]["gcp_headers"],
+        hmac_id=hmac_id,
+        hmac_secret=hmac_secret
+    )
 
 else:
     logger.error("Unknown Blob storage type")
     logger.error(folder.get_info())
     raise Exception("Failed to find proper BLOB information. Check logs for detail.")
-
 
 # -----------------------------------------------------------------------------
 # Dataiku Folder Partition
@@ -116,7 +146,6 @@ def build_partition_df():
     df[["instance_name", "category", "module", "date"]] = df["partitions"].str.split("|", expand=True)
     df["date"] = pd.to_datetime(df["date"])
     return df
-
 # -----------------------------------------------------------------------------
 # DuckDB -- LOADING
 def create_duckdb():
@@ -144,7 +173,6 @@ def create_duckdb():
     progress_bar.empty()
     status_text.empty()
     return True
-
 
 def load_base_tables(partition_df):
     # Create initial partition table
@@ -185,7 +213,6 @@ def load_base_tables(partition_df):
     progress_bar.empty()
     status_text.empty()
     return True
-
 
 def load_dataiku_usage(partition_df):
     progress_text = "Copying Dataiku Usage Data into database"
@@ -235,7 +262,6 @@ def load_dataiku_usage(partition_df):
     status_text.empty()
     return True
 
-
 def load_additional_tables():
     total_tables = len(queries["addon_data"])
     progress_text = "Creating Additional Tables into database"
@@ -254,7 +280,6 @@ def load_additional_tables():
     status_text.empty()
     return True
 
-
 def load_parquet_sql(query):
     try:
         with duckdb.connect(duckdb_home) as con:
@@ -267,7 +292,6 @@ def load_parquet_sql(query):
         return False
     return True
 
-
 def load_table_sql(query):
     try:
         with duckdb.connect(duckdb_home) as con:
@@ -276,7 +300,6 @@ def load_table_sql(query):
         logger.error(e)
         return False
     return True
-
 
 def load_table_df(query, df):
     try:
@@ -287,7 +310,6 @@ def load_table_df(query, df):
         logger.error(e)
         return False
     return True
-
 
 # -----------------------------------------------------------------------------
 # DuckDB -- Querying
@@ -308,7 +330,6 @@ def filters_conversion(filters):
             s += f"{in_clause})"
             final_filter.append(s)
     return final_filter
-
 
 def build_sql(query: dict, filters: dict) -> str:
     # SELECT
@@ -352,7 +373,6 @@ def build_sql(query: dict, filters: dict) -> str:
     sql = sqlparse.format(sql, reindent=True, keyword_case='upper')
     return sql
 
-
 def query_build_sql(query, filters = {}, debug=False):
     query = build_sql(query, filters)
     if debug:
@@ -366,7 +386,6 @@ def query_build_sql(query, filters = {}, debug=False):
         logger.error(e)
         return pd.DataFrame()
     return df
-
 
 def query_direct_sql(query):
     try:

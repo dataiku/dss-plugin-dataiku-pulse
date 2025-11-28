@@ -1,15 +1,13 @@
-import os
-import time
-from pathlib import Path
-import pandas as pd
-import dataiku
-from datetime import timedelta, datetime
-
-from dataikupulse.src import dss_funcs
-from dataikupulse.base_data.audit_log import user_login, event_mapping
-
 from dataiku.runnables import Runnable, ResultTable
-
+from dataikupulse.base_data.audit_log import user_login, event_mapping
+from dataikupulse.src import dss_funcs
+from datetime import timedelta, datetime
+from pathlib import Path
+import dataiku
+import os
+import pandas as pd
+import time
+import logging
 
 def find_recent_files(file_list, hours=100):
     recent_files = []
@@ -23,9 +21,9 @@ def find_recent_files(file_list, hours=100):
     return recent_files
 
 
-def run_module(self, module, remote_client, df):
+def run_module(self, module, df):
     results = []
-    r = module.main(self, remote_client, df)
+    r = module.main(self, df)
     if all(isinstance(x, list) for x in results):
         for l in r:
             results.append(l)
@@ -40,51 +38,38 @@ class MyRunnable(Runnable):
         self.project_key = project_key
         self.config = config
         self.plugin_config = plugin_config
-        self.pulse_project_key = plugin_config.get("pulse_project_key", None)
-        self.pulse_project_url = plugin_config.get("pulse_project_url", None)
-        self.pulse_project_api = plugin_config.get("pulse_project_api", None)
-        self.ignore_certs     = plugin_config.get("ignore_certs", False)
-        self.debug = False
+        self.params = plugin_config.get("pulse_primary", {})
+        self.preset_pc = dss_funcs.get_preset_pc("DATAIKU-PULSE")
+        self.local_client = dss_funcs.build_local_client()
+        self.remote_client = dss_funcs.build_remote_client(self)
         self.dt = datetime.utcnow()
+        
+        logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.ERROR)
+        self.logger = logging.getLogger(__name__)
         
     def get_progress_target(self):
         return None
 
     def run(self, progress_callback):
         results = []
-        remote_client = dss_funcs.build_remote_client(
-            self.pulse_project_url, self.pulse_project_api, self.ignore_certs
-        )
-        
         # Get local client and name
-        local_client = dss_funcs.build_local_client()
-        instance_name = dss_funcs.get_dss_name(local_client)
+        instance_name = dss_funcs.get_dss_name(self.local_client)
         
         # change directory and get audit logs
-        root_path = local_client.get_instance_info().raw["dataDirPath"]
+        root_path = self.local_client.get_instance_info().raw["dataDirPath"]
         audit_path = f"{root_path}/run/audit"
         os.chdir(audit_path)
         directory_path = "./"
         logs = [f for f in os.listdir(directory_path) if os.path.isfile(os.path.join(directory_path, f))]
         
         # get the cache timestamp and latest logs
-        if self.debug:
-            yesterday = datetime.now().astimezone() - timedelta(days=1)
-            audit_log_cache_df = pd.DataFrame([yesterday], columns=["timestamp"])
-        else:
-            try:
-                project_handle = local_client.get_default_project()
-                dataset_handle = project_handle.get_dataset(dataset_name="audit_log_cache")
-                if not dataset_handle.exists():
-                    builder = project_handle.new_managed_dataset("audit_log_cache")
-                    builder.with_store_into("filesystem_managed")
-                    dataset_handle = builder.create()
-                dataset = dataiku.Dataset("audit_log_cache")
-                audit_log_cache_df = dataset.get_dataframe()
-            except:
-                yesterday = datetime.now().astimezone() - timedelta(days=1)
-                audit_log_cache_df = pd.DataFrame([yesterday], columns=["timestamp"])
-        last_update = audit_log_cache_df["timestamp"].iloc[0]  
+        project_handle = self.local_client.get_default_project()
+        variables = project_handle.get_variables()
+        try:
+            last_update = variables["local"]["audit_logs_cache"]
+        except:
+            last_update = str(datetime.now().astimezone() - timedelta(days=1))
+        last_update = pd.to_datetime(last_update)
         time_diff = datetime.now().astimezone() - last_update
         hours = round((time_diff.total_seconds() / 3600) + 1, 0)
         logs = find_recent_files(logs, hours=hours)
@@ -116,18 +101,13 @@ class MyRunnable(Runnable):
             df = df.rename(columns={"message_authUser": "message_login"})
 
         # Module Import
-        results += run_module(self, user_login, remote_client, df)
-        results += run_module(self, event_mapping, remote_client, df)
-        
-        ## cru_logs(df)
-        ###results.append(["CRU Logs", result[0], result[1]])
+        results += run_module(self, user_login, df)
+        results += run_module(self, event_mapping, df)
         
         # Reset the audit_log_cache df
-        if not self.debug:
-            last_time_entry = df["timestamp"].max()
-            audit_log_cache_df["timestamp"] = last_time_entry
-            dataset.write_with_schema(audit_log_cache_df)
-            results.append(["Set New Audit Log Cache timestamp", True, last_time_entry])
+        variables["local"]["audit_logs_cache"] = str(df["timestamp"].max())
+        project_handle.set_variables(variables)
+        results.append(["Set New Audit Log Cache timestamp", True, str(df["timestamp"].max())])
         
         # return results
         if results:

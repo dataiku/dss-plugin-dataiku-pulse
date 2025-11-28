@@ -1,6 +1,3 @@
-# dataikupulse/src/dss_folder.py
-## Last Modified: 2025-10-25
-# -----------------------------------------------------------------------------------------
 import dataiku
 import pandas as pd
 import io
@@ -10,7 +7,7 @@ import io
 def create_local_folder(self, project_handle, folder_name):
     folder_handle = project_handle.create_managed_folder(
         name = folder_name,
-        connection_name = self.pulse_folder_connection
+        connection_name = self.params["pulse_folder_connection"]
     )
     if folder_name == "partitioned_data":
         settings = folder_handle.get_settings()
@@ -27,7 +24,7 @@ def create_local_folder(self, project_handle, folder_name):
 def get_local_folder(self, project_handle, folder_name):
     folder = dataiku.Folder(
         lookup = folder_name,
-        project_key = self.pulse_project_key,
+        project_key = self.params["pulse_project_key"],
         ignore_flow = True
     )
     try:
@@ -70,8 +67,8 @@ def write_local_folder_output(self, project_handle, folder_name, path, df):
 
 
 # ---------- DATAIKU REMOTE FOLDERS --------------------------------------------------------
-def write_remote_folder_output(self, client, path, df):
-    project_handle = client.get_project(project_key=self.pulse_project_key)
+def write_remote_folder_output(self, path, df):
+    project_handle = self.remote_client.get_project(project_key=self.params["pulse_project_key"])
     fid = None
     for f in project_handle.list_managed_folders():
         if f["name"] == "partitioned_data":
