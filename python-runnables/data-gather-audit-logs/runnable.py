@@ -56,7 +56,7 @@ class MyRunnable(Runnable):
         instance_name = dss_funcs.get_dss_name(self.local_client)
         
         # change directory and get audit logs
-        root_path = local_client.get_instance_info().raw["dataDirPath"]
+        root_path = self.local_client.get_instance_info().raw["dataDirPath"]
         audit_path = f"{root_path}/run/audit"
         os.chdir(audit_path)
         directory_path = "./"
