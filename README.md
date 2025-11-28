@@ -1,8 +1,6 @@
 # Dataiku PULSE Dashboard and Collector
 * Version - 2.1.0
 
-
-
 ## Scope
 
 This dashboard is designed to give Dataiku Admins insights into the DSS instance.
