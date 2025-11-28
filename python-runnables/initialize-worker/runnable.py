@@ -1,10 +1,9 @@
+from dataiku.runnables import Runnable, ResultTable
 from dataikupulse.src import dss_funcs
 from dataikupulse.src import dss_init
-
-import os
 import pandas as pd
+import os
 
-from dataiku.runnables import Runnable, ResultTable
 
 class MyRunnable(Runnable):
     def __init__(self, project_key, config, plugin_config):
