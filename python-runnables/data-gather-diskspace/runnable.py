@@ -33,7 +33,6 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
-        raise Exception(self.params)
         # Get local client and name
         instance_name = dss_funcs.get_dss_name(self.local_client)
         
