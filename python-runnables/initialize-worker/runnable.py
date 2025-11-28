@@ -3,6 +3,7 @@ from dataikupulse.src import dss_funcs
 from dataikupulse.src import dss_init
 import pandas as pd
 import os
+import logging
 
 
 class MyRunnable(Runnable):
