@@ -1,6 +1,3 @@
-# dataikupulse/src/dss_folder.py
-## Last Modified: 2025-10-25
-# -----------------------------------------------------------------------------------------
 import dataiku
 import dataikuapi
 import os
