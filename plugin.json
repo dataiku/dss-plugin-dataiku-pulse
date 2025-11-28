@@ -1,130 +1,17 @@
 {
     "id": "dataiku-pulse",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "meta": {
         "label": "Dataiku PULSE",
+        "category": "Dataiku Usage & Insights",
         "description": "This plugin contains the framework for the Dataiku PULSE Dashbaord.",
         "author": "Stephen Mazzei",
-        "icon": "fas fa-puzzle-piece",
-        "tags": ["Administration", "PULSE", "Data Gather", "Insights", "Usages"],
+        "icon": "fa fa-heartbeat",
+        "licenseInfo": "Apache Software License",
         "url": "https://github.com/dataiku/dss-plugin-dataiku-pulse.git",
-        "licenseInfo": "Apache Software License"
-    },
-    "params": [
-        {
-            "name": "pulse_repo_url",
-            "label": "Dataiku Pulse Github Repo",
-            "type": "STRING",
-            "description": "",
-            "mandatory": true,
-            "defaultValue": "https://github.com/dataiku/dss-plugin-dataiku-pulse.git"
-        },
-        {
-            "name": "pulse_repo_branch",
-            "label": "Dataiku Pulse Github Branch",
-            "type": "STRING",
-            "description": "",
-            "mandatory": true,
-            "defaultValue": "main"
-        },
-        {
-            "name": "sep_pulse_dashboard",
-            "description": "<hr color='#000000' size='3' noshade><h3>Dataiku Pulse Dashboard Information</h3>",
-            "type": "SEPARATOR"
-        },
-        {
-            "name": "pulse_project_key",
-            "label": "Dataiku Pulse Dashboard Project Key",
-            "type": "STRING",
-            "description": "",
-            "mandatory": true,
-            "defaultValue": "DATAIKU_PULSE_DASHBOARD"
-        },
-        {
-            "name": "pulse_project_url",
-            "label": "Dataiku Pulse Dashboard Main Host URL",
-            "type": "STRING",
-            "description": "",
-            "mandatory": true
-        },
-        {
-            "name": "pulse_project_api",
-            "label": "Dataiku Pulse Dashboard Main Host API",
-            "type": "PASSWORD",
-            "description": "API Key running as an ADMIN level user",
-            "mandatory": true
-        },
-        {
-            "name": "pulse_worker_key",
-            "label": "Dataiku Pulse Worker Project Key",
-            "type": "STRING",
-            "description": "",
-            "mandatory": true,
-            "defaultValue": "DATAIKU_PULSE_WORKER"
-        },
-        {
-            "name": "pulse_dataiku_user",
-            "label": "Dataiku Pulse Worker Dataiku User",
-            "type": "STRING",
-            "description": "",
-            "mandatory": true,
-            "defaultValue": "admin"
-        },
-        {
-            "type": "BOOLEAN",
-            "name": "ignore_certs",
-            "label": "Ignore Certificates and force trust TLS",
-            "defaultValue": false
-        },
-        {
-            "name": "pulse_folder_connection",
-            "label": "Dataiku Pulse Folder Connection",
-            "type": "STRING",
-            "description": "",
-            "mandatory": true
-        },
-        {
-            "name": "do_parallel",
-            "label": "Collect Project Data in Parallel",
-            "type": "BOOLEAN",
-            "description": "",
-            "mandatory": true,
-            "defaultValue": false
-        },
-        {
-            "name": "cores",
-            "label": "Number of cores for Parallel",
-            "type": "INT",
-            "description": "",
-            "mandatory": true,
-            "defaultValue": 2,
-            "visibilityCondition": "model.do_parallel"
-        },
-        {
-            "name": "sep_pulse_workers",
-            "description": "<hr color='#000000' size='3' noshade><h3>Dataiku Pulse Worker Information</h3>",
-            "type": "SEPARATOR"
-        },
-        {
-            "name": "api_configs",
-            "label": "Dataiku Pulse Worker Host URLs and API Keys",
-            "type": "OBJECT_LIST",
-            "subParams": [
-                {
-                    "name": "worker_url",
-                    "label": "Worker Host URL",
-                    "type": "STRING",
-                    "description": "",
-                    "mandatory": true
-                },
-                {
-                    "name": "worker_api",
-                    "label": "Worker Host API",
-                    "type": "PASSWORD",
-                    "description": "API Key running as an ADMIN level user",
-                    "mandatory": true
-                }
-            ]
-        }
-    ]
+        "tags": [
+            "Administration", "PULSE", "Data Gather", "Insights", "Usages"
+        ],
+        "supportLevel": "PLATINUM_SUPPORT"
+    }
 }

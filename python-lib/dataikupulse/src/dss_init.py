@@ -2,6 +2,7 @@ import os
 import yaml
 import json
 
+
 def load_yaml(path="./scenarios.yaml"):
     script_dir = os.path.dirname(os.path.realpath(__file__))
     try:
@@ -12,38 +13,44 @@ def load_yaml(path="./scenarios.yaml"):
         config = {}
     return config
 
+
 def update_plugin_config(self, plugin_handle):
     settings = plugin_handle.get_settings()
-    settings.settings["defaultPermission"] = {"admin": True, "canViewComponents": False}
-    settings.settings["excludedFromCDE"] = True
-    settings.settings["detailsNotVisible"] = False 
-    settings.settings["codeEnvName"] = "plugin_dataiku-pulse_managed"
-    settings.settings["config"]["pulse_repo_url"]    = self.pulse_repo_url
-    settings.settings["config"]["pulse_repo_branch"] = self.pulse_repo_branch 
-    settings.settings["config"]["pulse_project_key"]   = self.pulse_project_key
-    settings.settings["config"]["pulse_project_url"]   = self.pulse_project_url
-    settings.settings["config"]["pulse_project_api"]   = self.pulse_project_api 
-    settings.settings["config"]["pulse_worker_key"]    = self.pulse_worker_key
-    settings.settings["config"]["pulse_dataiku_user"]  = self.pulse_dataiku_user 
-    settings.settings["config"]["ignore_certs"]       = self.ignore_certs
-    settings.settings["config"]["pulse_folder_connection"] = self.pulse_folder_connection
-    settings.settings["config"]["do_parallel"] = self.do_parallel
-    settings.settings["config"]["cores"] = self.cores
-    settings.save()
+    # Dashboard
+    param_set = settings.get_parameter_set(parameter_set_name="params-dashboard-instance")
+    preset = param_set.get_preset(preset_name="primary")
+    if not preset:
+        preset = param_set.create_preset(preset_name="primary")
+    preset.get_raw()["pluginConfig"] = self.params
+    param_set.save()
     return
 
-    
+
+def update_default_node(self, plugin_handle):
+    settings = plugin_handle.get_settings()
+    # Node
+    param_set = settings.get_parameter_set(parameter_set_name="params-worker-instances")
+    preset = param_set.get_preset(preset_name=self.preset_pc_name)
+    if not preset:
+        preset = param_set.create_preset(preset_name=self.preset_pc_name)
+    preset.get_raw()["pluginConfig"] = self.preset_pc
+    preset.get_raw()["description"] = "This is automatically generated from the Pulse Init Worker Macro. Do not delete. Update from the Primary Plugin Settings."
+    param_set.save()
+    return
+
+
+
 def install_plugin(self, remote_client):
     # Only install if not found, if found and set to update, patch
     pulse_found = False
     for plugin in remote_client.list_plugins():
         if plugin["id"] == "dataiku-pulse":
             pulse_found = True
-    if pulse_found and self.update_github:
+    if pulse_found and self.config["update_github"]:
         plugin_handle = remote_client.get_plugin(plugin_id="dataiku-pulse")
         git_update = plugin_handle.update_from_git(
-            repository_url=self.pulse_repo_url,
-            checkout=self.pulse_repo_branch
+            repository_url = self.params["pulse_repo_url"],
+            checkout = self.params["pulse_repo_branch"]
         )
         r = git_update.wait_for_result()
         if not r["success"]:
@@ -57,7 +64,9 @@ def install_plugin(self, remote_client):
         update_plugin_config(self, plugin_handle)
     else:
         plugin_install = remote_client.install_plugin_from_git(
-            repository_url=self.pulse_repo_url, checkout=self.pulse_repo_branch, subpath=None
+            repository_url = self.params["pulse_repo_url"],
+            checkout = self.params["pulse_repo_branch"],
+            subpath = None
         )
         r = plugin_install.wait_for_result()
         r = plugin_install.get_result()
@@ -72,7 +81,6 @@ def install_plugin(self, remote_client):
             raise Exception(r["messages"]["messages"])
         # Update the plugin config
         update_plugin_config(self, plugin_handle)
-    
     return
 
 
@@ -140,7 +148,7 @@ def create_scenarios(self, project_handle):
             scenario_handle = project_handle.create_scenario(scenario_name=key, type="step_based")
             settings = scenario_handle.get_settings()
         # Run As User
-        settings.data["runAsUser"] = self.pulse_dataiku_user
+        settings.data["runAsUser"] = self.preset_pc["pulse_dataiku_user"]
         # Trigger
         del settings.raw_triggers[:]
         settings.raw_triggers.append(trigger)
@@ -149,15 +157,16 @@ def create_scenarios(self, project_handle):
             adj_trigger = json.loads(macros["audit_trigger"])
             settings.raw_triggers[0]["params"]["repeatFrequency"] = adj_trigger["repeatFrequency"]
             settings.raw_triggers[0]["params"]["frequency"] = adj_trigger["frequency"]
+        # Cleanup Scenario Adjustment
         if key == "data_gather_cleanup":
             step = json.loads(macros["cleanup_step"])
         # Steps
         del settings.raw_steps[:]
         settings.raw_steps.append(step)
         # Save
-        settings.active = True
+        settings.data["active"] = True
         settings.save()
         # RUN
-        if self.force_scenarios:
+        if self.config["force_scenarios"]:
             run = scenario_handle.run()
     return

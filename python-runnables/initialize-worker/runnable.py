@@ -1,63 +1,71 @@
+from dataiku.runnables import Runnable, ResultTable
 from dataikupulse.src import dss_funcs
 from dataikupulse.src import dss_init
-
-import os
 import pandas as pd
+import os
+import logging
 
-from dataiku.runnables import Runnable, ResultTable
 
 class MyRunnable(Runnable):
     def __init__(self, project_key, config, plugin_config):
         self.project_key = project_key
         self.config = config
         self.plugin_config = plugin_config
-        self.pulse_project_key   = plugin_config.get("pulse_project_key", None)
-        self.pulse_project_url   = plugin_config.get("pulse_project_url", None)
-        self.pulse_project_api   = plugin_config.get("pulse_project_api", None)
-        self.pulse_worker_key    = plugin_config.get("pulse_worker_key", None)
-        self.pulse_dataiku_user  = plugin_config.get("pulse_dataiku_user", "admin")
-        self.ignore_certs        = plugin_config.get("ignore_certs", False)
-        self.pulse_repo_url      = plugin_config.get("pulse_repo_url", "https://github.com/dataiku/dss-plugin-dataiku-pulse.git")
-        self.pulse_repo_branch   = plugin_config.get("pulse_repo_branch", "main")
-        self.do_parallel         = plugin_config.get("do_parallel", False)
-        self.cores               = plugin_config.get("cores", 2)
-        self.update_github       = config.get("update_github", False)
-        self.force_scenarios     = config.get("force_scenarios", False)
+        self.params = plugin_config.get("pulse_primary", {})
         
-        # Set environment variable
-        self.pulse_folder_connection = plugin_config.get("pulse_folder_connection", "filesystem_folders")
-        os.environ["pulse_FOLDER_CONNECTION"] = self.pulse_folder_connection
+        logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.ERROR)
+        self.logger = logging.getLogger(__name__)
         
     def get_progress_target(self):
         return None
 
     def run(self, progress_callback):
+        cont = True
         results = []
-        for api_config in self.plugin_config["api_configs"]:
+        for worker_host in self.params["worker_hosts"]:
+            worker_url = worker_host.get("worker_url", None)
+            worker_api = worker_host.get("worker_api", None)
+            preset_name = worker_host.get("preset_name", None)
+            self.preset_pc = dss_funcs.get_preset_pc(self, preset_name)
+            self.preset_pc_name = "DATAIKU-PULSE"
+            
             # Create a remote client
-            worker_url = api_config["worker_url"]
-            worker_api = api_config["worker_api"]
-            remote_client = dss_funcs.build_remote_client(worker_url, worker_api, self.ignore_certs)
+            try:
+                remote_client = dss_funcs.build_remote_client(self, worker_url, worker_api)
+            except Exception as e:
+                results.append([worker_url, f"Failed to connect to host: {worker_url}  {worker_api}", False, e])
+                cont = False
             
             # Install/Update Plugin if not found
-            cont = True
-            if self.pulse_project_url != worker_url:
-                try:
-                    dss_init.install_plugin(self, remote_client)
-                    results.append([worker_url, "Plugin Configured", True, None])
-                except Exception as e:
-                    results.append([worker_url, "Plugin Configured", False, e])
-                    cont = False
+            if cont:
+                if self.params["pulse_project_url"] != worker_url:
+                    try:
+                        dss_init.install_plugin(self, remote_client)
+                        results.append([worker_url, "Plugin Configured", True, None])
+                    except Exception as e:
+                        results.append([worker_url, "Plugin Configured", False, e])
+                        cont = False
+            
+            # Create/Update the default call home config
+            if cont:
+                    try:
+                        plugin_handle = remote_client.get_plugin(plugin_id="dataiku-pulse") 
+                        dss_init.update_default_node(self, plugin_handle)
+                        results.append([worker_url, "Default Preset Built", True, None])
+                    except Exception as e:
+                        results.append([worker_url, "Default Preset Built", False, e])
+                        cont = False
 
+            
             # Create the Worker Project
             if cont:
                 try:
-                    project_handle = dss_init.create_worker(remote_client, self.pulse_worker_key)
+                    project_handle = dss_init.create_worker(remote_client, self.params["pulse_worker_key"])
                     results.append([worker_url, "Worker Created", True, None])
                 except Exception as e:
                     results.append([worker_url, "Worker Created", False, e])
-                    cont = False
-
+                    cont = False                        
+            
             # Create the DSS Commit Table
             if cont:
                 try:
@@ -75,7 +83,8 @@ class MyRunnable(Runnable):
                 except Exception as e:
                     cont = False
                     results.append([worker_url, "Create/Update Scenarios", False, e])
-        
+            
+            
         # return results
         if results:
             df = pd.DataFrame(results, columns=["worker_url", "step", "results", "message"])
@@ -90,3 +99,8 @@ class MyRunnable(Runnable):
             return rt
         else:
             raise Exception("Something went wrong")
+                        
+                        
+                        
+                        
+                        

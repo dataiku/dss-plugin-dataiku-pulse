@@ -1,0 +1,149 @@
+{
+    "meta" : {
+        "label": "PULSE Dashboard",
+        "description": "",
+        "icon": "fa fa-bar-chart"
+    },
+    "defaultDefinableInline": false,
+    "defaultDefinableAtProjectLevel": false,
+    "pluginParams": [
+        {
+            "name": "github_separator",
+            "labe": "",
+            "description": "<hr color='#000000' size='3' noshade><h3>GitHub Repository Information</h3>",
+            "type": "SEPARATOR"
+        },
+        {
+            "name": "pulse_repo_url",
+            "label": "Dataiku Pulse Github Repo",
+            "type": "STRING",
+            "description": "",
+            "mandatory": true,
+            "defaultValue": "https://github.com/dataiku/dss-plugin-dataiku-pulse.git"
+        },
+        {
+            "name": "pulse_repo_branch",
+            "label": "Dataiku Pulse Github Branch",
+            "type": "STRING",
+            "description": "",
+            "mandatory": true,
+            "defaultValue": "main"
+        },
+        {
+            "name": "dashboard_separator",
+            "labe": "",
+            "description": "<hr color='#000000' size='3' noshade><h3>Dashboard Information</h3>",
+            "type": "SEPARATOR"
+        },
+        {
+            "name": "pulse_project_key",
+            "label": "Dataiku Pulse Dashboard Project Key",
+            "type": "STRING",
+            "description": "",
+            "mandatory": true,
+            "defaultValue": "DATAIKU_PULSE_DASHBOARD"
+        },
+        {
+            "name": "pulse_project_url",
+            "label": "Dataiku Pulse Dashboard Main Host URL",
+            "type": "STRING",
+            "description": "",
+            "mandatory": true
+        },
+        {
+            "name": "pulse_project_api",
+            "label": "Dataiku Pulse Dashboard Main Host API",
+            "type": "PASSWORD",
+            "description": "API Key running as an ADMIN level user",
+            "mandatory": true
+        },
+        {
+            "name": "pulse_folder_connection",
+            "label": "Dataiku Pulse Folder Connection",
+            "type": "STRING",
+            "description": "",
+            "mandatory": true
+        },
+        {
+            "name": "worker_separator",
+            "labe": "",
+            "description": "<hr color='#000000' size='3' noshade><h3>Worker Nodes</h3>",
+            "type": "SEPARATOR"
+        },
+        {
+            "name": "pulse_worker_key",
+            "label": "Worker Node Project Key Name",
+            "type": "STRING",
+            "description": "Static name to use for the worker nodes project key to be named.",
+            "mandatory": true,
+            "defaultValue": "DATAIKU_PULSE_WORKER"
+        },
+        {
+            "name": "worker_hosts",
+            "label": "Worker Hosts",
+            "type": "OBJECT_LIST",
+            "subParams": [
+                {
+                    "name": "worker_url",
+                    "label": "URL",
+                    "type": "STRING",
+                    "description": "Worker Host DNS or Private_IP:PORT",
+                    "mandatory": true
+                },
+                {
+                    "name": "worker_api",
+                    "label": "Admin API",
+                    "type": "PASSWORD",
+                    "description": "Global Level Administrative API Key",
+                    "mandatory": true
+                },
+                {
+                    "name": "preset_name",
+                    "label": "Parameter Set",
+                    "type": "STRING",
+                    "description": "Match this string to the Worker Node Parameter Set to use custom settings.",
+                    "mandatory": false
+                }
+            ]
+        },
+        {
+            "name": "pulse_dataiku_user",
+            "label": "Dataiku Pulse Worker Dataiku User",
+            "type": "STRING",
+            "description": "",
+            "mandatory": true,
+            "defaultValue": "admin"
+        },
+        {
+            "name": "ignore_certs",
+            "label": "Ignore Certificates and force trust TLS",
+            "type": "BOOLEAN",
+            "description": "",
+            "defaultValue": false
+        },
+        {
+            "name": "do_parallel",
+            "label": "Collect Project Data in Parallel",
+            "type": "BOOLEAN",
+            "description": "",
+            "mandatory": true,
+            "defaultValue": false
+        },
+        {
+            "name": "cores",
+            "label": "Number of cores for Parallel",
+            "type": "INT",
+            "description": "",
+            "mandatory": true,
+            "defaultValue": 2,
+            "visibilityCondition": "model.do_parallel"
+        },
+        {
+            "name": "end_separator",
+            "labe": "",
+            "description": "<hr color='#000000' size='3' noshade><h3></h3>",
+            "type": "SEPARATOR"
+        }
+    ],
+    "params": []
+}

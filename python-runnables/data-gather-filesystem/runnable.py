@@ -4,6 +4,7 @@ import os
 import subprocess
 import pandas as pd
 from datetime import datetime, date, timedelta
+import logging
 
 from dataiku.runnables import Runnable, ResultTable
 
@@ -12,19 +13,21 @@ class MyRunnable(Runnable):
         self.project_key = project_key
         self.config = config
         self.plugin_config = plugin_config
-        self.pulse_project_key = plugin_config.get("pulse_project_key", None)
-        self.pulse_project_url = plugin_config.get("pulse_project_url", None)
-        self.pulse_project_api = plugin_config.get("pulse_project_api", None)
-        self.ignore_certs     = plugin_config.get("ignore_certs", False)
+        self.params = plugin_config.get("pulse_primary", {})
+        self.preset_pc = dss_funcs.get_preset_pc("DATAIKU-PULSE")
+        self.local_client = dss_funcs.build_local_client()
+        self.remote_client = dss_funcs.build_remote_client(self)
         self.dt = datetime.utcnow()
+        
+        logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.ERROR)
+        self.logger = logging.getLogger(__name__)
         
     def get_progress_target(self):
         return None
 
     def run(self, progress_callback):
         # Get local client and name
-        local_client = dss_funcs.build_local_client()
-        instance_name = dss_funcs.get_dss_name(local_client)
+        instance_name = dss_funcs.get_dss_name(self.local_client)
         
         # Get the output of the DF command
         results = []
@@ -43,7 +46,7 @@ class MyRunnable(Runnable):
         results.append(["read/parse", True, None])
 
         # loop topics and save data
-        remote_client = dss_funcs.build_remote_client(self.pulse_project_url, self.pulse_project_api, self.ignore_certs)
+        remote_client = dss_funcs.build_remote_client(self)
         dt_year  = str(self.dt.year)
         dt_month = str(f'{self.dt.month:02d}')
         dt_day   = str(f'{self.dt.day:02d}')
@@ -51,7 +54,7 @@ class MyRunnable(Runnable):
         df["timestamp"] = self.dt
         try:
             write_path = f"/{instance_name}/operating_system/filesystem/{dt_year}/{dt_month}/{dt_day}/data.parquet"
-            dss_folder.write_remote_folder_output(self, remote_client, write_path, df)
+            dss_folder.write_remote_folder_output(self, write_path, df)
             results.append(["write/save", True, None])
         except Exception as e:
             results.append(["write/save", False, e])
