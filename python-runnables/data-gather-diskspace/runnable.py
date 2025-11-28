@@ -70,8 +70,8 @@ class MyRunnable(Runnable):
             df.loc[df["level_1"] == i, "level_1_size"] = size
                         
         # Filter size on a base number (1gb / adjustable)
-        gb = 1000000 * 1
-        df = df[df["level_1_size"] >= gb]
+        #gb = 1000000 * 1
+        #df = df[df["level_1_size"] >= gb]
 
         # Get details on sizes - level_2
         df["level_2_size"] = 0
