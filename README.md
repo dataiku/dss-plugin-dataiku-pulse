@@ -28,17 +28,28 @@ Due to the web application being built on Streamlit, installation requires a bit
     1. Migrate to `Waffle::Plugins` and install from GIT: <https://github.com/dataiku/dss-plugin-dataiku-pulse.git>
     1. Build the code-environment, **no containers needed**
     1. After the plugin is installed, switch to the plugin settings page and fill in the information ("EXAMPLE BELOW")
-        1. Dataiku PULSE Github Repo
-            1. <https://github.com/dataiku/dss-plugin-dataiku-pulse.git>
-            1. `main`
-        1. Dataiku PULSE Dashboard Information
-            1. `DATAIKU_PULSE_DASHBOARD`
-            1. Hostname or IP:Port
-            1. Admin Level Api Key
-            1. `DATAIKU_PULSE_WORKER`
-            1. Ignore certs if needed, Default is `False`
-        1. Dataiku PULSE Worker Information
-            1. Fill out each host including the local host if you want to track the local host. Need both Hostname or IP:Port and Admin level API Key
+        1. PULSE Dashbaord: This is the main parameter set to house all the base configurations for the application. Create a single PARAM_SET named `primary` (LOWERCASE!) and populate each field.
+            1. GitHub Repository Information
+                1. Repo: <https://github.com/dataiku/dss-plugin-dataiku-pulse.git>
+                1. Branch: `main`
+            1. Dashboard Information
+                1. Dashboard Project Key: `DATAIKU_PULSE_DASHBOARD`
+                1. Dashboard Host URL: Hostname or IP:Port
+                1. Dashboard Host API: Admin Level Api Key
+                1. BLOB Folder: <Dataiku Connection String name [AWS|Azure|GCS]
+            1. Worker Nodes
+                1. Worker Node Project Key: `DATAIKU_PULSE_WORKER`
+                1. Fill out each host including the local host if you want to track the local host.
+                    1. Need both Hostname or IP:Port and Admin level API Key
+                    1. For more custom control add a PARAM_SET name specific to the host for the next section
+        1. Worker Nodes: This will container additional auto information or custom information per host (OPTIONAL)
+            1. Create a PARAM_SET matching the name of the worker node PARAM_SET from the previous section
+                1. User: User to own/run the scenarios
+                1. Ignore Certs: Auto trust https between nodes
+                1. Project Data Parallel: Gather Project metadata in parallel
+                1. Cores: How many cores to run for project data
+                1. Macro Configuration:
+                    1. PLACE HOLDER -- Coming v2.2
 1. Code Studios
     1. Create the template name `dataiku_pulse_dashboard` # this name is important
     1. Setup K8s to run on
