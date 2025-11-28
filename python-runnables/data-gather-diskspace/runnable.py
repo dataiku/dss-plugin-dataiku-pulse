@@ -68,9 +68,7 @@ class MyRunnable(Runnable):
             logging.error(f"value i: {i}")
             size = get_size(i)
             df.loc[df["level_1"] == i, "level_1_size"] = size
-            
-        raise Exception(df)
-                        
+                                    
         # Filter size on a base number (1gb / adjustable)
         #gb = 1000000 * 1
         #df = df[df["level_1_size"] >= gb]
@@ -97,7 +95,6 @@ class MyRunnable(Runnable):
         results.append(["read/parse", True, None])
         
         # loop topics and save data
-        raise Exception(df)
         dt_year  = str(self.dt.year)
         dt_month = str(f'{self.dt.month:02d}')
         dt_day   = str(f'{self.dt.day:02d}')
