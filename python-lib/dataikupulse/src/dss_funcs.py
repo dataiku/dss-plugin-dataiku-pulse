@@ -70,7 +70,7 @@ def get_preset_pc(preset_name):
 
 
 # ---------- DATA GATHER MODULES -----------------------------
-def run_modules(self, mode, handle, client_d = {}, project_key = None):
+def run_modules(self, mode, conn_handle, client_d = {}, project_key = None):
     if mode == "projects":
         from dataikupulse.base_data import project_handle as dss_objs
     else:
@@ -89,7 +89,7 @@ def run_modules(self, mode, handle, client_d = {}, project_key = None):
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 if hasattr(module, 'main'):
-                    df = module.main(self, handle, client_d)
+                    df = module.main(self, conn_handle, client_d)
                     results.append([project_key, path, module_name, "load/run", True, None])
             except Exception as e:
                 df = pd.DataFrame()
