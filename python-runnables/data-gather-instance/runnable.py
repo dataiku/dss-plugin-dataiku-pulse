@@ -1,10 +1,11 @@
 from dataiku.runnables import Runnable, ResultTable
 from dataikupulse.src import dss_funcs
+from datetime import datetime
+
 import dataiku
 import pandas as pd
 import numpy as np
 import os
-from datetime import datetime
 import logging
 
 
