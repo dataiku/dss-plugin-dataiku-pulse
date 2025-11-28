@@ -8,7 +8,7 @@ import logging
 
 
 def get_size(d):
-    result = subprocess.run(f"du -sc {d}", shell=True, capture_output=True, text=True, check=True)
+    result = subprocess.run(f"""du -sc "{d}" """, shell=True, capture_output=True, text=True, check=True)
     size = result.stdout.split("\t")[0]
     size = int(size)
     return size
