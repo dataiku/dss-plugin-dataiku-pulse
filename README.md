@@ -1,38 +1,6 @@
 # Dataiku PULSE Dashboard and Collector
-
-## ANNOUNCEMENT
-
-Due to performance issues, Dataiku PULSE no longer supports `csv` as an output file. All files must not be in the form of `parquet`.
-
-Because of this change, a large number of columns had to be reworked to handle the additional of a true schema being saved with the parquet files.
-
-In a decision to keep things easier to maintain in the future, column names have been reworked to use more of the natural naming conventions.
-
-* Actions to take migrating >1.6 or higher (if previously installed).
-  * Patch to v1.6 or higher
-  * Patch/Update the local code-environment for Dataiku PULSE
-  * Rebuild the new Streamlit Code-Studio Template
-  * Rename both the original `partitioned_data` and `base_data` folders (if wanting to preserve historical data)
-    * If you do not want to preserve, drop and delete folders with `Drop data` selected
-  * Run both `Init Dashboard` and `Init Worker` Macros
-  * Double check that all code-environments properly rebuilt in the extra worker nodes
-  * Let scenarios run at scheduled time or manually kick off first time
-
-
-## Contributors
-
-* Author - Stephen Mazzei
-* Email - <Stephen.Mazzei@dataiku.com>
 * Version - 2.1.0
-* Special Thanks
-  * Development
-    * Jordan Burke
-    * Ben Bourgeois
-    * Jonathan Sill
-  * Documentation
-    * Rob Harris
-  * Project Management
-    * Arjun Srivatsa
+
 
 
 ## Scope
@@ -93,3 +61,17 @@ Due to the web application being built on Streamlit, installation requires a bit
 ## Data Flow Diagrams
 
 ![Data Flow Diagram](<images/PULSE Data Flow.svg>)
+
+## Contributors
+
+* Author - Stephen Mazzei
+* Email - <Stephen.Mazzei@dataiku.com>
+* Special Thanks
+  * Development
+    * Jordan Burke
+    * Ben Bourgeois
+    * Jonathan Sill
+  * Documentation
+    * Rob Harris
+  * Project Management
+    * Arjun Srivatsa
