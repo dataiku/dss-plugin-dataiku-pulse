@@ -43,22 +43,21 @@ class MyRunnable(Runnable):
     
     def run(self, progress_callback):
         # Grab some exra details
-        local_client = self.local_client
         client_d = {}
         try:
-            client_d["python_env_name"] = local_client.get_general_settings().settings["codeEnvs"]["defaultPythonEnv"]
+            client_d["python_env_name"] = self.local_client.get_general_settings().settings["codeEnvs"]["defaultPythonEnv"]
             if not client_d["python_env_name"]:
                 client_d["python_env_name"] = "USE_BUILTIN_MODE"
         except:
             client_d["python_env_name"] = "USE_BUILTIN_MODE"
         try:
-            client_d["r_env_name"] = local_client.get_general_settings().settings["codeEnvs"]["defaultREnv"]
+            client_d["r_env_name"] = self.local_client.get_general_settings().settings["codeEnvs"]["defaultREnv"]
             if not client_d["r_env_name"]:
                 client_d["r_env_name"] = "USE_BUILTIN_MODE"
         except:
             client_d["r_env_name"] = "USE_BUILTIN_MODE"
         try:
-            client["container_env_name"] = local_client.get_general_settings().settings["containerSettings"]["defaultExecutionConfig"]
+            client["container_env_name"] = self.local_client.get_general_settings().settings["containerSettings"]["defaultExecutionConfig"]
             if not client_d["container_env_name"]:
                 client_d["container_env_name"] = "DSS_LOCAL"
         except:
@@ -66,7 +65,7 @@ class MyRunnable(Runnable):
         self.client_d = client_d
         
         # Collect the modules && Run the modules
-        project_keys = local_client.list_project_keys()
+        project_keys = self.local_client.list_project_keys()
         if self.do_parallel:
             pk_arrays = np.array_split(project_keys, self.cores)
             dfs = Parallel(n_jobs=self.cores, backend="threading")(delayed(self.data_gather)(project_keys)
