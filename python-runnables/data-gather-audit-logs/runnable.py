@@ -63,9 +63,9 @@ class MyRunnable(Runnable):
         logs = [f for f in os.listdir(directory_path) if os.path.isfile(os.path.join(directory_path, f))]
         
         # get the cache timestamp and latest logs
+        project_handle = self.local_client.get_default_project()
+        variables = project_handle.get_variables()
         try:
-            project_handle = self.local_client.get_default_project()
-            variables = project_handle.get_variables()
             last_update = variables["local"]["audit_logs_cache"]
         except:
             last_update = str(datetime.now().astimezone() - timedelta(days=1))
