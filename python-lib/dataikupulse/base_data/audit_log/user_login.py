@@ -2,7 +2,7 @@ import pandas as pd
 from dataikupulse.src import dss_folder
 
 
-def main(self, remote_client, df):
+def main(self, df):
     results = []
     
     # Remove scenarios, job and NaN's
