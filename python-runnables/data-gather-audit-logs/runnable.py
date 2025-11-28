@@ -21,9 +21,9 @@ def find_recent_files(file_list, hours=100):
     return recent_files
 
 
-def run_module(self, module, remote_client, df):
+def run_module(self, module, df):
     results = []
-    r = module.main(self, remote_client, df)
+    r = module.main(self, df)
     if all(isinstance(x, list) for x in results):
         for l in r:
             results.append(l)
