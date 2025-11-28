@@ -94,7 +94,7 @@ class MyRunnable(Runnable):
         results.append(["read/parse", True, None])
         
         # loop topics and save data
-        remote_client = dss_funcs.build_remote_client(self.params["pulse_project_url"], self.params["pulse_project_api"], self.preset_pc["ignore_certs"])
+        remote_client = dss_funcs.build_remote_client(self)
         dt_year  = str(self.dt.year)
         dt_month = str(f'{self.dt.month:02d}')
         dt_day   = str(f'{self.dt.day:02d}')
