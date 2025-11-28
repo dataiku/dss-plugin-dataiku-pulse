@@ -25,21 +25,6 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
-        if self.plugin_config:
-            raise Exception(self.plugin_config)
-        else:
-            raise Exception("empty dict")
-        
-        rt = ResultTable()
-        rt.add_column(1, "Column1", "STRING")
-        rt.add_record(["hi"])
-        return rt
-    
-    
-    
-    
-    
-    
         # Collect the modules && Run the modules
         local_client = dss_funcs.build_local_client()
         results = dss_funcs.run_modules(self, "client", local_client)
