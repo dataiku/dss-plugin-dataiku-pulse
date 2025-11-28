@@ -65,17 +65,11 @@ class MyRunnable(Runnable):
         # get the cache timestamp and latest logs
         try:
             project_handle = self.local_client.get_default_project()
-            dataset_handle = project_handle.get_dataset(dataset_name="audit_log_cache")
-            if not dataset_handle.exists():
-                builder = project_handle.new_managed_dataset("audit_log_cache")
-                builder.with_store_into("filesystem_managed")
-                dataset_handle = builder.create()
-            dataset = dataiku.Dataset("audit_log_cache")
-            audit_log_cache_df = dataset.get_dataframe()
+            variables = project_handle.get_variables()
+            last_update = variables["local"]["audit_logs_cache"]
         except:
-            yesterday = datetime.now().astimezone() - timedelta(days=1)
-            audit_log_cache_df = pd.DataFrame([yesterday], columns=["timestamp"])
-        last_update = audit_log_cache_df["timestamp"].iloc[0]  
+            last_update = str(datetime.now().astimezone() - timedelta(days=1))
+        last_update = pd.to_datetime(last_update)
         time_diff = datetime.now().astimezone() - last_update
         hours = round((time_diff.total_seconds() / 3600) + 1, 0)
         logs = find_recent_files(logs, hours=hours)
