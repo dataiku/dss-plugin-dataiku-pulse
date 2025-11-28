@@ -26,6 +26,9 @@ class MyRunnable(Runnable):
         self.remote_client = dss_funcs.build_remote_client(self)
         self.dt = datetime.utcnow()
         
+        logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.ERROR)
+        self.logger = logging.getLogger(__name__)
+        
     def get_progress_target(self):
         return None
 
