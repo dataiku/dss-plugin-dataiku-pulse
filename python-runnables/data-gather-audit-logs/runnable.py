@@ -114,9 +114,6 @@ class MyRunnable(Runnable):
         results += run_module(self, user_login, df)
         results += run_module(self, event_mapping, df)
         
-        ## cru_logs(df)
-        ###results.append(["CRU Logs", result[0], result[1]])
-        
         # Reset the audit_log_cache df
         if not self.debug:
             last_time_entry = df["timestamp"].max()
