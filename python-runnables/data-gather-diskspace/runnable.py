@@ -1,12 +1,11 @@
+from dataiku.runnables import Runnable, ResultTable
 from dataikupulse.src import dss_funcs, dss_folder
-
 import os
 import subprocess
 import pandas as pd
 from datetime import datetime, date, timedelta
 import logging
 
-from dataiku.runnables import Runnable, ResultTable
 
 def get_size(d):
     result = subprocess.run(f"du -sc {d}", shell=True, capture_output=True, text=True, check=True)
