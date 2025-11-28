@@ -17,11 +17,12 @@ class MyRunnable(Runnable):
         self.plugin_config = plugin_config
         self.params = plugin_config.get("pulse_primary", {})
         self.preset_pc = dss_funcs.get_preset_pc("DATAIKU-PULSE")
+        self.local_client = dss_funcs.build_local_client()
+        self.remote_client = dss_funcs.build_remote_client(self)
         self.dt = datetime.utcnow()
         
-        # Set environment variable
-        self.pulse_folder_connection = plugin_config.get("pulse_folder_connection", "filesystem_folders")
-        os.environ["pulse_FOLDER_CONNECTION"] = self.pulse_folder_connection
+        logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.ERROR)
+        self.logger = logging.getLogger(__name__)
         
     def get_progress_target(self):
         return None
