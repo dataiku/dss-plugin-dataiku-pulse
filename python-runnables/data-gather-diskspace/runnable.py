@@ -64,7 +64,7 @@ class MyRunnable(Runnable):
         # Get details on sizes - level_1
         df["level_1_size"] = 0
         for i,g in df.groupby(by=["level_1"]):
-            self.logger.error(i)
+            self.logger.error(f"    - LOGGING VALUE :: {i}")
             size = get_size(i)
             df.loc[df["level_1"] == i, "level_1_size"] = size
                                     
