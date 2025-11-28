@@ -80,8 +80,6 @@ def main(self, df):
             merged_df["webappid"] = dupes.bfill(axis=1).iloc[:, 0]
             merged_df = merged_df.loc[:, ~merged_df.columns.duplicated()]
         
-        
-                
         # lets split the df by category and save
         for category, grp in merged_df.groupby("dataiku_category"):
             grp = grp.dropna(axis=1, how='all').reset_index(drop=True)
