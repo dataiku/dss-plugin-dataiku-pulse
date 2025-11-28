@@ -7,7 +7,7 @@ import dataiku
 import os
 import pandas as pd
 import time
-
+import logging
 
 def find_recent_files(file_list, hours=100):
     recent_files = []
