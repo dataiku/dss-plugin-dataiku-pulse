@@ -106,6 +106,38 @@
                 }
             ]
         },
+                {
+            "name": "pulse_dataiku_user",
+            "label": "Dataiku Pulse Worker Dataiku User",
+            "type": "STRING",
+            "description": "",
+            "mandatory": true,
+            "defaultValue": "admin"
+        },
+        {
+            "name": "ignore_certs",
+            "label": "Ignore Certificates and force trust TLS",
+            "type": "BOOLEAN",
+            "description": "",
+            "defaultValue": false
+        },
+        {
+            "name": "do_parallel",
+            "label": "Collect Project Data in Parallel",
+            "type": "BOOLEAN",
+            "description": "",
+            "mandatory": true,
+            "defaultValue": false
+        },
+        {
+            "name": "cores",
+            "label": "Number of cores for Parallel",
+            "type": "INT",
+            "description": "",
+            "mandatory": true,
+            "defaultValue": 2,
+            "visibilityCondition": "model.do_parallel"
+        }
         {
             "name": "end_separator",
             "labe": "",
