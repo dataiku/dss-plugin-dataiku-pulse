@@ -43,17 +43,11 @@ dataiku_usage:
       timestamp, callpath, msgtypebase, dataiku_category, instance_name,
       try_cast(project_key AS VARCHAR) AS project_key,
       try_cast(login AS VARCHAR) AS login
-    FROM read_parquet(
-      '{blob_header}://{blob_bket}/{blob_root}/*/dataiku_usage/**/*.parquet',
-      union_by_name = true
-    )
+    FROM read_parquet({paths}, union_by_name = true)
   module: |
     CREATE OR REPLACE TABLE {table_name} AS
     SELECT *
-    FROM read_parquet(
-      '{blob_header}://{blob_bket}/{blob_root}/*/{category}/{module}/**/*.parquet',
-      union_by_name = true
-    )
+    FROM read_parquet({paths}, union_by_name = true)
 
 # ADD ON QUERIES FOR MORE COMPLEX AGGRAGATIONS
 addon_data:

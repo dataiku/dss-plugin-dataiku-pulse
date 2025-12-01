@@ -177,9 +177,13 @@ def create_duckdb():
 def load_base_tables(partition_df):
     # Create initial partition table
     load_table_df("CREATE TABLE partition_table AS SELECT * FROM df_view", partition_df)
-    # Create bae tables
+    # Create base tables
+    limited_df = partition_df[
+        ((partition_df["module"] == "metadata") | (partition_df["category"] == "instance"))
+    ]
+    limited_df = limited_df["date"].value_counts().reset_index().sort_values(by=["count", "date"], ascending=False)
     base_data_df = partition_df[
-        (partition_df["date"] == partition_df["date"].max())
+        (partition_df["date"] == limited_df.iloc[0,0])
         &((partition_df["module"] == "metadata") | (partition_df["category"] == "instance"))
     ]
     if base_data_df.empty:
@@ -219,31 +223,32 @@ def load_dataiku_usage(partition_df):
     progress_bar = st.progress(0, text=progress_text)
     status_text = st.empty()
     # Build Queries
-    usage_queries = [
-        render_query(
-            queries["dataiku_usage"]["overview"],
-            blob_header=blob_header,
-            blob_bket=blob_bket,
-            blob_root=blob_root
-        )
+    instances = partition_df["instance_name"].unique().tolist()
+    paths = [
+        f"{blob_header}://{blob_bket}/{blob_root}/{instance}/dataiku_usage/**/*.parquet"
+        for instance in instances
     ]
+    usage_queries = [
+        render_query( queries["dataiku_usage"]["overview"], paths = paths)
+    ]
+    # Get max date overall
+    limited_df = partition_df[
+        ((partition_df["module"] == "metadata") | (partition_df["category"] == "instance"))
+    ]
+    limited_df = limited_df["date"].value_counts().reset_index().sort_values(by=["count", "date"], ascending=False)
     history_df = partition_df[
-        (partition_df["date"] == partition_df["date"].max())
+        (partition_df["date"] == limited_df.iloc[0,0])
         &((partition_df["module"] != "metadata") & (partition_df["category"] != "instance"))
     ]
     for row in history_df.itertuples():
         category = getattr(row, "category")
         module = getattr(row, "module")
+        paths = [
+            f"{blob_header}://{blob_bket}/{blob_root}/{instance}/{category}/{module}/**/*.parquet"
+            for instance in instances
+        ]
         usage_queries.append(
-            render_query(
-                queries["dataiku_usage"]["module"], 
-                table_name=f"{category}_{module}",
-                blob_header=blob_header,
-                blob_bket=blob_bket,
-                blob_root=blob_root,
-                category=category,
-                module=module
-            )
+            render_query(queries["dataiku_usage"]["module"], paths = paths)
         )
     # Build Wrapper
     total_queries = len(usage_queries)
@@ -252,6 +257,7 @@ def load_dataiku_usage(partition_df):
         end_index = query.find(" AS\n")
         table_name = query[start_index:end_index]
         r = load_parquet_sql(query)
+        logger.error(query)
         if not r:
             raise Exception("Failed to load DuckDB. Check logs for errors.")
         progress = int(i / total_queries * 100)
