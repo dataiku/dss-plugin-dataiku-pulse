@@ -65,6 +65,21 @@
             "mandatory": true
         },
         {
+            "name": "connection_gcs",
+            "label": "Connection is GCS",
+            "type": "BOOLEAN",
+            "description": "**Google Cloud ONLY** Service Account HMAC Key",
+            "mandatory": true,
+            "defaultValue": false
+        },
+        {
+            "name": "gcp_hmac_key",
+            "label": "GCS HMAC Key",
+            "type": "STRING",
+            "description": "**Google Cloud ONLY** Service Account HMAC Key",
+            "mandatory": false
+        },
+        {
             "name": "gcp_hmac_key",
             "label": "GCS HMAC Key",
             "type": "PASSWORD",
