@@ -65,6 +65,13 @@
             "mandatory": true
         },
         {
+            "name": "gcp_hmac_key",
+            "label": "GCS HMAC Key",
+            "type": "PASSWORD",
+            "description": "**Google Cloud ONLY** Service Account HMAC Key",
+            "mandatory": true
+        },
+        {
             "name": "worker_separator",
             "labe": "",
             "description": "<hr color='#000000' size='3' noshade><h3>Worker Nodes</h3>",
