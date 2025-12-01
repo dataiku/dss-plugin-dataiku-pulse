@@ -1,30 +1,58 @@
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives import hashes
+from cryptography.fernet import Fernet
+from dataiku.runnables import Runnable, ResultTable
 from dataikupulse.src import dss_folder
 from dataikupulse.src import dss_funcs
-
+from datetime import datetime
+import base64
 import os
-import shutil
 import pandas as pd
+import shutil
+import logging
 
-from dataiku.runnables import Runnable, ResultTable
+
+def derive_key_from_password(password: str, salt: bytes) -> bytes:
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=390000,
+    )
+    return base64.urlsafe_b64encode(kdf.derive(password.encode()))
+
+
+def encrypt_string(plaintext: str, password: str) -> tuple[bytes, bytes]:
+    salt = os.urandom(16)  # store this with the ciphertext
+    key = derive_key_from_password(password, salt)
+    f = Fernet(key)
+    ciphertext = f.encrypt(plaintext.encode())
+    return salt, ciphertext
+
 
 class MyRunnable(Runnable):
     def __init__(self, project_key, config, plugin_config):
         self.project_key = project_key
         self.config = config
         self.plugin_config = plugin_config
-        self.params = plugin_config["pulse_primary"]
+        self.params = plugin_config.get("pulse_primary", {})
+        self.local_client = dss_funcs.build_local_client()
+        self.remote_client = dss_funcs.build_remote_client(self)
+        self.dt = datetime.utcnow()
+        
+        logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.ERROR)
+        self.logger = logging.getLogger(__name__)
         
     def get_progress_target(self):
         return None
 
-    def run(self, progress_callback):        
+    def run(self, progress_callback):      
         results = []
         cont = True
         
         # Get local client and name
-        local_client = dss_funcs.build_local_client()
-        instance_name = dss_funcs.get_dss_name(local_client)
-        project_handle = local_client.get_project(self.params["pulse_project_key"])
+        instance_name = dss_funcs.get_dss_name(self.local_client)
+        project_handle = self.local_client.get_project(self.params["pulse_project_key"])
         library = project_handle.get_library()
                 
         # Create the folders
@@ -38,7 +66,7 @@ class MyRunnable(Runnable):
 
         # Get plugin directory
         if cont:
-            root_path = local_client.get_instance_info().raw["dataDirPath"]
+            root_path = self.local_client.get_instance_info().raw["dataDirPath"]
             source_path = None
             path_install = f"{root_path}/plugins/installed/dataiku-pulse"
             path_dev = f"{root_path}/plugins/dev/dataiku-pulse"
@@ -98,6 +126,22 @@ class MyRunnable(Runnable):
                 results.append(["Copy Streamlit", True, None])
             except Exception as e:
                 results.append(["Copy Streamlit", False, f"An error occurred: {e}"])
+                cont = False
+                
+        # Google Cloud HMAC Key
+        if cont and self.params.get("connection_gcs", False):
+            try:
+                salt, ciphertext = encrypt_string(self.params["gcp_hmac_secret"], "DF2!&sEkm)f4}i99,e&9bS:Wj")
+                variables = project_handle.get_variables()
+                variables["local"]["gcs_hmac"] = {
+                    "salt": base64.b64encode(salt).decode(),
+                    "ciphertext": base64.b64encode(ciphertext).decode(),
+                    "access_key": self.params["gcp_hmac_key"]
+                }
+                project_handle.set_variables(variables)
+                results.append(["Store Encrypted HMAC", True, None])
+            except Exception as e:
+                results.append(["Store Encrypted HMAC", False, f"An error occurred: {e}"])
                 cont = False
         
         # return results

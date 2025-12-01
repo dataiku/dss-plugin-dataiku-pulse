@@ -14,7 +14,10 @@ def build_local_client():
 
 
 def build_remote_client(self, remote_url=False, api_key=False):
-    ignore_certs = self.preset_pc["ignore_certs"]
+    try:
+        ignore_certs = self.preset_pc["ignore_certs"]
+    except:
+        ignore_certs = False
     if remote_url:
         host = remote_url
         api_key = api_key
