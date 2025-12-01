@@ -131,8 +131,18 @@ class MyRunnable(Runnable):
         # Google Cloud HMAC Key
         hmac_key = self.params.get("gcp_hmac_key", False)
         if cont and hmac_key:
-            varaibels = project_handle.get_variables()
-            salt, ciphertext = encrypt_string(hmac_key, "DF2!&sEkm)f4}i99,e&9bS:Wj")
+            try:
+                salt, ciphertext = encrypt_string(hmac_key, "DF2!&sEkm)f4}i99,e&9bS:Wj")
+                variables = project_handle.get_variables()
+                variables["local"]["gcs_hmac"] = {
+                    "salt": base64.b64encode(salt).decode(),
+                    "ciphertext": base64.b64encode(ciphertext).decode()
+                }
+                project_handle.set_variables(variables)
+                results.append(["Store Encrypted HMAC", True, f"An error occurred: {e}"])
+            except:
+                results.append(["Store Encrypted HMAC", False, f"An error occurred: {e}"])
+                cont = False
         
         # return results
         if results:
