@@ -16,4 +16,4 @@ matplotlib
 pyyaml
 filelock
 google-cloud-storage
-rsa
+cryptography
