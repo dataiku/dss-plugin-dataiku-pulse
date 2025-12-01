@@ -1,6 +1,9 @@
-# ./src/duckdb/funcs.py
-# -----------------------------------------------------------------------------
 # Modules
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives import hashes
+from cryptography.fernet import Fernet
+from google.cloud import storage
+import base64
 import dataiku
 import streamlit as st
 import pandas as pd
@@ -12,7 +15,6 @@ import time
 import sqlparse
 import logging
 import json
-from google.cloud import storage
 
 # -----------------------------------------------------------------------------
 # Logger
@@ -47,16 +49,19 @@ queries = load_yaml("./queries.yaml")
 # BLOB Folder
 
 ## GCS HMAC generator
-def create_fresh_hmac(service_account_json_path, service_account_email):
-    client = storage.Client.from_service_account_json(service_account_json_path)
-    keys = client.list_hmac_keys(project_id=client.project)
-    for key in keys:
-        if key.service_account_email == service_account_email and key.state == "ACTIVE":
-            key.state = "INACTIVE"
-            key.update()
-            key.delete()
-    new_key = client.create_hmac_key(service_account_email=service_account_email)
-    return new_key[0].access_id, new_key[1]
+def derive_key_from_password(password: str, salt: bytes) -> bytes:
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=390000,
+    )
+    return base64.urlsafe_b64encode(kdf.derive(password.encode()))
+
+def decrypt_string(ciphertext: bytes, password: str, salt: bytes) -> str:
+    key = derive_key_from_password(password, salt)
+    f = Fernet(key)
+    return f.decrypt(ciphertext).decode()
 
 ## Basic Folder Information / Blob Path
 folder = dataiku.Folder(
@@ -123,16 +128,21 @@ elif connection_type == "GCS":
     blob_bket = folder.get_info()["accessInfo"]["bucket"]
     blob_root = folder.get_info()["accessInfo"]["root"][1:]
     blob_header = "gs"
-    sa_json = json.loads(connection_handle.get_info()["params"]["appSecretContent"])
-    with open(f"{duckdb_path}/sa.json", "w") as json_file:
-        json.dump(sa_json, json_file, indent=4)
-    hmac_id, hmac_secret = create_fresh_hmac(f"{duckdb_path}/sa.json", sa_json["client_email"])
-    blob_module = queries["blob_setup"]["gcp_modules"]
-    blob_credentials = render_query(
-        queries["blob_setup"]["gcp_headers"],
-        hmac_id=hmac_id,
-        hmac_secret=hmac_secret
-    )
+    try:
+        variables = project_handle.get_variables()
+        gcs_hmac = variables["local"].get("gcs_hmac", False)
+        salt = base64.b64decode(gcs_hmac["salt"])
+        ciphertext = base64.b64decode(gcs_hmac["ciphertext"])
+        hmac_secret = decrypt_string(ciphertext, "DF2!&sEkm)f4}i99,e&9bS:Wj", salt)
+        blob_module = queries["blob_setup"]["gcp_modules"]
+        blob_credentials = render_query(
+            queries["blob_setup"]["gcp_headers"],
+            hmac_id=gcs_hmac["access_key"],
+            hmac_secret=hmac_secret
+        )
+    except Exception as e:
+        logger.error(f"Failed to get HMAC Key and Secret: {e}")
+        st.error("Failed to get HMAC Key and Secret. Check logs for more details.")
 
 else:
     logger.error("Unknown Blob storage type")
