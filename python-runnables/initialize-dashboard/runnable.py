@@ -47,7 +47,7 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):      
-        raise exception(self.params)
+        raise Exception(self.params)
         results = []
         cont = True
         
