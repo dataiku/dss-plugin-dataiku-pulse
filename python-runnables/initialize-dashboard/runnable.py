@@ -51,9 +51,8 @@ class MyRunnable(Runnable):
         cont = True
         
         # Get local client and name
-        local_client = dss_funcs.build_local_client()
-        instance_name = dss_funcs.get_dss_name(local_client)
-        project_handle = local_client.get_project(self.params["pulse_project_key"])
+        instance_name = dss_funcs.get_dss_name(self.local_client)
+        project_handle = self.local_client.get_project(self.params["pulse_project_key"])
         library = project_handle.get_library()
                 
         # Create the folders
@@ -67,7 +66,7 @@ class MyRunnable(Runnable):
 
         # Get plugin directory
         if cont:
-            root_path = local_client.get_instance_info().raw["dataDirPath"]
+            root_path = self.local_client.get_instance_info().raw["dataDirPath"]
             source_path = None
             path_install = f"{root_path}/plugins/installed/dataiku-pulse"
             path_dev = f"{root_path}/plugins/dev/dataiku-pulse"
@@ -130,7 +129,7 @@ class MyRunnable(Runnable):
                 cont = False
                 
         # 
-        if cont and True:
+        if cont and self.params.get("", False):
             varaibels = project_handle.get_variables()
             salt, ciphertext = encrypt_string("Hello World!", "DF2!&sEkm)f4}i99,e&9bS:Wj")
         
