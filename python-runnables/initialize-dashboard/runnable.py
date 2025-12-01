@@ -128,7 +128,7 @@ class MyRunnable(Runnable):
                 results.append(["Copy Streamlit", False, f"An error occurred: {e}"])
                 cont = False
                 
-        # 
+        # Google Cloud HMAC Key
         hmac_key = self.params.get("gcp_hmac_key", False)
         if cont and hmac_key:
             varaibels = project_handle.get_variables()
