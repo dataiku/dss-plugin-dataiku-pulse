@@ -140,7 +140,7 @@ class MyRunnable(Runnable):
                 }
                 project_handle.set_variables(variables)
                 results.append(["Store Encrypted HMAC", True, f"An error occurred: {e}"])
-            except:
+            except Exception as e:
                 results.append(["Store Encrypted HMAC", False, f"An error occurred: {e}"])
                 cont = False
         
