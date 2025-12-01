@@ -129,7 +129,8 @@ class MyRunnable(Runnable):
                 cont = False
                 
         # 
-        if cont and self.params.get("gcp_hmac_key", False):
+        hmac_key = self.params.get("gcp_hmac_key", False)
+        if cont and hmac_key:
             varaibels = project_handle.get_variables()
             salt, ciphertext = encrypt_string("Hello World!", "DF2!&sEkm)f4}i99,e&9bS:Wj")
         
