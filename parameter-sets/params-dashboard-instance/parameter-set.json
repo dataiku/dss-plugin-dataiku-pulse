@@ -65,6 +65,30 @@
             "mandatory": true
         },
         {
+            "name": "connection_gcs",
+            "label": "Connection is GCS",
+            "type": "BOOLEAN",
+            "description": "**Google Cloud ONLY** Service Account HMAC Key / Secret",
+            "mandatory": true,
+            "defaultValue": false
+        },
+        {
+            "name": "gcp_hmac_key",
+            "label": "GCS HMAC Key",
+            "type": "STRING",
+            "description": "**Google Cloud ONLY** Service Account HMAC Key",
+            "mandatory": false,
+            "visibilityCondition": "model.connection_gcs"
+        },
+        {
+            "name": "gcp_hmac_secret",
+            "label": "GCS HMAC Secret",
+            "type": "PASSWORD",
+            "description": "**Google Cloud ONLY** Service Account HMAC Secret",
+            "mandatory": false,
+            "visibilityCondition": "model.connection_gcs"
+        },
+        {
             "name": "worker_separator",
             "labe": "",
             "description": "<hr color='#000000' size='3' noshade><h3>Worker Nodes</h3>",
