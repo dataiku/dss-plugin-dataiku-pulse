@@ -77,14 +77,16 @@
             "label": "GCS HMAC Key",
             "type": "STRING",
             "description": "**Google Cloud ONLY** Service Account HMAC Key",
-            "mandatory": false
+            "mandatory": false,
+            "visibilityCondition": "model.connection_gcs"
         },
         {
             "name": "gcp_hmac_secret",
             "label": "GCS HMAC Secret",
             "type": "PASSWORD",
             "description": "**Google Cloud ONLY** Service Account HMAC Secret",
-            "mandatory": false
+            "mandatory": false,
+            "visibilityCondition": "model.connection_gcs"
         },
         {
             "name": "worker_separator",
