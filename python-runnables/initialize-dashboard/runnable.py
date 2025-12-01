@@ -8,6 +8,7 @@ import base64
 import os
 import pandas as pd
 import shutil
+import logging
 
 
 def derive_key_from_password(password: str, salt: bytes) -> bytes:
