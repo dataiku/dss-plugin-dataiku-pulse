@@ -68,7 +68,7 @@
             "name": "connection_gcs",
             "label": "Connection is GCS",
             "type": "BOOLEAN",
-            "description": "**Google Cloud ONLY** Service Account HMAC Key",
+            "description": "**Google Cloud ONLY** Service Account HMAC Key / Secret",
             "mandatory": true,
             "defaultValue": false
         },
@@ -80,10 +80,10 @@
             "mandatory": false
         },
         {
-            "name": "gcp_hmac_key",
-            "label": "GCS HMAC Key",
+            "name": "gcp_hmac_secret",
+            "label": "GCS HMAC Secret",
             "type": "PASSWORD",
-            "description": "**Google Cloud ONLY** Service Account HMAC Key",
+            "description": "**Google Cloud ONLY** Service Account HMAC Secret",
             "mandatory": false
         },
         {
