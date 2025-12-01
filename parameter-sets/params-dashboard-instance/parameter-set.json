@@ -69,7 +69,7 @@
             "label": "GCS HMAC Key",
             "type": "PASSWORD",
             "description": "**Google Cloud ONLY** Service Account HMAC Key",
-            "mandatory": true
+            "mandatory": false
         },
         {
             "name": "worker_separator",
