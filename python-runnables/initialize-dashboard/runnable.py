@@ -46,7 +46,8 @@ class MyRunnable(Runnable):
     def get_progress_target(self):
         return None
 
-    def run(self, progress_callback):        
+    def run(self, progress_callback):      
+        raise exception(self.params)
         results = []
         cont = True
         
