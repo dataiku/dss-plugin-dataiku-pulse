@@ -139,7 +139,7 @@ class MyRunnable(Runnable):
                     "ciphertext": base64.b64encode(ciphertext).decode()
                 }
                 project_handle.set_variables(variables)
-                results.append(["Store Encrypted HMAC", True, f"An error occurred: {e}"])
+                results.append(["Store Encrypted HMAC", True, None])
             except Exception as e:
                 results.append(["Store Encrypted HMAC", False, f"An error occurred: {e}"])
                 cont = False
