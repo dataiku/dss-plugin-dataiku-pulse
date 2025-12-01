@@ -4,6 +4,7 @@ from cryptography.fernet import Fernet
 from dataiku.runnables import Runnable, ResultTable
 from dataikupulse.src import dss_folder
 from dataikupulse.src import dss_funcs
+from datetime import datetime
 import base64
 import os
 import pandas as pd
