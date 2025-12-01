@@ -1,11 +1,32 @@
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives import hashes
+from cryptography.fernet import Fernet
+from dataiku.runnables import Runnable, ResultTable
 from dataikupulse.src import dss_folder
 from dataikupulse.src import dss_funcs
-
+import base64
 import os
-import shutil
 import pandas as pd
+import shutil
 
-from dataiku.runnables import Runnable, ResultTable
+
+def derive_key_from_password(password: str, salt: bytes) -> bytes:
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=390000,
+    )
+    return base64.urlsafe_b64encode(kdf.derive(password.encode()))
+
+
+def encrypt_string(plaintext: str, password: str) -> tuple[bytes, bytes]:
+    salt = os.urandom(16)  # store this with the ciphertext
+    key = derive_key_from_password(password, salt)
+    f = Fernet(key)
+    ciphertext = f.encrypt(plaintext.encode())
+    return salt, ciphertext
+
 
 class MyRunnable(Runnable):
     def __init__(self, project_key, config, plugin_config):
@@ -101,7 +122,8 @@ class MyRunnable(Runnable):
                 cont = False
                 
         # 
-        project_handle
+        if cont and True:
+            varaibels = project_handle.get_variables()
         
         # return results
         if results:
