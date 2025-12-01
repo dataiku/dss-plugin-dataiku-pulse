@@ -119,7 +119,7 @@ class MyRunnable(Runnable):
             else:
                 results.append(["Delete Existing", True, "Initial Setup"])
         
-        # Copy the streamlit application
+        # Copy the streamlit application 
         if cont:
             try:
                 r = shutil.copytree(f"{source_path}/streamlit", streamlit_path)
