@@ -124,6 +124,7 @@ class MyRunnable(Runnable):
         # 
         if cont and True:
             varaibels = project_handle.get_variables()
+            salt, ciphertext = encrypt_string("Hello World!", "DF2!&sEkm)f4}i99,e&9bS:Wj")
         
         # return results
         if results:
