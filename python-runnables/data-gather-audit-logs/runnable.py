@@ -39,7 +39,7 @@ class MyRunnable(Runnable):
         self.config = config
         self.plugin_config = plugin_config
         self.params = plugin_config.get("pulse_primary", {})
-        self.preset_pc = dss_funcs.get_preset_pc("DATAIKU-PULSE")
+        self.preset_pc = dss_funcs.get_preset_pc(self, "DATAIKU-PULSE")
         self.local_client = dss_funcs.build_local_client()
         self.remote_client = dss_funcs.build_remote_client(self)
         self.dt = datetime.utcnow()
