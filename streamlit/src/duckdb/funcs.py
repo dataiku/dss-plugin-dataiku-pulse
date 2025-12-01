@@ -253,12 +253,13 @@ def load_dataiku_usage(partition_df):
     for row in history_df.itertuples():
         category = getattr(row, "category")
         module = getattr(row, "module")
+        table_name = f"{category}_{module}"
         paths = [
             f"{blob_header}://{blob_bket}/{blob_root}/{instance}/{category}/{module}/**/*.parquet"
             for instance in instances
         ]
         usage_queries.append(
-            render_query(queries["dataiku_usage"]["module"], paths = paths)
+            render_query(queries["dataiku_usage"]["module"], table_name = table_name, paths = paths)
         )
     # Build Wrapper
     total_queries = len(usage_queries)
@@ -267,9 +268,9 @@ def load_dataiku_usage(partition_df):
         end_index = query.find(" AS\n")
         table_name = query[start_index:end_index]
         r = load_parquet_sql(query)
-        logger.error(query)
         if not r:
-            raise Exception("Failed to load DuckDB. Check logs for errors.")
+            st.warn(f"Failed to load DuckDB ({table_name}). Check logs for errors.")
+            logger.error(query)
         progress = int(i / total_queries * 100)
         progress_bar.progress(progress, text=progress_text)
         status_text.text(f"Imported {i}/{total_queries} Dataiku Usage Data ({table_name})")
