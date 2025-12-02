@@ -75,7 +75,7 @@
                 {
                     "name": "day_frequency",
                     "label": "Hour of Day",
-                    "type": "PASSWORD",
+                    "type": "INT",
                     "defaultValue": "17",
                     "visibilityCondition": "model.frequency == 'Daily'",
                     "mandatory": true
