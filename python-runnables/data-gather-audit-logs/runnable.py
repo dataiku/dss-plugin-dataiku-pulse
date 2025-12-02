@@ -99,7 +99,7 @@ class MyRunnable(Runnable):
             df = df.rename(columns={"message_login": "message_logged_in"})
         if "message_authUser" in df.columns:
             df = df.rename(columns={"message_authUser": "message_login"})
-
+            
         # Module Import
         results += run_module(self, user_login, df)
         results += run_module(self, event_mapping, df)
