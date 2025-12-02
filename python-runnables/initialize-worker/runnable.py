@@ -12,6 +12,7 @@ class MyRunnable(Runnable):
         self.config = config
         self.plugin_config = plugin_config
         self.params = plugin_config.get("pulse_primary", {})
+        self.local_client = dss_funcs.build_local_client()
         
         logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.ERROR)
         self.logger = logging.getLogger(__name__)
@@ -20,6 +21,11 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
+        plugin_handle = self.local_client.get_plugin(plugin_id="dataiku-pulse")
+        plugin_settings = plugin_handle.get_settings()
+        pdi_ps = plugin_settings.get_parameter_set(parameter_set_name="params-dashboard-instance")
+        self.primary_preset_name = pdi_ps.list_preset_names()[0]
+        
         cont = True
         results = []
         for worker_host in self.params["worker_hosts"]:

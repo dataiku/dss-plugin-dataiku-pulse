@@ -29,7 +29,7 @@ step: |
     "maxRetriesOnFail": 0,
     "params": {
       "runnableType": "REPLACE_MACRO_HERE",
-      "config": {"pulse_primary": {"mode": "PRESET", "name": "primary"}},
+      "config": {},
       "adminConfig": {},
       "proceedOnFailure": false
     }

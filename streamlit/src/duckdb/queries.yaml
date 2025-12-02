@@ -4,11 +4,10 @@ blob_setup:
   aws_headers_assume: |
     CREATE OR REPLACE SECRET duckdb_s3_secret (
       TYPE s3, 
-      PROVIDER credential_chain,
-      chain 'sts',
-      assume_role_arn '{assume_role_arn}',
-      external_id 'dss-pulse-duckdb-session',
-      region '{aws_region}'
+      KEY_ID '{key_id}',
+      SECRET '{secret}',
+      SESSION_TOKEN '{token}',
+      REGION '{aws_region}'
     )
   azure_modules: INSTALL azure; LOAD azure;
   azure_oauth2_headers: |
