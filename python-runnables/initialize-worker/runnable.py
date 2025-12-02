@@ -25,7 +25,6 @@ class MyRunnable(Runnable):
         pdi_ps = plugin_settings.get_parameter_set(parameter_set_name="params-dashboard-instance")
         self.primary_preset_name = pdi_ps.list_preset_names()[0]
         
-        
         cont = True
         results = []
         for worker_host in self.params["worker_hosts"]:
