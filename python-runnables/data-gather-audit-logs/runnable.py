@@ -100,7 +100,7 @@ class MyRunnable(Runnable):
         if "message_authUser" in df.columns:
             df = df.rename(columns={"message_authUser": "message_login"})
             
-        raise Exception(df)
+        raise Exception(df.columns)
 
         # Module Import
         results += run_module(self, user_login, df)
