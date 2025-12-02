@@ -20,7 +20,7 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
-        raise Exception(self.params)
+        raise Exception(self.plugin_config)
         
         
         cont = True
