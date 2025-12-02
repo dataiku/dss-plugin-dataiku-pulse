@@ -20,7 +20,10 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
-        raise Exception(self.config)
+        plugin_handle = local_client.get_plugin(plugin_id="dataiku-pulse")
+        plugin_settings = plugin_handle.get_settings()
+        pdi_ps = plugin_settings.get_parameter_set(parameter_set_name="params-dashboard-instance")
+        self.primary_preset_name = pdi_ps.list_preset_names()[0]
         
         
         cont = True
