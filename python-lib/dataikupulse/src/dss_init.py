@@ -140,6 +140,7 @@ def create_scenarios(self, project_handle):
         trigger = json.loads(macros["trigger"])
         step = json.loads(macros["step"])
         step["params"]["runnableType"] = macros["macros"][key]
+        step["params"]["config"] = {"pulse_primary": {"mode": "PRESET", "name": self.primary_preset_name}}
         # create or connect to scenario
         try:
             scenario_handle = project_handle.get_scenario(scenario_id=key)
