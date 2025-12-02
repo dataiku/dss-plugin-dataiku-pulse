@@ -21,6 +21,8 @@ class MyRunnable(Runnable):
 
     def run(self, progress_callback):
         raise Exception(self.params)
+        
+        
         cont = True
         results = []
         for worker_host in self.params["worker_hosts"]:
