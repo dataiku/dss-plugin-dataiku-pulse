@@ -12,6 +12,7 @@ class MyRunnable(Runnable):
         self.config = config
         self.plugin_config = plugin_config
         self.params = plugin_config.get("pulse_primary", {})
+        self.local_client = dss_funcs.build_local_client()
         
         logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.ERROR)
         self.logger = logging.getLogger(__name__)
