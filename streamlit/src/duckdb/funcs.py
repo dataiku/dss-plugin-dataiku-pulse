@@ -90,15 +90,18 @@ if connection_type == "EC2":
         secretKey = connection_handle.get_info()["params"]["secretKey"]
         logger.error("KEYPAIR NEEDS TO BE INIT")
         raise Exception("Failed to find proper BLOB information. Check logs for detail.")
-    elif credentials_mode == "STS_ASSUME_ROLE":
-        assume_role_arn = connection_handle.get_info()["params"]["stsRoleToAssume"]
+    elif credentials_mode == "STS_ASSUME_ROLE" or credentials_mode == "ENVIRONMENT":
+        key_id = connection_handle.get_info()["resolvedAWSCredential"]["accessKey"]
+        secret = connection_handle.get_info()["resolvedAWSCredential"]["secretKey"]
+        token  = connection_handle.get_info()["resolvedAWSCredential"]["sessionToken"]
         blob_credentials = render_query(
             queries["blob_setup"]["aws_headers_assume"],
-            assume_role_arn=assume_role_arn,
+            key_id=key_id,
+            secret=secret,
+            token=token,
             aws_region=aws_region
         )
-    elif credentials_mode == "ENVIRONMENT":
-        logger.error("Do not accept ENVIRONMENT MODE")
+    else:
         raise Exception("Failed to find proper BLOB information. Check logs for detail.")
 
 elif connection_type == "Azure":
