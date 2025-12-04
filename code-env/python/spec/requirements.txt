@@ -1,19 +1,30 @@
-streamlit==1.46.1
+# Streamlit
+streamlit
 streamlit-aggrid
-duckdb==1.3.2
-sqlparse==0.5.3
-joblib==1.5.1
-boto3==1.40.30
+
+# Duck Database
+duckdb
+
+# Visualization
 altair
-tomli
-tabulate
-lxml
-plotly
-scipy
-nbformat>=4.2.0
-orjson
 matplotlib
+plotly
+tabulate
+
+# Parsing
+lxml
+orjson
 pyyaml
-filelock
+sqlparse
+tomli
+
+# Cloud
+boto3
 google-cloud-storage
+
+# Misc
 cryptography
+filelock
+joblib
+nbformat
+scipy
