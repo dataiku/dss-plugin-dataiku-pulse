@@ -80,7 +80,3 @@ if run:
         dss_duck.initiate_db()
     else:
         st.error("Invalid password.")
-
-with st.container(border=True):
-    st.markdown("### DuckDB Debug -- To be deleted")
-    st.dataframe(dss_duck.funcs.query_direct_sql("SHOW TABLES;"))
