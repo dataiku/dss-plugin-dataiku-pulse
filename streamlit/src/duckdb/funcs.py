@@ -329,7 +329,6 @@ def load_parquet_sql(query):
                 con.register_filesystem(filesystem('gcs'))
             df = con.execute(query).df()
     except Exception as e:
-        print(e)
         logger.error(e)
         return False
     return True
