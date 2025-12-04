@@ -326,7 +326,7 @@ def load_parquet_sql(query):
                 con.execute(f"{blob_module}")
                 con.execute(f"{blob_credentials}")
             else:
-                con.register_filesystem(filesystem('gcs'))
+                con.register_filesystem(filesystem("gcs"))
             df = con.execute(query).df()
     except Exception as e:
         logger.error(e)
