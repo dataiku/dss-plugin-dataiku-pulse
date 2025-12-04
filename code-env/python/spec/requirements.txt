@@ -1,28 +1,40 @@
+# =========================
 # Streamlit
+# =========================
 streamlit
 streamlit-aggrid
 
-# Duck Database
+# =========================
+# DuckDB
+# =========================
 duckdb
 
+# =========================
 # Visualization
+# =========================
 altair
 matplotlib
 plotly
 tabulate
 
-# Parsing
+# =========================
+# Parsing & Serialization
+# =========================
 lxml
 orjson
 pyyaml
 sqlparse
 tomli
 
+# =========================
 # Cloud
+# =========================
 boto3
 google-cloud-storage
 
-# Misc
+# =========================
+# Misc / Core Utilities
+# =========================
 cryptography
 filelock
 joblib
