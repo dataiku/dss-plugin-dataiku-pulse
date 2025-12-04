@@ -87,8 +87,15 @@ project_handle = client.get_default_project()
 folder_handle = project_handle.get_managed_folder(odb_id=folder.get_id())
 connection_name = folder_handle.get_settings().settings["params"]["connection"]
 connection_handle = client.get_connection(name=connection_name)
+
 ## Pull Connection Setup/Permissions
 connection_type = connection_handle.get_info()["type"]
+
+## Set base values
+blob_module = False
+blob_credentials = False
+
+## Figure out the correct blob storage connection information per ecosystem
 if connection_type == "EC2":
     blob_bket = folder.get_info()["accessInfo"]["bucket"]
     blob_root = folder.get_info()["accessInfo"]["root"][1:]
@@ -156,9 +163,7 @@ elif connection_type == "GCS":
         )
     except:
         try:
-            duckdb.register_filesystem(filesystem('gcs'))
-            blob_module = False
-            blob_credentials = False
+
         except Exception as e:
             logger.error(f"Failed to get HMAC Key and Secret: {e}")
             st.error("Failed to get HMAC Key and Secret. Check logs for more details.")
