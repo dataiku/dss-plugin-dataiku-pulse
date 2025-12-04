@@ -161,12 +161,9 @@ elif connection_type == "GCS":
             hmac_id=gcs_hmac["access_key"],
             hmac_secret=hmac_secret
         )
-    except:
-        try:
-
-        except Exception as e:
-            logger.error(f"Failed to get HMAC Key and Secret: {e}")
-            st.error("Failed to get HMAC Key and Secret. Check logs for more details.")
+    except Exception as e:
+        logger.error(f"Failed to get HMAC Key and Secret: {e}")
+        logger.error(f"Will still try to use filesystem instead.")
 
 else:
     logger.error("Unknown Blob storage type")
