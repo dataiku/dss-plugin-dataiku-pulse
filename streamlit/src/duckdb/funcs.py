@@ -2,6 +2,7 @@
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 from cryptography.fernet import Fernet
+from fsspec import filesystem
 from google.cloud import storage
 import base64
 import dataiku
@@ -15,6 +16,17 @@ import time
 import sqlparse
 import logging
 import json
+
+# -----------------------------------------------------------------------------
+# Dataiku
+client = dataiku.api_client()
+DEBUG = False
+try:
+    instance_info = client.get_instance_info()
+    if instance_info.raw["nodeId"] in ["mazzei_designer"]:
+        DEBUG = True
+except:
+    pass
 
 # -----------------------------------------------------------------------------
 # Logger
@@ -48,7 +60,7 @@ queries = load_yaml("./queries.yaml")
 # -----------------------------------------------------------------------------
 # BLOB Folder
 
-## GCS HMAC generator
+## GCS HMAC Handler
 def derive_key_from_password(password: str, salt: bytes) -> bytes:
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
@@ -71,13 +83,19 @@ folder = dataiku.Folder(
 )
 
 ## Pull Connection Name From Admin Settings
-client = dataiku.api_client()
 project_handle = client.get_default_project()
 folder_handle = project_handle.get_managed_folder(odb_id=folder.get_id())
 connection_name = folder_handle.get_settings().settings["params"]["connection"]
 connection_handle = client.get_connection(name=connection_name)
+
 ## Pull Connection Setup/Permissions
 connection_type = connection_handle.get_info()["type"]
+
+## Set base values
+blob_module = False
+blob_credentials = False
+
+## Figure out the correct blob storage connection information per ecosystem
 if connection_type == "EC2":
     blob_bket = folder.get_info()["accessInfo"]["bucket"]
     blob_root = folder.get_info()["accessInfo"]["root"][1:]
@@ -145,7 +163,7 @@ elif connection_type == "GCS":
         )
     except Exception as e:
         logger.error(f"Failed to get HMAC Key and Secret: {e}")
-        st.error("Failed to get HMAC Key and Secret. Check logs for more details.")
+        logger.error(f"Will still try to use filesystem instead.")
 
 else:
     logger.error("Unknown Blob storage type")
@@ -159,6 +177,7 @@ def build_partition_df():
     df[["instance_name", "category", "module", "date"]] = df["partitions"].str.split("|", expand=True)
     df["date"] = pd.to_datetime(df["date"])
     return df
+    
 # -----------------------------------------------------------------------------
 # DuckDB -- LOADING
 def create_duckdb():
@@ -303,11 +322,13 @@ def load_additional_tables():
 def load_parquet_sql(query):
     try:
         with duckdb.connect(duckdb_home) as con:
-            con.execute(f"{blob_module}")
-            con.execute(f"{blob_credentials}")
+            if blob_module and blob_credentials:
+                con.execute(f"{blob_module}")
+                con.execute(f"{blob_credentials}")
+            else:
+                con.register_filesystem(filesystem("gcs"))
             df = con.execute(query).df()
     except Exception as e:
-        print(e)
         logger.error(e)
         return False
     return True

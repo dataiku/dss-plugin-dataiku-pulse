@@ -41,7 +41,11 @@ llms_connections = st.Page("pages/insights/llms_connections.py", title="LLM Conn
 # -----------------------------------------------------------------------------
 # Dataiku Usage Patterns
 dataiku_usage  = st.Page("pages/usages/dataiku_usage.py", title="Dataiku Usage")
-genai_llm = st.Page("pages/usages/genai_llm.py",     title="GEN AI / LLM")
+genai_llm = st.Page("pages/usages/genai_llm.py", title="GEN AI / LLM")
+
+# -----------------------------------------------------------------------------
+# 
+debug = st.Page("pages/main/debug.py", title="DEBUG")
 
 # -----------------------------------------------------------------------------
 # Navigation Panel
@@ -65,6 +69,8 @@ pages = {
         genai_llm
     ]
 }
+if dss_duck.funcs.DEBUG:
+    pages["DEBUG"] = [debug]
 
 pg = st.navigation(pages, position="top")
 pg.run()
