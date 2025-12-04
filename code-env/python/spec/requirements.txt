@@ -30,6 +30,7 @@ tomli
 # Cloud
 # =========================
 boto3
+gcsfs
 google-cloud-storage
 
 # =========================
@@ -37,6 +38,7 @@ google-cloud-storage
 # =========================
 cryptography
 filelock
+fsspec
 joblib
 nbformat
 scipy
