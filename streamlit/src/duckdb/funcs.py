@@ -17,6 +17,17 @@ import logging
 import json
 
 # -----------------------------------------------------------------------------
+# Dataiku
+client = dataiku.api_client()
+DEBUG = False
+try:
+    instance_info = client.get_instance_info()
+    if instance_info.raw["nodeId"] in ["mazzei_designer"]:
+        DEBUG = True
+except:
+    pass
+
+# -----------------------------------------------------------------------------
 # Logger
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.ERROR)
 logger = logging.getLogger(__name__)
@@ -48,7 +59,7 @@ queries = load_yaml("./queries.yaml")
 # -----------------------------------------------------------------------------
 # BLOB Folder
 
-## GCS HMAC generator
+## GCS HMAC Handler
 def derive_key_from_password(password: str, salt: bytes) -> bytes:
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
@@ -71,7 +82,6 @@ folder = dataiku.Folder(
 )
 
 ## Pull Connection Name From Admin Settings
-client = dataiku.api_client()
 project_handle = client.get_default_project()
 folder_handle = project_handle.get_managed_folder(odb_id=folder.get_id())
 connection_name = folder_handle.get_settings().settings["params"]["connection"]
@@ -143,9 +153,15 @@ elif connection_type == "GCS":
             hmac_id=gcs_hmac["access_key"],
             hmac_secret=hmac_secret
         )
-    except Exception as e:
-        logger.error(f"Failed to get HMAC Key and Secret: {e}")
-        st.error("Failed to get HMAC Key and Secret. Check logs for more details.")
+    except:
+        try:
+            from fsspec import filesystem
+            duckdb.register_filesystem(filesystem('gcs'))
+            blob_module = False
+            blob_credentials = False
+        except Exception as e:
+            logger.error(f"Failed to get HMAC Key and Secret: {e}")
+            st.error("Failed to get HMAC Key and Secret. Check logs for more details.")
 
 else:
     logger.error("Unknown Blob storage type")
@@ -159,6 +175,7 @@ def build_partition_df():
     df[["instance_name", "category", "module", "date"]] = df["partitions"].str.split("|", expand=True)
     df["date"] = pd.to_datetime(df["date"])
     return df
+    
 # -----------------------------------------------------------------------------
 # DuckDB -- LOADING
 def create_duckdb():
@@ -303,8 +320,11 @@ def load_additional_tables():
 def load_parquet_sql(query):
     try:
         with duckdb.connect(duckdb_home) as con:
-            con.execute(f"{blob_module}")
-            con.execute(f"{blob_credentials}")
+            if blob_module and blob_credentials:
+                con.execute(f"{blob_module}")
+                con.execute(f"{blob_credentials}")
+            else:
+                con.register_filesystem(filesystem('gcs'))
             df = con.execute(query).df()
     except Exception as e:
         print(e)
