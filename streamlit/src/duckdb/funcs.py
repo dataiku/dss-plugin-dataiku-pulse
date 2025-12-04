@@ -2,6 +2,7 @@
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 from cryptography.fernet import Fernet
+from fsspec import filesystem
 from google.cloud import storage
 import base64
 import dataiku
@@ -155,7 +156,6 @@ elif connection_type == "GCS":
         )
     except:
         try:
-            from fsspec import filesystem
             duckdb.register_filesystem(filesystem('gcs'))
             blob_module = False
             blob_credentials = False
