@@ -3,7 +3,6 @@
 # =========================
 streamlit
 streamlit-aggrid
-streamlit-extras
 
 # =========================
 # DuckDB
