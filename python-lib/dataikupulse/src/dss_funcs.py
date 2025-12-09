@@ -87,6 +87,7 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
         raise Exception("Unknown Module Mode")
     results = []
     directory = dss_objs.__path__[0]
+    return results
     for root, _, files in os.walk(directory):
         for f in files:
             if not f.endswith(".py") or f == "__init__.py":
