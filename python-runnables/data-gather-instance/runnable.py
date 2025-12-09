@@ -44,11 +44,12 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
-        return ResultTable()
         
         # Collect the modules && Run the modules
         results = dss_funcs.run_modules(self, "client", self.local_client)
+        return ResultTable()
 
+    
         # return results
         if results:
             df = pd.DataFrame(results, columns=["instance_level", "path", "module_name", "step", "result", "message"])
