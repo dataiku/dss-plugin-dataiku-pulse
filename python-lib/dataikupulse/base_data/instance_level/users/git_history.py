@@ -4,10 +4,10 @@ import numpy as np
 from joblib import Parallel, delayed
 from datetime import datetime, date, timedelta
 
-
 today = date.today()
 
 def split_work(project_keys):
+    client = dataiku.api_client()
     dfs = []
     for project_key in project_keys:
         project_handle = client.get_project(project_key=project_key)
