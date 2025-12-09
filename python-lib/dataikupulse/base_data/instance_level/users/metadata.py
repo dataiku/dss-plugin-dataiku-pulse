@@ -23,14 +23,14 @@ def main(self):
     dss_commits_df = get_remote_dataframe(self, "dss_commits")
 
     # Data Users Base Info
-    dss_users = client.list_users()
+    dss_users = self.local_client.list_users()
     dss_users_df = pd.DataFrame(dss_users)
     if "trialStatus" in dss_users_df.columns:
         jdf = pd.json_normalize(dss_users_df["trialStatus"]).add_prefix("trialStatus.")
         dss_users_df = pd.concat([dss_users_df, jdf], axis=1)
     
     # Dataiku Users Last Activity
-    dss_user_activity = client.list_users_activity()
+    dss_user_activity = self.local_client.list_users_activity()
     user_activity = [[user.login, user.last_session_activity] for user in dss_user_activity]
     dss_user_activity_df = pd.DataFrame(user_activity, columns=["login", "last_session_activity"])
 
