@@ -110,7 +110,6 @@ def run_modules(self, mode, project_handle = None, client_d = {}, project_key = 
                 continue # nothing to write, skip
             try:
                 # Remote client and DT parsing
-                remote_client = build_remote_client(self)
                 dt_year  = str(self.dt.year)
                 dt_month = str(f'{self.dt.month:02d}')
                 dt_day   = str(f'{self.dt.day:02d}')
@@ -119,7 +118,7 @@ def run_modules(self, mode, project_handle = None, client_d = {}, project_key = 
                 df.columns = df.columns.str.replace(".", "_", regex=False)
                 instance_name = get_dss_name(build_local_client())
                 if "instance_name" not in df.columns:
-                    df["instance_name"] = instance_name
+                    df["instance_name"] = self.instance_name
                 write_path = f"{instance_name}/{path}/{module_name}/{dt_year}/{dt_month}/{dt_day}/data.parquet"
                 if project_key:
                     write_path = f"{instance_name}/{path}/{module_name}/{dt_year}/{dt_month}/{dt_day}/{project_key}_data.parquet"
