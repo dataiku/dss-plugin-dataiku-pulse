@@ -87,7 +87,6 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
         raise Exception("Unknown Module Mode")
     results = []
     directory = dss_objs.__path__[0]
-    return results
     for root, _, files in os.walk(directory):
         for f in files:
             if not f.endswith(".py") or f == "__init__.py":
@@ -96,6 +95,7 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
             path = root.replace(directory, "")
             fp = os.path.join(root, f)
             path = path[1:]
+            return results
             try:
                 spec = importlib.util.spec_from_file_location(module_name, fp)
                 module = importlib.util.module_from_spec(spec)
