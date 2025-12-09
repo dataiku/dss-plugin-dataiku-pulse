@@ -5,7 +5,6 @@ import dataiku
 import pandas as pd
 import numpy as np
 import os
-import time
 import logging
 
 
@@ -29,10 +28,11 @@ class MyRunnable(Runnable):
     def run(self, progress_callback):
         # Collect the modules && Run the modules
         results = dss_funcs.run_modules(self, "client", self.local_client)
+        self.logger.error("Finished collecting Instance level Data")
         
         # return results
-        time.sleep(2)
         if results:
+            self.logger.error("Creating results DF")
             df = pd.DataFrame(results, columns=["instance_level", "path", "module_name", "step", "result", "message"])
             del df["instance_level"]
             df = df.astype(str)
@@ -43,6 +43,7 @@ class MyRunnable(Runnable):
                 n +=1
             for index, row in df.iterrows():
                 rt.add_record(row.tolist())
+            self.logger.error("Returning results")
             return rt
         else:
             raise Exception("Something went wrong")
