@@ -53,7 +53,6 @@ class MyRunnable(Runnable):
             future = executor.submit(build_rt, results)
             try:
                 rt = future.result(timeout=30)  # adjust as needed
-                return rt
             except concurrent.futures.TimeoutError:
                 future.cancel()
                 raise TimeoutError(
@@ -64,4 +63,6 @@ class MyRunnable(Runnable):
                     "Failed while building or returning ResultTable :: {e}"
                 ) from e
 
+        self.logger.error("AHHHHHHHHHHHHHHHHHHHHHHHH")
+        return rt
 # EOF
