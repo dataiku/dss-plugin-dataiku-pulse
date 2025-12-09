@@ -5,6 +5,7 @@ import dataiku
 import pandas as pd
 import numpy as np
 import os
+import time
 import logging
 
 
@@ -30,6 +31,7 @@ class MyRunnable(Runnable):
         results = dss_funcs.run_modules(self, "client", self.local_client)
         
         # return results
+        time.sleep(2)
         if results:
             df = pd.DataFrame(results, columns=["instance_level", "path", "module_name", "step", "result", "message"])
             del df["instance_level"]
