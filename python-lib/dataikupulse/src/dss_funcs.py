@@ -95,7 +95,7 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
             path = root.replace(directory, "")
             fp = os.path.join(root, f)
             path = path[1:]
-            return results
+            break
             try:
                 spec = importlib.util.spec_from_file_location(module_name, fp)
                 module = importlib.util.module_from_spec(spec)
