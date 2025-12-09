@@ -28,7 +28,7 @@ reverse_lookup = {
 }
 
 
-def main(self, client_d = {}):
+def main(self):
     connections = client.list_connections_names(connection_type="all")
     dfs = []
     for conn in connections:
