@@ -79,10 +79,10 @@ def get_preset_pc(self, preset_name):
 
 # ---------- DATA GATHER MODULES -----------------------------
 def run_modules(self, mode = "instance", project_handle = None, client_d = {}, project_key = None):
-    if mode == "projects":
-        from dataikupulse.base_data import project_level as dss_objs
-    else:
+    if mode == "instance":
         from dataikupulse.base_data import instance_level as dss_objs
+    else:
+        from dataikupulse.base_data import project_level as dss_objs
     results = []
     directory = dss_objs.__path__[0]
     for root, _, files in os.walk(directory):
