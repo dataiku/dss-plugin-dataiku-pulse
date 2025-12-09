@@ -61,7 +61,7 @@ class MyRunnable(Runnable):
                 )
             except Exception as e:
                 raise RuntimeError(
-                    "Failed while building or returning ResultTable"
+                    "Failed while building or returning ResultTable :: {e}"
                 ) from e
 
 # EOF
