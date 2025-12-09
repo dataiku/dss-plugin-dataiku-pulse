@@ -41,7 +41,7 @@ class MyRunnable(Runnable):
                 n +=1
             for index, row in df.iterrows():
                 rt.add_record(row.tolist())
-            raise Exception(rt)
+            #raise Exception(rt)
             return rt
         raise Exception("Something went wrong")
 
