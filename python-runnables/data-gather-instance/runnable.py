@@ -46,23 +46,19 @@ class MyRunnable(Runnable):
     def run(self, progress_callback):
         # Collect the modules && Run the modules
         results = dss_funcs.run_modules(self, "client", self.local_client)
-        if not results:
-            raise Exception("No results returned from run_modules")
 
-        with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(build_rt, results)
-            try:
-                rt = future.result(timeout=30)  # adjust as needed
-            except concurrent.futures.TimeoutError:
-                future.cancel()
-                raise TimeoutError(
-                    "Timeout while returning ResultTable — likely Dataiku socket serialization hang"
-                )
-            except Exception as e:
-                raise RuntimeError(
-                    "Failed while building or returning ResultTable :: {e}"
-                ) from e
-
-        self.logger.error("AHHHHHHHHHHHHHHHHHHHHHHHH")
-        return rt
+        # return results
+        if results:
+            df = pd.DataFrame(results, columns=["instance_level", "path", "module_name", "step", "result", "message"])
+            del df["instance_level"]
+            df = df.astype(str)
+            rt = ResultTable()
+            n = 1
+            for col in df.columns:
+                rt.add_column(n, col, "STRING")
+                n +=1
+            for index, row in df.iterrows():
+                rt.add_record(row.tolist())
+            return rt
+        raise Exception("Something went wrong")
 # EOF
