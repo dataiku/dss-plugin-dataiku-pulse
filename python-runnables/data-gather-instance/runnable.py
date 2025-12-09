@@ -33,7 +33,7 @@ class MyRunnable(Runnable):
         with concurrent.futures.ThreadPoolExecutor() as executor:
             results = dss_funcs.run_modules(self, "client", self.local_client)
             try:
-                results = concurrent.future.result(timeout=120)
+                results = concurrent.futures.result(timeout=120)
             except concurrent.futures.TimeoutError:
                 raise Exception("Timeout: stopped waiting for run_modules.")
             
