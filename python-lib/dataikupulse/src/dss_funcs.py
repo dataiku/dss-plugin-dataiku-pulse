@@ -119,6 +119,7 @@ def run_modules(self, mode, project_handle = None, client_d = {}, project_key = 
                 instance_name = self.instance_name
                 if "instance_name" not in df.columns:
                     df["instance_name"] = instance_name
+                apple
                 write_path = f"{instance_name}/{path}/{module_name}/{dt_year}/{dt_month}/{dt_day}/data.parquet"
                 if project_key:
                     write_path = f"{instance_name}/{path}/{module_name}/{dt_year}/{dt_month}/{dt_day}/{project_key}_data.parquet"
@@ -131,7 +132,7 @@ def run_modules(self, mode, project_handle = None, client_d = {}, project_key = 
                 # Write the output finally
                 if "timestamp" not in df.columns:
                     df["timestamp"] = self.dt
-                #dss_folder.write_remote_folder_output(self, write_path, df)
+                dss_folder.write_remote_folder_output(self, write_path, df)
                 results.append([project_key, path, module_name, "write/save", True, None])
             except Exception as e:
                 results.append([project_key, path, module_name, "write/save", False, e])
