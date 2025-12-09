@@ -115,11 +115,12 @@ def run_modules(self, mode, client_handle, client_d = {}, project_key = None):
                 df.columns = df.columns.str.lower()
                 df.columns = df.columns.str.replace(".", "_", regex=False)
                 instance_name = get_dss_name(build_local_client())
+                path = path[1:]
                 if "instance_name" not in df.columns:
                     df["instance_name"] = instance_name
-                write_path = f"/{instance_name}/{path}/{module_name}/{dt_year}/{dt_month}/{dt_day}/data.parquet"
+                write_path = f"{instance_name}/{path}/{module_name}/{dt_year}/{dt_month}/{dt_day}/data.parquet"
                 if project_key:
-                    write_path = f"/{instance_name}/{path}/{module_name}/{dt_year}/{dt_month}/{dt_day}/{project_key}_data.parquet"
+                    write_path = f"{instance_name}/{path}/{module_name}/{dt_year}/{dt_month}/{dt_day}/{project_key}_data.parquet"
                 # Final cleanse of DF for dictionary/lists to strings
                 for col in df.columns:
                     types = df[col].dropna().map(type).unique()
