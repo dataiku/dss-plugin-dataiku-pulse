@@ -92,6 +92,7 @@ def run_modules(self, mode, client_handle, client_d = {}, project_key = None):
             module_name = f.removesuffix(".py")
             path = root.replace(directory, "")
             fp = os.path.join(root, f)
+            path = path[1:]
             try:
                 spec = importlib.util.spec_from_file_location(module_name, fp)
                 module = importlib.util.module_from_spec(spec)
@@ -103,7 +104,6 @@ def run_modules(self, mode, client_handle, client_d = {}, project_key = None):
                 df = pd.DataFrame()
                 results.append([project_key, path, module_name, "load/run", False, e])
             if not isinstance(df, pd.DataFrame) or df.empty:
-                #results.append([project_key, path, module_name, "load/run", False, "DF CAME BACK EMPTY"])
                 continue # nothing to write, skip
             try:
                 # Remote client and DT parsing
@@ -115,7 +115,6 @@ def run_modules(self, mode, client_handle, client_d = {}, project_key = None):
                 df.columns = df.columns.str.lower()
                 df.columns = df.columns.str.replace(".", "_", regex=False)
                 instance_name = get_dss_name(build_local_client())
-                path = path[1:]
                 if "instance_name" not in df.columns:
                     df["instance_name"] = instance_name
                 write_path = f"{instance_name}/{path}/{module_name}/{dt_year}/{dt_month}/{dt_day}/data.parquet"
