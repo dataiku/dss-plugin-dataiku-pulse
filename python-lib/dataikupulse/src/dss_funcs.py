@@ -78,7 +78,7 @@ def get_preset_pc(self, preset_name):
 
 
 # ---------- DATA GATHER MODULES -----------------------------
-def run_modules(self, mode, client_handle, client_d = {}, project_key = None):
+def run_modules(self, mode, project_handle = None, client_d = {}, project_key = None):
     if mode == "projects":
         from dataikupulse.base_data import project_level as dss_objs
     else:
