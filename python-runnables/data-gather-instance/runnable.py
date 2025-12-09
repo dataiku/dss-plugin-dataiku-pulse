@@ -52,7 +52,6 @@ class MyRunnable(Runnable):
         # return results
         if results:
             df = pd.DataFrame(results, columns=["instance_level", "path", "module_name", "step", "result", "message"])
-            del df["instance_level"]
             df = df.astype(str)
             rt = ResultTable()
             n = 1
