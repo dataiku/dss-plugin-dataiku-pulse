@@ -51,22 +51,17 @@ class MyRunnable(Runnable):
         # HARD kill protection for Dataiku socket hang
         with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
             future = executor.submit(build_rt, results)
-
             try:
                 rt = future.result(timeout=30)  # adjust as needed
                 return rt
-
             except concurrent.futures.TimeoutError:
                 future.cancel()
                 raise TimeoutError(
                     "Timeout while returning ResultTable — likely Dataiku socket serialization hang"
                 )
-
             except Exception as e:
                 raise RuntimeError(
                     "Failed while building or returning ResultTable"
                 ) from e
-
-        
 
 # EOF
