@@ -9,8 +9,8 @@ def get_column_names_from_schema(schema):
     return colNames
 
 
-def get_remote_dataframe(self, client, table_name):
-    project_handle = client.get_project(project_key=self.params["pulse_worker_key"])
+def get_remote_dataframe(self, table_name):
+    project_handle = self.local_client.get_project(project_key=self.params["pulse_worker_key"])
     dataset_handle = project_handle.get_dataset(table_name)
     columns = get_column_names_from_schema(dataset_handle.get_schema()["columns"])
     raw_data = dataset_handle.iter_rows()
@@ -18,9 +18,9 @@ def get_remote_dataframe(self, client, table_name):
     return df
 
 
-def main(self, client, client_d = {}):
+def main(self):
     # Pull in DSS Commits table to see user activity better
-    dss_commits_df = get_remote_dataframe(self, client, "dss_commits")
+    dss_commits_df = get_remote_dataframe(self, "dss_commits")
 
     # Data Users Base Info
     dss_users = client.list_users()
