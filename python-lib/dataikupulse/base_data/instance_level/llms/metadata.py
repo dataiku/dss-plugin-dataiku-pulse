@@ -3,7 +3,6 @@ from dataikupulse.src import dss_funcs
 
 
 def main(self):
-    return df.pd.DataFrame()
     project_handle = self.local_client.get_project(self.params["pulse_worker_key"])
     if not project_handle.list_llms():
         return pd.DataFrame()
