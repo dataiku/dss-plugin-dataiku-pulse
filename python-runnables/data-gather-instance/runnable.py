@@ -49,8 +49,6 @@ class MyRunnable(Runnable):
         if not results:
             raise Exception("No results returned from run_modules")
 
-
-        
         with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
             future = executor.submit(build_rt, results)
             try:
