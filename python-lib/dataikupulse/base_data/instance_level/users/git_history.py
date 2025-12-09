@@ -23,7 +23,6 @@ def split_work(project_keys):
 
 
 def main(self):
-    return df.pd.DataFrame()
     project_keys = self.local_client.list_project_keys()
     pkey_array = np.array_split(project_keys, 2)
     results = Parallel(n_jobs=2)(delayed(split_work)(i) for i in pkey_array)
