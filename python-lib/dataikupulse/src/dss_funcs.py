@@ -32,8 +32,8 @@ def build_remote_client(self, remote_url=False, api_key=False):
     return client
 
 
-def get_dss_name(client):
-    instance_info = client.get_instance_info()
+def get_dss_name(self):
+    instance_info = self.local_client.get_instance_info()
     try:
         instance_name = instance_info.node_name.lower()
     except:
