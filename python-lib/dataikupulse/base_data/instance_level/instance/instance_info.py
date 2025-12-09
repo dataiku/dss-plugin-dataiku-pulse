@@ -2,8 +2,8 @@ import pandas as pd
 from dataikupulse.src.dss_funcs import get_nested_value
 
 
-def main(self, client, client_d = {}):
-    df = pd.json_normalize(client.get_instance_info().raw)
+def main(self):
+    df = pd.json_normalize(self.local_client.get_instance_info().raw)
     for c in ["dssStartupTimestamp"]:
         df[c] = pd.to_datetime(df[c], unit="ms", utc=True)
         df[c] = pd.to_datetime(df[c], utc=True)

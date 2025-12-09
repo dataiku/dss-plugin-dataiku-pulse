@@ -58,6 +58,14 @@
             "mandatory": true
         },
         {
+            "name": "pulse_dashboard_debug",
+            "label": "Run Dashboard in DEBUG",
+            "type": "BOOLEAN",
+            "description": "Limit datasets and dataloads for testings",
+            "mandatory": true,
+            "defaultValue": false
+        },
+        {
             "name": "pulse_folder_connection",
             "label": "Dataiku Pulse Folder Connection",
             "type": "STRING",

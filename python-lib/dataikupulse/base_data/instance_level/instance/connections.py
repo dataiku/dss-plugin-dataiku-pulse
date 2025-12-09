@@ -28,11 +28,11 @@ reverse_lookup = {
 }
 
 
-def main(self, client, client_d = {}):
-    connections = client.list_connections_names(connection_type="all")
+def main(self):
+    connections = self.local_client.list_connections_names(connection_type="all")
     dfs = []
     for conn in connections:
-        conn_handle = client.get_connection(name=conn)
+        conn_handle = self.local_client.get_connection(name=conn)
         settings = conn_handle.get_settings()
         d = settings.settings
         dfs.append(pd.json_normalize(d))

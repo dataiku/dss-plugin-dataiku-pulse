@@ -25,6 +25,8 @@ def initiate_db():
         with lock:
             start_time = time.perf_counter()
             progress_text = "Setting up Dataiku PULSE Insights Database. Please wait......"
+            if funcs.DEBUG:
+                progress_text = "(DEBUG) Setting up Dataiku PULSE Insights Database. Please wait......"
             progress_bar = st.progress(0, text=progress_text)
             status_text = st.empty()
             # partition df

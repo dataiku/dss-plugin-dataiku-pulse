@@ -25,7 +25,7 @@ blob_setup:
         TYPE gcs,
         KEY_ID '{hmac_id}',
         SECRET '{hmac_secret}'
-    );
+    )
 
 # BASE DATA QUERY
 base_data:
@@ -99,4 +99,4 @@ addon_data:
       WHERE
         llm_mesh.llms_mesh_id <> ''
         AND llm_mesh.llms_mesh_id <> 'False'
-    );
+    )

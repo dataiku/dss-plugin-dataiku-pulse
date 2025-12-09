@@ -9,8 +9,8 @@ def get_column_names_from_schema(schema):
     return colNames
 
 
-def get_remote_dataframe(self, client, table_name):
-    project_handle = client.get_project(project_key=self.params["pulse_worker_key"])
+def get_remote_dataframe(self, table_name):
+    project_handle = self.local_client.get_project(project_key=self.params["pulse_worker_key"])
     dataset_handle = project_handle.get_dataset(table_name)
     columns = get_column_names_from_schema(dataset_handle.get_schema()["columns"])
     raw_data = dataset_handle.iter_rows()
@@ -18,19 +18,19 @@ def get_remote_dataframe(self, client, table_name):
     return df
 
 
-def main(self, client, client_d = {}):
+def main(self):
     # Pull in DSS Commits table to see user activity better
-    dss_commits_df = get_remote_dataframe(self, client, "dss_commits")
+    dss_commits_df = get_remote_dataframe(self, "dss_commits")
 
     # Data Users Base Info
-    dss_users = client.list_users()
+    dss_users = self.local_client.list_users()
     dss_users_df = pd.DataFrame(dss_users)
     if "trialStatus" in dss_users_df.columns:
         jdf = pd.json_normalize(dss_users_df["trialStatus"]).add_prefix("trialStatus.")
         dss_users_df = pd.concat([dss_users_df, jdf], axis=1)
     
     # Dataiku Users Last Activity
-    dss_user_activity = client.list_users_activity()
+    dss_user_activity = self.local_client.list_users_activity()
     user_activity = [[user.login, user.last_session_activity] for user in dss_user_activity]
     dss_user_activity_df = pd.DataFrame(user_activity, columns=["login", "last_session_activity"])
 

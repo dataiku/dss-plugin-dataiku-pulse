@@ -2,7 +2,6 @@
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 from cryptography.fernet import Fernet
-from fsspec import filesystem
 from google.cloud import storage
 import base64
 import dataiku
@@ -20,11 +19,13 @@ import json
 # -----------------------------------------------------------------------------
 # Dataiku
 client = dataiku.api_client()
-DEBUG = False
+st.session_state.DEBUG = False
 try:
-    instance_info = client.get_instance_info()
-    if instance_info.raw["nodeId"] in ["mazzei_designer"]:
-        DEBUG = True
+    plugin_handle = client.get_plugin(plugin_id="dataiku-pulse")
+    settings = plugin_handle.get_settings()
+    param_set = settings.get_parameter_set(parameter_set_name="params-dashboard-instance")
+    preset = param_set.get_preset(preset_name=param_set.list_preset_names()[0])
+    st.session_state.DEBUG = preset.get_raw()["pluginConfig"]["pulse_dashboard_debug"]
 except:
     pass
 
@@ -87,15 +88,8 @@ project_handle = client.get_default_project()
 folder_handle = project_handle.get_managed_folder(odb_id=folder.get_id())
 connection_name = folder_handle.get_settings().settings["params"]["connection"]
 connection_handle = client.get_connection(name=connection_name)
-
 ## Pull Connection Setup/Permissions
 connection_type = connection_handle.get_info()["type"]
-
-## Set base values
-blob_module = False
-blob_credentials = False
-
-## Figure out the correct blob storage connection information per ecosystem
 if connection_type == "EC2":
     blob_bket = folder.get_info()["accessInfo"]["bucket"]
     blob_root = folder.get_info()["accessInfo"]["root"][1:]
@@ -161,9 +155,15 @@ elif connection_type == "GCS":
             hmac_id=gcs_hmac["access_key"],
             hmac_secret=hmac_secret
         )
-    except Exception as e:
-        logger.error(f"Failed to get HMAC Key and Secret: {e}")
-        logger.error(f"Will still try to use filesystem instead.")
+    except:
+        try:
+            from fsspec import filesystem
+            duckdb.register_filesystem(filesystem('gcs'))
+            blob_module = False
+            blob_credentials = False
+        except Exception as e:
+            logger.error(f"Failed to get HMAC Key and Secret: {e}")
+            st.error("Failed to get HMAC Key and Secret. Check logs for more details.")
 
 else:
     logger.error("Unknown Blob storage type")
@@ -233,6 +233,8 @@ def load_base_tables(partition_df):
         for row in grp.itertuples():
             partition = getattr(row, "partitions")
             paths += folder.list_paths_in_partition(partition=partition)
+        if DEBUG:
+            paths = [paths[0]]
         path_list = ", ".join(f"'{blob_header}://{blob_bket}/{blob_root}/{p[1:]}'" for p in paths)
         query = render_query(
             queries["base_data"]["main"],
@@ -260,6 +262,8 @@ def load_dataiku_usage(partition_df):
         f"{blob_header}://{blob_bket}/{blob_root}/{instance}/dataiku_usage/**/*.parquet"
         for instance in instances
     ]
+    if DEBUG:
+        paths = [paths[0]]
     usage_queries = [
         render_query( queries["dataiku_usage"]["overview"], paths = paths)
     ]
@@ -326,9 +330,13 @@ def load_parquet_sql(query):
                 con.execute(f"{blob_module}")
                 con.execute(f"{blob_credentials}")
             else:
-                con.register_filesystem(filesystem("gcs"))
+                con.register_filesystem(filesystem('gcs'))
+            if DEBUG:
+                query = f"{query} LIMIT 1"
+                logger.error(query)
             df = con.execute(query).df()
     except Exception as e:
+        print(e)
         logger.error(e)
         return False
     return True
@@ -418,8 +426,8 @@ def query_build_sql(query, filters = {}, debug=False):
     query = build_sql(query, filters)
     if debug:
         import streamlit as st
+        logger.error(query)
         st.write(query)
-        print(query)
     try:
         with duckdb.connect(duckdb_home, read_only=True) as con:
             df = con.execute(query).df()
