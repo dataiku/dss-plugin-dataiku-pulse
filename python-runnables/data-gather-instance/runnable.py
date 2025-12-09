@@ -42,11 +42,11 @@ class MyRunnable(Runnable):
             df = df.astype(str)
             rt = ResultTable()
             n = 1
-            #for col in df.columns:
-            #    rt.add_column(col, col, "STRING")
-            #    n += 1
-            #for _, row in df.iterrows():
-            #    rt.add_record(row.tolist())
+            for col in df.columns:
+                rt.add_column(col, col, "STRING")
+                n += 1
+            for _, row in df.iterrows():
+                rt.add_record(row.tolist())
             return rt
         
         with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
