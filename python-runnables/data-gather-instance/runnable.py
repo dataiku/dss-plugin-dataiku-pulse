@@ -8,7 +8,7 @@ import os
 import logging
 
 
-import concurrent.futures as futures
+import concurrent.futures
 
 
 class MyRunnable(Runnable):
