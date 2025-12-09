@@ -98,7 +98,10 @@ def run_modules(self, mode, project_handle = None, client_d = {}, project_key = 
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 if hasattr(module, 'main'):
-                    df = module.main(self, project_handle, client_d)
+                    if project_handle:
+                        df = module.main(self, project_handle, client_d)
+                    else:
+                        df = module.main(self)
                     results.append([project_key, path, module_name, "load/run", True, None])
             except Exception as e:
                 df = pd.DataFrame()
