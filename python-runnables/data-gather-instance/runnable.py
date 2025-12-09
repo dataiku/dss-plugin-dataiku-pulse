@@ -49,8 +49,6 @@ class MyRunnable(Runnable):
                 rt.add_record(row.tolist())
             return rt
         
-        
-        # HARD kill protection for Dataiku socket hang
         with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
             future = executor.submit(build_rt, results)
             try:
