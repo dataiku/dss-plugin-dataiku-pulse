@@ -30,11 +30,11 @@ class MyRunnable(Runnable):
         results = dss_funcs.run_modules(self, "client", self.local_client)
         
         # return results
+        rt = ResultTable()
         if results:
             df = pd.DataFrame(results, columns=["instance_level", "path", "module_name", "step", "result", "message"])
             del df["instance_level"]
             df = df.astype(str)
-            rt = ResultTable()
             n = 1
             for col in df.columns:
                 rt.add_column(n, col, "STRING")
@@ -42,7 +42,7 @@ class MyRunnable(Runnable):
             for index, row in df.iterrows():
                 rt.add_record(row.tolist())
             #raise Exception(rt)
-            return rt
+        return rt
         raise Exception("Something went wrong")
 
         
