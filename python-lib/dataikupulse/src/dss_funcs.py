@@ -32,8 +32,8 @@ def build_remote_client(self, remote_url=False, api_key=False):
     return client
 
 
-def get_dss_name(client):
-    instance_info = client.get_instance_info()
+def get_dss_name(self):
+    instance_info = self.local_client.get_instance_info()
     try:
         instance_name = instance_info.node_name.lower()
     except:
@@ -43,9 +43,9 @@ def get_dss_name(client):
     return instance_name
 
 
-def get_dss_name_id_mapping(client):
-    instance_info = client.get_instance_info()
-    instance_name = get_dss_name(client)
+def get_dss_name_id_mapping(self):
+    instance_info = self.local_client.get_instance_info()
+    instance_name = get_dss_name(self)
     try:
         instance_name_base = instance_info.node_name
     except:
@@ -78,11 +78,13 @@ def get_preset_pc(self, preset_name):
 
 
 # ---------- DATA GATHER MODULES -----------------------------
-def run_modules(self, mode, client_handle, client_d = {}, project_key = None):
-    if mode == "projects":
+def run_modules(self, mode = "instance", project_handle = None, client_d = {}, project_key = None):
+    if mode == "instance":
+        from dataikupulse.base_data import instance_level as dss_objs
+    elif mode == "projects":
         from dataikupulse.base_data import project_level as dss_objs
     else:
-        from dataikupulse.base_data import instance_level as dss_objs
+        raise Exception("Unknown Module Mode")
     results = []
     directory = dss_objs.__path__[0]
     for root, _, files in os.walk(directory):
@@ -92,34 +94,36 @@ def run_modules(self, mode, client_handle, client_d = {}, project_key = None):
             module_name = f.removesuffix(".py")
             path = root.replace(directory, "")
             fp = os.path.join(root, f)
+            path = path[1:]
             try:
                 spec = importlib.util.spec_from_file_location(module_name, fp)
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 if hasattr(module, 'main'):
-                    df = module.main(self, client_handle, client_d)
+                    if project_handle: # project level stuff
+                        df = module.main(self, project_handle, client_d)
+                    else:
+                        df = module.main(self) # Instance level
                     results.append([project_key, path, module_name, "load/run", True, None])
             except Exception as e:
                 df = pd.DataFrame()
                 results.append([project_key, path, module_name, "load/run", False, e])
             if not isinstance(df, pd.DataFrame) or df.empty:
-                #results.append([project_key, path, module_name, "load/run", False, "DF CAME BACK EMPTY"])
                 continue # nothing to write, skip
             try:
                 # Remote client and DT parsing
-                remote_client = build_remote_client(self)
                 dt_year  = str(self.dt.year)
                 dt_month = str(f'{self.dt.month:02d}')
                 dt_day   = str(f'{self.dt.day:02d}')
                 # Add Additonal Information / output path
                 df.columns = df.columns.str.lower()
                 df.columns = df.columns.str.replace(".", "_", regex=False)
-                instance_name = get_dss_name(build_local_client())
+                instance_name = self.instance_name
                 if "instance_name" not in df.columns:
                     df["instance_name"] = instance_name
-                write_path = f"/{instance_name}/{path}/{module_name}/{dt_year}/{dt_month}/{dt_day}/data.parquet"
+                write_path = f"{instance_name}/{path}/{module_name}/{dt_year}/{dt_month}/{dt_day}/data.parquet"
                 if project_key:
-                    write_path = f"/{instance_name}/{path}/{module_name}/{dt_year}/{dt_month}/{dt_day}/{project_key}_data.parquet"
+                    write_path = f"{instance_name}/{path}/{module_name}/{dt_year}/{dt_month}/{dt_day}/{project_key}_data.parquet"
                 # Final cleanse of DF for dictionary/lists to strings
                 for col in df.columns:
                     types = df[col].dropna().map(type).unique()

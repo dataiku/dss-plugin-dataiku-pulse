@@ -42,6 +42,7 @@ class MyRunnable(Runnable):
         self.preset_pc = dss_funcs.get_preset_pc(self, "DATAIKU-PULSE")
         self.local_client = dss_funcs.build_local_client()
         self.remote_client = dss_funcs.build_remote_client(self)
+        self.instance_name = dss_funcs.get_dss_name(self)
         self.dt = datetime.utcnow()
         
         logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.ERROR)

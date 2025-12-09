@@ -4,9 +4,9 @@ from joblib import Parallel, delayed
 from dataikupulse.src import dss_funcs
 
 
-def main(self, client, client_d = {}):
+def main(self):
     # Get projects and expand
-    df = pd.DataFrame(client.list_projects()).add_prefix("project_")
+    df = pd.DataFrame(self.local_client.list_projects()).add_prefix("project_")
     jdf = pd.json_normalize(df["project_versionTag"]).add_prefix("project_versionTag_")
     df = pd.concat([df, jdf], axis=1)
     jdf = pd.json_normalize(df["project_creationTag"]).add_prefix("project_creationTag_")

@@ -49,7 +49,7 @@ debug = st.Page("pages/main/debug.py", title="DEBUG")
 
 # -----------------------------------------------------------------------------
 # Navigation Panel
-pages = {
+default_pages = {
     "PULSE Home": [
         home
     ],
@@ -69,8 +69,11 @@ pages = {
         genai_llm
     ]
 }
-if dss_duck.funcs.DEBUG:
+if st.session_state.DEBUG:
+    pages = default_pages
     pages["DEBUG"] = [debug]
+else:
+    pages = default_pages
 
 pg = st.navigation(pages, position="top")
 pg.run()
