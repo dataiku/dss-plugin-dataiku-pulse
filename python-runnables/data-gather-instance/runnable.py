@@ -60,6 +60,6 @@ class MyRunnable(Runnable):
                 n +=1
             for _, row in df.iterrows():
                 rt.add_record(row.tolist())
-            return ResultTable()
+            return rt
         raise Exception("Something went wrong")
 # EOF
