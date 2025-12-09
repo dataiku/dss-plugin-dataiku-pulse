@@ -7,10 +7,15 @@ from datetime import datetime, date, timedelta
 today = date.today()
 
 def split_work(project_keys):
-    client = dataiku.api_client()
+
+    return pd.concat(dfs, ignore_index=True)
+
+
+def main(self):
+    project_keys = self.local_client.list_project_keys()
     dfs = []
     for project_key in project_keys:
-        project_handle = client.get_project(project_key=project_key)
+        project_handle = self.local_client.get_project(project_key=project_key)
         git_log = project_handle.get_project_git().log()
         df = pd.DataFrame(git_log["entries"])
         if df.empty:
@@ -19,12 +24,5 @@ def split_work(project_keys):
         df = df[(df["timestamp"].dt.date >= today)]
         df["project_key"] = project_key
         dfs.append(df)
-    return pd.concat(dfs, ignore_index=True)
-
-
-def main(self):
-    project_keys = self.local_client.list_project_keys()
-    pkey_array = np.array_split(project_keys, 2)
-    results = Parallel(n_jobs=2)(delayed(split_work)(i) for i in pkey_array)
-    df = pd.concat(results, ignore_index=True)
+    df = pd.concat(dfs, ignore_index=True)
     return df
