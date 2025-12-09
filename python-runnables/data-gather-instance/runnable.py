@@ -11,6 +11,21 @@ import logging
 import concurrent.futures
 
 
+def build_rt(results):
+    df = pd.DataFrame(results, columns=[
+        "instance_level", "path", "module_name", "step", "result", "message"
+    ])
+    del df["instance_level"]
+    df = df.astype(str)
+    rt = ResultTable()
+    n = 1
+    for col in df.columns:
+        rt.add_column(col, col, "STRING")
+        n += 1
+    for _, row in df.iterrows():
+        rt.add_record(row.tolist())
+    return rt
+
 class MyRunnable(Runnable):
     def __init__(self, project_key, config, plugin_config):
         self.project_key = project_key
@@ -34,20 +49,7 @@ class MyRunnable(Runnable):
         if not results:
             raise Exception("No results returned from run_modules")
 
-        def build_rt(results):
-            df = pd.DataFrame(results, columns=[
-                "instance_level", "path", "module_name", "step", "result", "message"
-            ])
-            del df["instance_level"]
-            df = df.astype(str)
-            rt = ResultTable()
-            n = 1
-            for col in df.columns:
-                rt.add_column(col, col, "STRING")
-                n += 1
-            for _, row in df.iterrows():
-                rt.add_record(row.tolist())
-            return rt
+
         
         with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
             future = executor.submit(build_rt, results)
