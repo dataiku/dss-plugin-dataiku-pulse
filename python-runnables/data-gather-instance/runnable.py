@@ -47,7 +47,6 @@ class MyRunnable(Runnable):
     def run(self, progress_callback):
         # Collect the modules && Run the modules
         results = dss_funcs.run_modules(self)
-        return ResultTable()
     
         # return results
         if results:
