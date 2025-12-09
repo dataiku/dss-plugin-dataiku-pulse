@@ -15,6 +15,12 @@ with st.container(border=True):
         hide_index=True
     )
     st.markdown("---")
-    index = selected_rows.selection["rows"][0]
-    table_name = df.iat[index, 0]
-    st.dataframe(dss_duck.funcs.query_direct_sql(f"DESCRIBE {table_name}"))
+    row_selected = selected_rows.selection["rows"]
+    if row_selected:
+        index = row_selected[0]
+        table_name = df.iat[index, 0]
+        st.dataframe(
+            data=dss_duck.funcs.query_direct_sql(f"SELECT * FROM {table_name} LIMIT 10"),
+            hide_index=True
+        )
+        st.dataframe(dss_duck.funcs.query_direct_sql(f"DESCRIBE {table_name}"), hide_index=True)

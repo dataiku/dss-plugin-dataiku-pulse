@@ -20,7 +20,11 @@ except:
 
 # -----------------------------------------------------------------------------
 # Homepage
-st.markdown(f"""# 📊 Dataiku PULSE Insights Dashboard
+title = "# 📊 Dataiku PULSE Insights Dashboard"
+if st.session_state.DEBUG:
+    title = "# 📊 Dataiku PULSE Insights Dashboard -- DEBUG MODE"
+
+st.markdown(f"""{title}
 
 ## Overview
 
@@ -74,9 +78,20 @@ This dashboard provides key administrative insights into the Dataiku platform to
 
 """)
 pwd = st.text_input("Password", type="password")
-run = st.button("Refresh")
-if run:
+reload_duckdb = st.button("Complete Reload DuckDB")
+if reload_duckdb:
     if pwd == "dataikupulse2026":
         dss_duck.initiate_db()
+    else:
+        st.error("Invalid password.")
+toggle_debug = st.button("Toggle Debug")
+if toggle_debug:
+    if pwd == "dataikupulse2026":
+        plugin_handle = dss_duck.funcs.client.get_plugin(plugin_id="dataiku-pulse")
+        settings = plugin_handle.get_settings()
+        param_set = settings.get_parameter_set(parameter_set_name="params-dashboard-instance")
+        preset = param_set.get_preset(preset_name=param_set.list_preset_names()[0])
+        st.session_state.DEBUG = preset.get_raw()["pluginConfig"]["pulse_dashboard_debug"]
+        st.rerun()
     else:
         st.error("Invalid password.")
