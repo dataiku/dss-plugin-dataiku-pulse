@@ -33,7 +33,7 @@ class MyRunnable(Runnable):
         results = dss_funcs.run_modules(self, "client", self.local_client)
         if not results:
             raise Exception("No results returned from run_modules")
-        
+
         def build_rt(results):
             df = pd.DataFrame(results, columns=[
                 "instance_level", "path", "module_name", "step", "result", "message"
