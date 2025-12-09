@@ -5,7 +5,6 @@ from dataikupulse.src import dss_funcs
 
 
 def main(self):
-    return df.pd.DataFrame()
     # Get projects and expand
     df = pd.DataFrame(self.local_client.list_projects()).add_prefix("project_")
     jdf = pd.json_normalize(df["project_versionTag"]).add_prefix("project_versionTag_")
