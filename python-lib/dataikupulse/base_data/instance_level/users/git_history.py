@@ -6,11 +6,6 @@ from datetime import datetime, date, timedelta
 
 today = date.today()
 
-def split_work(project_keys):
-
-    return pd.concat(dfs, ignore_index=True)
-
-
 def main(self):
     project_keys = self.local_client.list_project_keys()
     dfs = []
