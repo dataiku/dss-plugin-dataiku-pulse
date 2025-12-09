@@ -44,6 +44,7 @@ class MyRunnable(Runnable):
             for index, row in df.iterrows():
                 rt.add_record(row.tolist())
             self.logger.error("Returning results")
+            raise Exception()
             return rt
         else:
             raise Exception("Something went wrong")
