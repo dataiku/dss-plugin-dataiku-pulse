@@ -31,7 +31,7 @@ class MyRunnable(Runnable):
     def run(self, progress_callback):
         # Collect the modules && Run the modules
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = {dss_funcs.run_modules(self, "client", self.local_client)}
+            futures = dss_funcs.run_modules(self, "client", self.local_client)
             try:
                 results = future.result(timeout=120)
             except concurrent.futures.TimeoutError:
