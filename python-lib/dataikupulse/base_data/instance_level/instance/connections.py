@@ -29,6 +29,7 @@ reverse_lookup = {
 
 
 def main(self):
+    return df.pd.DataFrame()
     connections = self.local_client.list_connections_names(connection_type="all")
     dfs = []
     for conn in connections:
