@@ -31,12 +31,17 @@ class MyRunnable(Runnable):
     def run(self, progress_callback):
         # Collect the modules && Run the modules
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            results = dss_funcs.run_modules(self, "client", self.local_client)
-            try:
-                results = concurrent.futures.result(timeout=120)
-            except concurrent.futures.TimeoutError:
-                raise Exception("Timeout: stopped waiting for run_modules.")
-            
+            futures = {dss_funcs.run_modules(self, "client", self.local_client)}
+            for future in concurrent.futures.as_completed(futures):
+                task_name = futures[future]
+                try:
+                    results = future.result(timeout=120)
+                except concurrent.futures.TimeoutError:
+                    raise Exception("Timeout: stopped waiting for run_modules")
+                except Exception as e:
+                    raise Exception(e)
+                    
+        raise Exception("Task completed")
         # return results
         if results:
             df = pd.DataFrame(results, columns=["instance_level", "path", "module_name", "step", "result", "message"])
