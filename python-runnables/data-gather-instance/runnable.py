@@ -37,7 +37,7 @@ class MyRunnable(Runnable):
             rt = ResultTable()
             n = 1
             for col in df.columns:
-                rt.add_column(col, col, "STRING")
+                rt.add_column(n, col, "STRING")
                 n +=1
             for index, row in df.iterrows():
                 rt.add_record(row.tolist())
