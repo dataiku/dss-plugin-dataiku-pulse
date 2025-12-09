@@ -43,9 +43,9 @@ def get_dss_name(client):
     return instance_name
 
 
-def get_dss_name_id_mapping(client):
-    instance_info = client.get_instance_info()
-    instance_name = get_dss_name(client)
+def get_dss_name_id_mapping(self):
+    instance_info = self.local_client.get_instance_info()
+    instance_name = get_dss_name(self)
     try:
         instance_name_base = instance_info.node_name
     except:
