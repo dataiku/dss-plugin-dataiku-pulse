@@ -95,7 +95,6 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
             path = root.replace(directory, "")
             fp = os.path.join(root, f)
             path = path[1:]
-            break
             try:
                 spec = importlib.util.spec_from_file_location(module_name, fp)
                 module = importlib.util.module_from_spec(spec)
@@ -109,6 +108,7 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
             except Exception as e:
                 df = pd.DataFrame()
                 results.append([project_key, path, module_name, "load/run", False, e])
+            break
             if not isinstance(df, pd.DataFrame) or df.empty:
                 continue # nothing to write, skip
             try:
