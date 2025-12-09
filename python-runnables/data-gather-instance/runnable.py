@@ -30,17 +30,7 @@ class MyRunnable(Runnable):
 
     def run(self, progress_callback):
         # Collect the modules && Run the modules
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(
-                dss_funcs.run_modules,
-                self, "client", self.local_client
-            )
-            try:
-                results = future.result(timeout=120)
-            except concurrent.futures.TimeoutError:
-                raise Exception("Timeout: stopped waiting for run_modules")
-            except Exception as e:
-                raise Exception(e)
+        results = dss_funcs.run_modules(self, "client", self.local_client)
                     
         raise Exception("Task completed")
         # return results
