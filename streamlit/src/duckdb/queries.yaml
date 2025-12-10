@@ -37,14 +37,14 @@ base_data:
 # DATAIKU USAGE QUERY WRAPPER
 dataiku_usage: 
   overview: |
-    CREATE OR REPLACE TABLE dataiku_usage_overview AS
+    CREATE OR REPLACE VIEW dataiku_usage_overview AS
     SELECT 
       timestamp, callpath, msgtypebase, dataiku_category, instance_name,
       try_cast(project_key AS VARCHAR) AS project_key,
       try_cast(login AS VARCHAR) AS login
     FROM read_parquet({paths}, union_by_name = true)
   module: |
-    CREATE OR REPLACE TABLE {table_name} AS
+    CREATE OR REPLACE VIEW {table_name} AS
     SELECT *
     FROM read_parquet({paths}, union_by_name = true)
 

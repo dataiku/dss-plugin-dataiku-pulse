@@ -76,7 +76,10 @@ This dashboard provides key administrative insights into the Dataiku platform to
 
 * This is an "administration" function and is locked behind a password.
 
+---
 """)
+
+
 pwd = st.text_input("Password", type="password")
 reload_duckdb = st.button("Complete Reload DuckDB")
 if reload_duckdb:
@@ -84,6 +87,8 @@ if reload_duckdb:
         dss_duck.initiate_db()
     else:
         st.error("Invalid password.")
+
+
 toggle_debug = st.button("Toggle Debug")
 if toggle_debug:
     if pwd == "dataikupulse2026":

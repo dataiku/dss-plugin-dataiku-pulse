@@ -2,6 +2,8 @@ import streamlit as st
 import plotly.express as px
 from src import dss_duck
 
+if "partition_df" not in st.session_state:
+    st.session_state["partition_df"] = dss_duck.funcs.query_direct_sql("SELECT * FROM partition_table")
 year_month_range = st.session_state["partition_df"]["date"].dt.to_period('M').astype(str).unique().tolist()
 
 
