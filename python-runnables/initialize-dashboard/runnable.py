@@ -84,10 +84,10 @@ class MyRunnable(Runnable):
         if cont:
             try:
                 found = False
-                for cs in project_handle.list_code_studios(): # lets delete the existing if found
-                    if cs.name == "Dataiku Pulse Dashboard":
-                        cs_handle = project_handle.get_code_studio(code_studio_id=cs.id)
-                        cs_handle.delete()
+                for code_studios in project_handle.list_code_studios(): # lets delete the existing if found
+                    if code_studios.name == "Dataiku Pulse Dashboard":
+                        code_studios_handle = project_handle.get_code_studio(code_studio_id=code_studios.id)
+                        code_studios_handle.delete()
                 code_studio = project_handle.create_code_studio(name="Dataiku Pulse Dashboard", template_id="dataiku_pulse_dashboard")
                 cs_id = code_studio.code_studio_id
                 results.append(["Create Code Studio", True, None])
