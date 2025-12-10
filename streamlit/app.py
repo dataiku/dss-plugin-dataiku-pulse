@@ -69,6 +69,9 @@ default_pages = {
         genai_llm
     ]
 }
+if "DEBUG" not in st.session_state:
+    st.session_state.DEBUG = False
+    
 if st.session_state.DEBUG:
     pages = default_pages
     pages["DEBUG"] = [debug]

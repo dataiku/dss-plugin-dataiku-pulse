@@ -51,7 +51,7 @@ class MyRunnable(Runnable):
         cont = True
         
         # Get local client and name
-        instance_name = dss_funcs.get_dss_name(self.local_client)
+        instance_name = dss_funcs.get_dss_name(self)
         project_handle = self.local_client.get_project(self.params["pulse_project_key"])
         library = project_handle.get_library()
                 
@@ -84,14 +84,12 @@ class MyRunnable(Runnable):
         if cont:
             try:
                 found = False
-                for cs in project_handle.list_code_studios():
-                    if cs.name == "Dataiku Pulse Dashboard":
-                        found = True
-                        cs_id = cs.id
-                        break
-                if not found:
-                    code_studio = project_handle.create_code_studio(name="Dataiku Pulse Dashboard", template_id="dataiku_pulse_dashboard")
-                    cs_id = code_studio.code_studio_id
+                for code_studios in project_handle.list_code_studios(): # lets delete the existing if found
+                    if code_studios.name == "Dataiku Pulse Dashboard":
+                        code_studios_handle = project_handle.get_code_studio(code_studio_id=code_studios.id)
+                        code_studios_handle.delete()
+                code_studio = project_handle.create_code_studio(name="Dataiku Pulse Dashboard", template_id="dataiku_pulse_dashboard")
+                cs_id = code_studio.code_studio_id
                 results.append(["Create Code Studio", True, None])
             except Exception as e:
                 results.append(["Create Code Studio", False, f"An error occurred: {e}"])
@@ -100,25 +98,13 @@ class MyRunnable(Runnable):
         # Get Code Studio directory
         if cont:
             code_studio_path = f"{root_path}/config/projects/{self.params['pulse_project_key']}/code_studios/{cs_id}"
-            if not os.path.isdir(code_studio_path):
+            streamlit_path = f"{code_studio_path}/dataiku_pulse"
+            if os.path.isdir(code_studio_path):
+                results.append(["Project Library Confirmed", True, None])
+            else:
                 results.append(["Project Library Confirmed", False, f"Cannot find project library {code_studio_path}"])
                 cont = False
-            else:
-                results.append(["Project Library Confirmed", True, None])
-        
-        # Delete the current running version
-        if cont:
-            streamlit_path = f"{code_studio_path}/dataiku_pulse"
-            if os.path.exists(streamlit_path) and os.path.isdir(streamlit_path):
-                try:
-                    shutil.rmtree(streamlit_path)
-                    results.append(["Delete Existing", True, None])
-                except OSError as e:
-                    results.append(["Delete Existing", False, f"Error deleting directory '{streamlit_path}': {e}"])
-                    cont = False
-            else:
-                results.append(["Delete Existing", True, "Initial Setup"])
-        
+
         # Copy the streamlit application
         if cont:
             try:
