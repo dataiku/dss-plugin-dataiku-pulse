@@ -51,7 +51,7 @@ class MyRunnable(Runnable):
         cont = True
         
         # Get local client and name
-        instance_name = dss_funcs.get_dss_name(self.local_client)
+        instance_name = dss_funcs.get_dss_name(self)
         project_handle = self.local_client.get_project(self.params["pulse_project_key"])
         library = project_handle.get_library()
                 
