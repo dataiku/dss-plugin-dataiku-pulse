@@ -103,19 +103,6 @@ class MyRunnable(Runnable):
             else:
                 results.append(["Project Library Confirmed", True, None])
         
-        # Delete the current running version
-        if cont:
-            streamlit_path = f"{code_studio_path}/dataiku_pulse"
-            if os.path.exists(streamlit_path) and os.path.isdir(streamlit_path):
-                try:
-                    shutil.rmtree(streamlit_path)
-                    results.append(["Delete Existing", True, None])
-                except OSError as e:
-                    results.append(["Delete Existing", False, f"Error deleting directory '{streamlit_path}': {e}"])
-                    cont = False
-            else:
-                results.append(["Delete Existing", True, "Initial Setup"])
-        
         # Copy the streamlit application
         if cont:
             try:
