@@ -97,12 +97,13 @@ class MyRunnable(Runnable):
         # Get Code Studio directory
         if cont:
             code_studio_path = f"{root_path}/config/projects/{self.params['pulse_project_key']}/code_studios/{cs_id}"
-            if not os.path.isdir(code_studio_path):
+            streamlit_path = f"{code_studio_path}/dataiku_pulse"
+            if os.path.isdir(code_studio_path):
+                results.append(["Project Library Confirmed", True, None])
+            else:
                 results.append(["Project Library Confirmed", False, f"Cannot find project library {code_studio_path}"])
                 cont = False
-            else:
-                results.append(["Project Library Confirmed", True, None])
-        
+
         # Copy the streamlit application
         if cont:
             try:
