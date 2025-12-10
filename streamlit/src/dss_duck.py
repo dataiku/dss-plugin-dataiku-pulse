@@ -25,8 +25,6 @@ def initiate_db():
         with lock:
             start_time = time.perf_counter()
             progress_text = "Setting up Dataiku PULSE Insights Database. Please wait......"
-            if funcs.DEBUG:
-                progress_text = "(DEBUG) Setting up Dataiku PULSE Insights Database. Please wait......"
             progress_bar = st.progress(0, text=progress_text)
             status_text = st.empty()
             # partition df
@@ -43,7 +41,7 @@ def initiate_db():
             for i, func in enumerate(init_funcs, start=1):
                 try:
                     func_name = func.__name__
-                    logger.info(func_name)
+                    logger.warn(f" - Running {func_name}")
                     if func_name in ["load_base_tables","load_dataiku_usage"]:
                         r = func(partition_df)
                     else:

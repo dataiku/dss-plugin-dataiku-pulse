@@ -19,15 +19,6 @@ import json
 # -----------------------------------------------------------------------------
 # Dataiku
 client = dataiku.api_client()
-st.session_state.DEBUG = False
-try:
-    plugin_handle = client.get_plugin(plugin_id="dataiku-pulse")
-    settings = plugin_handle.get_settings()
-    param_set = settings.get_parameter_set(parameter_set_name="params-dashboard-instance")
-    preset = param_set.get_preset(preset_name=param_set.list_preset_names()[0])
-    st.session_state.DEBUG = preset.get_raw()["pluginConfig"]["pulse_dashboard_debug"]
-except:
-    pass
 
 # -----------------------------------------------------------------------------
 # Logger
@@ -233,8 +224,6 @@ def load_base_tables(partition_df):
         for row in grp.itertuples():
             partition = getattr(row, "partitions")
             paths += folder.list_paths_in_partition(partition=partition)
-        if DEBUG:
-            paths = [paths[0]]
         path_list = ", ".join(f"'{blob_header}://{blob_bket}/{blob_root}/{p[1:]}'" for p in paths)
         query = render_query(
             queries["base_data"]["main"],
@@ -262,8 +251,6 @@ def load_dataiku_usage(partition_df):
         f"{blob_header}://{blob_bket}/{blob_root}/{instance}/dataiku_usage/**/*.parquet"
         for instance in instances
     ]
-    if DEBUG:
-        paths = [paths[0]]
     usage_queries = [
         render_query( queries["dataiku_usage"]["overview"], paths = paths)
     ]
@@ -314,6 +301,7 @@ def load_additional_tables():
         query = queries["addon_data"][key]
         r = load_table_sql(query)
         if not r:
+            logger.error(query)
             raise Exception("Failed to load DuckDB. Check logs for errors.")
         progress = int(i / total_tables * 100)
         progress_bar.progress(progress, text=progress_text)
@@ -323,7 +311,7 @@ def load_additional_tables():
     status_text.empty()
     return True
 
-def load_parquet_sql(query):
+def load_parquet_sql(query): # create view or base table from parquet layer
     try:
         with duckdb.connect(duckdb_home) as con:
             if blob_module and blob_credentials:
@@ -331,29 +319,27 @@ def load_parquet_sql(query):
                 con.execute(f"{blob_credentials}")
             else:
                 con.register_filesystem(filesystem('gcs'))
-            if DEBUG:
-                query = f"{query} LIMIT 1"
-                logger.error(query)
+            logger.warn(query)
             df = con.execute(query).df()
     except Exception as e:
         print(e)
         logger.error(e)
         return False
-    return True
+    return True    
 
-def load_table_sql(query):
+def load_table_df(query, df): # create tables from a DF
     try:
         with duckdb.connect(duckdb_home) as con:
+            con.register("df_view", df)
             df = con.execute(query).df()
     except Exception as e:
         logger.error(e)
         return False
     return True
 
-def load_table_df(query, df):
+def load_table_sql(query): # create tables from base table to new base table
     try:
         with duckdb.connect(duckdb_home) as con:
-            con.register("df_view", df)
             df = con.execute(query).df()
     except Exception as e:
         logger.error(e)
@@ -426,10 +412,15 @@ def query_build_sql(query, filters = {}, debug=False):
     query = build_sql(query, filters)
     if debug:
         import streamlit as st
-        logger.error(query)
+        logger.warn(query)
         st.write(query)
     try:
         with duckdb.connect(duckdb_home, read_only=True) as con:
+            if blob_module and blob_credentials:
+                con.execute(f"{blob_module}")
+                con.execute(f"{blob_credentials}")
+            else:
+                con.register_filesystem(filesystem('gcs'))
             df = con.execute(query).df()
     except Exception as e:
         logger.error(e)
@@ -439,6 +430,11 @@ def query_build_sql(query, filters = {}, debug=False):
 def query_direct_sql(query):
     try:
         with duckdb.connect(duckdb_home, read_only=True) as con:
+            if blob_module and blob_credentials:
+                con.execute(f"{blob_module}")
+                con.execute(f"{blob_credentials}")
+            else:
+                con.register_filesystem(filesystem('gcs'))
             df = con.execute(query).df()
     except Exception as e:
         logger.error(e)
