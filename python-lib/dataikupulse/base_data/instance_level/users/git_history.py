@@ -22,11 +22,11 @@ def split_work(client, project_keys):
     return pd.concat(dfs, ignore_index=True)
 
 
-def main(self, client, client_d = {}):
-    project_keys = client.list_project_keys()
+def main(self):
+    project_keys = self.local_client.list_project_keys()
     pkey_array = np.array_split(project_keys, 2)
     results = Parallel(n_jobs=2, prefer="threads")(
-        delayed(split_work)(client=client, project_keys=i) for i in pkey_array
+        delayed(split_work)(client=self.local_client, project_keys=i) for i in pkey_array
     )
     df = pd.concat(results, ignore_index=True)
     return df

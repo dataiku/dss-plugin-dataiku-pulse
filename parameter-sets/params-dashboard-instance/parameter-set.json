@@ -171,6 +171,14 @@
             "visibilityCondition": "model.do_parallel"
         },
         {
+            "name": "monitor_os",
+            "label": "Enable Scenarios for OS Monitoring",
+            "type": "BOOLEAN",
+            "description": "",
+            "mandatory": true,
+            "defaultValue": true
+        },
+        {
             "name": "end_separator",
             "labe": "",
             "description": "<hr color='#000000' size='3' noshade><h3></h3>",
