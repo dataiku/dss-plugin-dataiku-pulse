@@ -199,5 +199,23 @@ def normalize_column_type(df: pd.DataFrame, col: str, default_if_str="None", def
     return df
 
 
+def normalize_dataframe(df: pd.DataFrame, FLAT_COLUMNS: {}, RENAME_MAP: {}) -> pd.DataFrame:
+    rows = []
+    for _, row in df.iterrows():
+        row_dict = row.to_dict()
+        flat = {}
+        extras = {}
+        for col, value in row_dict.items():
+            if col in FLAT_COLUMNS:
+                flat[col] = value
+            else:
+                if value is not None:
+                    extras[col] = value
+        for old, new in RENAME_MAP.items():
+            if old in flat:
+                flat[new] = flat.pop(old)
+        flat["extras"] = extras
+        rows.append(flat)
+    return pd.DataFrame(rows)
 
 # EOF
