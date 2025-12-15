@@ -136,7 +136,7 @@ def create_scenarios(self, project_handle):
     # Create the scenarios
     macros = load_yaml()
     for key in macros["macros"]:
-        if not self.preset_pc["monitor_os"] and key in ["data_gather_diskspace", "data_gather_filesystem"]:
+        if not self.params["monitor_os"] and key in ["data_gather_diskspace", "data_gather_filesystem"]:
             continue
         # rebase and setup macro in step
         trigger = json.loads(macros["trigger"])
