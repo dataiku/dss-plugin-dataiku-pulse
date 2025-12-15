@@ -4,7 +4,6 @@ import importlib
 import pandas as pd
 import dataiku
 import dataikuapi
-from datetime import datetime, timezone
 from dataikupulse.src import dss_folder
 
 
