@@ -99,23 +99,11 @@ def to_bool(x):
     return x
 
 def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFrame:
-    # Check that required columns exist
+    # 1. Ensure flat column exist
     for col in FLAT_COLUMNS:
         if col not in df.columns:
             df[col] = None
-    # Normalize columns
-    for col in df.columns:
-        non_null_vals = df[col].dropna()
-        if non_null_vals.empty:
-            df[col] = None
-            continue
-        type_counts = non_null_vals.map(type).value_counts()
-        main_type = type_counts.index[0]
-        if main_type is bool:
-            df[col] = df[col].map(to_bool).fillna(default_if_bool).astype(bool)
-        else:  # everything else → string
-            df[col] = df[col].fillna(default_if_str).astype(str)
-    # Flatten the DF, except for a few columns FLAT_COLUMNS
+    # 2. Split flat vs extras
     rows = []
     for _, row in df.iterrows():
         row_dict = row.to_dict()
@@ -125,11 +113,13 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
             if col in FLAT_COLUMNS:
                 flat[col] = value
             else:
-                if value is not None:
-                    if isinstance(value, dict) and len(value) == 0:
-                        extras[col] = None
-                    else:
-                        extras[col] = value
+                if value is None or (isinstance(value, float) and pd.isna(value)):
+                    continue
+                # Parquet-safe normalization
+                if isinstance(value, dict) and len(value) == 0:
+                    extras[col] = None
+                else:
+                    extras[col] = value
         flat["extras"] = extras
         rows.append(flat)
     df = pd.DataFrame(rows)
