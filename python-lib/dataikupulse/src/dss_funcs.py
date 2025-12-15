@@ -121,7 +121,7 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
     df.insert(
         loc=df.columns.get_loc("extras"),
         column="run_timestamp",
-        value=self.dt#datetime.now(timezone.utc)
+        value=self.dt
     )
     # Final cleanse of DF for dictionary/lists to strings
     #for col in df.columns:
