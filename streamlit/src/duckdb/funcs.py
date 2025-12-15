@@ -273,9 +273,6 @@ def load_dataiku_usage(partition_df):
         usage_queries.append(
             render_query(queries["dataiku_usage"]["module"], table_name = table_name, paths = paths)
         )
-        usage_queries.append(
-            render_query(queries["dataiku_usage"]["module"], table_name = table_name, paths = paths)
-        )
     # Build Wrapper
     total_queries = len(usage_queries)
     for i, query in enumerate(usage_queries, start=1):
