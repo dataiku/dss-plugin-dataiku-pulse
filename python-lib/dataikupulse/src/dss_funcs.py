@@ -226,4 +226,7 @@ def add_runtime(df: pd.DataFrame) -> pd.DataFrame:
         column="run_timestamp",
         value=datetime.now(timezone.utc)
     )
+    return df
+
+
 # EOF
