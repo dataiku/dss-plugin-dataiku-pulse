@@ -1,0 +1,31 @@
+{
+    "meta" : {
+        "label": "Dataiku Pulse (Streamlit Custom)",
+        "description": "Streamlit framework for creating the Dataiku Pulse Dashboard",
+        "icon": "icon-dku-streamlit"
+    },
+    
+    "isUnique": false,
+    "isLocked": false,
+    "isAdvanced": false,
+    "uiDisplayPriority": 42,
+    
+    "params": [
+        {
+            "name": "useInWebapps",
+            "label": "Launch for Webapps",
+            "type": "BOOLEAN",
+            "description": "Should this entrypoint be launched when starting this template as a Code Studio Webapp",
+            "mandatory": true,
+            "defaultValue": true
+        },
+        {
+            "name": "port",
+            "label": "Port",
+            "type": "INT",
+            "description": "Port used by Streamlit",
+            "mandatory": true,
+            "defaultValue": 8181
+        }
+    ]
+}

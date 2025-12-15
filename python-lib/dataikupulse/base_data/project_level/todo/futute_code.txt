@@ -1,0 +1,16 @@
+
+    # Lets data cleanse this for charting
+    df = future_schedule_raw_df.copy(deep=True)
+    df['year']   = df['next_run'].dt.year
+    df['month']  = df['next_run'].dt.month
+    df['day']    = df['next_run'].dt.day
+    df['hour']   = df['next_run'].dt.hour
+    df['minute'] = df['next_run'].dt.minute
+    df = df.groupby(by=['year', 'month', 'day', 'hour']).count().reset_index()
+    del df['project_key']
+    del df['scenario_id']
+    del df['next_run']
+    df['time_series'] = df['year'].astype(str) + '/' + df['month'].astype(str) + '/' + df['day'].astype(str) + ' ' + df['hour'].astype(str) + ':00'
+    df['time_series'] = pd.to_datetime(df['time_series'])
+    df.rename(columns={'minute':'number_of_scenarios'}, inplace=True)
+    future_schedule_cleansed_df = df[['time_series', 'year', 'month', 'day', 'hour', 'number_of_scenarios']]

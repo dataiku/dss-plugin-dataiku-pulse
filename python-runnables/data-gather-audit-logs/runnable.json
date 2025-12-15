@@ -1,0 +1,25 @@
+{
+    "meta": {
+        "label": "Data Gather Audit Logs",
+        "description": "Review Audit logs for numerous features and information.",
+        "icon": "fas fa-puzzle-piece",
+        "category": "Dataiku PULSE Insights: Data Gather"
+    },
+    "impersonate": false,
+    "permissions": ["ADMIN"],
+    "requiresGlobalAdmin": true,
+    "resultType": "RESULT_TABLE",
+    "resultLabel": "RESULTS",
+    "extension": "txt",
+    "mimeType": "text/plain",
+    "macroRoles": [],
+    "params": [
+        {
+            "type": "PRESET",
+            "name": "pulse_primary",
+            "label": "Choose PULSE Primary Configuration",
+            "parameterSetId": "params-dashboard-instance",
+            "mandatory": true
+        }
+    ]
+}

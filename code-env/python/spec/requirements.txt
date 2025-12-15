@@ -1,0 +1,44 @@
+# =========================
+# Streamlit
+# =========================
+streamlit
+streamlit-aggrid
+
+# =========================
+# DuckDB
+# =========================
+duckdb
+
+# =========================
+# Visualization
+# =========================
+altair
+matplotlib
+plotly
+tabulate
+
+# =========================
+# Parsing & Serialization
+# =========================
+lxml
+orjson
+pyyaml
+sqlparse
+tomli
+
+# =========================
+# Cloud
+# =========================
+boto3
+gcsfs
+google-cloud-storage
+
+# =========================
+# Misc / Core Utilities
+# =========================
+cryptography
+filelock
+fsspec
+joblib
+nbformat
+scipy

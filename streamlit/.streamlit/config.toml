@@ -1,0 +1,24 @@
+[server]
+maxUploadSize=200       # in MB, bump if users upload big files
+
+[client]
+toolbarMode="minimal"   # hide Streamlit dev toolbar (cleaner UI)
+
+[runner]
+magicEnabled=false      # disables "magic commands" → better perf/logging clarity
+fastReruns=true         # reuse cached state where possible between reruns
+
+[global]
+dataFrameSerialization="arrow"   # faster dataframe transport than legacy
+
+[theme]
+base="light"             # "light", "dark", or "auto"
+primaryColor="#4CAF50"   # accent color (buttons, sliders, etc.)
+backgroundColor="#FFFFFF"
+secondaryBackgroundColor="#F5F5F5"
+textColor="#000000"
+font="sans serif"       # "sans serif", "serif", or "monospace"
+
+[ui]
+hideTopBar=false        # keep gear/settings menu visible
+hideSidebarNav=false    # (if using multipage apps) keep sidebar navigation

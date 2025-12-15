@@ -1,0 +1,17 @@
+{
+    "id": "dataiku-pulse",
+    "version": "2.1.4",
+    "meta": {
+        "label": "Dataiku PULSE",
+        "category": "Dataiku Usage & Insights",
+        "description": "This plugin contains the framework for the Dataiku PULSE Dashbaord.",
+        "author": "Stephen Mazzei",
+        "icon": "fa fa-heartbeat",
+        "licenseInfo": "Apache Software License",
+        "url": "https://github.com/dataiku/dss-plugin-dataiku-pulse.git",
+        "tags": [
+            "Administration", "PULSE", "Data Gather", "Insights", "Usages"
+        ],
+        "supportLevel": "PLATINUM_SUPPORT"
+    }
+}

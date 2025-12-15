@@ -1,0 +1,10 @@
+{
+  "acceptedPythonInterpreters": [
+    "PYTHON311"
+  ],
+  "installCorePackages": true,
+  "corePackagesSet": "PANDAS22",
+  "installJupyterSupport": true,
+  "conda": false,
+  "deploymentMode": "PLUGIN_MANAGED"
+}
