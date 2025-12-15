@@ -246,11 +246,10 @@ def load_dataiku_usage(partition_df):
     progress_bar = st.progress(0, text=progress_text)
     status_text = st.empty()
     # Build Queries
-    instances = partition_df["instance_name"].unique().tolist()
-    paths = [
-        f"{blob_header}://{blob_bket}/{blob_root}/{instance}/dataiku_usage/**/*.parquet"
-        for instance in instances
-    ]
+    paths = []
+    for _,grp in partition_df.loc[partition_df["category"] == "dataiku_usage"].groupby("module"):
+        for instance in grp["instance_name"].unique().tolist():
+            paths.append(f"{blob_header}://{blob_bket}/{blob_root}/{instance}/dataiku_usage/**/*.parquet")
     usage_queries = [
         render_query( queries["dataiku_usage"]["overview"], paths = paths)
     ]
