@@ -36,7 +36,6 @@ reverse_lookup = {
     for value in values
 }
 
-
 def main(self):
     connections = self.local_client.list_connections_names(connection_type="all")
     dfs = []
