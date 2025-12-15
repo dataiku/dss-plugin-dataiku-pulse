@@ -13,7 +13,6 @@ FLAT_COLUMNS = {
     "llms_model",
 }
 
-
 def main(self):
     try:
         project_handle = self.local_client.get_project(self.params["pulse_worker_key"])
