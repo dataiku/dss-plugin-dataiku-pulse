@@ -92,6 +92,14 @@ def get_nested_value(data, keys, dt=False):
 
 
 def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFrame:
+    #
+    for col in FLAT_COLUMNS:
+        if col not in df.columns:
+            df[col] = None
+    for col in df.columns:
+        non_null_vals = df[col].dropna()
+        if non_null_vals.empty:
+            df[col] = None
     # Flatten the DF, except for a few columns FLAT_COLUMNS
     rows = []
     for _, row in df.iterrows():
