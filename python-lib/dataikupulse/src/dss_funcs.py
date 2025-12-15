@@ -140,6 +140,7 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
         column="run_timestamp",
         value=self.dt
     )
+    
     return df
 
 
