@@ -42,3 +42,19 @@ def rename_and_move_first(project_handle, df, old, new):
         cols = [new] + [c for c in df.columns if c != new]
         df = df[cols]
     return df
+
+
+
+
+    # Normalize columns
+    for col in df.columns:
+        non_null_vals = df[col].dropna()
+        if non_null_vals.empty:
+            df[col] = None
+            continue
+        type_counts = non_null_vals.map(type).value_counts()
+        main_type = type_counts.index[0]
+        if main_type is bool:
+            df[col] = df[col].map(to_bool).fillna(default_if_bool).astype(bool)
+        else:  # everything else → string
+            df[col] = df[col].fillna(default_if_str).astype(str)
