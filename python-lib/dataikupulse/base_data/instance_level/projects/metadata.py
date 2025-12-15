@@ -46,7 +46,6 @@ def main(self):
     # Rename a few colums
     df = df.rename(columns={"project_ownerLogin": "login"})
     # Project Key
-    df = dss_funcs.rename_and_move_first(None, df, "project_projectKey", "project_key")
     df = df.rename(columns={"project_projectKey": "project_key"})
     df = dss_funcs.normalize_dataframe(self, df, FLAT_COLUMNS)
     return df
