@@ -139,12 +139,6 @@ def get_nested_value(data, keys, dt=False):
     return current
 
 
-
-
-
-
-
-
 def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFrame:
     # Flatten the DF, except for a few columns FLAT_COLUMNS
     rows = []
