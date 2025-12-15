@@ -217,11 +217,11 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
         value=self.dt#datetime.now(timezone.utc)
     )
     # Final cleanse of DF for dictionary/lists to strings
-    for col in df.columns:
-        types = df[col].dropna().map(type).unique()
-        if any(t in (dict, list) for t in types):
-            df[col] = df[col].astype(str)
-    df = df.reset_index(drop=True)
+    #for col in df.columns:
+    #    types = df[col].dropna().map(type).unique()
+    #    if any(t in (dict, list) for t in types):
+    #        df[col] = df[col].astype(str)
+    #df = df.reset_index(drop=True)
     return df
 
 
