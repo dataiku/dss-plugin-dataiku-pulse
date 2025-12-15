@@ -2,7 +2,7 @@ import dataiku
 import pandas as pd
 import numpy as np
 from joblib import Parallel, delayed
-from datetime import datetime, date, timedelta
+from datetime import date
 
 FLAT_COLUMNS = {
     "project_key",
