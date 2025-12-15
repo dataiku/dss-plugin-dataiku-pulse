@@ -221,7 +221,7 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}, RENAME_MAP: {}
         df.insert(
             loc=0,
             column="instance_name",
-            value=instance_name
+            value=self.instance_name
         )
         
     # Add run_time
