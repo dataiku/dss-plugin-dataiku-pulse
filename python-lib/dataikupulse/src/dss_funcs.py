@@ -119,15 +119,6 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
                 write_path = f"{instance_name}/{path}/{module_name}/{dt_year}/{dt_month}/{dt_day}/data.parquet"
                 if project_key:
                     write_path = f"{instance_name}/{path}/{module_name}/{dt_year}/{dt_month}/{dt_day}/{project_key}_data.parquet"
-                # Final cleanse of DF for dictionary/lists to strings
-                for col in df.columns:
-                    types = df[col].dropna().map(type).unique()
-                    if any(t in (dict, list) for t in types):
-                        df[col] = df[col].astype(str)
-                df = df.reset_index(drop=True)
-                # Write the output finally
-                if "timestamp" not in df.columns:
-                    df["timestamp"] = self.dt
                 dss_folder.write_remote_folder_output(self, write_path, df)
                 results.append([project_key, path, module_name, "write/save", True, None])
             except Exception as e:
