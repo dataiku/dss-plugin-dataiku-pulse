@@ -221,7 +221,7 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
     #    types = df[col].dropna().map(type).unique()
     #    if any(t in (dict, list) for t in types):
     #        df[col] = df[col].astype(str)
-    #df = df.reset_index(drop=True)
+    df = df.reset_index(drop=True)
     return df
 
 
