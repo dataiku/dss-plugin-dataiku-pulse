@@ -116,12 +116,6 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
                 dt_year  = str(self.dt.year)
                 dt_month = str(f'{self.dt.month:02d}')
                 dt_day   = str(f'{self.dt.day:02d}')
-                # Add Additonal Information / output path
-                df.columns = df.columns.str.lower()
-                df.columns = df.columns.str.replace(".", "_", regex=False)
-                instance_name = self.instance_name
-                if "instance_name" not in df.columns:
-                    df["instance_name"] = instance_name
                 write_path = f"{instance_name}/{path}/{module_name}/{dt_year}/{dt_month}/{dt_day}/data.parquet"
                 if project_key:
                     write_path = f"{instance_name}/{path}/{module_name}/{dt_year}/{dt_month}/{dt_day}/{project_key}_data.parquet"
