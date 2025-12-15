@@ -1,5 +1,5 @@
 import pandas as pd
-from import funcs
+from dataikupulse.src import dss_funcs
 
 FLAT_COLUMNS = {
     "name",
@@ -52,6 +52,6 @@ def main(self):
         dfs.append(pd.json_normalize(d))
     df = pd.concat(dfs, ignore_index=True)
     df["connection_category"] = df["type"].map(reverse_lookup).fillna("UNKNOWN")
-    df = normalize_dataframe(df, FLAT_COLUMNS, RENAME_MAP)
-    df = add_runtime(df)
+    df = dss_funcs.normalize_dataframe(df, FLAT_COLUMNS, RENAME_MAP)
+    df = dss_funcs.add_runtime(df)
     return df
