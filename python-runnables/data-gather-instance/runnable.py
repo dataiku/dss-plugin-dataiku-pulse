@@ -8,6 +8,7 @@ import os
 import logging
 import concurrent.futures
 
+
 def build_rt(results):
     df = pd.DataFrame(results, columns=[
         "instance_level", "path", "module_name", "step", "result", "message"
