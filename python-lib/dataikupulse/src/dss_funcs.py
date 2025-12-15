@@ -99,10 +99,11 @@ def to_bool(x):
     return x
 
 def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFrame:
-    #
+    # Check that required columns exist
     for col in FLAT_COLUMNS:
         if col not in df.columns:
             df[col] = None
+    # Normalize columns
     for col in df.columns:
         non_null_vals = df[col].dropna()
         if non_null_vals.empty:
