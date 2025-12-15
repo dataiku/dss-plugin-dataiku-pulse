@@ -219,4 +219,11 @@ def normalize_dataframe(df: pd.DataFrame, FLAT_COLUMNS: {}, RENAME_MAP: {}) -> p
         rows.append(flat)
     return pd.DataFrame(rows)
 
+
+def add_runtime(df: pd.DataFrame) -> pd.DataFrame:
+    df.insert(
+        loc=df.columns.get_loc("extras"),
+        column="run_timestamp",
+        value=datetime.now(timezone.utc)
+    )
 # EOF
