@@ -9,11 +9,6 @@ FLAT_COLUMNS = {
     "creationTag.lastModifiedOn",
 }
 
-RENAME_MAP = {
-    "creationTag.lastModifiedBy.login": "last_modified_by",
-    "creationTag.lastModifiedOn": "last_modified_on",
-}
-
 conn_mapping = {
     "sql_database": [
         "Snowflake", "Databricks", "Redshift", "BigQuery", "Synapse",
