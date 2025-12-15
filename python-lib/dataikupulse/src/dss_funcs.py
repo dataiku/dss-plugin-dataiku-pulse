@@ -114,7 +114,7 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
         df.insert(
             loc=0,
             column="instance_name",
-            value=self.instance_name
+            value="TESTING" #self.instance_name
         )
     # Add run_time
     df.insert(
