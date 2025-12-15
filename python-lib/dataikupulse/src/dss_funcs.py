@@ -123,7 +123,8 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
         flat["extras"] = extras
         rows.append(flat)
     df = pd.DataFrame(rows)
-    # Add Additonal Information / output path
+    
+    # 3. Add Additonal Information / output path
     df.columns = df.columns.str.lower()
     df.columns = df.columns.str.replace(".", "_", regex=False)
     if "instance_name" not in df.columns:
@@ -132,7 +133,8 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
             column="instance_name",
             value=self.instance_name
         )
-    # Add run_time
+    
+    # 4. Add run_time
     df.insert(
         loc=df.columns.get_loc("extras"),
         column="run_timestamp",
