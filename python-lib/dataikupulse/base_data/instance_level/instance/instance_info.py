@@ -36,5 +36,5 @@ def main(self):
         df[c] = pd.to_datetime(df[c], utc=True)
         df[c] = df[c].fillna(pd.to_datetime("1970-01-01", utc=True))
         df[c] = df[c].dt.strftime("%Y-%m-%d %H:%M:%S.%f")
-
+    df = dss_funcs.normalize_dataframe("mazzei_pulse", df, FLAT_COLUMNS, RENAME_MAP)
     return df
