@@ -1,8 +1,8 @@
-import dataiku
 import pandas as pd
 import numpy as np
 from joblib import Parallel, delayed
 from datetime import date
+from dataikupulse.src import dss_funcs
 
 FLAT_COLUMNS = {
     "project_key",
@@ -35,4 +35,5 @@ def main(self):
         delayed(split_work)(client=self.local_client, project_keys=i) for i in pkey_array
     )
     df = pd.concat(results, ignore_index=True)
+    df = dss_funcs.normalize_dataframe(self, df, FLAT_COLUMNS)
     return df
