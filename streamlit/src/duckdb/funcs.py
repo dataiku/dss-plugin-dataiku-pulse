@@ -199,16 +199,15 @@ def create_duckdb():
 
 def load_base_tables(partition_df):
     # Create initial partition table
-    load_table_df("CREATE TABLE partition_table AS SELECT * FROM df_view", partition_df)
+    load_table_df("CREATE OR REPLACE TABLE partition_table AS SELECT * FROM df_view", partition_df)
     # Create base tables
-    limited_df = partition_df[
-        ((partition_df["module"] == "metadata") | (partition_df["category"] == "instance"))
-    ]
-    limited_df = limited_df["date"].value_counts().reset_index().sort_values(by=["count", "date"], ascending=False)
-    base_data_df = partition_df[
-        (partition_df["date"] == limited_df.iloc[0,0])
-        &((partition_df["module"] == "metadata") | (partition_df["category"] == "instance"))
-    ]
+    mask = (
+        (partition_df["module"] == "metadata") |
+        (partition_df["category"] == "instance")
+    )
+    limited_df = partition_df[mask]
+    max_date_df = limited_df["date"].value_counts().reset_index().sort_values(by=["count", "date"], ascending=False)
+    base_data_df = limited_df[limited_df["date"] == max_date_df.iloc[0,0]]
     if base_data_df.empty:
         raise Exception("No Base Data Grps")
     base_data_grps = base_data_df.groupby(by=["category", "module"])
@@ -245,31 +244,32 @@ def load_dataiku_usage(partition_df):
     progress_text = "Copying Dataiku Usage Data into database"
     progress_bar = st.progress(0, text=progress_text)
     status_text = st.empty()
-    # Build Queries
-    paths = []
-    for _,grp in partition_df.loc[partition_df["category"] == "dataiku_usage"].groupby("module"):
-        for instance in grp["instance_name"].unique().tolist():
-            paths.append(f"{blob_header}://{blob_bket}/{blob_root}/{instance}/dataiku_usage/**/*.parquet")
+    # Build Initial Usage Query
+    instances = partition_df["instance_name"].unique().tolist()
+    paths = [
+        f"{blob_header}://{blob_bket}/{blob_root}/{instance}/dataiku_usage/**/*.parquet"
+        for instance in instances
+    ]
     usage_queries = [
         render_query( queries["dataiku_usage"]["overview"], paths = paths)
     ]
     # Get max date overall
-    limited_df = partition_df[
-        ((partition_df["module"] == "metadata") | (partition_df["category"] == "instance"))
-    ]
-    limited_df = limited_df["date"].value_counts().reset_index().sort_values(by=["count", "date"], ascending=False)
-    history_df = partition_df[
-        (partition_df["date"] == limited_df.iloc[0,0])
-        &((partition_df["module"] != "metadata") & (partition_df["category"] != "instance"))
-    ]
+    mask = (
+        (partition_df["module"] == "metadata") |
+        (partition_df["category"] == "instance")
+    )
+    limited_df = partition_df[~mask]
+    max_date_df = limited_df["date"].value_counts().reset_index().sort_values(by=["count", "date"], ascending=False)
+    history_df = limited_df[limited_df["date"] == max_date_df.iloc[0,0]]
+    # Build individual usage queries
     for row in history_df.itertuples():
         category = getattr(row, "category")
         module = getattr(row, "module")
         table_name = f"{category}_{module}"
-        paths = [
-            f"{blob_header}://{blob_bket}/{blob_root}/{instance}/{category}/{module}/**/*.parquet"
-            for instance in instances
-        ]
+        paths = []
+        for _,grp in history_df.loc[history_df["category"] == "dataiku_usage"].groupby("module"):
+            for instance in grp["instance_name"].unique().tolist():
+                paths.append(f"{blob_header}://{blob_bket}/{blob_root}/{instance}/{category}/{module}/**/*.parquet")
         usage_queries.append(
             render_query(queries["dataiku_usage"]["module"], table_name = table_name, paths = paths)
         )
@@ -313,6 +313,11 @@ def load_additional_tables():
 def load_parquet_sql(query): # create view or base table from parquet layer
     try:
         with duckdb.connect(duckdb_home) as con:
+            try:
+                con.execute("SET preserve_insertion_order=false")
+                con.execute("SET memory_limit='4GB'")
+            except:
+                pass
             if blob_module and blob_credentials:
                 con.execute(f"{blob_module}")
                 con.execute(f"{blob_credentials}")
