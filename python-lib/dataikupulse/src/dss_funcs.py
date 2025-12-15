@@ -90,13 +90,25 @@ def get_nested_value(data, keys, dt=False):
                 return False
     return current
 
-def to_bool(x):
-    if isinstance(x, str):
-        if x.lower() == "true":
-            return True
-        elif x.lower() == "false":
-            return False
-    return x
+def sanitize_for_parquet(value):
+    # Empty dict → None
+    if isinstance(value, dict):
+        if len(value) == 0:
+            return None
+
+        sanitized = {}
+        for k, v in value.items():
+            sv = sanitize_for_parquet(v)
+            sanitized[k] = sv
+
+        return sanitized
+
+    # Lists: sanitize elements
+    if isinstance(value, list):
+        return [sanitize_for_parquet(v) for v in value]
+
+    # Everything else
+    return value
 
 def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFrame:
     # 1. Ensure flat column exist
@@ -116,10 +128,7 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
                 if value is None or (isinstance(value, float) and pd.isna(value)):
                     continue
                 # Parquet-safe normalization
-                if isinstance(value, dict) and len(value) == 0:
-                    extras[col] = None
-                else:
-                    extras[col] = value
+                extras[col] = sanitize_for_parquet(value)
         flat["extras"] = extras
         rows.append(flat)
     df = pd.DataFrame(rows)
