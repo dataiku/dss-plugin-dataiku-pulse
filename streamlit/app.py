@@ -1,10 +1,20 @@
 import streamlit as st
 import sys
 import os
+import dataiku
 
 sys.dont_write_bytecode = True
 
 from src import dss_duck
+
+#
+#
+client = dataiku.api_client()
+plugin = client.get_plugin(plugin_id="dataiku-pulse")
+settings = plugin.get_settings()
+param_set = settings.get_parameter_set(parameter_set_name="params-dashboard-instance")
+preset = param_set.get_preset(preset_name=param_set.list_preset_names()[0])
+monitor_os = preset.get_raw()["pluginConfig"]["monitor_os"]
 
 # -----------------------------------------------------------------------------
 # Initialization
@@ -77,6 +87,9 @@ if st.session_state.DEBUG:
     pages["DEBUG"] = [debug]
 else:
     pages = default_pages
+
+if not monitor_os:
+    del pages["Operating System"]
 
 pg = st.navigation(pages, position="top")
 pg.run()
