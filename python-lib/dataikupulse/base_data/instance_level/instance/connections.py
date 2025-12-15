@@ -1,4 +1,5 @@
 import pandas as pd
+from import funcs
 
 FLAT_COLUMNS = {
     "name",
