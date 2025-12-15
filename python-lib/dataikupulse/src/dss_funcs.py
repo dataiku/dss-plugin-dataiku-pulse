@@ -212,6 +212,11 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}, RENAME_MAP: {}
                     flat[new] = flat.pop(old)
         flat["extras"] = extras
         rows.append(flat)
+    # Add Additonal Information / output path
+    df.columns = df.columns.str.lower()
+    df.columns = df.columns.str.replace(".", "_", regex=False)
+    if "instance_name" not in df.columns:
+        df["instance_name"] = self.instance_name
     return pd.DataFrame(rows)
 
 
