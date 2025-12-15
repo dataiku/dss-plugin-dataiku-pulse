@@ -8,6 +8,7 @@ FLAT_COLUMNS = {
     "creationTag.lastModifiedBy.login",
     "creationTag.lastModifiedOn",
 }
+
 RENAME_MAP = {
     "creationTag.lastModifiedBy.login": "last_modified_by",
     "creationTag.lastModifiedOn": "last_modified_on",
