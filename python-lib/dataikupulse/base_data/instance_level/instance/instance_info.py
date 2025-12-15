@@ -18,9 +18,6 @@ FLAT_COLUMNS = {
     "javaVersion",
     "dssStartupTimestamp",
 }
-RENAME_MAP = {
-
-}
 
 def main(self):
     df = pd.json_normalize(self.local_client.get_instance_info().raw)
