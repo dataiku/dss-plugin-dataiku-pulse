@@ -2,27 +2,20 @@ import pandas as pd
 from dataikupulse.src import dss_funcs
 
 FLAT_COLUMNS = {
-    # Identity
     "nodeId",
     "nodeName",
     "nodeType",
     "rawNodeType",
     "hostname",
-
-    # Instance / License
     "installId",
     "dipInstanceId",
     "licenseInstanceId",
     "licenseId",
-
-    # Platform / Versioning
     "dssVersion",
     "os",
     "osVersion",
     "javaVendor",
     "javaVersion",
-
-    # Time (convert upstream if possible)
     "dssStartupTimestamp",
 }
 RENAME_MAP = {
