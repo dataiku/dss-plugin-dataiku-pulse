@@ -90,6 +90,13 @@ def get_nested_value(data, keys, dt=False):
                 return False
     return current
 
+def to_bool(x):
+    if isinstance(x, str):
+        if x.lower() == "true":
+            return True
+        elif x.lower() == "false":
+            return False
+    return x
 
 def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFrame:
     #
@@ -100,6 +107,14 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
         non_null_vals = df[col].dropna()
         if non_null_vals.empty:
             df[col] = None
+            continue
+        type_counts = non_null_vals.map(type).value_counts()
+        main_type = type_counts.index[0]
+        if main_type is bool:
+
+        df[col] = df[col].map(to_bool).fillna(default_if_bool).astype(bool)
+    else:  # everything else → string
+        df[col] = df[col].fillna(default_if_str).astype(str)
     # Flatten the DF, except for a few columns FLAT_COLUMNS
     rows = []
     for _, row in df.iterrows():
