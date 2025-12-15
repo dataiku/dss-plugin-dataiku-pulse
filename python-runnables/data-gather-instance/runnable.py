@@ -6,10 +6,7 @@ import pandas as pd
 import numpy as np
 import os
 import logging
-
-
 import concurrent.futures
-
 
 def build_rt(results):
     df = pd.DataFrame(results, columns=[
