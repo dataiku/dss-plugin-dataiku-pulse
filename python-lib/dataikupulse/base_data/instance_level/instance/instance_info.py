@@ -32,5 +32,5 @@ RENAME_MAP = {
 def main(self):
     df = pd.json_normalize(self.local_client.get_instance_info().raw)
     df["dssStartupTimestamp"] = pd.to_datetime(df["dssStartupTimestamp"], unit='ms')
-    df = dss_funcs.normalize_dataframe("mazzei_pulse", df, FLAT_COLUMNS, RENAME_MAP)
+    df = dss_funcs.normalize_dataframe("mazzei_pulse", df, FLAT_COLUMNS)
     return df
