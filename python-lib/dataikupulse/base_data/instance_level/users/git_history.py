@@ -4,7 +4,13 @@ import numpy as np
 from joblib import Parallel, delayed
 from datetime import datetime, date, timedelta
 
-
+FLAT_COLUMNS = {
+    "project_key",
+    "commit",
+    "author",
+    "timestamp",
+    "message",
+}
 today = date.today()
 
 def split_work(client, project_keys):
