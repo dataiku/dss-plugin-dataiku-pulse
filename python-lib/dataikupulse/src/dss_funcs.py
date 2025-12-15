@@ -103,6 +103,8 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
                 flat[col] = value
             else:
                 if value is not None:
+                     if isinstance(value, dict) and len(value) == 0:
+                        continue  # or set to None
                     extras[col] = value
         flat["extras"] = extras
         rows.append(flat)
