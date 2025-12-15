@@ -1,4 +1,5 @@
 import pandas as pd
+from dataikupulse.src import dss_funcs
 
 FLAT_COLUMNS = {
     # Identity
