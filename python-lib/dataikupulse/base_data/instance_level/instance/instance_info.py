@@ -1,6 +1,32 @@
 import pandas as pd
-from dataikupulse.src.dss_funcs import get_nested_value
 
+FLAT_COLUMNS = {
+    # Identity
+    "nodeId",
+    "nodeName",
+    "nodeType",
+    "rawNodeType",
+    "hostname",
+
+    # Instance / License
+    "installId",
+    "dipInstanceId",
+    "licenseInstanceId",
+    "licenseId",
+
+    # Platform / Versioning
+    "dssVersion",
+    "os",
+    "osVersion",
+    "javaVendor",
+    "javaVersion",
+
+    # Time (convert upstream if possible)
+    "dssStartupTimestamp",
+}
+RENAME_MAP = {
+
+}
 
 def main(self):
     df = pd.json_normalize(self.local_client.get_instance_info().raw)
