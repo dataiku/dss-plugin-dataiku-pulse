@@ -79,9 +79,6 @@ def get_preset_pc(self, preset_name):
 
 
 # ---------- DATA GATHER MODULES -----------------------------
-
-
-
 def get_nested_value(data, keys, dt=False):
     current = data
     for key in keys:
