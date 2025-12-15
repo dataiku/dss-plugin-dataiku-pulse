@@ -8,7 +8,6 @@ from dataikupulse.src import dss_folder
 from datetime import datetime, timezone
 
 
-
 # ---------- DATAIKU CLIENT HANDLES -----------------------------
 def build_local_client():
     client = dataiku.api_client()
