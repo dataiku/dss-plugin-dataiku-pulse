@@ -186,6 +186,7 @@ def normalize_column_type(df: pd.DataFrame, col: str, default_if_str="None", def
 
 
 def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFrame:
+    # Flatten the DF, except for a few columns FLAT_COLUMNS
     rows = []
     for _, row in df.iterrows():
         row_dict = row.to_dict()
@@ -200,7 +201,6 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
         flat["extras"] = extras
         rows.append(flat)
     df = pd.DataFrame(rows)
-    
     # Add Additonal Information / output path
     df.columns = df.columns.str.lower()
     df.columns = df.columns.str.replace(".", "_", regex=False)
@@ -210,13 +210,18 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
             column="instance_name",
             value=self.instance_name
         )
-        
     # Add run_time
     df.insert(
         loc=df.columns.get_loc("extras"),
         column="run_timestamp",
-        value=datetime.now(timezone.utc)
+        value=self.dt#datetime.now(timezone.utc)
     )
+    # Final cleanse of DF for dictionary/lists to strings
+    for col in df.columns:
+        types = df[col].dropna().map(type).unique()
+        if any(t in (dict, list) for t in types):
+            df[col] = df[col].astype(str)
+    df = df.reset_index(drop=True)
     return df
 
 
