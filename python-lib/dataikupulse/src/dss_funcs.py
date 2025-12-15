@@ -212,15 +212,19 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}, RENAME_MAP: {}
                     flat[new] = flat.pop(old)
         flat["extras"] = extras
         rows.append(flat)
+    df = pd.DataFrame(rows)
+    
     # Add Additonal Information / output path
     df.columns = df.columns.str.lower()
     df.columns = df.columns.str.replace(".", "_", regex=False)
     if "instance_name" not in df.columns:
-        df["instance_name"] = self.instance_name
-    return pd.DataFrame(rows)
-
-
-def add_runtime(df: pd.DataFrame) -> pd.DataFrame:
+        df.insert(
+            loc=0,
+            column="instance_name",
+            value=instance_name
+        )
+        
+    # Add run_time
     df.insert(
         loc=df.columns.get_loc("extras"),
         column="run_timestamp",
