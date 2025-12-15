@@ -267,11 +267,12 @@ def load_dataiku_usage(partition_df):
         module = getattr(row, "module")
         table_name = f"{category}_{module}"
         paths = []
-        
-        for _,grp in history_df.loc[history_df["category"] == "dataiku_usage"].groupby("module"):
-            for instance in grp["instance_name"].unique().tolist():
-                paths.append(f"{blob_header}://{blob_bket}/{blob_root}/{instance}/{category}/{module}/**/*.parquet")
-                
+        instances = history_df.loc[(history_df["category"] == category) & (history_df["module"] == module)]["instance_name"].unique()
+        for instance in instances:
+            paths.append(f"{blob_header}://{blob_bket}/{blob_root}/{instance}/{category}/{module}/**/*.parquet")
+        usage_queries.append(
+            render_query(queries["dataiku_usage"]["module"], table_name = table_name, paths = paths)
+        )
         usage_queries.append(
             render_query(queries["dataiku_usage"]["module"], table_name = table_name, paths = paths)
         )
