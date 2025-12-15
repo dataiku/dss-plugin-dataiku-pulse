@@ -112,8 +112,8 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
         main_type = type_counts.index[0]
         if main_type is bool:
             df[col] = df[col].map(to_bool).fillna(default_if_bool).astype(bool)
-    else:  # everything else → string
-        df[col] = df[col].fillna(default_if_str).astype(str)
+        else:  # everything else → string
+            df[col] = df[col].fillna(default_if_str).astype(str)
     # Flatten the DF, except for a few columns FLAT_COLUMNS
     rows = []
     for _, row in df.iterrows():
