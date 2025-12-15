@@ -1,11 +1,11 @@
 import os
 import re
 import importlib
+from datetime import datetime, timezone
 import pandas as pd
 import dataiku
 import dataikuapi
 from dataikupulse.src import dss_folder
-from datetime import datetime, timezone
 
 
 # ---------- DATAIKU CLIENT HANDLES -----------------------------
