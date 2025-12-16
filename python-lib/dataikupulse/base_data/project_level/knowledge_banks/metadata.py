@@ -14,17 +14,17 @@ FLAT_COLUMNS = {
 
     # Execution / environment
     "knowledge_banks_rebuildBehavior",
-    "knowledge_banks_envSelection.envMode",
-    "knowledge_banks_envSelection.envName",
-    "knowledge_banks_containerExecSelection.containerMode",
+    "knowledge_banks_envSelection_envMode",
+    "knowledge_banks_envSelection_envName",
+    "knowledge_banks_containerExecSelection_containerMode",
 
     # Versioning / lifecycle
-    "knowledge_banks_versionTag.versionNumber",
-    "knowledge_banks_versionTag.lastModifiedOn",
-    "knowledge_banks_versionTag.lastModifiedBy.login",
-    "knowledge_banks_creationTag.versionNumber",
-    "knowledge_banks_creationTag.lastModifiedOn",
-    "knowledge_banks_creationTag.lastModifiedBy.login",
+    "knowledge_banks_versionTag_versionNumber",
+    "knowledge_banks_versionTag_lastModifiedOn",
+    "knowledge_banks_versionTag_lastModifiedBy.login",
+    "knowledge_banks_creationTag_versionNumber",
+    "knowledge_banks_creationTag_lastModifiedOn",
+    "knowledge_banks_creationTag_lastModifiedBy.login",
 }
 
 
