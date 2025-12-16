@@ -1,6 +1,6 @@
 from dataiku.runnables import Runnable, ResultTable
 from dataikupulse.base_data.audit_log import user_login, event_mapping
-from dataikupulse.src import dss_funcs
+from dataikupulse.src import dss_funcs, dss_silver
 from datetime import timedelta, datetime
 from pathlib import Path
 import dataiku
