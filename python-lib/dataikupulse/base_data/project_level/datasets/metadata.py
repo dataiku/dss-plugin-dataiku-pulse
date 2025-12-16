@@ -3,7 +3,7 @@ from dataikupulse.src import dss_funcs
 
 FLAT_COLUMNS = {
     # Dataset identity
-    "dataset_projectKey",
+    "project_key",
     "dataset_name",
     "dataset_smartName",
 
