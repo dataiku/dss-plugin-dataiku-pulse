@@ -87,7 +87,7 @@ class MyRunnable(Runnable):
         project_keys = df["project_key"].loc[df["lastModifiedOn"] >= last_update].unique().tolist()
         
         # Collect the modules && Run the modules
-        if self.preset_pc["do_parallel"]:
+        if self.preset_pc["do_parallel"] and len(project_keys) > self.preset_pc["cores"]:
             pk_arrays = np.array_split(project_keys, self.preset_pc["cores"])
             dfs = Parallel(n_jobs=self.preset_pc["cores"], backend="threading")(delayed(self.data_gather)(project_keys)
                                               for project_keys in pk_arrays)
