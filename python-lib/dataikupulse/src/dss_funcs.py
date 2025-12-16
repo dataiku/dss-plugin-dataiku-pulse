@@ -4,7 +4,7 @@ import importlib
 import pandas as pd
 import dataiku
 import dataikuapi
-from dataikupulse.src import dss_folder
+from dataikupulse.src import dss_folder, dss_quality
 
 
 # ---------- DATAIKU CLIENT HANDLES -----------------------------
