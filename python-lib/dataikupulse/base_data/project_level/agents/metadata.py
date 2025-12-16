@@ -15,10 +15,10 @@ FLAT_COLUMNS = {
     # Version metadata (promoted for queryability)
     "agents_versions_versionTag_versionNumber",
     "agents_versions_versionTag_lastModifiedOn",
-    "agents_versions_versionTag_lastModifiedBy.login",
+    "agents_versions_versionTag_lastModifiedBy_login",
     "agents_versions_creationTag_versionNumber",
     "agents_versions_creationTag_lastModifiedOn",
-    "agents_versions_creationTag_lastModifiedBy.login",
+    "agents_versions_creationTag_lastModifiedBy_login",
 }
 
 def main(self, project_handle, client_d = {}):
