@@ -36,6 +36,6 @@ def main(self, project_handle, client_d = {}):
         return pd.DataFrame()
     prefix = "knowledge_banks"
     df = pd.json_normalize(project_handle.list_knowledge_banks()).add_prefix(f"{prefix}_")
-    df = dss_funcs.rename_and_move_first(project_handle, df, f"{prefix}_projectKey", "project_key")
+    df = dss_funcs.rename_and_move_first(df, f"{prefix}_projectKey", "project_key")
     df = dss_funcs.normalize_dataframe(self, df, FLAT_COLUMNS)
     return df
