@@ -40,7 +40,8 @@ def main(self, df):
         try:
             login_users_df.columns = login_users_df.columns.str.replace('message_', '', regex=False)
             login_users_df.columns = login_users_df.columns.str.lower()
-            write_path = f"/{instance_name}/users/viewing_user_logins/{dt_year}/{dt_month}/{dt_day}/data-{dt_epoch}.parquet"
+            file_name = "data-{dt_epoch}.parquet" 
+            write_path = f"raw/users/{category}/viewing_user_logins/{dt_year}/{dt_month}/{dt_day}/{file_name}"
             dss_folder.write_remote_folder_output(self, write_path, login_users_df)
             results.append(["write/save", True, f"login users data-{dt_epoch}.parquet"])
         except Exception as e:
