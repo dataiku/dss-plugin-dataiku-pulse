@@ -127,6 +127,7 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
     for col in FLAT_COLUMNS:
         if col not in df.columns:
             df[col] = None
+            
     # 2. Split flat vs extras
     rows = []
     for _, row in df.iterrows():
