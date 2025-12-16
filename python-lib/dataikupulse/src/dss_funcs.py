@@ -201,11 +201,10 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
                 dt_year  = str(self.dt.year)
                 dt_month = str(f'{self.dt.month:02d}')
                 dt_day   = str(f'{self.dt.day:02d}')
-                write_path = f"{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}"
                 file_name = "data.parquet" 
                 if project_key:
                     file_name = f"{project_key}_data.parquet"
-                write_path = f"{write_path}/{file_name}"
+                write_path = f"{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
                 dss_folder.write_remote_folder_output(self, write_path, df)
                 results.append([project_key, category, module_name, "write/save", True, None])
             except Exception as e:
