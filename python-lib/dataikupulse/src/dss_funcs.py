@@ -227,7 +227,6 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
                     dss_folder.write_remote_folder_output(self, write_path, df)
                     results.append([project_key, category, module_name, f"write/save -- {layer}", True, None])
             except Exception as e:
-                layer = "raw_errors"
                 results.append([project_key, category, module_name, f"write/save -- QUALITY", False, e])
             
     return results
