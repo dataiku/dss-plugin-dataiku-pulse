@@ -54,7 +54,16 @@ ENUM_COLS = [
     "nodeType",
     "rawNodeType",
 ]
-
+NUMERIC_COLS = [
+    "size",
+    "used",
+    "available",
+    "used_pct",
+    "calltime",
+    "level_1_size",
+    "level_2_size",
+    "level_3_size",
+]
 
 
 def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
