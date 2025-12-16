@@ -352,6 +352,9 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
                 results.append([project_key, category, module_name, "write/save", True, None])
             except Exception as e:
                 results.append([project_key, category, module_name, "write/save", False, e])
+            try:
+                dss_quality.co()
+                dss_quality.
     return results
 
 
