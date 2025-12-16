@@ -66,7 +66,7 @@ class MyRunnable(Runnable):
         self.client_d = client_d
         
         # Get Last Update time
-        project_handle = local_client.get_default_project()
+        project_handle = self.local_client.get_default_project()
         variables = project_handle.get_variables()
         try:
             last_update = variables["local"]["projects_deltaa"]
@@ -77,7 +77,7 @@ class MyRunnable(Runnable):
         project_handle.set_variables(variables)
         
         # Preprocess Project Keys for only DELTAS
-        df = pd.DataFrame(local_client.list_projects())
+        df = pd.DataFrame(self.local_client.list_projects())
         df = df[["projectKey", "versionTag"]]
         jdf = pd.json_normalize(df["versionTag"])
         df = df.drop(columns=["versionTag"]).reset_index(drop=True)
