@@ -111,6 +111,7 @@ def main(self, df):
         # lets split the df by category and save
         for category, grp_df in merged_df.groupby("dataiku_category"):
             grp_df = grp_df.dropna(axis=1, how='all').reset_index(drop=True)
+            grp_df = dss_funcs.normalize_dataframe(self, grp_df, FLAT_COLUMNS)
             try:
                 write_path = f"/{instance_name}/dataiku_usage/{category}/{dt_year}/{dt_month}/{dt_day}/data-{dt_epoch}.parquet"
                 dss_folder.write_remote_folder_output(self, write_path, grp_df)
