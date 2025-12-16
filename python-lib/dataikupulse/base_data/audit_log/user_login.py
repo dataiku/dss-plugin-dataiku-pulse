@@ -1,5 +1,5 @@
 import pandas as pd
-from dataikupulse.src import dss_folder
+from dataikupulse.src import dss_folder, dss_silver
 
 
 def main(self, df):
