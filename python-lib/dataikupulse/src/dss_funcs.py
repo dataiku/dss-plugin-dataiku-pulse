@@ -142,7 +142,7 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
                 if value is None or (isinstance(value, float) and pd.isna(value)):
                     continue
                 # Parquet-safe normalization
-                extras[col] = sanitize_for_parquet(value)
+                #extras[col] = sanitize_for_parquet(value)
         flat["extras"] = extras if extras else None
         rows.append(flat)
     df = pd.DataFrame(rows)
