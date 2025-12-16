@@ -149,16 +149,6 @@ def data_quality(df: pd.DataFrame) -> dict:
     # -------------------------
     # 2. Identifier columns must not be numeric
     # -------------------------
-    ID_COLS = [
-        "project_key",
-        "dataset_projectKey",
-        "scenarios_projectKey",
-        "user",
-        "email",
-        "nodeId",
-        "licenseId",
-    ]
-
     for col in ID_COLS:
         if col in df.columns:
             if pd.api.types.is_numeric_dtype(df[col]):
