@@ -54,6 +54,7 @@ def get_dss_name_id_mapping(self):
     mapping = [instance_name, instance_name_base, instance_id_base]
     return mapping
 
+
 def get_preset_pc(self, preset_name):
     # Connect to the plugin
     local_client = build_local_client()
@@ -76,6 +77,17 @@ def get_preset_pc(self, preset_name):
             pass
     return preset_pc
 
+
+def rename_and_move_first(project_handle, df, old, new):
+    if old in df.columns:
+        df = df.rename(columns={old: new})
+    else:
+        if project_handle:
+            df[new] = project_handle.project_key
+    if new in df.columns:
+        cols = [new] + [c for c in df.columns if c != new]
+        df = df[cols]
+    return df
 
 # ---------- DATA GATHER MODULES -----------------------------
 def get_nested_value(data, keys, dt=False):
