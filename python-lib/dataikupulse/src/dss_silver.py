@@ -32,7 +32,6 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     # --------------------------------------------------
     for col in TIMESTAMP_COLS:
         if col in df.columns:
-            #if pd.api.types.is_numeric_dtype(df[col]):
             df[col] = pd.to_datetime(df[col], unit="ms", utc=True, errors="coerce")
 
     # --------------------------------------------------
