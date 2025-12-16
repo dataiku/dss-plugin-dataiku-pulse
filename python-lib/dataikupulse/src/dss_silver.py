@@ -54,6 +54,10 @@ ENUM_COLS = [
     "nodeType",
     "rawNodeType",
 ]
+ENUM_RULES = {
+    "severity": {"INFO", "WARN", "ERROR"},
+    "msgtypebase": {"admin", "code", "generic", "automation"},
+}
 NUMERIC_COLS = [
     "size",
     "used",
