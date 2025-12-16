@@ -3,7 +3,7 @@ from dataikupulse.src import dss_funcs
 
 FLAT_COLUMNS = {
     # Knowledge bank identity
-    "knowledge_banks_projectKey",
+    "project_key",
     "knowledge_banks_id",
     "knowledge_banks_name",
 
