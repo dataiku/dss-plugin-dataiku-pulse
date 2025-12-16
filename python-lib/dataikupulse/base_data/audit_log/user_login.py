@@ -46,7 +46,27 @@ def main(self, df):
             results.append(["write/save", True, f"login users data-{dt_epoch}.parquet"])
         except Exception as e:
             results.append(["write/save - All", False, e])
-        
+
+       # Test quality control -- Save to Silver or Raw Error
+        try:
+            layer = "silver"
+            login_users_df = dss_silver.coerce_schema(login_users_df)
+            dq = dss_silver.data_quality(login_users_df)
+            if dq["errors"]:
+                layer = "raw_errors"
+                write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
+                dss_folder.write_remote_folder_output(self, write_path, login_users_df)
+                write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/dq_{file_name}"
+                dss_folder.write_remote_folder_output(self, write_path, pd.DataFrame(dq))
+            else:
+                write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
+                dss_folder.write_remote_folder_output(self, write_path, login_users_df)
+                results.append([project_key, category, module_name, f"write/save -- {layer}", True, None])
+        except Exception as e:
+            layer = "raw_errors"
+            results.append([project_key, category, module_name, f"write/save -- QUALITY", False, e])
+            
+            
         # Developer Users
         tdf = grp[grp["message_login"].isin(login_users)]
         ## Action Items
@@ -71,5 +91,24 @@ def main(self, df):
             results.append(["write/save", True, f"developing users data-{dt_epoch}.parquet"])
         except Exception as e:
             results.append(["write/save - All", False, e])
-    
+
+       # Test quality control -- Save to Silver or Raw Error
+        try:
+            layer = "silver"
+            login_users_df = dss_silver.coerce_schema(login_users_df)
+            dq = dss_silver.data_quality(login_users_df)
+            if dq["errors"]:
+                layer = "raw_errors"
+                write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
+                dss_folder.write_remote_folder_output(self, write_path, login_users_df)
+                write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/dq_{file_name}"
+                dss_folder.write_remote_folder_output(self, write_path, pd.DataFrame(dq))
+            else:
+                write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
+                dss_folder.write_remote_folder_output(self, write_path, login_users_df)
+                results.append([project_key, category, module_name, f"write/save -- {layer}", True, None])
+        except Exception as e:
+            layer = "raw_errors"
+            results.append([project_key, category, module_name, f"write/save -- QUALITY", False, e])
+           
     return results
