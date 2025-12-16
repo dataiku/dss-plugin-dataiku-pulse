@@ -65,6 +65,17 @@ class MyRunnable(Runnable):
             client_d["container_env_name"] = "DSS_LOCAL"
         self.client_d = client_d
         
+        # Get Last Update time
+        project_handle = local_client.get_default_project()
+        variables = project_handle.get_variables()
+        try:
+            last_update = variables["local"]["projects_deltaa"]
+        except:
+            last_update = 0
+        last_update = pd.to_datetime(last_update)
+        variables["local"]["projects_delta"] = str(datetime.utcnow())
+        project_handle.set_variables(variables)
+        
         # Preprocess Project Keys for only DELTAS
         df = pd.DataFrame(local_client.list_projects())
         df = df[["projectKey", "versionTag"]]
