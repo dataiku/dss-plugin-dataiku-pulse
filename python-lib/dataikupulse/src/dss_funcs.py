@@ -351,7 +351,7 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
                 dss_folder.write_remote_folder_output(self, write_path, df)
                 results.append([project_key, category, module_name, "write/save -- RAW", True, None])
             except Exception as e:
-                results.append([project_key, category, module_name, "write/save --  RAW", False, e])
+                results.append([project_key, category, module_name, "write/save -- RAW", False, e])
             try:
                 layer = "silver"
                 df = dss_silver.coerce_schema(df)
