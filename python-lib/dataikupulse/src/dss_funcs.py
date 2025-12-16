@@ -4,7 +4,7 @@ import importlib
 import pandas as pd
 import dataiku
 import dataikuapi
-from dataikupulse.src import dss_folder, dss_quality
+from dataikupulse.src import dss_folder, dss_silver
 
 
 # ---------- DATAIKU CLIENT HANDLES -----------------------------
@@ -354,7 +354,7 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
                 results.append([project_key, category, module_name, "write/save", False, e])
             try:
                 df = dss_quality.coerce_schema(df)
-                dq = data_quality(df)
+                dq = dss_quality.data_quality(df)
                 if dq["errors"]:
     
     return results
