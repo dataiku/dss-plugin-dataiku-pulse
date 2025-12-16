@@ -340,21 +340,23 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
                 results.append([project_key, category, module_name, "load/run", False, e])
             if not isinstance(df, pd.DataFrame) or df.empty:
                 continue # nothing to write, skip
+            dt_year  = str(self.dt.year)
+            dt_month = str(f'{self.dt.month:02d}')
+            dt_day   = str(f'{self.dt.day:02d}')
+            file_name = "data.parquet" 
+            if project_key:
+                file_name = f"{project_key}_data.parquet"
+            write_path = f"raw/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
             try:
-                dt_year  = str(self.dt.year)
-                dt_month = str(f'{self.dt.month:02d}')
-                dt_day   = str(f'{self.dt.day:02d}')
-                file_name = "data.parquet" 
-                if project_key:
-                    file_name = f"{project_key}_data.parquet"
-                write_path = f"raw/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
                 dss_folder.write_remote_folder_output(self, write_path, df)
                 results.append([project_key, category, module_name, "write/save", True, None])
             except Exception as e:
                 results.append([project_key, category, module_name, "write/save", False, e])
             try:
-                dss_quality.co()
-                dss_quality.
+                df = dss_quality.coerce_schema(df)
+                dq = data_quality(df)
+                if dq["errors"]:
+    
     return results
 
 
