@@ -1,7 +1,7 @@
 import pandas as pd
 import os
 
-from dataikupulse.src import dss_folder, dss_funcs
+from dataikupulse.src import dss_folder, dss_funcs, dss_silver
 
 FLAT_COLUMNS = {
     # Event identity / classification
