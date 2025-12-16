@@ -1,7 +1,6 @@
 import pandas as pd
 from dataikupulse.src import dss_funcs
 
-
 def main(self):
     mapping = dss_funcs.get_dss_name_id_mapping(self)
     df = pd.DataFrame(
