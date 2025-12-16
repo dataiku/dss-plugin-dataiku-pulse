@@ -197,7 +197,6 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
             if not isinstance(df, pd.DataFrame) or df.empty:
                 continue # nothing to write, skip
             try:
-                # Remote client and DT parsing
                 dt_year  = str(self.dt.year)
                 dt_month = str(f'{self.dt.month:02d}')
                 dt_day   = str(f'{self.dt.day:02d}')
