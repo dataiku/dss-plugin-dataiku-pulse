@@ -1,6 +1,24 @@
 import pandas as pd
 import numpy as np
 
+TIMESTAMP_COLS = [
+    "timestamp",
+    "dssStartupTimestamp",
+    "creationDate",
+    "last_session_activity",
+    "first_commit_date",
+    "last_commit_date",
+    "scenarios_start",
+    "scenarios_nextRun",
+    "scenarios_createdOn",
+    "scenarios_lastModifiedOn",
+    "dataset_versionTag_lastModifiedOn",
+    "dataset_creationTag_lastModifiedOn",
+    "project_versionTag_lastModifiedOn",
+    "project_creationTag_lastModifiedOn",
+    "run_timestamp",
+]
+    
 def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     """
     Applies semantic schema fixes to a normalized dataframe.
@@ -12,25 +30,7 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     # --------------------------------------------------
     # 1. Epoch millis → UTC timestamps
     # --------------------------------------------------
-    EPOCH_MS_COLS = [
-        "timestamp",
-        "dssStartupTimestamp",
-        "creationDate",
-        "last_session_activity",
-        "first_commit_date",
-        "last_commit_date",
-        "scenarios_start",
-        "scenarios_nextRun",
-        "scenarios_createdOn",
-        "scenarios_lastModifiedOn",
-        "dataset_versionTag_lastModifiedOn",
-        "dataset_creationTag_lastModifiedOn",
-        "project_versionTag_lastModifiedOn",
-        "project_creationTag_lastModifiedOn",
-        "run_timestamp",
-    ]
-
-    for col in EPOCH_MS_COLS:
+    for col in TIMESTAMP_COLS:
         if col in df.columns:
             #if pd.api.types.is_numeric_dtype(df[col]):
             df[col] = pd.to_datetime(df[col], unit="ms", utc=True, errors="coerce")
@@ -152,24 +152,6 @@ def data_quality(df: pd.DataFrame) -> dict:
     # -------------------------
     # 1. Timestamp sanity
     # -------------------------
-    TIMESTAMP_COLS = [
-        "timestamp",
-        "dssStartupTimestamp",
-        "creationDate",
-        "last_session_activity",
-        "first_commit_date",
-        "last_commit_date",
-        "scenarios_start",
-        "scenarios_nextRun",
-        "scenarios_createdOn",
-        "scenarios_lastModifiedOn",
-        "dataset_versionTag_lastModifiedOn",
-        "dataset_creationTag_lastModifiedOn",
-        "project_versionTag_lastModifiedOn",
-        "project_creationTag_lastModifiedOn",
-        "run_timestamp",
-    ]
-
     for col in TIMESTAMP_COLS:
         if col in df.columns:
             if not pd.api.types.is_datetime64_any_dtype(df[col]):
