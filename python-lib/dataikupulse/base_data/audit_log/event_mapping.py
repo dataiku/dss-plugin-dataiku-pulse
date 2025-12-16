@@ -124,17 +124,17 @@ def main(self, df):
             # Test quality control -- Save to Silver or Raw Error
             try:
                 layer = "silver"
-                df = dss_silver.coerce_schema(df)
-                dq = dss_silver.data_quality(df)
+                grp_df = dss_silver.coerce_schema(grp_df)
+                dq = dss_silver.data_quality(grp_df)
                 if dq["errors"]:
                     layer = "raw_errors"
                     write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
-                    dss_folder.write_remote_folder_output(self, write_path, df)
+                    dss_folder.write_remote_folder_output(self, write_path, grp_df)
                     write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/dq_{file_name}"
                     dss_folder.write_remote_folder_output(self, write_path, pd.DataFrame(dq))
                 else:
                     write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
-                    dss_folder.write_remote_folder_output(self, write_path, df)
+                    dss_folder.write_remote_folder_output(self, write_path, grp_df)
                     results.append([project_key, category, module_name, f"write/save -- {layer}", True, None])
             except Exception as e:
                 layer = "raw_errors"
