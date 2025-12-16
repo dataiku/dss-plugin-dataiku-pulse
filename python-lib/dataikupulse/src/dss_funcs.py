@@ -201,8 +201,8 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
                 dt_year  = str(self.dt.year)
                 dt_month = str(f'{self.dt.month:02d}')
                 dt_day   = str(f'{self.dt.day:02d}')
-                write_path= f"{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}"
-                file_name = 
+                write_path = f"{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}"
+                file_name = "data.parquet" 
                 if project_key:
                     write_path = f"{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{project_key}_data.parquet"
                 dss_folder.write_remote_folder_output(self, write_path, df)
