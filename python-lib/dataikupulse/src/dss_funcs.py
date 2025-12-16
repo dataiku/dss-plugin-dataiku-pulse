@@ -180,7 +180,7 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
             module_name = f.removesuffix(".py")
             path = root.replace(directory, "")
             fp = os.path.join(root, f)
-            path = path[1:]
+            category = path[1:]
             try:
                 spec = importlib.util.spec_from_file_location(module_name, fp)
                 module = importlib.util.module_from_spec(spec)
@@ -190,10 +190,10 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
                         df = module.main(self, project_handle, client_d)
                     else:
                         df = module.main(self) # Instance level
-                    results.append([project_key, path, module_name, "load/run", True, None])
+                    results.append([project_key, category, module_name, "load/run", True, None])
             except Exception as e:
                 df = pd.DataFrame()
-                results.append([project_key, path, module_name, "load/run", False, e])
+                results.append([project_key, category, module_name, "load/run", False, e])
             if not isinstance(df, pd.DataFrame) or df.empty:
                 continue # nothing to write, skip
             try:
@@ -201,13 +201,13 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
                 dt_year  = str(self.dt.year)
                 dt_month = str(f'{self.dt.month:02d}')
                 dt_day   = str(f'{self.dt.day:02d}')
-                write_path = f"{path}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/data.parquet"
+                write_path     = f"{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/data.parquet"
                 if project_key:
-                    write_path = f"{self.instance_name}/{path}/{module_name}/{dt_year}/{dt_month}/{dt_day}/{project_key}_data.parquet"
+                    write_path = f"{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{project_key}_data.parquet"
                 dss_folder.write_remote_folder_output(self, write_path, df)
-                results.append([project_key, path, module_name, "write/save", True, None])
+                results.append([project_key, category, module_name, "write/save", True, None])
             except Exception as e:
-                results.append([project_key, path, module_name, "write/save", False, e])
+                results.append([project_key, category, module_name, "write/save", False, e])
     return results
 
 
