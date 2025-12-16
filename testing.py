@@ -32,16 +32,7 @@ def normalize_column_type(df: pd.DataFrame, col: str, default_if_str="None", def
     return df
     
     
-def rename_and_move_first(project_handle, df, old, new):
-    if old in df.columns:
-        df = df.rename(columns={old: new})
-    else:
-        if project_handle:
-            df[new] = project_handle.project_key
-    if new in df.columns:
-        cols = [new] + [c for c in df.columns if c != new]
-        df = df[cols]
-    return df
+
 
 
 
