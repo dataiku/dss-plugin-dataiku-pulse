@@ -107,17 +107,6 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     # --------------------------------------------------
     # 5. Numeric metric coercion
     # --------------------------------------------------
-    NUMERIC_COLS = [
-        "size",
-        "used",
-        "available",
-        "used_pct",
-        "calltime",
-        "level_1_size",
-        "level_2_size",
-        "level_3_size",
-    ]
-
     for col in NUMERIC_COLS:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
