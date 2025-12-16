@@ -131,7 +131,6 @@ def data_quality(df: pd.DataFrame) -> dict:
     Runs data quality checks on a SILVER dataframe.
     Returns a report dict with errors and warnings.
     """
-
     report = {
         "errors": [],
         "warnings": [],
