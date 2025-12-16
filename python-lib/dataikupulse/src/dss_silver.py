@@ -44,7 +44,16 @@ BOOL_COLS = [
 ]
 TRUE_SET = {"true", "True", True, 1, "1"}
 FALSE_SET = {"false", "False", False, 0, "0"}
-
+ENUM_COLS = [
+    "severity",
+    "msgtypebase",
+    "dataiku_category",
+    "authsource",
+    "sourceType",
+    "dataset_type",
+    "nodeType",
+    "rawNodeType",
+]
 
 
 
