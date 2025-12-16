@@ -2,7 +2,7 @@ import pandas as pd
 from dataikupulse.src import dss_funcs
 
 FLAT_COLUMNS = {
-    "agent_tools_projectKey",
+    "project_key",
     "agent_tools_id",
     "agent_tools_type",
     "agent_tools_name",
