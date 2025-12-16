@@ -69,7 +69,7 @@ class MyRunnable(Runnable):
         project_handle = self.local_client.get_default_project()
         variables = project_handle.get_variables()
         try:
-            last_update = variables["local"]["projects_delta"]
+            last_update = variables["local"]["projects_deltaa"]
         except:
             last_update = 0
         last_update = pd.to_datetime(last_update)
