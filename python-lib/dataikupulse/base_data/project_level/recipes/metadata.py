@@ -70,7 +70,7 @@ def main(self, project_handle, client_d = {}):
     df = pd.json_normalize(project_handle.list_recipes()).add_prefix(prefix)
         
     # Project Key
-    df = dss_funcs.rename_and_move_first(project_handle, df, f"{prefix}projectKey", "project_key")
+    df = dss_funcs.rename_and_move_first(df, f"{prefix}projectKey", "project_key")
     df.columns = df.columns.str.replace(".", "_", regex=False)
     
     # Get layer 2 information
