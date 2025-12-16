@@ -116,10 +116,5 @@ def main(self, project_handle, client_d = {}):
         except:
             llm_model = ""
         df.loc[df["recipes_name"] == recipes_name, "recipes_params_llmId"] = llm_model
-    
-    # Normalize cols
-    fix_cols = ["recipes_params_sparkConf"]
-    for c in fix_cols:
-        df = dss_funcs.normalize_column_type(df, c)
 
     return df
