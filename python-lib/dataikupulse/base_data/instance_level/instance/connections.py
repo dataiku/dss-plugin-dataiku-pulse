@@ -5,8 +5,8 @@ FLAT_COLUMNS = {
     "name",
     "type",
     "connection_category",
-    "creationTag.lastModifiedBy.login",
-    "creationTag.lastModifiedOn",
+    "creationTag_lastModifiedBy_login",
+    "creationTag_lastModifiedOn",
 }
 
 conn_mapping = {
