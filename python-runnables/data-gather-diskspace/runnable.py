@@ -118,7 +118,7 @@ class MyRunnable(Runnable):
                 write_path = f"{layer}/operating_system/diskspace/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/dq_{file_name}"
                 dss_folder.write_remote_folder_output(self, write_path, pd.DataFrame(dq))
             else:
-                write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
+                write_path = f"{layer}/operating_system/diskspace/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
                 dss_folder.write_remote_folder_output(self, write_path, df)
             results.append([f"write/save -- {layer}", True, None])
         except Exception as e:
