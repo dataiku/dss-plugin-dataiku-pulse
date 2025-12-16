@@ -86,17 +86,6 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     # --------------------------------------------------
     # 4. Enum normalization (string + strip)
     # --------------------------------------------------
-    ENUM_COLS = [
-        "severity",
-        "msgtypebase",
-        "dataiku_category",
-        "authsource",
-        "sourceType",
-        "dataset_type",
-        "nodeType",
-        "rawNodeType",
-    ]
-
     for col in ENUM_COLS:
         if col in df.columns:
             df[col] = (
