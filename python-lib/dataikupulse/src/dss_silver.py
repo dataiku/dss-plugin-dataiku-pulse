@@ -159,17 +159,6 @@ def data_quality(df: pd.DataFrame) -> dict:
     # -------------------------
     # 3. Boolean columns must be boolean dtype
     # -------------------------
-    BOOL_COLS = [
-        "dataset_managed",
-        "dataset_featureGroup",
-        "project_tutorialProject",
-        "scenarios_active",
-        "scenarios_unavailable",
-        "scenarios_markedAsTest",
-        "scenarios_running",
-        "enabled",
-    ]
-
     for col in BOOL_COLS:
         if col in df.columns:
             if not pd.api.types.is_bool_dtype(df[col]) \
