@@ -65,8 +65,10 @@ class MyRunnable(Runnable):
             client_d["container_env_name"] = "DSS_LOCAL"
         self.client_d = client_d
         
-        # Collect the modules && Run the modules
+        # Preprocess Project Keys for only DELTAS
         project_keys = self.local_client.list_project_keys()
+        
+        # Collect the modules && Run the modules
         if self.preset_pc["do_parallel"]:
             pk_arrays = np.array_split(project_keys, self.preset_pc["cores"])
             dfs = Parallel(n_jobs=self.preset_pc["cores"], backend="threading")(delayed(self.data_gather)(project_keys)
