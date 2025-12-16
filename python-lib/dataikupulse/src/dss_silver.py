@@ -32,8 +32,8 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
 
     for col in EPOCH_MS_COLS:
         if col in df.columns:
-            if pd.api.types.is_numeric_dtype(df[col]):
-                df[col] = pd.to_datetime(df[col], unit="ms", utc=True, errors="coerce")
+            #if pd.api.types.is_numeric_dtype(df[col]):
+            df[col] = pd.to_datetime(df[col], unit="ms", utc=True, errors="coerce")
 
     # --------------------------------------------------
     # 2. Identifier columns → nullable string
@@ -129,6 +129,12 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
     return df
+
+
+
+
+
+
 
 
 def data_quality(df: pd.DataFrame) -> dict:
