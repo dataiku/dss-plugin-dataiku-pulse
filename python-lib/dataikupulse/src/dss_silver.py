@@ -167,9 +167,9 @@ def data_quality(df: pd.DataFrame) -> dict:
 
     for col in TIMESTAMP_COLS:
         if col in df.columns:
-            if pd.api.types.is_float_dtype(df[col]):
+            if not pd.api.types.is_datetime64_any_dtype(df[col]):
                 report["errors"].append(
-                    f"{col} is float64 (expected datetime)"
+                    f"{col} is {df[col].dtype} (expected datetime)"
                 )
 
     # -------------------------
