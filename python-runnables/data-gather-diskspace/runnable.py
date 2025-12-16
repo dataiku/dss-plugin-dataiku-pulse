@@ -124,6 +124,7 @@ class MyRunnable(Runnable):
         except Exception as e:
             layer = "raw_errors"
             results.append([project_key, category, module_name, f"write/save -- QUALITY", False, e])
+            
         # return results
         if results:
             df = pd.DataFrame(results, columns=["step", "result", "message"])
