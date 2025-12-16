@@ -120,6 +120,9 @@ def sanitize_for_parquet(value):
     return value
 
 def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFrame:
+    # 0. NO PERIODS
+    df.columns = df.columns.str.replace(".", "_", regex=False)
+    
     # 1. Ensure flat column exist
     for col in FLAT_COLUMNS:
         if col not in df.columns:
@@ -143,8 +146,6 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
     df = pd.DataFrame(rows)
     
     # 3. Add Additonal Information / output path
-    df.columns = df.columns.str.lower()
-    df.columns = df.columns.str.replace(".", "_", regex=False)
     if "instance_name" not in df.columns:
         df.insert(
             loc=0,
