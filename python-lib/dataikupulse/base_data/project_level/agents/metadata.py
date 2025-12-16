@@ -3,10 +3,10 @@ from dataikupulse.src import dss_funcs
 
 FLAT_COLUMNS = {
     # Agent identity
+    "project_key",
     "agents_id",
     "agents_name",
     "agents_type",
-    "agents_projectKey",
 
     # Versioning / lifecycle
     "agents_activeVersion",
