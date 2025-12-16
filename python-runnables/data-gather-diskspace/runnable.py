@@ -100,7 +100,7 @@ class MyRunnable(Runnable):
         df["instance_name"] = instance_name
         df["timestamp"] = self.dt
         try:
-            write_path = f"/{instance_name}/operating_system/diskspace/{dt_year}/{dt_month}/{dt_day}/data.parquet"
+            write_path = f"raw/operating_system/diskspace/{instance_name}/{dt_year}/{dt_month}/{dt_day}/data.parquet"
             dss_folder.write_remote_folder_output(self, write_path, df)
             results.append(["write/save", True, None])
         except Exception as e:
