@@ -86,14 +86,17 @@ class MyRunnable(Runnable):
         df["lastModifiedOn"] = pd.to_datetime(df["lastModifiedOn"], unit="ms")
         project_keys = df["project_key"].loc[df["lastModifiedOn"] >= last_update].unique().tolist()
         
-        # Collect the modules && Run the modules
-        if self.preset_pc["do_parallel"] and len(project_keys) > self.preset_pc["cores"]:
-            pk_arrays = np.array_split(project_keys, self.preset_pc["cores"])
-            dfs = Parallel(n_jobs=self.preset_pc["cores"], backend="threading")(delayed(self.data_gather)(project_keys)
-                                              for project_keys in pk_arrays)
-            df = pd.concat(dfs, ignore_index=True)
-        else:
-            df = self.data_gather(project_keys)            
+        try:
+            # Collect the modules && Run the modules
+            if self.preset_pc["do_parallel"] and len(project_keys) > self.preset_pc["cores"]:
+                pk_arrays = np.array_split(project_keys, self.preset_pc["cores"])
+                dfs = Parallel(n_jobs=self.preset_pc["cores"], backend="threading")(delayed(self.data_gather)(project_keys)
+                                                  for project_keys in pk_arrays)
+                df = pd.concat(dfs, ignore_index=True)
+            else:
+                df = self.data_gather(project_keys)
+        except:
+            raise Exception("Something went wrong")
             
         # return results
         if not df.empty:
@@ -106,7 +109,7 @@ class MyRunnable(Runnable):
             for index, row in df.iterrows():
                 rt.add_record(row.tolist())
             return rt
-        raise Exception("Something went wrong")
+        
 
         
 
