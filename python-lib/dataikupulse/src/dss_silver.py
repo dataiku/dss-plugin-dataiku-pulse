@@ -18,7 +18,21 @@ TIMESTAMP_COLS = [
     "project_creationTag_lastModifiedOn",
     "run_timestamp",
 ]
-    
+ID_COLS = [
+    "project_key",
+    "dataset_projectKey",
+    "scenarios_projectKey",
+    "user",
+    "email",
+    "nodeId",
+    "nodeName",
+    "licenseId",
+    "installId",
+    "dipInstanceId",
+    "licenseInstanceId",
+    "commit",
+]
+
 def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     """
     Applies semantic schema fixes to a normalized dataframe.
@@ -34,21 +48,6 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     # --------------------------------------------------
     # 2. Identifier columns → nullable string
     # --------------------------------------------------
-    ID_COLS = [
-        "project_key",
-        "dataset_projectKey",
-        "scenarios_projectKey",
-        "user",
-        "email",
-        "nodeId",
-        "nodeName",
-        "licenseId",
-        "installId",
-        "dipInstanceId",
-        "licenseInstanceId",
-        "commit",
-    ]
-
     for col in ID_COLS:
         if col in df.columns:
             df[col] = df[col].astype("string")
@@ -56,20 +55,6 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     # --------------------------------------------------
     # 3. Boolean coercion
     # --------------------------------------------------
-    BOOL_COLS = [
-        "dataset_managed",
-        "dataset_featureGroup",
-        "project_tutorialProject",
-        "scenarios_active",
-        "scenarios_unavailable",
-        "scenarios_markedAsTest",
-        "scenarios_running",
-        "enabled",
-    ]
-
-    TRUE_SET = {"true", "True", True, 1, "1"}
-    FALSE_SET = {"false", "False", False, 0, "0"}
-
     def to_bool(x):
         if pd.isna(x):
             return None
