@@ -32,6 +32,6 @@ def main(self, project_handle, client_d = {}):
         return pd.DataFrame()
     prefix = "scenarios_"
     df = pd.json_normalize(project_handle.list_scenarios()).add_prefix(prefix)
-    df = dss_funcs.rename_and_move_first(project_handle, df, f"{prefix}projectKey", "project_key")
+    df = dss_funcs.rename_and_move_first(df, f"{prefix}projectKey", "project_key")
     df = dss_funcs.normalize_dataframe(self, df, FLAT_COLUMNS)
     return df
