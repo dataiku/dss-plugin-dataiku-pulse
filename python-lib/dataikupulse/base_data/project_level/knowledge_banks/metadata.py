@@ -24,7 +24,7 @@ FLAT_COLUMNS = {
     "knowledge_banks_versionTag_lastModifiedBy.login",
     "knowledge_banks_creationTag_versionNumber",
     "knowledge_banks_creationTag_lastModifiedOn",
-    "knowledge_banks_creationTag_lastModifiedBy.login",
+    "knowledge_banks_creationTag_lastModifiedBy_login",
 }
 
 
