@@ -3,7 +3,7 @@ from dataikupulse.src import dss_funcs
 
 FLAT_COLUMNS = {
     # Scenario identity
-    "scenarios_projectKey",
+    "project_key",
     "scenarios_id",
     "scenarios_name",
 
