@@ -106,6 +106,24 @@ class MyRunnable(Runnable):
         except Exception as e:
             results.append(["write/save", False, e])
         
+        # Test quality control -- Save to Silver or Raw Error
+        try:
+            layer = "silver"
+            df = dss_silver.coerce_schema(df)
+            dq = dss_silver.data_quality(df)
+            if dq["errors"]:
+                layer = "raw_errors"
+                write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
+                dss_folder.write_remote_folder_output(self, write_path, df)
+                write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/dq_{file_name}"
+                dss_folder.write_remote_folder_output(self, write_path, pd.DataFrame(dq))
+            else:
+                write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
+                dss_folder.write_remote_folder_output(self, write_path, df)
+                results.append([project_key, category, module_name, f"write/save -- {layer}", True, None])
+        except Exception as e:
+            layer = "raw_errors"
+            results.append([project_key, category, module_name, f"write/save -- QUALITY", False, e])
         # return results
         if results:
             df = pd.DataFrame(results, columns=["step", "result", "message"])
