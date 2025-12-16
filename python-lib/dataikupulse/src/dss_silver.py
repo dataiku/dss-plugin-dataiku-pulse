@@ -183,11 +183,6 @@ def data_quality(df: pd.DataFrame) -> dict:
     # -------------------------
     # 5. Enum validation
     # -------------------------
-    ENUM_RULES = {
-        "severity": {"INFO", "WARN", "ERROR"},
-        "msgtypebase": {"admin", "code", "generic", "automation"},
-    }
-
     for col, allowed in ENUM_RULES.items():
         if col in df.columns:
             bad_vals = (
