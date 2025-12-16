@@ -31,6 +31,7 @@ FLAT_COLUMNS = {
 
     # Instance
     "instance_name",
+    "project_key",
 }
 
 def parse_authvia(s):
