@@ -8,7 +8,6 @@ def main(self, project_handle, client_d = {}):
             return pd.DataFrame()
     except:
         return pd.DataFrame()
-    
     prefix = "agents"
     df = pd.json_normalize(project_handle.list_agents()).add_prefix(f"{prefix}_")
     df = df.explode(f"{prefix}_versions").reset_index(drop=True)
