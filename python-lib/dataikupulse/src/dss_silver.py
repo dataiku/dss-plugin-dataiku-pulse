@@ -24,9 +24,6 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     Applies semantic schema fixes to a normalized dataframe.
     This function MUTATES TYPES intentionally and deterministically.
     """
-
-    df = df.copy()
-
     # --------------------------------------------------
     # 1. Epoch millis → UTC timestamps
     # --------------------------------------------------
