@@ -32,6 +32,21 @@ ID_COLS = [
     "licenseInstanceId",
     "commit",
 ]
+BOOL_COLS = [
+    "dataset_managed",
+    "dataset_featureGroup",
+    "project_tutorialProject",
+    "scenarios_active",
+    "scenarios_unavailable",
+    "scenarios_markedAsTest",
+    "scenarios_running",
+    "enabled",
+]
+TRUE_SET = {"true", "True", True, 1, "1"}
+FALSE_SET = {"false", "False", False, 0, "0"}
+
+
+
 
 def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     """
