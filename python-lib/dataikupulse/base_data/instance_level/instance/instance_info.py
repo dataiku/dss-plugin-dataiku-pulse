@@ -29,6 +29,5 @@ FLAT_COLUMNS = {
 
 def main(self):
     df = pd.json_normalize(self.local_client.get_instance_info().raw)
-    df["dssStartupTimestamp"] = pd.to_datetime(df["dssStartupTimestamp"], unit='ms')
     df = dss_funcs.normalize_dataframe(self, df, FLAT_COLUMNS)
     return df
