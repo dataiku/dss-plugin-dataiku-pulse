@@ -66,7 +66,14 @@ class MyRunnable(Runnable):
         self.client_d = client_d
         
         # Preprocess Project Keys for only DELTAS
-        project_keys = self.local_client.list_project_keys()
+        df = pd.DataFrame(local_client.list_projects())
+        df = df[["projectKey", "versionTag"]]
+        jdf = pd.json_normalize(df["versionTag"])
+        df = df.drop(columns=["versionTag"]).reset_index(drop=True)
+        df = pd.concat([df, jdf], axis=1)
+        df.columns = ["project_key", "versionNumber", "lastModifiedOn", "lastModifiedBy"]
+        df["lastModifiedOn"] = pd.to_datetime(df["lastModifiedOn"], unit="ms")
+        project_keys = df["project_key"].loc[df["lastModifiedOn"] >= last_update].unique().tolist()
         
         # Collect the modules && Run the modules
         if self.preset_pc["do_parallel"]:
