@@ -34,6 +34,6 @@ def main(self, project_handle, client_d = {}):
         df.drop(columns=[f"{prefix}_versions"]),
         pd.json_normalize(df[f"{prefix}_versions"]).add_prefix(f"{prefix}_versions_")
     ], axis=1)
-    df = dss_funcs.rename_and_move_first(project_handle, df, f"{prefix}_projectKey", "project_key")
+    df = dss_funcs.rename_and_move_first(df, f"{prefix}_projectKey", "project_key")
     df = dss_funcs.normalize_dataframe(self, df, FLAT_COLUMNS)
     return df
