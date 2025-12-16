@@ -68,14 +68,6 @@ def main(self):
     # Join the user table
     df = pd.merge(dss_users_df, user_commits_df, on="login", how="left")
 
-    # Clean dates
-    for c in ["creationDate", "first_commit_date", "last_commit_date"]:
-        df[c] = pd.to_datetime(df[c], unit="ms", utc=True)
-
-    for c in ["creationDate", "first_commit_date", "last_commit_date", "last_session_activity"]:
-        df[c] = pd.to_datetime(df[c], utc=True)
-        df[c] = df[c].fillna(pd.to_datetime("1970-01-01", utc=True))
-
-    df = dss_funcs.normalize_dataframe(self, df, FLAT_COLUMNS)
     # Return
+    df = dss_funcs.normalize_dataframe(self, df, FLAT_COLUMNS)
     return df
