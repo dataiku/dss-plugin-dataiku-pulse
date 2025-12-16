@@ -136,7 +136,6 @@ def data_quality(df: pd.DataFrame) -> dict:
         "warnings": [],
         "stats": {}
     }
-
     # -------------------------
     # 1. Timestamp sanity
     # -------------------------
