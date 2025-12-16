@@ -16,10 +16,10 @@ FLAT_COLUMNS = {
     # Versioning / lifecycle
     "dataset_versionTag_versionNumber",
     "dataset_versionTag_lastModifiedOn",
-    "dataset_versionTag_lastModifiedBy.login",
+    "dataset_versionTag_lastModifiedBy_login",
     "dataset_creationTag_versionNumber",
     "dataset_creationTag_lastModifiedOn",
-    "dataset_creationTag_lastModifiedBy.login",
+    "dataset_creationTag_lastModifiedBy_login",
 }
 
 def main(self, project_handle, client_d = {}):
