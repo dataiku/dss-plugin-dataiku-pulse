@@ -114,8 +114,9 @@ def main(self, df):
             grp_df = grp_df.dropna(axis=1, how='all').reset_index(drop=True)
             grp_df = dss_funcs.normalize_dataframe(self, grp_df, FLAT_COLUMNS)
             try:
+                
                 file_name = "data-{dt_epoch}.parquet" 
-                write_path = f"raw/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
+                write_path = f"raw/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
                 dss_folder.write_remote_folder_output(self, write_path, grp_df)
                 results.append([f"write/save - Dataiku Usage {category}", True, f"data-{dt_epoch}.parquet"])
             except Exception as e:
