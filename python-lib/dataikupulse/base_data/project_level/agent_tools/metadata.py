@@ -3,7 +3,10 @@ from dataikupulse.src import dss_funcs
 
 
 def main(self, project_handle, client_d = {}):
-    if not project_handle.list_agent_tools():
+    try:
+        if not project_handle.list_agent_tools():
+            return pd.DataFrame()
+    except:
         return pd.DataFrame()
     
     prefix = "agent_tools"
