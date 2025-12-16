@@ -340,6 +340,7 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
                 results.append([project_key, category, module_name, "load/run", False, e])
             if not isinstance(df, pd.DataFrame) or df.empty:
                 continue # nothing to write, skip
+            # Save RAW Normalized to RAW layer
             dt_year  = str(self.dt.year)
             dt_month = str(f'{self.dt.month:02d}')
             dt_day   = str(f'{self.dt.day:02d}')
@@ -352,6 +353,7 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
                 results.append([project_key, category, module_name, "write/save -- RAW", True, None])
             except Exception as e:
                 results.append([project_key, category, module_name, "write/save -- RAW", False, e])
+            # Test quality control -- Save to Silver or Raw Error
             try:
                 layer = "silver"
                 df = dss_silver.coerce_schema(df)
