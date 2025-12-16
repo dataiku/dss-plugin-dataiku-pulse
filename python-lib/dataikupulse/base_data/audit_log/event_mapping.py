@@ -128,12 +128,12 @@ def main(self, df):
                 dq = dss_silver.data_quality(grp_df)
                 if dq["errors"]:
                     layer = "raw_errors"
-                    write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
+                    write_path = f"{layer}/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
                     dss_folder.write_remote_folder_output(self, write_path, grp_df)
-                    write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/dq_{file_name}"
+                    write_path = f"{layer}/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/dq_{file_name}"
                     dss_folder.write_remote_folder_output(self, write_path, pd.DataFrame(dq))
                 else:
-                    write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
+                    write_path = f"{layer}/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
                     dss_folder.write_remote_folder_output(self, write_path, grp_df)
                 results.append([f"write/save - Dataiku Usage {category} -- {layer}", True, None])
             except Exception as e:
