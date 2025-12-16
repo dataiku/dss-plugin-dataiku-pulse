@@ -68,13 +68,6 @@ def main(self, project_handle, client_d = {}):
     # Build base df
     prefix = "recipes_"
     df = pd.json_normalize(project_handle.list_recipes()).add_prefix(prefix)
-    
-    # Clean dates
-    for c in ["recipes_versionTag.lastModifiedOn", "recipes_creationTag.lastModifiedOn"]:
-        if c not in df.columns:
-            continue
-        df[c] = pd.to_datetime(df[c], unit="ms", utc=True)
-        df[c] = df[c].fillna(pd.to_datetime("1970-01-01", utc=True))
         
     # Project Key
     df = dss_funcs.rename_and_move_first(project_handle, df, f"{prefix}projectKey", "project_key")
