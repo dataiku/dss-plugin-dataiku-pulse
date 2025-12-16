@@ -61,10 +61,10 @@ def main(self, df):
             else:
                 write_path = f"{layer}/users/viewing_user_logins/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
                 dss_folder.write_remote_folder_output(self, write_path, login_users_df)
-                results.append([project_key, category, module_name, f"write/save -- {layer}", True, None])
+                results.append([f"write/save -- {layer}", True, None])
         except Exception as e:
             layer = "raw_errors"
-            results.append([project_key, category, module_name, f"write/save -- QUALITY", False, e])
+            results.append([f"write/save -- QUALITY", False, e])
             
             
         # Developer Users
