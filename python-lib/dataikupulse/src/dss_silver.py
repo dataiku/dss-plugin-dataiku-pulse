@@ -163,6 +163,11 @@ def data_quality(df: pd.DataFrame) -> dict:
         "scenarios_nextRun",
         "scenarios_createdOn",
         "scenarios_lastModifiedOn",
+        "dataset_versionTag_lastModifiedOn",
+        "dataset_creationTag_lastModifiedOn",
+        "project_versionTag_lastModifiedOn",
+        "project_creationTag_lastModifiedOn",
+        "run_timestamp",
     ]
 
     for col in TIMESTAMP_COLS:
