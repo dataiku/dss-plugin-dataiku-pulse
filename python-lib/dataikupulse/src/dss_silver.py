@@ -19,6 +19,7 @@ TIMESTAMP_COLS = [
     "run_timestamp",
     "creationTag_lastModifiedOn",
     "recipes_versionTag_lastModifiedOn",
+    "recipes_creationTag_lastModifiedOn",
 ]
 ID_COLS = [
     "project_key",
