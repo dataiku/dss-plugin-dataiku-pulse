@@ -79,7 +79,6 @@ def coerce_extras_to_json(series: pd.Series) -> pd.Series:
             return None
         if isinstance(val, (dict, list)):
             return json.dumps(val, ensure_ascii=False)
-        # already string? keep it
         return str(val)
 
     return series.apply(to_json_safe)
