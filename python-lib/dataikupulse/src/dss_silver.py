@@ -81,7 +81,6 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     for col in TIMESTAMP_COLS:
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], unit="ms", utc=True, errors="coerce")
-            #df[col] = pd.to_datetime(df[col], unit="ms", errors="coerce")
     for col in df.select_dtypes(include="datetimetz").columns:
         df[col] = df[col].astype("datetime64[ns, UTC]")
     
