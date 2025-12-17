@@ -73,6 +73,17 @@ NUMERIC_COLS = [
     "level_3_size",
 ]
 
+def coerce_extras_to_json(series: pd.Series) -> pd.Series:
+    def to_json_safe(val):
+        if val is None or pd.isna(val):
+            return None
+        if isinstance(val, (dict, list)):
+            return json.dumps(val, ensure_ascii=False)
+        # already string? keep it
+        return str(val)
+
+    return series.apply(to_json_safe)
+
 
 def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     """
