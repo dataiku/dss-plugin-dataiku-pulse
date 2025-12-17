@@ -77,7 +77,5 @@ def write_remote_folder_output(self, path, df):
     if not fid:
         raise Exception()
     folder = project_handle.get_managed_folder(odb_id=fid)
-    if "datasets" in path:
-        raise Exception(df)
     r = folder.put_file(path, df.to_parquet(compression="gzip", engine='pyarrow', index=False))
     return
