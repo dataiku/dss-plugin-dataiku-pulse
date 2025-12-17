@@ -17,7 +17,7 @@ def create_local_folder(self, project_handle, folder_name):
         settings.add_discrete_partitioning_dimension("category")
         settings.add_discrete_partitioning_dimension("module")
         settings.add_time_partitioning_dimension("date", period='DAY')
-        settings.set_partitioning_file_pattern("%{instance_name}/%{category}/%{module}/%Y/%M/%D/.*")
+        settings.set_partitioning_file_pattern("%{layer}/%{instance_name}/%{category}/%{module}/%Y/%M/%D/.*")
         settings.save()
     return
 
