@@ -216,9 +216,9 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
                 df = dss_silver.coerce_schema(df)
                 dq = dss_silver.data_quality(df)
                 df_report = pd.DataFrame([{
-                    "errors": report["errors"],
-                    "warnings": report["warnings"],
-                    **report["stats"],
+                    "errors": dq["errors"],
+                    "warnings": dq["warnings"],
+                    **dq["stats"],
                 }])
                 if dq["errors"]:
                     layer = "raw_errors"
