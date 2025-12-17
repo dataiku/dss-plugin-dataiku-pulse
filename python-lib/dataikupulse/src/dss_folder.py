@@ -12,6 +12,7 @@ def create_local_folder(self, project_handle, folder_name):
     if folder_name == "partitioned_data":
         settings = folder_handle.get_settings()
         settings.remove_partitioning()
+        settings.add_discrete_partitioning_dimension("layer")
         settings.add_discrete_partitioning_dimension("instance_name")
         settings.add_discrete_partitioning_dimension("category")
         settings.add_discrete_partitioning_dimension("module")
