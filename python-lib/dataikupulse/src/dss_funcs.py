@@ -221,7 +221,7 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
                     **dq["stats"],
                 }])
                 if category == "datasets":
-                    raise Exception df["dataset_versionTag_lastModifiedOn"]
+                    raise Exception(df["dataset_versionTag_lastModifiedOn"])
                 if dq["errors"]:
                     layer = "raw_errors"
                     write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
