@@ -17,6 +17,7 @@ TIMESTAMP_COLS = [
     "project_versionTag_lastModifiedOn",
     "project_creationTag_lastModifiedOn",
     "run_timestamp",
+    "creationTag_lastModifiedOn",
 ]
 ID_COLS = [
     "project_key",
