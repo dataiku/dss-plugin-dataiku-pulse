@@ -139,6 +139,12 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     for col in NUMERIC_COLS:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
+    
+    # --------------------------------------------------
+    # 6. Extras column to JSON dump
+    # --------------------------------------------------
+    if "extras" in df.columns:
+        df["extras"] = coerce_extras_to_json(df["extras"])
 
     return df
 
