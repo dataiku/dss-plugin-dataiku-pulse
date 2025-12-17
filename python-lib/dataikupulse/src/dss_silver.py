@@ -177,6 +177,7 @@ def data_quality(df: pd.DataFrame) -> dict:
                 report["errors"].append(
                     f"{col} is {df[col].dtype} (expected datetime)"
                 )
+                
     # -------------------------
     # 2. Identifier columns must not be numeric
     # -------------------------
