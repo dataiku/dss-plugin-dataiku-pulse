@@ -215,18 +215,23 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
             try:
                 df = dss_silver.coerce_schema(df)
                 dq = dss_silver.data_quality(df)
+                df_report = pd.DataFrame([{
+                    "errors": report["errors"],
+                    "warnings": report["warnings"],
+                    **report["stats"],
+                }])
                 if dq["errors"]:
                     layer = "raw_errors"
                     write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
                     dss_folder.write_remote_folder_output(self, write_path, df)
                     write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/dq_{file_name}"
-                    dss_folder.write_remote_folder_output(self, write_path, pd.DataFrame(dq["errors"]))
+                    dss_folder.write_remote_folder_output(self, write_path, df_report)
                     results.append([project_key, category, module_name, f"write/save -- {layer}", False, "Check raw errors"])
                 else:
                     write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
                     dss_folder.write_remote_folder_output(self, write_path, df)
                     write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/dq_{file_name}"
-                    dss_folder.write_remote_folder_output(self, write_path, pd.DataFrame(dq["errors"]))
+                    dss_folder.write_remote_folder_output(self, write_path, df_report)
                     results.append([project_key, category, module_name, f"write/save -- {layer}", True, None])  
             except Exception as e:
                 results.append([project_key, category, module_name, f"write/save -- QUALITY", False, e])
