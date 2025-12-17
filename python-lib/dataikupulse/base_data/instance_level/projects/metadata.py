@@ -22,10 +22,10 @@ FLAT_COLUMNS = {
     # Versioning (promoted from nested for queryability)
     "project_versionTag_versionNumber",
     "project_versionTag_lastModifiedOn",
-    "project_versionTag_lastModifiedBy.login",
+    "project_versionTag_lastModifiedBy_login",
     "project_creationTag_versionNumber",
     "project_creationTag_lastModifiedOn",
-    "project_creationTag_lastModifiedBy.login",
+    "project_creationTag_lastModifiedBy_login",
 }
 
 def main(self):
