@@ -202,14 +202,23 @@ def data_quality(df: pd.DataFrame) -> dict:
     # -------------------------
     # 4. Extras column validation
     # -------------------------
+    def is_valid_json_or_null(val):
+        if val is None:
+            return True
+        if not isinstance(val, str):
+            return False
+        try:
+            json.loads(val)
+            return True
+        except Exception:
+            return False
+    
     if "extras" in df.columns:
-        invalid_extras = df["extras"].map(
-            lambda x: not (x is None or isinstance(x, dict))
-        )
+        invalid_extras = ~df["extras"].map(is_valid_json_or_null)
 
         if invalid_extras.any():
             report["errors"].append(
-                f"extras column contains invalid values (non-dict, non-null)"
+                "extras column contains invalid JSON values"
             )
 
     # -------------------------
