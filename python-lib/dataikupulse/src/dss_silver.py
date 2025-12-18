@@ -2,6 +2,20 @@ import pandas as pd
 import numpy as np
 import json
 
+STR_COLS = [
+    "project_key",
+    "dataset_projectKey",
+    "scenarios_projectKey",
+    "user",
+    "email",
+    "nodeId",
+    "nodeName",
+    "licenseId",
+    "installId",
+    "dipInstanceId",
+    "licenseInstanceId",
+    "commit",
+]
 TIMESTAMP_COLS = [
     "timestamp",
     "run_timestamp",
@@ -38,21 +52,6 @@ NUMERIC_COLS = [
     "recipes_creationTag_versionNumber"
 ]
 
-
-STR_COLS = [
-    "project_key",
-    "dataset_projectKey",
-    "scenarios_projectKey",
-    "user",
-    "email",
-    "nodeId",
-    "nodeName",
-    "licenseId",
-    "installId",
-    "dipInstanceId",
-    "licenseInstanceId",
-    "commit",
-]
 BOOL_COLS = [
     "project_tutorialProject",
     "dataset_managed",
