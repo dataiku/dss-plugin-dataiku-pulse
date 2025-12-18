@@ -22,6 +22,23 @@ TIMESTAMP_COLS = [
     "scenarios_createdOn",
     "scenarios_lastModifiedOn",
 ]
+NUMERIC_COLS = [
+    "level_1_size",
+    "level_2_size",
+    "level_3_size",
+    "size",
+    "used",
+    "available",
+    "used_pct",
+    "calltime",
+    "dataset_versionTag_versionNumber",
+    "dataset_creationTag_versionNumber",
+    "recipes_maxRunningActivities",
+    "recipes_versionTag_versionNumber",
+    "recipes_creationTag_versionNumber"
+]
+
+
 ID_COLS = [
     "project_key",
     "dataset_projectKey",
@@ -60,21 +77,7 @@ ENUM_COLS = [
     "nodeType",
     "rawNodeType",
 ]
-NUMERIC_COLS = [
-    "level_1_size",
-    "level_2_size",
-    "level_3_size",
-    "size",
-    "used",
-    "available",
-    "used_pct",
-    "calltime",
-    "dataset_versionTag_versionNumber",
-    "dataset_creationTag_versionNumber",
-    "recipes_maxRunningActivities",
-    "recipes_versionTag_versionNumber",
-    "recipes_creationTag_versionNumber"
-]
+
 
 def coerce_extras_to_json(series: pd.Series) -> pd.Series:
     def to_json_safe(val):
