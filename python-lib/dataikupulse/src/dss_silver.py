@@ -41,7 +41,7 @@ BOOL_COLS = [
     "dataset_managed",
     "dataset_featureGroup",
     "recipes_neverRecomputeExistingPartitions",
-    
+    "recipes_redispatchPartitioning",
     
     
     
