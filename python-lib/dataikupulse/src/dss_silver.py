@@ -39,7 +39,7 @@ NUMERIC_COLS = [
 ]
 
 
-ID_COLS = [
+STR_COLS = [
     "project_key",
     "dataset_projectKey",
     "scenarios_projectKey",
@@ -107,7 +107,7 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     # --------------------------------------------------
     # 2. Identifier columns → nullable string
     # --------------------------------------------------
-    for col in ID_COLS:
+    for col in STR_COLS:
         if col in df.columns:
             df[col] = df[col].astype("string")
 
