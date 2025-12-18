@@ -72,6 +72,7 @@ NUMERIC_COLS = [
     "used_pct",
     "calltime",
     "dataset_versionTag_versionNumber",
+    "dataset_creationTag_versionNumber",
 ]
 
 def coerce_extras_to_json(series: pd.Series) -> pd.Series:
