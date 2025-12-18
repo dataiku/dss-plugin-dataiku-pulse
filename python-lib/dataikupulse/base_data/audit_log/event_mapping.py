@@ -5,6 +5,10 @@ from dataikupulse.base_data.audit_log import event_mapping
 from dataikupulse.src import dss_folder, dss_funcs, dss_silver
 
 
+def get_flat_cols(t):
+    FLAT_COLUMNS
+
+
 
 def parse_authvia(s):
     project_key, webapp_id = None, None
