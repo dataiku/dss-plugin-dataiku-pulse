@@ -34,6 +34,7 @@ GENAI_LLM = {
 }
 
 def get_flat_cols(t):
+    FINAL_FLAT_COLUMNS = FLAT_COLUMNS
     if t == GENAI_LLM:
-        FLAT_COLUMNS = FLAT_COLUMNS | GENAI_LLM
-    return FLAT_COLUMNS
+        FINAL_FLAT_COLUMNS = FLAT_COLUMNS | GENAI_LLM
+    return FINAL_FLAT_COLUMNS
