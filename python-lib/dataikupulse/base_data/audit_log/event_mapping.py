@@ -6,7 +6,9 @@ from dataikupulse.src import dss_folder, dss_funcs, dss_silver
 
 
 def get_flat_cols(t):
-    FLAT_COLUMNS
+    FLAT_COLUMNS = event_mapping.FLAT_COLUMNS
+    if t == GENAI_LLM:
+        
 
 
 
