@@ -99,12 +99,12 @@ def main(self, df):
             dq = dss_silver.data_quality(login_users_df)
             if dq["errors"]:
                 layer = "raw_errors"
-                write_path = f"{layer}/users/viewing_user_logins/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
+                write_path = f"{layer}/users/developer_user_logins/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
                 dss_folder.write_remote_folder_output(self, write_path, login_users_df)
-                write_path = f"{layer}/users/viewing_user_logins/{instance_name}/{dt_year}/{dt_month}/{dt_day}/dq_{file_name}"
+                write_path = f"{layer}/users/developer_user_logins/{instance_name}/{dt_year}/{dt_month}/{dt_day}/dq_{file_name}"
                 dss_folder.write_remote_folder_output(self, write_path, pd.DataFrame(dq))
             else:
-                write_path = f"{layer}/users/viewing_user_logins/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
+                write_path = f"{layer}/users/developer_user_logins/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
                 dss_folder.write_remote_folder_output(self, write_path, login_users_df)
                 results.append([f"write/save -- {layer}", True, None])
         except Exception as e:
