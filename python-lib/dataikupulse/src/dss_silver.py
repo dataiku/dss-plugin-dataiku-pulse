@@ -56,6 +56,7 @@ NUMERIC_COLS = [
     "used_pct",
     "calltime",
     "project_versionTag_versionNumber",
+    "project_creationTag_versionNumber",
     "dataset_versionTag_versionNumber",
     "dataset_creationTag_versionNumber",
     "recipes_maxRunningActivities",
