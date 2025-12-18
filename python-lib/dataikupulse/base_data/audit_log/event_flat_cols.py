@@ -29,9 +29,28 @@ FLAT_COLUMNS = [
     "project_key",
 ]
 
+ADMINISTRATION = []
+APIS = []
+APPLICATION_DESIGNER = []
+CODING = []
+DATASET = []
+DEPLOYER = []
+FLOW = []
+FOLDERS = []
 GENAI_LLM = [
     "llmconnection",
 ]
+MLOPS = []
+OTHER = []
+PLUGINS = []
+PROJECTS = []
+READING_LISTING = []
+SCENARIOS = []
+USER_MAINTENANCE = []
+VISUAL_RECIPES = []
+WEBAPPS = []
+WIKI_ARTICAL_DISCUSSIONS = []
+
 
 def get_flat_cols(t):
     FINAL_FLAT_COLUMNS = FLAT_COLUMNS
