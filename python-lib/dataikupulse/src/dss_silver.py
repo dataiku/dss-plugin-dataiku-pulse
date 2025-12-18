@@ -60,7 +60,7 @@ ENUM_COLS = [
     "dataiku_category",
     "recipes_maxRunningActivities",
     "recipes_versionTag_versionNumber",
-    
+    "recipes_creationTag_versionNumber"
     
     "authsource",
     "sourceType",
