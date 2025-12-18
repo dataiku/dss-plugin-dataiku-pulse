@@ -135,9 +135,16 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
                 df[col]
                 .str.upper()
             )
+
+    # --------------------------------------------------
+    # 4. Numeric metric coercion
+    # --------------------------------------------------
+    for col in NUMERIC_COLS:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
             
     # --------------------------------------------------
-    # 4. Boolean coercion
+    # 5. Boolean coercion
     # --------------------------------------------------
     def to_bool(x):
         if pd.isna(x):
@@ -152,13 +159,6 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             df[col] = df[col].map(to_bool).astype("boolean")
 
-    # --------------------------------------------------
-    # 5. Numeric metric coercion
-    # --------------------------------------------------
-    for col in NUMERIC_COLS:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-    
     # --------------------------------------------------
     # 6. Extras column to JSON dump
     # --------------------------------------------------
