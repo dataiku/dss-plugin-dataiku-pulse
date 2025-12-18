@@ -127,7 +127,7 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
             )
             
     # --------------------------------------------------
-    # 3. Enum normalization (string + strip)
+    # 3. Identifier columns → nullable string (UPPER)
     # --------------------------------------------------
     for col in UPPER_STR_COLS:
         if col in df.columns:
