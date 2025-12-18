@@ -67,6 +67,7 @@ BOOL_COLS = [
     "dataset_featureGroup",
     "recipes_neverRecomputeExistingPartitions",
     "recipes_redispatchPartitioning",
+    "recipes_params_engineRecommended",
     "scenarios_active",
     "scenarios_unavailable",
     "scenarios_markedAsTest",
