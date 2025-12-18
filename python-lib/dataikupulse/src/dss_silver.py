@@ -55,13 +55,8 @@ TRUE_SET = {"true", "True", True, 1, "1"}
 FALSE_SET = {"false", "False", False, 0, "0"}
 ENUM_COLS = [
     "severity",
-    "msgtypebase",
-    
+    "msgtypebase",   
     "dataiku_category",
-    "recipes_maxRunningActivities",
-    "recipes_versionTag_versionNumber",
-    "recipes_creationTag_versionNumber"
-    
     "authsource",
     "sourceType",
     "dataset_type",
@@ -83,6 +78,9 @@ NUMERIC_COLS = [
     "calltime",
     "dataset_versionTag_versionNumber",
     "dataset_creationTag_versionNumber",
+    "recipes_maxRunningActivities",
+    "recipes_versionTag_versionNumber",
+    "recipes_creationTag_versionNumber"
 ]
 
 def coerce_extras_to_json(series: pd.Series) -> pd.Series:
