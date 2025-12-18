@@ -120,7 +120,11 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     # --------------------------------------------------
     for col in STR_COLS + UPPER_STR_COLS:
         if col in df.columns:
-            df[col] = df[col].astype("string")
+            df[col] = (
+                df[col]
+                .astype("string")
+                .str.strip()
+            )
 
     # --------------------------------------------------
     # 3. Boolean coercion
