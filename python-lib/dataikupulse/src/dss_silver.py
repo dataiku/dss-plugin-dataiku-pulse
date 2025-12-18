@@ -16,6 +16,16 @@ STR_COLS = [
     "licenseInstanceId",
     "commit",
 ]
+UPPER_STR_COLS = [
+    "severity",
+    "msgtypebase",   
+    "dataiku_category",
+    "authsource",
+    "sourceType",
+    "dataset_type",
+    "nodeType",
+    "rawNodeType",
+]
 TIMESTAMP_COLS = [
     "timestamp",
     "run_timestamp",
@@ -51,7 +61,6 @@ NUMERIC_COLS = [
     "recipes_versionTag_versionNumber",
     "recipes_creationTag_versionNumber"
 ]
-
 BOOL_COLS = [
     "project_tutorialProject",
     "dataset_managed",
@@ -66,16 +75,7 @@ BOOL_COLS = [
 ]
 TRUE_SET = {"true", "True", True, 1, "1"}
 FALSE_SET = {"false", "False", False, 0, "0"}
-ENUM_COLS = [
-    "severity",
-    "msgtypebase",   
-    "dataiku_category",
-    "authsource",
-    "sourceType",
-    "dataset_type",
-    "nodeType",
-    "rawNodeType",
-]
+
 
 
 def coerce_extras_to_json(series: pd.Series) -> pd.Series:
@@ -129,7 +129,7 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     # --------------------------------------------------
     # 4. Enum normalization (string + strip)
     # --------------------------------------------------
-    for col in ENUM_COLS:
+    for col in UPPER_STR_COLS:
         if col in df.columns:
             df[col] = (
                 df[col]
