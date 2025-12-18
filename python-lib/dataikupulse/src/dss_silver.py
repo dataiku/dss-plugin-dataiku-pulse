@@ -4,6 +4,7 @@ import json
 
 TIMESTAMP_COLS = [
     "timestamp",
+    "run_timestamp",
     "dssStartupTimestamp",
     "creationDate",
     "last_session_activity",
@@ -20,7 +21,6 @@ TIMESTAMP_COLS = [
     "scenarios_nextRun",
     "scenarios_createdOn",
     "scenarios_lastModifiedOn",
-    "run_timestamp",
 ]
 ID_COLS = [
     "project_key",
@@ -63,14 +63,15 @@ ENUM_RULES = {
     "msgtypebase": {"admin", "code", "generic", "automation"},
 }
 NUMERIC_COLS = [
+    "level_1_size",
+    "level_2_size",
+    "level_3_size",
     "size",
     "used",
     "available",
     "used_pct",
     "calltime",
-    "level_1_size",
-    "level_2_size",
-    "level_3_size",
+
 ]
 
 def coerce_extras_to_json(series: pd.Series) -> pd.Series:
