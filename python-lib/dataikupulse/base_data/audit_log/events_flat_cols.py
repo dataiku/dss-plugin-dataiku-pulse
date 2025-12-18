@@ -30,5 +30,5 @@ FLAT_COLUMNS = {
 }
 
 GENAI_LLM = {
-    
+    "llmconnection",
 }
