@@ -125,7 +125,16 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
                 .astype("string")
                 .str.strip()
             )
-
+    # --------------------------------------------------
+    # 4. Enum normalization (string + strip)
+    # --------------------------------------------------
+    for col in UPPER_STR_COLS:
+        if col in df.columns:
+            df[col] = (
+                df[col]
+                .str.upper()
+            )
+            
     # --------------------------------------------------
     # 3. Boolean coercion
     # --------------------------------------------------
@@ -142,17 +151,7 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
         if col in df.columns:
             df[col] = df[col].map(to_bool).astype("boolean")
 
-    # --------------------------------------------------
-    # 4. Enum normalization (string + strip)
-    # --------------------------------------------------
-    for col in UPPER_STR_COLS:
-        if col in df.columns:
-            df[col] = (
-                df[col]
-                .astype("string")
-                .str.strip()
-                .str.upper()
-            )
+
 
     # --------------------------------------------------
     # 5. Numeric metric coercion
