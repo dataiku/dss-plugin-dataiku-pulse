@@ -37,9 +37,14 @@ ID_COLS = [
     "commit",
 ]
 BOOL_COLS = [
+    "project_tutorialProject",
     "dataset_managed",
     "dataset_featureGroup",
-    "project_tutorialProject",
+    "recipes_neverRecomputeExistingPartitions",
+    
+    
+    
+    
     "scenarios_active",
     "scenarios_unavailable",
     "scenarios_markedAsTest",
