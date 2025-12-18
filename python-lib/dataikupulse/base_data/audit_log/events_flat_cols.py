@@ -29,3 +29,6 @@ FLAT_COLUMNS = {
     "project_key",
 }
 
+GENAI_LLM = {
+    
+}
