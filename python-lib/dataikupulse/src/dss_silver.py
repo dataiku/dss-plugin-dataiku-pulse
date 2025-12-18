@@ -41,6 +41,8 @@ TIMESTAMP_COLS = [
     "dataset_creationTag_lastModifiedOn",
     "recipes_versionTag_lastModifiedOn",
     "recipes_creationTag_lastModifiedOn",
+    "agents_versions_versionTag_lastModifiedOn",
+    "agents_versions_creationTag_lastModifiedOn",
     "scenarios_start",
     "scenarios_nextRun",
     "scenarios_createdOn",
