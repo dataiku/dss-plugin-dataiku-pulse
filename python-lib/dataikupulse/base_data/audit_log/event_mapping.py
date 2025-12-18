@@ -2,9 +2,7 @@ import pandas as pd
 import os
 
 from dataikupulse.src import dss_folder, dss_funcs, dss_silver
-
 from dataikupulse.base_data.audit_log import event_mapping
-
 
 
 def parse_authvia(s):
@@ -86,7 +84,7 @@ def main(self, df):
         for category, grp_df in merged_df.groupby("dataiku_category"):
             grp_df = grp_df.dropna(axis=1, how='all').reset_index(drop=True)
             # Get Flat Columns and Normalize
-            FLAT_COLUMNS = get_flat_cols(category)
+            FLAT_COLUMNS = event_mapping.get_flat_cols(category)
             grp_df = dss_funcs.normalize_dataframe(self, grp_df, FLAT_COLUMNS)
             try:
                 file_name = f"data-{dt_epoch}.parquet" 
