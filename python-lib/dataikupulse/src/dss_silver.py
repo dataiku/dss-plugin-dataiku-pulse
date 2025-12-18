@@ -125,6 +125,7 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
                 .astype("string")
                 .str.strip()
             )
+            
     # --------------------------------------------------
     # 4. Enum normalization (string + strip)
     # --------------------------------------------------
