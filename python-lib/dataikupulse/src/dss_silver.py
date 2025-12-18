@@ -68,6 +68,7 @@ NUMERIC_COLS = [
     "recipes_versionTag_versionNumber",
     "recipes_creationTag_versionNumber",
     "knowledge_banks_versionTag_versionNumber",
+    "knowledge_banks_creationTag_versionNumber",
 ]
 BOOL_COLS = [
     "project_tutorialProject",
