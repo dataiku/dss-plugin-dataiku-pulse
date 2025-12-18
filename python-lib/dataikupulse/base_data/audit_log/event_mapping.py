@@ -87,7 +87,7 @@ def main(self, df):
             FLAT_COLUMNS = event_flat_cols.get_flat_cols(category)
             grp_df = dss_funcs.normalize_dataframe(self, grp_df, FLAT_COLUMNS)
             # Order the DF
-            ordered = [c for c in flat_list if c in grp_df.columns]
+            ordered = [c for c in FLAT_COLUMNS if c in grp_df.columns]
             rest = [c for c in grp_df.columns if c not in ordered]
             grp_df = grp_df[ordered + rest]
             try:
