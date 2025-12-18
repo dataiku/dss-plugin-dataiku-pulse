@@ -1,15 +1,10 @@
 import pandas as pd
 import os
 
-from dataikupulse.base_data.audit_log import event_mapping
 from dataikupulse.src import dss_folder, dss_funcs, dss_silver
 
+from dataikupulse.base_data.audit_log import event_mapping
 
-def get_flat_cols(t):
-    FLAT_COLUMNS = event_mapping.FLAT_COLUMNS
-    if t == GENAI_LLM:
-        FLAT_COLUMNS = FLAT_COLUMNS | event_mapping.GENAI_LLM
-    return FLAT_COLUMNS
 
 
 def parse_authvia(s):
