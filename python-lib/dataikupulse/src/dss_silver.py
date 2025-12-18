@@ -56,6 +56,7 @@ FALSE_SET = {"false", "False", False, 0, "0"}
 ENUM_COLS = [
     "severity",
     "msgtypebase",
+    
     "dataiku_category",
     "recipes_maxRunningActivities",
     
