@@ -88,9 +88,9 @@ def main(self, df):
             grp_df = dss_funcs.normalize_dataframe(self, grp_df, FLAT_COLUMNS)
             # Order the DF
             flat_list = list(FLAT_COLUMNS)
-            ordered = [c for c in flat_list if c in df.columns]
-            rest = [c for c in df.columns if c not in ordered]
-            df = df[ordered + rest]
+            ordered = [c for c in flat_list if c in grp_df.columns]
+            rest = [c for c in grp_df.columns if c not in ordered]
+            grp_df = grp_df[ordered + rest]
             try:
                 file_name = f"data-{dt_epoch}.parquet" 
                 write_path = f"raw/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
