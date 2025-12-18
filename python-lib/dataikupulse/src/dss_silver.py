@@ -127,7 +127,7 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
             )
             
     # --------------------------------------------------
-    # 4. Enum normalization (string + strip)
+    # 3. Enum normalization (string + strip)
     # --------------------------------------------------
     for col in UPPER_STR_COLS:
         if col in df.columns:
@@ -137,7 +137,7 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
             )
             
     # --------------------------------------------------
-    # 3. Boolean coercion
+    # 4. Boolean coercion
     # --------------------------------------------------
     def to_bool(x):
         if pd.isna(x):
@@ -151,8 +151,6 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     for col in BOOL_COLS:
         if col in df.columns:
             df[col] = df[col].map(to_bool).astype("boolean")
-
-
 
     # --------------------------------------------------
     # 5. Numeric metric coercion
