@@ -118,7 +118,7 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     # --------------------------------------------------
     # 2. Identifier columns → nullable string
     # --------------------------------------------------
-    for col in STR_COLS:
+    for col in STR_COLS + UPPER_STR_COLS:
         if col in df.columns:
             df[col] = df[col].astype("string")
 
