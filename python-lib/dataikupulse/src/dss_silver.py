@@ -200,7 +200,7 @@ def data_quality(df: pd.DataFrame) -> dict:
     # -------------------------
     # 2. Identifier columns must not be numeric
     # -------------------------
-    for col in STR_COLS:
+    for col in STR_COLS + UPPER_STR_COLS:
         if col in df.columns:
             if pd.api.types.is_numeric_dtype(df[col]):
                 report["errors"].append(
