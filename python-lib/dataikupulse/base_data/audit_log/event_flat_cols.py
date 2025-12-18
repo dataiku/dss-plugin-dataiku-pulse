@@ -29,9 +29,9 @@ FLAT_COLUMNS = [
     "project_key",
 ]
 
-GENAI_LLM = {
+GENAI_LLM = [
     "llmconnection",
-}
+]
 
 def get_flat_cols(t):
     FINAL_FLAT_COLUMNS = FLAT_COLUMNS
