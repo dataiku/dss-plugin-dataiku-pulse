@@ -57,6 +57,10 @@ ENUM_COLS = [
     "severity",
     "msgtypebase",
     "dataiku_category",
+    "recipes_maxRunningActivities",
+    
+    
+    
     "authsource",
     "sourceType",
     "dataset_type",
