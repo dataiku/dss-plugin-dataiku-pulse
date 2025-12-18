@@ -1,4 +1,4 @@
-FLAT_COLUMNS = {
+FLAT_COLUMNS = [
     # Event identity / classification
     "severity",
     "logger",
@@ -27,7 +27,7 @@ FLAT_COLUMNS = {
     # Instance
     "instance_name",
     "project_key",
-}
+]
 
 GENAI_LLM = {
     "llmconnection",
