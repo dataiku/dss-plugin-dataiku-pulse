@@ -70,7 +70,9 @@ NUMERIC_COLS = [
     "used",
     "available",
     "used_pct",
+    "dataset_versionTag_versionNumber",
     "calltime",
+    
 
 ]
 
