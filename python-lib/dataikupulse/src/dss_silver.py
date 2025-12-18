@@ -63,10 +63,6 @@ ENUM_COLS = [
     "nodeType",
     "rawNodeType",
 ]
-ENUM_RULES = {
-    "severity": {"INFO", "WARN", "ERROR"},
-    "msgtypebase": {"admin", "code", "generic", "automation"},
-}
 NUMERIC_COLS = [
     "level_1_size",
     "level_2_size",
@@ -231,21 +227,9 @@ def data_quality(df: pd.DataFrame) -> dict:
                 "extras column contains invalid JSON values"
             )
 
-    # -------------------------
-    # 5. Enum validation
-    # -------------------------
-    for col, allowed in ENUM_RULES.items():
-        if col in df.columns:
-            bad_vals = (
-                set(df[col].dropna().unique()) - allowed
-            )
-            if bad_vals:
-                report["warnings"].append(
-                    f"{col} has unexpected values: {bad_vals}"
-                )
 
     # -------------------------
-    # 6. Numeric sanity checks
+    # 5. Numeric sanity checks
     # -------------------------
     if "used_pct" in df.columns:
         bad_pct = df[
