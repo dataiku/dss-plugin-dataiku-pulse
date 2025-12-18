@@ -32,3 +32,8 @@ FLAT_COLUMNS = {
 GENAI_LLM = {
     "llmconnection",
 }
+
+def get_flat_cols(t):
+    if t == GENAI_LLM:
+        FLAT_COLUMNS = FLAT_COLUMNS | GENAI_LLM
+    return FLAT_COLUMNS
