@@ -66,7 +66,8 @@ NUMERIC_COLS = [
     "dataset_creationTag_versionNumber",
     "recipes_maxRunningActivities",
     "recipes_versionTag_versionNumber",
-    "recipes_creationTag_versionNumber"
+    "recipes_creationTag_versionNumber",
+    "knowledge_banks_versionTag_versionNumber",
 ]
 BOOL_COLS = [
     "project_tutorialProject",
