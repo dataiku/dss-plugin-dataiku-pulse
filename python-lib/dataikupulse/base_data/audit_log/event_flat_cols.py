@@ -52,6 +52,6 @@ WIKI_ARTICAL_DISCUSSIONS = []
 
 def get_flat_cols(t):
     FINAL_FLAT_COLUMNS = FLAT_COLUMNS
-    if t == "genai_llm":
-        FINAL_FLAT_COLUMNS = FLAT_COLUMNS + GENAI_LLM
+    #if t == "genai_llm":
+    #    FINAL_FLAT_COLUMNS = FLAT_COLUMNS + GENAI_LLM
     return FINAL_FLAT_COLUMNS
