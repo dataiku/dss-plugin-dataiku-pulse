@@ -37,9 +37,7 @@ DATASET = []
 DEPLOYER = []
 FLOW = []
 FOLDERS = []
-GENAI_LLM = [
-    "llmconnection",
-]
+GENAI_LLM = []
 MLOPS = []
 OTHER = []
 PLUGINS = []
