@@ -199,7 +199,7 @@ def data_quality(df: pd.DataFrame) -> dict:
     # -------------------------
     STRING_COLS = get_string_cols(df)
     
-    for col in STR_COLS + UPPER_STR_COLS:
+    for col in STRING_COLS + UPPER_STR_COLS:
         if col in df.columns:
             if pd.api.types.is_numeric_dtype(df[col]):
                 report["errors"].append(
