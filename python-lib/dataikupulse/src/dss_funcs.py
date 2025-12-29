@@ -209,9 +209,6 @@ def sanitize_for_parquet(value):
     return value
 
 
-
-
-
 def _normalize_and_validate( self, df, category, module_name,):
     flat_cols = _load_flat_columns(category, module_name)
     if flat_cols:
