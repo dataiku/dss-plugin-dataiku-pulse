@@ -79,6 +79,11 @@ NON_STRING_COLS = (
     | set(BOOL_COLS)
 )
 
+def get_string_cols(df: pd.DataFrame) -> list[str]:
+    return [
+        col for col in df.columns
+        if col not in NON_STRING_COLS
+    ]
 
 def coerce_extras_to_json(series: pd.Series) -> pd.Series:
     def to_json_safe(val):
