@@ -251,18 +251,15 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
 
 def _normalize_and_validate( self, df, category, module_name,):
     flat_cols = _load_flat_columns(category, module_name)
-    # 1️⃣ Normalize (optional)
     if flat_cols:
         try:
             df = dss_silver.normalize_flat(df, flat_cols)
         except Exception as e:
             return None, {"stage": "normalize", "error": e}
-    # 2️⃣ Coerce schema
     try:
         df = dss_silver.coerce_schema(df)
     except Exception as e:
         return None, {"stage": "coerce_schema", "error": e}
-    # 3️⃣ Quality checks
     try:
         dq = dss_silver.data_quality(df)
     except Exception as e:
