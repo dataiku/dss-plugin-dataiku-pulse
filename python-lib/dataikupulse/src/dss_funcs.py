@@ -87,7 +87,7 @@ def rename_and_move_first(df, old, new):
         df = df[cols]
     return df
 
-# ---------- DATA GATHER MODULES -----------------------------
+
 def get_nested_value(data, keys, dt=False):
     current = data
     for key in keys:
@@ -247,6 +247,28 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
         value=self.dt
     )
     return df
+
+
+def _normalize_and_validate( self, df, category, module_name,):
+    flat_cols = _load_flat_columns(category, module_name)
+    # 1️⃣ Normalize (optional)
+    if flat_cols:
+        try:
+            df = dss_silver.normalize_flat(df, flat_cols)
+        except Exception as e:
+            return None, {"stage": "normalize", "error": e}
+    # 2️⃣ Coerce schema
+    try:
+        df = dss_silver.coerce_schema(df)
+    except Exception as e:
+        return None, {"stage": "coerce_schema", "error": e}
+    # 3️⃣ Quality checks
+    try:
+        dq = dss_silver.data_quality(df)
+    except Exception as e:
+        return None, {"stage": "data_quality", "error": e}
+    return df, dq
+
 
 
 def _process_quality_and_persist(self, df, category, module_name, project_key, results):
