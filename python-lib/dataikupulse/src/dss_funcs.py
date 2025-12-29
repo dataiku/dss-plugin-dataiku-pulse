@@ -233,7 +233,6 @@ def _normalize_and_validate(self, df, category, module_name,):
     return df, dq
 
 
-
 def _process_quality_and_persist(self, df, category, module_name, project_key, results):
     file_name = "data.parquet"
     if project_key:
