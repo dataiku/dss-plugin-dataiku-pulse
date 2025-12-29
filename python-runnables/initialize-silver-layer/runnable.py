@@ -39,6 +39,7 @@ class MyRunnable(Runnable):
         # Re-Run Silver Quality Guard
         results = []
         errors = 0
+        raw_failures = 0
         for row in partitions_df.itertuples(): # get partition
             for path in folder.get_partition_info(row.partitions)["paths"]: # get path(s)
                 with folder.get_download_stream(path) as stream: # read in stream/df
@@ -61,6 +62,7 @@ class MyRunnable(Runnable):
                         filename = os.path.basename(write_path)
                         write_path = path.replace(filename, f"dq_{filename}")
                         dss_folder.write_remote_folder_output(self, write_path, df_report)
+                        raw_failures += 1
                     else:
                         layer = "/silver/"
                         write_path = path.replace("/raw/", layer)
