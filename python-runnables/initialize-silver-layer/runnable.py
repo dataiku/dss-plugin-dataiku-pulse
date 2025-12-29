@@ -70,7 +70,7 @@ class MyRunnable(Runnable):
                         layer = "/silver/"
                         write_path = path.replace("/raw/", layer)
                         dss_folder.write_remote_folder_output(self, write_path, df)
-                except exception as e:
+                except Exception as e:
                     errors += 1
                 
                 
