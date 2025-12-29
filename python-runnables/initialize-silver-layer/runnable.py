@@ -25,6 +25,9 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
+        # Get folder
+        folder = get_local_folder(self, project_handle, folder_name)
+        
         
         raise Exception("unimplemented")
         
