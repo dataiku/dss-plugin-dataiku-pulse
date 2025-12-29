@@ -1,24 +1,6 @@
 import pandas as pd
 from dataikupulse.src import dss_funcs
 
-FLAT_COLUMNS = {
-    # Identity
-    "login",
-    "displayName",
-    "email",
-
-    # Account / profile
-    "userProfile",
-    "resultingUserProfile",
-    "enabled",
-    "sourceType",
-
-    # Lifecycle / activity timestamps
-    "creationDate",
-    "last_session_activity",
-    "first_commit_date",
-    "last_commit_date",
-}
 
 def get_column_names_from_schema(schema):
     colNames = []
