@@ -84,6 +84,8 @@ class MyRunnable(Runnable):
             for path in paths
         )
         results_df = pd.DataFrame(results)
+        
+        # Return ResultsTable
         results_df = results_df.astype(str)
         rt = ResultTable()
         n = 1
