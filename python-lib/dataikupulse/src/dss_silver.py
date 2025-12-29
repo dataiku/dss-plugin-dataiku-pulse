@@ -79,6 +79,20 @@ NON_STRING_COLS = (
     | set(BOOL_COLS)
 )
 
+def sanitize_for_parquet(value):
+    if isinstance(value, dict):
+        if len(value) == 0:
+            return None
+        sanitized = {}
+        for k, v in value.items():
+            sv = sanitize_for_parquet(v)
+            sanitized[k] = sv
+        return sanitized
+    if isinstance(value, list):
+        return [sanitize_for_parquet(v) for v in value]
+    return value
+
+
 def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFrame:
     # 0. NO PERIODS in column names
     df.columns = df.columns.str.replace(".", "_", regex=False)
