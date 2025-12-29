@@ -187,6 +187,35 @@ def _resolve_module_namespace(self, mode):
     return dss_objs
 
 
+def _discover_modules(self, dss_objs):
+    base_dir = dss_objs.__path__[0]
+    for root, _, files in os.walk(base_dir):
+        for f in files:
+            if not f.endswith(".py") or f == "__init__.py":
+                continue
+            module_name = f.removesuffix(".py")
+            category = root.replace(base_dir, "").lstrip(os.sep)
+            module_path = os.path.join(root, f)
+            yield category, module_name, module_path
+    return
+
+def _execute_module(self, module_name, module_path, project_handle, client_d, project_key, category, results):
+    try:
+        spec = importlib.util.spec_from_file_location(module_name, module_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        if not hasattr(module, "main"):
+            return pd.DataFrame()
+        if project_handle:
+            df = module.main(self, project_handle, client_d)
+        else:
+            df = module.main(self)
+        results.append([project_key, category, module_name, "load/run", True, None])
+        return df
+    except Exception as e:
+        results.append([project_key, category, module_name, "load/run", False, e])
+        return pd.DataFrame()
+
 
 
 
