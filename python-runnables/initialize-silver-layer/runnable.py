@@ -7,17 +7,15 @@ import logging
 
 
 class MyRunnable(Runnable):
-    """The base interface for a Python runnable"""
-
     def __init__(self, project_key, config, plugin_config):
-        """
-        :param project_key: the project in which the runnable executes
-        :param config: the dict of the configuration of the object
-        :param plugin_config: contains the plugin settings
-        """
         self.project_key = project_key
         self.config = config
         self.plugin_config = plugin_config
+        self.params = plugin_config.get("pulse_primary", {})
+        self.local_client = dss_funcs.build_local_client()
+        
+        logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.ERROR)
+        self.logger = logging.getLogger(__name__)
         
     def get_progress_target(self):
         """
