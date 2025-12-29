@@ -5,6 +5,7 @@ import pandas as pd
 import os
 import logging
 
+
 class MyRunnable(Runnable):
     """The base interface for a Python runnable"""
 
