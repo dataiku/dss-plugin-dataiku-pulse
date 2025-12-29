@@ -80,7 +80,7 @@ NON_STRING_COLS = (
 )
 
 def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFrame:
-    # 0. NO PERIODS
+    # 0. NO PERIODS in column names
     df.columns = df.columns.str.replace(".", "_", regex=False)
     # 1. Ensure flat column exist
     for col in FLAT_COLUMNS:
