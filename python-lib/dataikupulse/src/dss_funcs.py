@@ -234,13 +234,10 @@ def _process_quality_and_persist(self, df, category, module_name, project_key, r
     file_name = "data.parquet"
     if project_key:
         file_name = f"{project_key}_data.parquet"
-
-    df_clean, dq = self._normalize_and_validate(df, category, module_name)
-
+    df_clean, dq = _normalize_and_validate(df, category, module_name)
     if dq is None:
         results.append([project_key, category, module_name, "quality", False, "Unknown failure"])
-        return
-
+        return results
     if df_clean is None:
         results.append([
             project_key,
@@ -251,13 +248,11 @@ def _process_quality_and_persist(self, df, category, module_name, project_key, r
             dq["error"],
         ])
         return
-
     df_report = pd.DataFrame([{
         "errors": dq["errors"],
         "warnings": dq["warnings"],
         **dq["stats"],
     }])
-
     if dq["errors"]:
         layer = "raw_errors"
         self._write_quality_outputs(layer, category, module_name, file_name, df_clean, df_report)
