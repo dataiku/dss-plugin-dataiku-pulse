@@ -186,7 +186,7 @@ def _persist_raw(self, df, category, module_name, project_key, results):
         file_name = f"{project_key}_data.parquet"
     path = _build_write_path(self, "raw", category, module_name, file_name)
     try:
-        df = _sanitize_df_for_parquet(df)
+        df = _sanitize_df_for_raw_parquet(df)
         dss_folder.write_remote_folder_output(self, path, df)
         results.append([project_key, category, module_name, "write/save -- RAW", True, None])
     except Exception as e:
