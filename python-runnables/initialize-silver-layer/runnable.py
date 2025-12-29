@@ -27,7 +27,7 @@ class MyRunnable(Runnable):
     def run(self, progress_callback):
         # variables
         project_handle = self.local_client.get_default_project()
-        folder_name = 
+        folder_name = "partitioned_data"
         
         # Get folder / raw paths
         folder = get_local_folder(self, project_handle, folder_name)
