@@ -115,7 +115,7 @@ def _resolve_module_namespace(mode):
     return dss_objs
 
 
-def _discover_modules(self, dss_objs):
+def _discover_modules(dss_objs):
     base_dir = dss_objs.__path__[0]
     for root, _, files in os.walk(base_dir):
         for f in files:
