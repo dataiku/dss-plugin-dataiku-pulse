@@ -84,7 +84,7 @@ class MyRunnable(Runnable):
                 backend="threading",
                 verbose=10,
             )(
-                delayed(process_one_file)(path)
+                delayed(self.process_one_file)(path)
                 for path in paths
             )
         else:
