@@ -2,6 +2,8 @@ import os
 import re
 import importlib
 import pkgutil
+from pathlib import Path
+
 import pandas as pd
 import dataiku
 import dataikuapi
