@@ -33,7 +33,7 @@ class MyRunnable(Runnable):
 
     def process_one_file(self, path):
         try:
-            folder = dss_folder.get_local_folder(self, project_handle, folder_name)
+            folder = dss_folder.get_local_folder(self, self.project_handle, folder_name)
             with folder.get_download_stream(path) as stream:
                 file_bytes = io.BytesIO(stream.read())
             df = pd.read_parquet(file_bytes)
@@ -61,11 +61,11 @@ class MyRunnable(Runnable):
         
     def run(self, progress_callback):
         # variables
-        project_handle = self.local_client.get_default_project()
-        folder_name = "partitioned_data"
+        self.project_handle = self.local_client.get_default_project()
+        self.folder_name = "partitioned_data"
         
         # Get folder / raw paths
-        folder = dss_folder.get_local_folder(self, project_handle, folder_name)
+        folder = dss_folder.get_local_folder(self, self.project_handle, self.folder_name)
         partitions = folder.list_partitions()
         partitions_df = pd.DataFrame(partitions, columns=["partitions"])
         cols = ["layer", "category", "module", "instance_name", "date"]
