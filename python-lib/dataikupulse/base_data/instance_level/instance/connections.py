@@ -1,13 +1,6 @@
 import pandas as pd
 from dataikupulse.src import dss_funcs
 
-FLAT_COLUMNS = {
-    "name",
-    "type",
-    "connection_category",
-    "creationTag_lastModifiedBy_login",
-    "creationTag_lastModifiedOn",
-}
 
 conn_mapping = {
     "sql_database": [
