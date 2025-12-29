@@ -234,7 +234,21 @@ def _persist_raw(self, df, category, module_name, project_key, results):
         results.append([project_key, category, module_name, "write/save -- RAW", False, e])
     return
 
-        
+
+def _load_flat_columns(self, category, module_name):
+    schemas_dir = Path(__file__).parent / "schemas"
+    schema_file = schemas_dir / f"{module_name}.py"
+    if not schema_file.exists():
+        return None  # No schema defined → skip normalization
+    spec = importlib.util.spec_from_file_location(
+        f"schemas.{module_name}",
+        schema_file
+    )
+    schema_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(schema_module)
+    return getattr(schema_module, "FLAT_COLUMNS", None)
+
+
 def _process_quality_and_persist(self, df, category, module_name, project_key, results):
     file_name = "data.parquet"
     if project_key:
