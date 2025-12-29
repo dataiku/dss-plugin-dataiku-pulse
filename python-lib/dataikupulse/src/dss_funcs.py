@@ -220,7 +220,7 @@ def _normalize_and_validate(self, df, category, module_name,):
         except Exception as e:
             return None, {"stage": "normalize", "error": e}
     else:
-        raise Exception("Failed to find FLAT COLUMNS file!")
+        raise Exception(f"Failed to find FLAT COLUMNS file! {category} {module_name}")
     try:
         df = dss_silver.coerce_schema(df)
     except Exception as e:
