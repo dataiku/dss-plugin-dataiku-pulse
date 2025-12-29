@@ -1,6 +1,6 @@
 from datetime import datetime
-import os
 import io
+import os
 import logging
 import pandas as pd
 from dataiku.runnables import Runnable, ResultTable
