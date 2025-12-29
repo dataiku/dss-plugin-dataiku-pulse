@@ -139,14 +139,26 @@ def get_string_cols(df: pd.DataFrame) -> list[str]:
     ]
 
 def coerce_extras_to_json(series: pd.Series) -> pd.Series:
-    def to_json_safe(val):
+    def to_json_canonical(val):
+        # Nulls stay null
         if val is None or pd.isna(val):
             return None
+        # dict / list → JSON
         if isinstance(val, (dict, list)):
-            return json.dumps(val, ensure_ascii=False)
-        return str(val)
-
-    return series.apply(to_json_safe)
+            try:
+                return json.dumps(val, ensure_ascii=False)
+            except Exception:
+                return None
+        # Already a string: must be valid JSON
+        if isinstance(val, str):
+            try:
+                json.loads(val)
+                return val
+            except Exception:
+                return None
+        # Everything else is invalid
+        return None
+    return series.apply(to_json_canonical)
 
 
 def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
