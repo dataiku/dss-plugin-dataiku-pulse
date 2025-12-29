@@ -2,20 +2,6 @@ import pandas as pd
 import numpy as np
 import json
 
-STR_COLS = [
-    "project_key",
-    "dataset_projectKey",
-    "scenarios_projectKey",
-    "user",
-    "email",
-    "nodeId",
-    "nodeName",
-    "licenseId",
-    "installId",
-    "dipInstanceId",
-    "licenseInstanceId",
-    "commit",
-]
 UPPER_STR_COLS = [
     "severity",
     "msgtypebase",   
@@ -87,7 +73,11 @@ BOOL_COLS = [
 ]
 TRUE_SET = {"true", "True", True, 1, "1"}
 FALSE_SET = {"false", "False", False, 0, "0"}
-
+NON_STRING_COLS = (
+    set(TIMESTAMP_COLS)
+    | set(NUMERIC_COLS)
+    | set(BOOL_COLS)
+)
 
 
 def coerce_extras_to_json(series: pd.Series) -> pd.Series:
