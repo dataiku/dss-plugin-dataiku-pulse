@@ -216,6 +216,7 @@ def _execute_module(self, module_name, module_path, project_handle, client_d, pr
         results.append([project_key, category, module_name, "load/run", False, e])
         return pd.DataFrame()
 
+    
 def _is_valid_df(self, df):
     return isinstance(df, pd.DataFrame) and not df.empty
 
