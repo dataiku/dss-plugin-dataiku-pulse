@@ -221,6 +221,20 @@ def _is_valid_df(self, df):
     return isinstance(df, pd.DataFrame) and not df.empty
 
 
+def _date_parts(self):
+    return (
+        str(self.dt.year),
+        f"{self.dt.month:02d}",
+        f"{self.dt.day:02d}",
+    )
+
+
+def _build_write_path(self, layer, category, module_name, file_name):
+    year, month, day = _date_parts()
+    return f"{layer}/{category}/{module_name}/{self.instance_name}/{year}/{month}/{day}/{file_name}"
+
+
+
 def run_modules(self, mode="instance", project_handle=None, client_d={}, project_key=None):
     dss_objs = _resolve_module_namespace(mode)
     results = []
