@@ -196,7 +196,7 @@ def _persist_raw(self, df, category, module_name, project_key, results):
 # ----------------------------------------------------------
 # Normalize, Coerce, Quality Guards
 # ----------------------------------------------------------
-def _load_flat_columns(self, category, module_name):
+def _load_flat_columns(category, module_name):
     schemas_dir = Path(__file__).parent / "schemas"
     schema_file = schemas_dir / f"{module_name}.py"
     if not schema_file.exists():
@@ -211,7 +211,7 @@ def _load_flat_columns(self, category, module_name):
 
 
 def _normalize_and_validate(self, df, category, module_name,):
-    flat_cols = _load_flat_columns(self, category, module_name)
+    flat_cols = _load_flat_columns(category, module_name)
     if flat_cols:
         try:
             df = dss_silver.normalize_dataframe(self, df, flat_cols)
