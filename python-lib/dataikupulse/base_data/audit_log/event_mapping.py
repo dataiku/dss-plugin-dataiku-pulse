@@ -114,11 +114,7 @@ def main(self, df):
                 silver_df = raw_df.copy()
                 # 2.1 Normalize (schema-aware)
                 FLAT_COLUMNS = event_flat_cols.get_flat_cols(category)
-                silver_df = dss_silver.normalize_dataframe(
-                    self,
-                    silver_df,
-                    FLAT_COLUMNS,
-                )
+                silver_df = dss_silver.normalize_dataframe(self, silver_df, FLAT_COLUMNS,)
 
                 # 2.2 Order columns (deterministic)
                 ordered = [c for c in FLAT_COLUMNS if c in silver_df.columns]
