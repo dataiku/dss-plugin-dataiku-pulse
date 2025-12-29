@@ -5,7 +5,7 @@ import logging
 import pandas as pd
 from dataiku.runnables import Runnable, ResultTable
 from dataikupulse.src import dss_funcs
-from dataikupulse.src import dss_init
+from dataikupulse.src import dss_folder
 
 
 class MyRunnable(Runnable):
@@ -32,7 +32,7 @@ class MyRunnable(Runnable):
         folder_name = "partitioned_data"
         
         # Get folder / raw paths
-        folder = get_local_folder(self, project_handle, folder_name)
+        folder = dss_folder.get_local_folder(self, project_handle, folder_name)
         partitions_df = pd.DataFrame(partitions, columns=["partitions"])
         cols = ["layer", "category", "module", "instance_name", "date"]
         partitions_df[cols] = partitions_df["partitions"].str.split("|", expand=True)
