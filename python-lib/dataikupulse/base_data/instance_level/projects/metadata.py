@@ -17,5 +17,4 @@ def main(self):
     df = df.rename(columns={"project_ownerLogin": "login"})
     # Project Key
     df = df.rename(columns={"project_projectKey": "project_key"})
-    df = dss_funcs.normalize_dataframe(self, df, FLAT_COLUMNS)
     return df
