@@ -174,6 +174,11 @@ def _force_arrow_reinfer(df):
     table = pa.Table.from_pandas(df, preserve_index=False)
     return table.to_pandas()
 
+def _sanitize_df_for_raw_parquet(df):
+    df = sanitize_df_for_parquet(df)
+    df = force_arrow_reinfer(df)
+    return df
+
 
 def _persist_raw(self, df, category, module_name, project_key, results):
     file_name = "data.parquet"
