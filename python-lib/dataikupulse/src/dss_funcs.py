@@ -199,6 +199,7 @@ def _persist_raw(self, df, category, module_name, project_key, results):
 # Normalize, Coerce, Quality Guards
 # ----------------------------------------------------------
 def _load_flat_columns(category, module_name):
+    flat_name = f"{category}_{module_name}.py"
     schemas_dir = Path(__file__).parent / "schemas"
     schema_file = schemas_dir / f"{category}_{module_name}.py"
     if not schema_file.exists():
