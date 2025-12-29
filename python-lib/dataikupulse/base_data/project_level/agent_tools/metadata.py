@@ -1,13 +1,6 @@
 import pandas as pd
 from dataikupulse.src import dss_funcs
 
-FLAT_COLUMNS = {
-    # Agent Tools identity
-    "project_key",
-    "agent_tools_id",
-    "agent_tools_type",
-    "agent_tools_name",
-}
 
 def main(self, project_handle, client_d = {}):
     try:
