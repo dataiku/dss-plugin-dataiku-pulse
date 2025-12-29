@@ -12,7 +12,11 @@ class MyRunnable(Runnable):
         self.config = config
         self.plugin_config = plugin_config
         self.params = plugin_config.get("pulse_primary", {})
+        self.preset_pc = dss_funcs.get_preset_pc(self, "DATAIKU-PULSE")
         self.local_client = dss_funcs.build_local_client()
+        self.remote_client = dss_funcs.build_remote_client(self)
+        self.instance_name = dss_funcs.get_dss_name(self)
+        self.dt = datetime.now(timezone.utc)
         
         logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.ERROR)
         self.logger = logging.getLogger(__name__)
