@@ -36,7 +36,12 @@ class MyRunnable(Runnable):
         partitions_df[cols] = partitions_df["partitions"].str.split("|", expand=True)
         partitions_df = partitions_df.loc[partitions_df["layer"] == "raw"]
         
-        #
-        
+        # Re-Run Silver Quality Guard
+        for row in partitions_df.itertuples(): # get partition
+            for path in folder.get_partition_info(row.partitions)["paths"]: # get path(s)
+                with folder.get_download_stream(path) as stream: # read in stream/df
+                    file_bytes = io.BytesIO(stream.read())
+                df = pd.read_parquet(file_bytes)
+                # Fix Quality
         raise Exception("unimplemented")
         
