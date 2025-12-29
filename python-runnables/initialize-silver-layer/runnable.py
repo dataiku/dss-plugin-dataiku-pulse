@@ -59,8 +59,8 @@ class MyRunnable(Runnable):
                         filename = os.path.basename(write_path)
                         write_path = path.replace(filename, f"dq_{filename}")
                         dss_folder.write_remote_folder_output(self, write_path, df_report)
-                except:
-                    hi
+                except exception as e:
+                    raise Exception(e)
                 
                 
                 
