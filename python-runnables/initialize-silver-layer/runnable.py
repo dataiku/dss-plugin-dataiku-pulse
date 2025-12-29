@@ -11,6 +11,7 @@ from dataikupulse.src import dss_folder
 
 def process_one_file(path):
     try:
+        folder = dss_folder.get_local_folder(self, project_handle, folder_name)
         with folder.get_download_stream(path) as stream:
             file_bytes = io.BytesIO(stream.read())
         df = pd.read_parquet(file_bytes)
