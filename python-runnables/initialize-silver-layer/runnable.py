@@ -70,6 +70,9 @@ class MyRunnable(Runnable):
         partitions_df[cols] = partitions_df["partitions"].str.split("|", expand=True)
         partitions_df = partitions_df.loc[partitions_df["layer"] == "raw"]
         
+        # added filtering
+        partitions_df = partitions_df.loc[partitions_df["category"] == "dataset"]
+        
         # list of paths
         paths = []
         for row in partitions_df.itertuples():
