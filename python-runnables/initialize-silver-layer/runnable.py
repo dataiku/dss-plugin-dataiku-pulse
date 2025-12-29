@@ -9,32 +9,7 @@ from dataiku.runnables import Runnable, ResultTable
 from dataikupulse.src import dss_funcs
 from dataikupulse.src import dss_folder
 
-def process_one_file(path):
-    try:
-        folder = dss_folder.get_local_folder(self, project_handle, folder_name)
-        with folder.get_download_stream(path) as stream:
-            file_bytes = io.BytesIO(stream.read())
-        df = pd.read_parquet(file_bytes)
-        df = dss_silver.coerce_schema(df)
-        dq = dss_silver.data_quality(df)
-        base_path = path.replace("/raw/", "")
-        if dq["errors"]:
-            write_path = f"/raw_errors/{base_path}"
-        else:
-            write_path = f"/silver/{base_path}"
-        dss_folder.write_remote_folder_output(self, write_path, df)
-        if dq["errors"]:
-            filename = os.path.basename(write_path)
-            report_path = write_path.replace(filename, f"dq_{filename}")
-            df_report = pd.DataFrame([{
-                "errors": dq["errors"],
-                "warnings": dq["warnings"],
-                **dq["stats"],
-            }])
-            dss_folder.write_remote_folder_output(self, report_path, df_report)
-        return {"status": "ok", "errors": bool(dq["errors"])}
-    except Exception as e:
-        return {"status": "exception", "error": str(e)}
+
 
     
     
@@ -56,6 +31,34 @@ class MyRunnable(Runnable):
     def get_progress_target(self):
         return None
 
+    def process_one_file(self, path):
+        try:
+            folder = dss_folder.get_local_folder(self, project_handle, folder_name)
+            with folder.get_download_stream(path) as stream:
+                file_bytes = io.BytesIO(stream.read())
+            df = pd.read_parquet(file_bytes)
+            df = dss_silver.coerce_schema(df)
+            dq = dss_silver.data_quality(df)
+            base_path = path.replace("/raw/", "")
+            if dq["errors"]:
+                write_path = f"/raw_errors/{base_path}"
+            else:
+                write_path = f"/silver/{base_path}"
+            dss_folder.write_remote_folder_output(self, write_path, df)
+            if dq["errors"]:
+                filename = os.path.basename(write_path)
+                report_path = write_path.replace(filename, f"dq_{filename}")
+                df_report = pd.DataFrame([{
+                    "errors": dq["errors"],
+                    "warnings": dq["warnings"],
+                    **dq["stats"],
+                }])
+                dss_folder.write_remote_folder_output(self, report_path, df_report)
+            return {"status": "ok", "errors": bool(dq["errors"])}
+        except Exception as e:
+            return {"status": "exception", "error": str(e)}
+        
+        
     def run(self, progress_callback):
         # variables
         project_handle = self.local_client.get_default_project()
