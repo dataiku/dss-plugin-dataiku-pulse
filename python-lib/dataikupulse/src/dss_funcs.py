@@ -140,10 +140,10 @@ def _execute_module(self, module_name, module_path, project_handle, client_d, pr
         else:
             df = module.main(self)
         results.append([project_key, category, module_name, "load/run", True, None])
-        return df
+        return df, results
     except Exception as e:
         results.append([project_key, category, module_name, "load/run", False, e])
-        return pd.DataFrame()
+        return pd.DataFrame(), results
     return
 
 
