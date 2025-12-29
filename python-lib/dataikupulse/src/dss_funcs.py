@@ -167,7 +167,7 @@ def _build_write_path(self, layer, category, module_name, file_name):
 def _sanitize_df_for_parquet(df):
     for col in df.columns:
         if df[col].dtype == "object":
-            df[col] = df[col].map(_sanitize_df_for_parquet)
+            df[col] = df[col].map(dss_silver.sanitize_for_parquet)
     return df
 
 def _force_arrow_reinfer(df):
