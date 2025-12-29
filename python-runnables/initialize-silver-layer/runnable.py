@@ -18,16 +18,8 @@ class MyRunnable(Runnable):
         self.logger = logging.getLogger(__name__)
         
     def get_progress_target(self):
-        """
-        If the runnable will return some progress info, have this function return a tuple of 
-        (target, unit) where unit is one of: SIZE, FILES, RECORDS, NONE
-        """
         return None
 
     def run(self, progress_callback):
-        """
-        Do stuff here. Can return a string or raise an exception.
-        The progress_callback is a function expecting 1 value: current progress
-        """
         raise Exception("unimplemented")
         
