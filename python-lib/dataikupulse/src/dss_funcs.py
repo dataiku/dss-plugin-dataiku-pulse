@@ -173,7 +173,7 @@ def _persist_raw(self, df, category, module_name, project_key, results):
         results.append([project_key, category, module_name, "write/save -- RAW", True, None])
     except Exception as e:
         results.append([project_key, category, module_name, "write/save -- RAW", False, e])
-    return
+    return results
 
 # ----------------------------------------------------------
 # Normalize, Coerce, Quality Guards
