@@ -133,14 +133,8 @@ def main(self, df):
                 if dq["errors"]:
                     layer = "raw_errors"
 
-                    data_path = (
-                        f"{layer}/dataiku_usage/{category}/{instance_name}/"
-                        f"{dt_year}/{dt_month}/{dt_day}/{file_name}"
-                    )
-                    dq_path = (
-                        f"{layer}/dataiku_usage/{category}/{instance_name}/"
-                        f"{dt_year}/{dt_month}/{dt_day}/dq_{file_name}"
-                    )
+                    data_path = f"{layer}/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
+                    dq_path = f"{layer}/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/dq_{file_name}"
 
                     dss_folder.write_remote_folder_output(self, data_path, silver_df)
                     dss_folder.write_remote_folder_output(
