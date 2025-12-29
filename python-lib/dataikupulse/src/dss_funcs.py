@@ -100,73 +100,10 @@ def get_nested_value(data, keys, dt=False):
                 return False
     return current
 
-def sanitize_for_parquet(value):
-    # Empty dict → None
-    if isinstance(value, dict):
-        if len(value) == 0:
-            return None
 
-        sanitized = {}
-        for k, v in value.items():
-            sv = sanitize_for_parquet(v)
-            sanitized[k] = sv
-
-        return sanitized
-
-    # Lists: sanitize elements
-    if isinstance(value, list):
-        return [sanitize_for_parquet(v) for v in value]
-
-    # Everything else
-    return value
-
-
-def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFrame:
-    # 0. NO PERIODS
-    df.columns = df.columns.str.replace(".", "_", regex=False)
-    
-    # 1. Ensure flat column exist
-    for col in FLAT_COLUMNS:
-        if col not in df.columns:
-            df[col] = None
-            
-    # 2. Split flat vs extras
-    rows = []
-    for _, row in df.iterrows():
-        row_dict = row.to_dict()
-        flat = {}
-        extras = {}
-        for col, value in row_dict.items():
-            if col in FLAT_COLUMNS:
-                flat[col] = value
-            else:
-                if value is None or (isinstance(value, float) and pd.isna(value)):
-                    continue
-                # Parquet-safe normalization
-                extras[col] = sanitize_for_parquet(value)
-        flat["extras"] = extras if extras else None
-        rows.append(flat)
-    df = pd.DataFrame(rows)
-    
-    # 3. Add Additonal Information / output path
-    if "instance_name" not in df.columns:
-        df.insert(
-            loc=0,
-            column="instance_name",
-            value=self.instance_name
-        )
-    
-    # 4. Add run_time
-    df.insert(
-        loc=df.columns.get_loc("extras"),
-        column="run_timestamp",
-        value=self.dt
-    )
-    
-    return df
 
 # ----------------------------------------------------------
-# Module Loading and Parsing
+# Load Modules and Run
 # ----------------------------------------------------------
 def _resolve_module_namespace(self, mode):
     if mode == "instance":
@@ -207,8 +144,12 @@ def _execute_module(self, module_name, module_path, project_handle, client_d, pr
     except Exception as e:
         results.append([project_key, category, module_name, "load/run", False, e])
         return pd.DataFrame()
+    return
 
-    
+
+# ----------------------------------------------------------
+# Validate and Save RAW
+# ----------------------------------------------------------
 def _is_valid_df(self, df):
     return isinstance(df, pd.DataFrame) and not df.empty
 
@@ -249,6 +190,63 @@ def _load_flat_columns(self, category, module_name):
     schema_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(schema_module)
     return getattr(schema_module, "FLAT_COLUMNS", None)
+
+
+def sanitize_for_parquet(value):
+    # Empty dict → None
+    if isinstance(value, dict):
+        if len(value) == 0:
+            return None
+        sanitized = {}
+        for k, v in value.items():
+            sv = sanitize_for_parquet(v)
+            sanitized[k] = sv
+        return sanitized
+    # Lists: sanitize elements
+    if isinstance(value, list):
+        return [sanitize_for_parquet(v) for v in value]
+    # Everything else
+    return value
+
+
+def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFrame:
+    # 0. NO PERIODS
+    df.columns = df.columns.str.replace(".", "_", regex=False)
+    # 1. Ensure flat column exist
+    for col in FLAT_COLUMNS:
+        if col not in df.columns:
+            df[col] = None
+    # 2. Split flat vs extras
+    rows = []
+    for _, row in df.iterrows():
+        row_dict = row.to_dict()
+        flat = {}
+        extras = {}
+        for col, value in row_dict.items():
+            if col in FLAT_COLUMNS:
+                flat[col] = value
+            else:
+                if value is None or (isinstance(value, float) and pd.isna(value)):
+                    continue
+                # Parquet-safe normalization
+                extras[col] = sanitize_for_parquet(value)
+        flat["extras"] = extras if extras else None
+        rows.append(flat)
+    df = pd.DataFrame(rows)
+    # 3. Add Additonal Information / output path
+    if "instance_name" not in df.columns:
+        df.insert(
+            loc=0,
+            column="instance_name",
+            value=self.instance_name
+        )
+    # 4. Add run_time
+    df.insert(
+        loc=df.columns.get_loc("extras"),
+        column="run_timestamp",
+        value=self.dt
+    )
+    return df
 
 
 def _process_quality_and_persist(self, df, category, module_name, project_key, results):
