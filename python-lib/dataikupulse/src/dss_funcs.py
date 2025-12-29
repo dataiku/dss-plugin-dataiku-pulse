@@ -269,8 +269,8 @@ def _process_quality_and_persist(self, df, category, module_name, project_key, r
 
         
 def _write_quality_outputs(self, layer, category, module_name, file_name, df, df_report):
-    data_path = _build_write_path(layer, category, module_name, file_name)
-    dq_path = _build_write_path(layer, category, module_name, f"dq_{file_name}")
+    data_path = _build_write_path(self, layer, category, module_name, file_name)
+    dq_path = _build_write_path(self, layer, category, module_name, f"dq_{file_name}")
     dss_folder.write_remote_folder_output(self, data_path, df)
     dss_folder.write_remote_folder_output(self, dq_path, df_report)
     return
