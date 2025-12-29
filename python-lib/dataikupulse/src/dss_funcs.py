@@ -105,7 +105,7 @@ def get_nested_value(data, keys, dt=False):
 # ----------------------------------------------------------
 # Load Modules and Run
 # ----------------------------------------------------------
-def _resolve_module_namespace(self, mode):
+def _resolve_module_namespace(mode):
     if mode == "instance":
         from dataikupulse.base_data import instance_level as dss_objs
     elif mode == "projects":
