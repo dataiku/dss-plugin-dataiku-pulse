@@ -75,16 +75,18 @@ class MyRunnable(Runnable):
             paths.extend(folder.get_partition_info(row.partitions)["paths"])
         
         # Re-Run Silver Quality Guard
-        if self.preset_pc["do_parallel"] and len(paths) > self.preset_pc["cores"]:
-            
-        results = Parallel(
-            n_jobs=4,          # start conservative; increase carefully
-            backend="loky",    # multiprocessing, not threads
-            verbose=10,
-        )(
-            delayed(process_one_file)(path)
-            for path in paths
-        )
+        if self.preset_pc["do_parallel"]:
+            results = Parallel(
+                n_jobs=self.preset_pc["cores"],
+                backend="loky",
+                verbose=10,
+            )(
+                delayed(process_one_file)(path)
+                for path in paths
+            )
+        else:
+            for path in paths:
+                results += process_one_file(path)
         results_df = pd.DataFrame(results)
         
         # Return ResultsTable
