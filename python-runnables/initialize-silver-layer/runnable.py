@@ -26,7 +26,7 @@ class MyRunnable(Runnable):
 
     def run(self, progress_callback):
         # variables
-        project_handle =
+        project_handle = self.local_client.get_default_project()
         folder_name = 
         
         # Get folder / raw paths
