@@ -209,44 +209,7 @@ def sanitize_for_parquet(value):
     return value
 
 
-def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFrame:
-    # 0. NO PERIODS
-    df.columns = df.columns.str.replace(".", "_", regex=False)
-    # 1. Ensure flat column exist
-    for col in FLAT_COLUMNS:
-        if col not in df.columns:
-            df[col] = None
-    # 2. Split flat vs extras
-    rows = []
-    for _, row in df.iterrows():
-        row_dict = row.to_dict()
-        flat = {}
-        extras = {}
-        for col, value in row_dict.items():
-            if col in FLAT_COLUMNS:
-                flat[col] = value
-            else:
-                if value is None or (isinstance(value, float) and pd.isna(value)):
-                    continue
-                # Parquet-safe normalization
-                extras[col] = sanitize_for_parquet(value)
-        flat["extras"] = extras if extras else None
-        rows.append(flat)
-    df = pd.DataFrame(rows)
-    # 3. Add Additonal Information / output path
-    if "instance_name" not in df.columns:
-        df.insert(
-            loc=0,
-            column="instance_name",
-            value=self.instance_name
-        )
-    # 4. Add run_time
-    df.insert(
-        loc=df.columns.get_loc("extras"),
-        column="run_timestamp",
-        value=self.dt
-    )
-    return df
+
 
 
 def _normalize_and_validate( self, df, category, module_name,):
