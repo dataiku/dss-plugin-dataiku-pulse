@@ -175,8 +175,8 @@ def _force_arrow_reinfer(df):
     return table.to_pandas()
 
 def _sanitize_df_for_raw_parquet(df):
-    df = sanitize_df_for_parquet(df)
-    df = force_arrow_reinfer(df)
+    df = _sanitize_df_for_parquet(df)
+    df = _force_arrow_reinfer(df)
     return df
 
 
