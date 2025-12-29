@@ -278,6 +278,7 @@ def run_modules(self, mode="instance", project_handle=None, client_d={}, project
     results = []
     for category, module_name, module_path in _discover_modules(dss_objs):
         df, results = _execute_module(
+            self,
             module_name,
             module_path,
             project_handle,
