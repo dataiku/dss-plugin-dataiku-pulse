@@ -199,6 +199,7 @@ def _discover_modules(self, dss_objs):
             yield category, module_name, module_path
     return
 
+
 def _execute_module(self, module_name, module_path, project_handle, client_d, project_key, category, results):
     try:
         spec = importlib.util.spec_from_file_location(module_name, module_path)
