@@ -1,26 +1,6 @@
 import pandas as pd
 from dataikupulse.src import dss_funcs
 
-FLAT_COLUMNS = {
-    # Dataset identity
-    "project_key",
-    "dataset_name",
-    "dataset_smartName",
-
-    # Core classification
-    "dataset_type",
-    "dataset_managed",
-    "dataset_featureGroup",
-    "dataset_typeSystemVersion",
-
-    # Versioning / lifecycle
-    "dataset_versionTag_versionNumber",
-    "dataset_versionTag_lastModifiedOn",
-    "dataset_versionTag_lastModifiedBy_login",
-    "dataset_creationTag_versionNumber",
-    "dataset_creationTag_lastModifiedOn",
-    "dataset_creationTag_lastModifiedBy_login",
-}
 
 def main(self, project_handle, client_d = {}):
     try:
@@ -31,5 +11,4 @@ def main(self, project_handle, client_d = {}):
     prefix = "dataset_"
     df = pd.json_normalize(project_handle.list_datasets()).add_prefix(prefix)
     df = dss_funcs.rename_and_move_first(df, f"{prefix}projectKey", "project_key")
-    df = dss_funcs.normalize_dataframe(self, df, FLAT_COLUMNS)
     return df
