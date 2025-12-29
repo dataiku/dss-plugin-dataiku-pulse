@@ -177,6 +177,10 @@ def load_flat_columns(package_name: str) -> dict:
     return result
 
 
+def generate_raw_layer():
+    return
+
+
 def run_modules(self, mode = "instance", project_handle = None, client_d = {}, project_key = None):
     if mode == "instance":
         from dataikupulse.base_data import instance_level as dss_objs
