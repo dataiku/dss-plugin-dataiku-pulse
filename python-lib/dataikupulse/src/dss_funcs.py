@@ -134,7 +134,7 @@ def _execute_module(self, module_name, module_path, project_handle, client_d, pr
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         if not hasattr(module, "main"):
-            return pd.DataFrame()
+            return pd.DataFrame(), results
         if project_handle:
             df = module.main(self, project_handle, client_d)
         else:
