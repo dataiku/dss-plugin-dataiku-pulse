@@ -33,7 +33,7 @@ class MyRunnable(Runnable):
 
     def process_one_file(self, path):
         try:
-            folder = dss_folder.get_local_folder(self, self.project_handle, folder_name)
+            folder = dss_folder.get_local_folder(self, self.project_handle, self.folder_name)
             with folder.get_download_stream(path) as stream:
                 file_bytes = io.BytesIO(stream.read())
             df = pd.read_parquet(file_bytes)
