@@ -80,42 +80,110 @@ def main(self, df):
             merged_df["webappid"] = dupes.bfill(axis=1).iloc[:, 0]
             merged_df = merged_df.loc[:, ~merged_df.columns.duplicated()]
 
-        # lets split the df by category and save
-        for category, grp_df in merged_df.groupby("dataiku_category"):
-            grp_df = grp_df.dropna(axis=1, how='all').reset_index(drop=True)
-            # Get Flat Columns and Normalize
-            FLAT_COLUMNS = event_flat_cols.get_flat_cols(category)
-            grp_df = dss_silver.normalize_dataframe(self, grp_df, FLAT_COLUMNS)
-            # Order the DF
-            ordered = [c for c in FLAT_COLUMNS if c in grp_df.columns]
-            rest = [c for c in grp_df.columns if c not in ordered]
-            grp_df = grp_df[ordered + rest]
-            try:
-                file_name = f"data-{dt_epoch}.parquet" 
-                write_path = f"raw/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
-                dss_folder.write_remote_folder_output(self, write_path, grp_df)
-                results.append([f"write/save - Dataiku Usage {category}", True, f"data-{dt_epoch}.parquet"])
-            except Exception as e:
-                results.append([f"write/save - Dataiku Usage {category}", False, e])
+        for category, raw_df in merged_df.groupby("dataiku_category"):
+            # --------------------------------------------------
+            # 0. Prepare RAW dataframe (as-is)
+            # --------------------------------------------------
+            raw_df = raw_df.dropna(axis=1, how="all").reset_index(drop=True)
+            file_name = f"data-{dt_epoch}.parquet"
+            raw_path = f"raw/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
 
-            # Test quality control -- Save to Silver or Raw Error
+            # --------------------------------------------------
+            # 1. Write RAW (Parquet-safe only)
+            # --------------------------------------------------
             try:
-                layer = "silver"
-                grp_df = dss_silver.coerce_schema(grp_df)
-                dq = dss_silver.data_quality(grp_df)
+                raw_df_safe = raw_df.map(sanitize_for_parquet)
+                dss_folder.write_remote_folder_output(self, raw_path, raw_df_safe)
+
+                results.append([
+                    f"write/save - Dataiku Usage {category} -- RAW",
+                    True,
+                    file_name,
+                ])
+            except Exception as e:
+                results.append([
+                    f"write/save - Dataiku Usage {category} -- RAW",
+                    False,
+                    e,
+                ])
+                # If RAW fails, skip SILVER entirely
+                continue
+
+            # --------------------------------------------------
+            # 2. SILVER: normalize → coerce → quality
+            # --------------------------------------------------
+            try:
+                silver_df = raw_df.copy()
+
+                # 2.1 Normalize (schema-aware)
+                FLAT_COLUMNS = event_flat_cols.get_flat_cols(category)
+                silver_df = dss_silver.normalize_dataframe(
+                    self,
+                    silver_df,
+                    FLAT_COLUMNS,
+                )
+
+                # 2.2 Order columns (deterministic)
+                ordered = [c for c in FLAT_COLUMNS if c in silver_df.columns]
+                rest = [c for c in silver_df.columns if c not in ordered]
+                silver_df = silver_df[ordered + rest]
+
+                # 2.3 Coerce schema (includes extras canonicalization)
+                silver_df = dss_silver.coerce_schema(silver_df)
+
+                # 2.4 Quality checks
+                dq = dss_silver.data_quality(silver_df)
+
+                # --------------------------------------------------
+                # 3. Route based on quality
+                # --------------------------------------------------
                 if dq["errors"]:
                     layer = "raw_errors"
-                    write_path = f"{layer}/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
-                    dss_folder.write_remote_folder_output(self, write_path, grp_df)
-                    write_path = f"{layer}/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/dq_{file_name}"
-                    dss_folder.write_remote_folder_output(self, write_path, pd.DataFrame(dq))
+
+                    data_path = (
+                        f"{layer}/dataiku_usage/{category}/{instance_name}/"
+                        f"{dt_year}/{dt_month}/{dt_day}/{file_name}"
+                    )
+                    dq_path = (
+                        f"{layer}/dataiku_usage/{category}/{instance_name}/"
+                        f"{dt_year}/{dt_month}/{dt_day}/dq_{file_name}"
+                    )
+
+                    dss_folder.write_remote_folder_output(self, data_path, silver_df)
+                    dss_folder.write_remote_folder_output(
+                        self,
+                        dq_path,
+                        pd.DataFrame([dq]),
+                    )
+
+                    results.append([
+                        f"write/save - Dataiku Usage {category} -- {layer}",
+                        False,
+                        "Quality errors detected",
+                    ])
+
                 else:
-                    write_path = f"{layer}/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
-                    dss_folder.write_remote_folder_output(self, write_path, grp_df)
-                results.append([f"write/save - Dataiku Usage {category} -- {layer}", True, None])
+                    layer = "silver"
+
+                    silver_path = (
+                        f"{layer}/dataiku_usage/{category}/{instance_name}/"
+                        f"{dt_year}/{dt_month}/{dt_day}/{file_name}"
+                    )
+
+                    dss_folder.write_remote_folder_output(self, silver_path, silver_df)
+
+                    results.append([
+                        f"write/save - Dataiku Usage {category} -- SILVER",
+                        True,
+                        None,
+                    ])
+
             except Exception as e:
-                layer = "raw_errors"
-                results.append([f"write/save - Dataiku Usage {category} -- QUALITY", False, e])
+                results.append([
+                    f"write/save - Dataiku Usage {category} -- SILVER/QUALITY",
+                    False,
+                    e,
+                ])
                 
                 
     return results
