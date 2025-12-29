@@ -11,5 +11,4 @@ def main(self):
         return pd.DataFrame()
     prefix = "llms"
     df = pd.json_normalize(project_handle.list_llms()).add_prefix(f"{prefix}_")
-    df = dss_funcs.normalize_dataframe(self, df, FLAT_COLUMNS)
     return df
