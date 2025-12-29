@@ -205,7 +205,7 @@ def _load_flat_columns(category, module_name):
     if not schema_file.exists():
         return None  # No schema defined → skip normalization
     spec = importlib.util.spec_from_file_location(
-        f"schemas.{module_name}",
+        f"schemas.{flat_name}",
         schema_file
     )
     schema_module = importlib.util.module_from_spec(spec)
