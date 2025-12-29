@@ -39,5 +39,4 @@ def main(self):
         dfs.append(pd.json_normalize(d))
     df = pd.concat(dfs, ignore_index=True)
     df["connection_category"] = df["type"].map(reverse_lookup).fillna("UNKNOWN")
-    df = dss_funcs.normalize_dataframe(self, df, FLAT_COLUMNS)
     return df
