@@ -52,10 +52,18 @@ class MyRunnable(Runnable):
                     **dq["stats"],
                 }])
                 dss_folder.write_remote_folder_output(self, report_path, df_report)
-            return {"status": "ok", "errors": bool(dq["errors"])}
+            return {
+                "status": "ok",
+                "errors": bool(dq["errors"]),
+                "tracenack": None
+            }
         except Exception as e:
-            return {"status": "exception", "error": str(e)}
-        
+            import traceback
+            return {
+                "status": "exception",
+                "error": str(e),
+                "traceback": traceback.format_exc(),
+            }        
         
     def run(self, progress_callback):
         # variables
