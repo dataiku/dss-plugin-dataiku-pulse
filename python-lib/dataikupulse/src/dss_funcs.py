@@ -234,7 +234,9 @@ def _persist_raw(self, df, category, module_name, project_key, results):
         results.append([project_key, category, module_name, "write/save -- RAW", False, e])
     return
 
-
+# ----------------------------------------------------------
+# Normalize, Coerce, Quality Guards
+# ----------------------------------------------------------
 def _load_flat_columns(self, category, module_name):
     schemas_dir = Path(__file__).parent / "schemas"
     schema_file = schemas_dir / f"{module_name}.py"
@@ -280,8 +282,12 @@ def _write_quality_outputs(self, layer, category, module_name, file_name, df, df
     dq_path = _build_write_path(layer, category, module_name, f"dq_{file_name}")
     dss_folder.write_remote_folder_output(self, data_path, df)
     dss_folder.write_remote_folder_output(self, dq_path, df_report)
-        
+    return
 
+
+# ----------------------------------------------------------
+# Run Modules
+# ----------------------------------------------------------
 def run_modules(self, mode="instance", project_handle=None, client_d={}, project_key=None):
     dss_objs = _resolve_module_namespace(mode)
     results = []
