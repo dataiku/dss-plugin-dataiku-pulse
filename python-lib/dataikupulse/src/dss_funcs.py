@@ -216,14 +216,15 @@ def _execute_module(self, module_name, module_path, project_handle, client_d, pr
         results.append([project_key, category, module_name, "load/run", False, e])
         return pd.DataFrame()
 
-
+def _is_valid_df(self, df):
+    return isinstance(df, pd.DataFrame) and not df.empty
 
 
 def run_modules(self, mode="instance", project_handle=None, client_d={}, project_key=None):
-    dss_objs = self._resolve_module_namespace(mode)
+    dss_objs = _resolve_module_namespace(mode)
     results = []
-    for category, module_name, module_path in self._discover_modules(dss_objs):
-        df = self._execute_module(
+    for category, module_name, module_path in _discover_modules(dss_objs):
+        df = _execute_module(
             module_name,
             module_path,
             project_handle,
@@ -232,10 +233,10 @@ def run_modules(self, mode="instance", project_handle=None, client_d={}, project
             category,
             results
         )
-        if not self._is_valid_df(df):
+        if not _is_valid_df(df):
             continue
-        self._persist_raw(df, category, module_name, project_key, results)
-        self._process_quality_and_persist(df, category, module_name, project_key, results)
+        _persist_raw(df, category, module_name, project_key, results)
+        _process_quality_and_persist(df, category, module_name, project_key, results)
     return results
 
 
