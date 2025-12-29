@@ -193,7 +193,6 @@ def _load_flat_columns(self, category, module_name):
 
 
 def sanitize_for_parquet(value):
-    # Empty dict → None
     if isinstance(value, dict):
         if len(value) == 0:
             return None
@@ -202,10 +201,8 @@ def sanitize_for_parquet(value):
             sv = sanitize_for_parquet(v)
             sanitized[k] = sv
         return sanitized
-    # Lists: sanitize elements
     if isinstance(value, list):
         return [sanitize_for_parquet(v) for v in value]
-    # Everything else
     return value
 
 
