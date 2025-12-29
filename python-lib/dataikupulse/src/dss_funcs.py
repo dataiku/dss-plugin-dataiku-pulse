@@ -223,6 +223,7 @@ def run_modules(self, mode = "instance", project_handle = None, client_d = {}, p
             except Exception as e:
                 results.append([project_key, category, module_name, "write/save -- RAW", False, e])
             # Test quality control -- Save to Silver or Raw Error
+            FLAT_COLUMNS_BY_DOMAIN = load_flat_columns("schemas")
             layer = "silver"
             try:
                 df = dss_silver.coerce_schema(df)
