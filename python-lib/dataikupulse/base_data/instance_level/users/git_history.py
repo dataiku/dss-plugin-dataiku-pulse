@@ -30,5 +30,4 @@ def main(self):
     df = pd.concat(results, ignore_index=True)
     # Rename a few colums
     df = df.rename(columns={"author": "login"})
-    df = dss_funcs.normalize_dataframe(self, df, FLAT_COLUMNS)
     return df
