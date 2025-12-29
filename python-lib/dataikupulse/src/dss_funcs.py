@@ -275,7 +275,6 @@ def _write_quality_outputs(self, layer, category, module_name, file_name, df, df
     dq_path = _build_write_path(layer, category, module_name, f"dq_{file_name}")
     dss_folder.write_remote_folder_output(self, data_path, df)
     dss_folder.write_remote_folder_output(self, dq_path, df_report)
-
         
 
 def run_modules(self, mode="instance", project_handle=None, client_d={}, project_key=None):
