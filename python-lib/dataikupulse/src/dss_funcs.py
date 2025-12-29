@@ -211,7 +211,7 @@ def _load_flat_columns(self, category, module_name):
 
 
 def _normalize_and_validate(self, df, category, module_name,):
-    flat_cols = _load_flat_columns(category, module_name)
+    flat_cols = _load_flat_columns(self, category, module_name)
     if flat_cols:
         try:
             df = dss_silver.normalize_dataframe(self, df, flat_cols)
