@@ -105,7 +105,6 @@ def main(self, df):
                     False,
                     e,
                 ])
-                # If RAW fails, skip SILVER entirely
                 continue
 
             # --------------------------------------------------
@@ -113,7 +112,6 @@ def main(self, df):
             # --------------------------------------------------
             try:
                 silver_df = raw_df.copy()
-
                 # 2.1 Normalize (schema-aware)
                 FLAT_COLUMNS = event_flat_cols.get_flat_cols(category)
                 silver_df = dss_silver.normalize_dataframe(
