@@ -3,6 +3,8 @@ import io
 import os
 import logging
 import pandas as pd
+from joblib import Parallel, delayed
+
 from dataiku.runnables import Runnable, ResultTable
 from dataikupulse.src import dss_funcs
 from dataikupulse.src import dss_folder
