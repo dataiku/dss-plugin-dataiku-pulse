@@ -43,5 +43,6 @@ class MyRunnable(Runnable):
                     file_bytes = io.BytesIO(stream.read())
                 df = pd.read_parquet(file_bytes)
                 # Fix Quality
+                new_path = path.replace("/raw/", "/silver/")
         raise Exception("unimplemented")
         
