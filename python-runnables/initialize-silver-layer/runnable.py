@@ -25,6 +25,10 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
+        # variables
+        project_handle =
+        folder_name = 
+        
         # Get folder / raw paths
         folder = get_local_folder(self, project_handle, folder_name)
         partitions_df = pd.DataFrame(partitions, columns=["partitions"])
