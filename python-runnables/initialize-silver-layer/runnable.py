@@ -33,6 +33,7 @@ class MyRunnable(Runnable):
         
         # Get folder / raw paths
         folder = dss_folder.get_local_folder(self, project_handle, folder_name)
+        partitions = folder.list_partitions()
         partitions_df = pd.DataFrame(partitions, columns=["partitions"])
         cols = ["layer", "category", "module", "instance_name", "date"]
         partitions_df[cols] = partitions_df["partitions"].str.split("|", expand=True)
