@@ -244,7 +244,7 @@ def _persist_raw(self, df, category, module_name, project_key, results):
         results.append([project_key, category, module_name, "write/save -- RAW", True, None])
     except Exception as e:
         results.append([project_key, category, module_name, "write/save -- RAW", False, e])
-
+    return
         
 def _process_quality_and_persist(self, df, category, module_name, project_key, results):
     file_name = "data.parquet"
@@ -269,6 +269,14 @@ def _process_quality_and_persist(self, df, category, module_name, project_key, r
             results.append([project_key, category, module_name, f"write/save -- {layer}", True, None])
     except Exception as e:
         results.append([project_key, category, module_name, "write/save -- QUALITY", False, e])
+
+        
+def _write_quality_outputs(self, layer, category, module_name, file_name, df, df_report):
+    data_path = self._build_write_path(layer, category, module_name, file_name)
+    dq_path = self._build_write_path(layer, category, module_name, f"dq_{file_name}")
+
+    dss_folder.write_remote_folder_output(self, data_path, df)
+    dss_folder.write_remote_folder_output(self, dq_path, df_report)
 
         
 
