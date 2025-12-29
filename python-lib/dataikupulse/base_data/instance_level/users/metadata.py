@@ -51,5 +51,4 @@ def main(self):
     df = pd.merge(dss_users_df, user_commits_df, on="login", how="left")
 
     # Return
-    df = dss_funcs.normalize_dataframe(self, df, FLAT_COLUMNS)
     return df
