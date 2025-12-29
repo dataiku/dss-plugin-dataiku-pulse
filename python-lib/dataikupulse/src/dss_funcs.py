@@ -222,7 +222,6 @@ def _execute_module(self, module_name, module_path, project_handle, client_d, pr
 def run_modules(self, mode="instance", project_handle=None, client_d={}, project_key=None):
     dss_objs = self._resolve_module_namespace(mode)
     results = []
-
     for category, module_name, module_path in self._discover_modules(dss_objs):
         df = self._execute_module(
             module_name,
@@ -233,13 +232,10 @@ def run_modules(self, mode="instance", project_handle=None, client_d={}, project
             category,
             results
         )
-
         if not self._is_valid_df(df):
             continue
-
         self._persist_raw(df, category, module_name, project_key, results)
         self._process_quality_and_persist(df, category, module_name, project_key, results)
-
     return results
 
 
