@@ -4,13 +4,6 @@ from joblib import Parallel, delayed
 from datetime import date
 from dataikupulse.src import dss_funcs
 
-FLAT_COLUMNS = {
-    "project_key",
-    "commit",
-    "login",
-    "timestamp",
-    "message",
-}
 today = date.today()
 
 def split_work(client, project_keys):
