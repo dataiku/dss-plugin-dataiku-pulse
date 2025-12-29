@@ -234,6 +234,44 @@ def _build_write_path(self, layer, category, module_name, file_name):
     return f"{layer}/{category}/{module_name}/{self.instance_name}/{year}/{month}/{day}/{file_name}"
 
 
+def _persist_raw(self, df, category, module_name, project_key, results):
+    file_name = "data.parquet"
+    if project_key:
+        file_name = f"{project_key}_data.parquet"
+    path = _build_write_path("raw", category, module_name, file_name)
+    try:
+        dss_folder.write_remote_folder_output(self, path, df)
+        results.append([project_key, category, module_name, "write/save -- RAW", True, None])
+    except Exception as e:
+        results.append([project_key, category, module_name, "write/save -- RAW", False, e])
+
+        
+def _process_quality_and_persist(self, df, category, module_name, project_key, results):
+    file_name = "data.parquet"
+    if project_key:
+        file_name = f"{project_key}_data.parquet"
+    try:
+        df = dss_silver.coerce_schema(df)
+        dq = dss_silver.data_quality(df)
+        df_report = pd.DataFrame([{
+            "errors": dq["errors"],
+            "warnings": dq["warnings"],
+            **dq["stats"],
+        }])
+        if dq["errors"]:
+            layer = "raw_errors"
+            _write_quality_outputs(layer, category, module_name, file_name, df, df_report)
+            results.append([project_key, category, module_name, f"write/save -- {layer}", False, "Check raw errors"])
+        else:
+            layer = "silver"
+            path = _build_write_path(layer, category, module_name, file_name)
+            dss_folder.write_remote_folder_output(self, path, df)
+            results.append([project_key, category, module_name, f"write/save -- {layer}", True, None])
+
+    except Exception as e:
+        results.append([project_key, category, module_name, "write/save -- QUALITY", False, e])
+
+        
 
 def run_modules(self, mode="instance", project_handle=None, client_d={}, project_key=None):
     dss_objs = _resolve_module_namespace(mode)
