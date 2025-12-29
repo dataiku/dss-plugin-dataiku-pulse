@@ -280,7 +280,7 @@ def run_modules(self, mode="instance", project_handle=None, client_d={}, project
     dss_objs = _resolve_module_namespace(mode)
     results = []
     for category, module_name, module_path in _discover_modules(dss_objs):
-        df = _execute_module(
+        df, results = _execute_module(
             module_name,
             module_path,
             project_handle,
