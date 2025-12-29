@@ -25,9 +25,12 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
-        # Get folder
+        # Get folder / raw paths
         folder = get_local_folder(self, project_handle, folder_name)
-        
+        partitions_df = pd.DataFrame(partitions, columns=["partitions"])
+        cols = ["layer", "category", "module", "instance_name", "date"]
+        partitions_df[cols] = partitions_df["partitions"].str.split("|", expand=True)
+        partitions_df = partitions_df.loc[partitions_df["layer"] == "raw"]
         
         raise Exception("unimplemented")
         
