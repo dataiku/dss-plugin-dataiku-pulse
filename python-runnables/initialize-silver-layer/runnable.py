@@ -52,14 +52,14 @@ class MyRunnable(Runnable):
                         "warnings": dq["warnings"],
                         **dq["stats"],
                     }])
-                if dq["errors"]:
-                    layer = "raw_errors"
-                    write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
-                    dss_folder.write_remote_folder_output(self, write_path, df)
-                    write_path = f"{layer}/{category}/{module_name}/{self.instance_name}/{dt_year}/{dt_month}/{dt_day}/dq_{file_name}"
-                    dss_folder.write_remote_folder_output(self, write_path, df_report)
-                    results.append([project_key, category, module_name, f"write/save -- {layer}", False, "Check raw errors"])
-               
+                    if dq["errors"]:
+                        layer = "/raw_errors/"
+                        write_path = path.replace("/raw/", layer)
+                        dss_folder.write_remote_folder_output(self, write_path, df)
+                        write_path = path.replace("/raw/", layer)
+                        dss_folder.write_remote_folder_output(self, write_path, df_report)
+                except:
+                    hi
                 
                 
                 
