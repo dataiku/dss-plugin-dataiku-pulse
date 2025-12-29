@@ -60,7 +60,7 @@ class MyRunnable(Runnable):
                         write_path = path.replace("/raw/", layer)
                         dss_folder.write_remote_folder_output(self, write_path, df)
                         filename = os.path.basename(write_path)
-                        write_path = path.replace(filename, f"dq_{filename}")
+                        write_path = write_path.replace(filename, f"dq_{filename}")
                         dss_folder.write_remote_folder_output(self, write_path, df_report)
                         raw_failures += 1
                     else:
