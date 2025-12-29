@@ -140,23 +140,30 @@ def get_string_cols(df: pd.DataFrame) -> list[str]:
 
 def coerce_extras_to_json(series: pd.Series) -> pd.Series:
     def to_json_canonical(val):
-        # Nulls stay null
         if val is None or pd.isna(val):
             return None
-        # dict / list → JSON
+        # Native dict / list
         if isinstance(val, (dict, list)):
             try:
                 return json.dumps(val, ensure_ascii=False)
             except Exception:
                 return None
-        # Already a string: must be valid JSON
+        # String input
         if isinstance(val, str):
+            # Already valid JSON
             try:
                 json.loads(val)
                 return val
             except Exception:
-                return None
-        # Everything else is invalid
+                pass
+            # Python dict/list repr → parse → JSON
+            try:
+                parsed = ast.literal_eval(val)
+                if isinstance(parsed, (dict, list)):
+                    return json.dumps(parsed, ensure_ascii=False)
+            except Exception:
+                pass
+            return None
         return None
     return series.apply(to_json_canonical)
 
