@@ -83,6 +83,7 @@ class MyRunnable(Runnable):
             delayed(process_one_file)(path)
             for path in paths
         )
+        results_df = pd.DataFrame(results)
                 
                 
                 
