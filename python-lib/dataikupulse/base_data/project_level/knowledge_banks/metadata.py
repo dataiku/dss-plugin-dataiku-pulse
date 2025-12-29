@@ -2,7 +2,6 @@ import pandas as pd
 from dataikupulse.src import dss_funcs
 
 
-
 def main(self, project_handle, client_d = {}):
     try:
         if not project_handle.list_knowledge_banks():
