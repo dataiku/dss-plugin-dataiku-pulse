@@ -75,6 +75,8 @@ class MyRunnable(Runnable):
             paths.extend(folder.get_partition_info(row.partitions)["paths"])
         
         # Re-Run Silver Quality Guard
+        if self.preset_pc["do_parallel"] and len(paths) > self.preset_pc["cores"]:
+            
         results = Parallel(
             n_jobs=4,          # start conservative; increase carefully
             backend="loky",    # multiprocessing, not threads
