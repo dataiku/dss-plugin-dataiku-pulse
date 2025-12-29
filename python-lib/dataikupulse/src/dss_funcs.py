@@ -256,11 +256,11 @@ def _process_quality_and_persist(self, df, category, module_name, project_key, r
     }])
     if dq["errors"]:
         layer = "raw_errors"
-        self._write_quality_outputs(layer, category, module_name, file_name, df_clean, df_report)
+        _write_quality_outputs(self, layer, category, module_name, file_name, df_clean, df_report)
         results.append([project_key, category, module_name, f"write/save -- {layer}", False, "Check raw errors"])
     else:
         layer = "silver"
-        path = self._build_write_path(layer, category, module_name, file_name)
+        path = _build_write_path(self, layer, category, module_name, file_name)
         dss_folder.write_remote_folder_output(self, path, df_clean)
         results.append([project_key, category, module_name, f"write/save -- {layer}", True, None])
     return results
