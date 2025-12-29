@@ -150,7 +150,7 @@ def _execute_module(self, module_name, module_path, project_handle, client_d, pr
 # ----------------------------------------------------------
 # Validate and Save RAW
 # ----------------------------------------------------------
-def _is_valid_df(self, df):
+def _is_valid_df(df):
     return isinstance(df, pd.DataFrame) and not df.empty
 
 
