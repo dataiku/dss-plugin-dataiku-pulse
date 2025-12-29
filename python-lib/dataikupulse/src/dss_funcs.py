@@ -159,7 +159,7 @@ def _date_parts(self):
 
 
 def _build_write_path(self, layer, category, module_name, file_name):
-    year, month, day = _date_parts()
+    year, month, day = _date_parts(self)
     return f"{layer}/{category}/{module_name}/{self.instance_name}/{year}/{month}/{day}/{file_name}"
 
 
