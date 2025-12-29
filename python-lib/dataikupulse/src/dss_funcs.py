@@ -165,8 +165,10 @@ def _build_write_path(self, layer, category, module_name, file_name):
 
 def sanitize_empty_structs_for_parquet(df):
     for col in df.columns:
-        if df[col].apply(lambda x: isinstance(x, dict) and len(x) == 0).all():
-            df[col] = None
+        if df[col].dtype == "object":
+            df[col] = df[col].apply(
+                lambda x: None if isinstance(x, dict) and len(x) == 0 else x
+            )
     return df
 
 
