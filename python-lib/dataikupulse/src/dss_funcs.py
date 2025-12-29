@@ -5,6 +5,7 @@ import pkgutil
 import pandas as pd
 import dataiku
 import dataikuapi
+import pyarrow as pa
 from dataikupulse.src import dss_folder, dss_silver
 
 
@@ -166,8 +167,13 @@ def _build_write_path(self, layer, category, module_name, file_name):
 def _sanitize_df_for_parquet(df):
     for col in df.columns:
         if df[col].dtype == "object":
-            df[col] = df[col].map(sanitize_for_parquet)
+            df[col] = df[col].map(_sanitize_df_for_parquet)
     return df
+
+def _force_arrow_reinfer(df):
+    table = pa.Table.from_pandas(df, preserve_index=False)
+    return table.to_pandas()
+
 
 def _persist_raw(self, df, category, module_name, project_key, results):
     file_name = "data.parquet"
@@ -175,7 +181,7 @@ def _persist_raw(self, df, category, module_name, project_key, results):
         file_name = f"{project_key}_data.parquet"
     path = _build_write_path(self, "raw", category, module_name, file_name)
     try:
-        df = sanitize_for_parquet(df)
+        df = _sanitize_df_for_parquet(df)
         dss_folder.write_remote_folder_output(self, path, df)
         results.append([project_key, category, module_name, "write/save -- RAW", True, None])
     except Exception as e:
