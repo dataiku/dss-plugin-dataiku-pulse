@@ -247,7 +247,7 @@ def _process_quality_and_persist(self, df, category, module_name, project_key, r
             False,
             dq["error"],
         ])
-        return
+        return results
     df_report = pd.DataFrame([{
         "errors": dq["errors"],
         "warnings": dq["warnings"],
