@@ -167,7 +167,7 @@ def _persist_raw(self, df, category, module_name, project_key, results):
     file_name = "data.parquet"
     if project_key:
         file_name = f"{project_key}_data.parquet"
-    path = _build_write_path("raw", category, module_name, file_name)
+    path = _build_write_path(self, "raw", category, module_name, file_name)
     try:
         dss_folder.write_remote_folder_output(self, path, df)
         results.append([project_key, category, module_name, "write/save -- RAW", True, None])
