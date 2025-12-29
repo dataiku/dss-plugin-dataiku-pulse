@@ -78,7 +78,7 @@ class MyRunnable(Runnable):
         if self.preset_pc["do_parallel"]:
             results = Parallel(
                 n_jobs=self.preset_pc["cores"],
-                backend="loky",
+                backend="threading",
                 verbose=10,
             )(
                 delayed(process_one_file)(path)
