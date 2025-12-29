@@ -163,6 +163,13 @@ def _build_write_path(self, layer, category, module_name, file_name):
     return f"{layer}/{category}/{module_name}/{self.instance_name}/{year}/{month}/{day}/{file_name}"
 
 
+def sanitize_empty_structs_for_parquet(df):
+    for col in df.columns:
+        if df[col].apply(lambda x: isinstance(x, dict) and len(x) == 0).all():
+            df[col] = None
+    return df
+
+
 def _persist_raw(self, df, category, module_name, project_key, results):
     file_name = "data.parquet"
     if project_key:
