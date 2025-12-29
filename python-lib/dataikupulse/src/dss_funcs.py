@@ -234,25 +234,39 @@ def _process_quality_and_persist(self, df, category, module_name, project_key, r
     file_name = "data.parquet"
     if project_key:
         file_name = f"{project_key}_data.parquet"
-    try:
-        df = dss_silver.coerce_schema(df)
-        dq = dss_silver.data_quality(df)
-        df_report = pd.DataFrame([{
-            "errors": dq["errors"],
-            "warnings": dq["warnings"],
-            **dq["stats"],
-        }])
-        if dq["errors"]:
-            layer = "raw_errors"
-            _write_quality_outputs(layer, category, module_name, file_name, df, df_report)
-            results.append([project_key, category, module_name, f"write/save -- {layer}", False, "Check raw errors"])
-        else:
-            layer = "silver"
-            path = _build_write_path(layer, category, module_name, file_name)
-            dss_folder.write_remote_folder_output(self, path, df)
-            results.append([project_key, category, module_name, f"write/save -- {layer}", True, None])
-    except Exception as e:
-        results.append([project_key, category, module_name, "write/save -- QUALITY", False, e])
+
+    df_clean, dq = self._normalize_and_validate(df, category, module_name)
+
+    if dq is None:
+        results.append([project_key, category, module_name, "quality", False, "Unknown failure"])
+        return
+
+    if df_clean is None:
+        results.append([
+            project_key,
+            category,
+            module_name,
+            f"quality -- {dq['stage']}",
+            False,
+            dq["error"],
+        ])
+        return
+
+    df_report = pd.DataFrame([{
+        "errors": dq["errors"],
+        "warnings": dq["warnings"],
+        **dq["stats"],
+    }])
+
+    if dq["errors"]:
+        layer = "raw_errors"
+        self._write_quality_outputs(layer, category, module_name, file_name, df_clean, df_report)
+        results.append([project_key, category, module_name, f"write/save -- {layer}", False, "Check raw errors"])
+    else:
+        layer = "silver"
+        path = self._build_write_path(layer, category, module_name, file_name)
+        dss_folder.write_remote_folder_output(self, path, df_clean)
+        results.append([project_key, category, module_name, f"write/save -- {layer}", True, None])
     return
 
         
