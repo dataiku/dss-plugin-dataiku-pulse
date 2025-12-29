@@ -71,7 +71,7 @@ class MyRunnable(Runnable):
         partitions_df = partitions_df.loc[partitions_df["layer"] == "raw"]
         
         # added filtering
-        partitions_df = partitions_df.loc[partitions_df["category"] == "dataset"]
+        partitions_df = partitions_df.loc[partitions_df["category"] == "datasets"]
         
         # list of paths
         paths = []
