@@ -84,10 +84,15 @@ class MyRunnable(Runnable):
             for path in paths
         )
         results_df = pd.DataFrame(results)
-                
-                
-                
-        return 
+        results_df = results_df.astype(str)
+        rt = ResultTable()
+        n = 1
+        for col in results_df.columns:
+            rt.add_column(n, col, "STRING")
+            n +=1
+        for index, row in results_df.iterrows():
+            rt.add_record(row.tolist())
+        return rt
         
         
         
