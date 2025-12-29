@@ -7,7 +7,34 @@ from dataiku.runnables import Runnable, ResultTable
 from dataikupulse.src import dss_funcs
 from dataikupulse.src import dss_folder
 
+def process_one_file(path):
+    try:
+        with folder.get_download_stream(path) as stream:
+            file_bytes = io.BytesIO(stream.read())
+        df = pd.read_parquet(file_bytes)
+        df = dss_silver.coerce_schema(df)
+        dq = dss_silver.data_quality(df)
+        base_path = path.replace("/raw/", "")
+        if dq["errors"]:
+            write_path = f"/raw_errors/{base_path}"
+        else:
+            write_path = f"/silver/{base_path}"
+        dss_folder.write_remote_folder_output(self, write_path, df)
+        if dq["errors"]:
+            filename = os.path.basename(write_path)
+            report_path = write_path.replace(filename, f"dq_{filename}")
+            df_report = pd.DataFrame([{
+                "errors": dq["errors"],
+                "warnings": dq["warnings"],
+                **dq["stats"],
+            }])
+            dss_folder.write_remote_folder_output(self, report_path, df_report)
+        return {"status": "ok", "errors": bool(dq["errors"])}
+    except Exception as e:
+        return {"status": "exception", "error": str(e)}
 
+    
+    
 class MyRunnable(Runnable):
     def __init__(self, project_key, config, plugin_config):
         self.project_key = project_key
@@ -38,6 +65,11 @@ class MyRunnable(Runnable):
         cols = ["layer", "category", "module", "instance_name", "date"]
         partitions_df[cols] = partitions_df["partitions"].str.split("|", expand=True)
         partitions_df = partitions_df.loc[partitions_df["layer"] == "raw"]
+        
+        # list of paths
+        paths = []
+        for row in partitions_df.itertuples():
+            paths.extend(folder.get_partition_info(row.partitions)["paths"])
         
         # Re-Run Silver Quality Guard
         results = []
