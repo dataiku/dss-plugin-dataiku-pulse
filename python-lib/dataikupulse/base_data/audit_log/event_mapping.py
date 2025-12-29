@@ -132,45 +132,28 @@ def main(self, df):
                 # --------------------------------------------------
                 if dq["errors"]:
                     layer = "raw_errors"
-
                     data_path = f"{layer}/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
                     dq_path = f"{layer}/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/dq_{file_name}"
-
                     dss_folder.write_remote_folder_output(self, data_path, silver_df)
-                    dss_folder.write_remote_folder_output(
-                        self,
-                        dq_path,
-                        pd.DataFrame([dq]),
-                    )
-
+                    dss_folder.write_remote_folder_output(self, dq_path, pd.DataFrame([dq]),)
                     results.append([
                         f"write/save - Dataiku Usage {category} -- {layer}",
                         False,
                         "Quality errors detected",
                     ])
-
                 else:
                     layer = "silver"
-
-                    silver_path = (
-                        f"{layer}/dataiku_usage/{category}/{instance_name}/"
-                        f"{dt_year}/{dt_month}/{dt_day}/{file_name}"
-                    )
-
+                    silver_path = f"{layer}/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
                     dss_folder.write_remote_folder_output(self, silver_path, silver_df)
-
                     results.append([
                         f"write/save - Dataiku Usage {category} -- SILVER",
                         True,
                         None,
                     ])
-
             except Exception as e:
                 results.append([
                     f"write/save - Dataiku Usage {category} -- SILVER/QUALITY",
                     False,
                     e,
                 ])
-                
-                
     return results
