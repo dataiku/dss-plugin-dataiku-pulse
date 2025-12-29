@@ -1,6 +1,7 @@
 import os
 import re
 import importlib
+import pkgutil
 import pandas as pd
 import dataiku
 import dataikuapi
