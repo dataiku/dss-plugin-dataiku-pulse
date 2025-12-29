@@ -74,38 +74,14 @@ class MyRunnable(Runnable):
             paths.extend(folder.get_partition_info(row.partitions)["paths"])
         
         # Re-Run Silver Quality Guard
-        results = []
-        errors = 0
-        raw_failures = 0
-        for row in partitions_df.itertuples(): # get partition
-            for path in folder.get_partition_info(row.partitions)["paths"]: # get path(s)
-                with folder.get_download_stream(path) as stream: # read in stream/df
-                    file_bytes = io.BytesIO(stream.read())
-                df = pd.read_parquet(file_bytes)
-                # Fix Quality
-                layer = "/silver/"
-                try:
-                    df = dss_silver.coerce_schema(df)
-                    dq = dss_silver.data_quality(df)
-                    df_report = pd.DataFrame([{
-                        "errors": dq["errors"],
-                        "warnings": dq["warnings"],
-                        **dq["stats"],
-                    }])
-                    if dq["errors"]:
-                        layer = "/raw_errors/"
-                        write_path = path.replace("/raw/", layer)
-                        dss_folder.write_remote_folder_output(self, write_path, df)
-                        filename = os.path.basename(write_path)
-                        write_path = write_path.replace(filename, f"dq_{filename}")
-                        dss_folder.write_remote_folder_output(self, write_path, df_report)
-                        raw_failures += 1
-                    else:
-                        layer = "/silver/"
-                        write_path = path.replace("/raw/", layer)
-                        dss_folder.write_remote_folder_output(self, write_path, df)
-                except Exception as e:
-                    errors += 1
+        results = Parallel(
+            n_jobs=4,          # start conservative; increase carefully
+            backend="loky",    # multiprocessing, not threads
+            verbose=10,
+        )(
+            delayed(process_one_file)(path)
+            for path in paths
+        )
                 
                 
                 
