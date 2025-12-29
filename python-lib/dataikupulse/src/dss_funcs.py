@@ -165,18 +165,9 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
     
     return df
 
-
-def load_flat_columns(package_name: str) -> dict:
-    result = {}
-    package = importlib.import_module(package_name)
-    for module_info in pkgutil.iter_modules(package.__path__):
-        module_name = f"{package_name}.{module_info.name}"
-        module = importlib.import_module(module_name)
-        if hasattr(module, "FLAT_COLUMNS"):
-            result[module_info.name] = module.FLAT_COLUMNS
-    return result
-
-
+# ----------------------------------------------------------
+# Module Loading and Parsing
+# ----------------------------------------------------------
 def _resolve_module_namespace(self, mode):
     if mode == "instance":
         from dataikupulse.base_data import instance_level as dss_objs
