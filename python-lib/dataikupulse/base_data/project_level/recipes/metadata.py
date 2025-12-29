@@ -110,5 +110,4 @@ def main(self, project_handle, client_d = {}):
             llm_model = ""
         df.loc[df["recipes_name"] == recipes_name, "recipes_params_llmId"] = llm_model
 
-    df = dss_funcs.normalize_dataframe(self, df, FLAT_COLUMNS)
     return df
