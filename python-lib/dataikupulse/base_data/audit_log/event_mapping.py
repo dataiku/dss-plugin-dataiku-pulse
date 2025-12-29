@@ -85,7 +85,7 @@ def main(self, df):
             # 0. Prepare RAW dataframe (as-is)
             # --------------------------------------------------
             raw_df = raw_df.dropna(axis=1, how="all").reset_index(drop=True)
-            file_name = f"data-{dt_epoch}.parquet"
+            file_name = f"category-{dt_epoch}.parquet"
             raw_path = f"raw/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
 
             # --------------------------------------------------
