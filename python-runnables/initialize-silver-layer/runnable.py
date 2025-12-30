@@ -79,7 +79,7 @@ class MyRunnable(Runnable):
             if "/dataiku_usage/" in path:
                 print(1)
             else:
-                results = silver_instance_projects(df, path, results)
+                results = self.silver_instance_projects(df, path, results)
         return results
         
     def run(self, progress_callback):
