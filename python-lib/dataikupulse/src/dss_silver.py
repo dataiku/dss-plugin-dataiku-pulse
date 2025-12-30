@@ -81,6 +81,9 @@ NON_STRING_COLS = (
     | set(BOOL_COLS)
 )
 
+# ------------------------------------------------
+# Normalizer
+# ------------------------------------------------
 def sanitize_for_parquet(value):
     if isinstance(value, dict):
         if len(value) == 0:
@@ -134,11 +137,15 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
     )
     return df
 
+# ------------------------------------------------
+# 
+# ------------------------------------------------
 def get_string_cols(df: pd.DataFrame) -> list[str]:
     return [
         col for col in df.columns
         if col not in NON_STRING_COLS
     ]
+
 
 def coerce_extras_to_json(series: pd.Series) -> pd.Series:
     def to_json_canonical(val):
@@ -170,6 +177,9 @@ def coerce_extras_to_json(series: pd.Series) -> pd.Series:
     return series.apply(to_json_canonical)
 
 
+# ------------------------------------------------
+# 
+# ------------------------------------------------
 def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     """
     Applies semantic schema fixes to a normalized dataframe.
