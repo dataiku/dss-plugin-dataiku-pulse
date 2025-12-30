@@ -132,7 +132,8 @@ def main(self, df):
         # Classify, dataframe, raw, silver
         classification = classify_users_by_activity(grp)
         users_login_df = classification_to_df(classification, date)
-        try: [project_key, category, module_name, "write/save -- RAW", True, None]
+        try:
+            # [project_key, category, module_name, "write/save -- RAW", True, None]
             long_result = dss_funcs._persist_raw(self, df, "users", "user_login_acivity", None, results)
             long_results = dss_funcs._process_quality_and_persist(self, df, category, module_name, project_key, "SKIP", f"data-{dt_epoch}.parquet", results)
             results.append(["write/save", True, f"login users data-{dt_epoch}.parquet"])
