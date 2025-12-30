@@ -139,7 +139,7 @@ class MyRunnable(Runnable):
         #else:
         #    for path in paths:
         #        results += process_one_file(path)
-        #results_df = pd.DataFrame(results)
+        results_df = pd.DataFrame(results)
         
         # Return ResultsTable
         return ResultTable()
