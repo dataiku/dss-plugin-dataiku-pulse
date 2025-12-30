@@ -210,6 +210,74 @@ def extras_to_json(series: pd.Series) -> pd.Series:
 
     return series.map(to_json).astype("string")
 
+def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Applies semantic schema fixes to a normalized dataframe.
+    This function MUTATES TYPES intentionally and deterministically.
+    """
+    # --------------------------------------------------
+    # 1. Epoch millis → UTC timestamps
+    # --------------------------------------------------
+    for col in TIMESTAMP_COLS:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], unit="ms", utc=True, errors="coerce").dt.floor("s")
+    for col in df.select_dtypes(include="datetimetz").columns:
+        df[col] = df[col].astype("datetime64[s, UTC]")
+
+    # --------------------------------------------------
+    # 2. Identifier columns → nullable string
+    # --------------------------------------------------
+    STRING_COLS = get_string_cols(df)
+
+    for col in STRING_COLS + UPPER_STR_COLS:
+        if col in df.columns:
+            df[col] = (
+                df[col]
+                .astype("string")
+                .str.strip()
+            )
+
+    # --------------------------------------------------
+    # 3. Identifier columns → nullable string (UPPER)
+    # --------------------------------------------------
+    for col in UPPER_STR_COLS:
+        if col in df.columns:
+            df[col] = (
+                df[col]
+                .str.upper()
+            )
+
+    # --------------------------------------------------
+    # 4. Numeric metric coercion
+    # --------------------------------------------------
+    for col in NUMERIC_COLS:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # --------------------------------------------------
+    # 5. Boolean coercion
+    # --------------------------------------------------
+    def to_bool(x):
+        if pd.isna(x):
+            return None
+        if x in TRUE_SET:
+            return True
+        if x in FALSE_SET:
+            return False
+        return None
+
+    for col in BOOL_COLS:
+        if col in df.columns:
+            df[col] = df[col].map(to_bool).astype("boolean")
+
+    # --------------------------------------------------
+    # 6. Extras column to JSON dump
+    # --------------------------------------------------
+    if "extras" in df.columns:
+        df["extras"] = coerce_extras_to_json(df["extras"])
+
+    return df
+
 
 # ------------------------------------------------
 # QUALITY GUARD
