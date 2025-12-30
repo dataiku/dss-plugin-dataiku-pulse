@@ -77,6 +77,8 @@ class MyRunnable(Runnable):
         with folder.get_download_stream(path) as stream:
             file_bytes = io.BytesIO(stream.read())
         df = pd.read_parquet(file_bytes)
+        # Normalize / Coerce / Quality
+        
         return
         
     def run(self, progress_callback):
