@@ -216,7 +216,7 @@ def _normalize_and_validate(self, df, category=None, module_name=None, mode="cli
     if mode == "client":
         flat_cols = _load_flat_columns(category, module_name)
     else:
-        
+        flat_cols = audit_dataiku_usage.get_flat_cols(category)
     if flat_cols:
         try:
             df = dss_silver.normalize_dataframe(self, df, flat_cols)
