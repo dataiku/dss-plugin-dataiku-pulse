@@ -245,6 +245,7 @@ def _normalize_and_validate(self, df, category, module_name, mode):
 
 
 def _process_quality_and_persist(self, df, category, module_name, project_key, mode, file_name, results):
+    # Set file name if needed
     if file_name == None:
         file_name = "data.parquet"
         if project_key:
