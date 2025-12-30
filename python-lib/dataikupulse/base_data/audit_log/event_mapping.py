@@ -140,7 +140,8 @@ def main(self, df):
                     dss_folder.write_remote_folder_output(self, data_path, silver_df)
                     dss_folder.write_remote_folder_output(self, dq_path, pd.DataFrame([dq]),)
                     results.append([
-                        f"write/save - Dataiku Usage {category} -- {layer}",
+                        "dataiku_usage",
+                        f"write/save - {category} -- {layer}",
                         False,
                         "Quality errors detected",
                     ])
@@ -149,13 +150,15 @@ def main(self, df):
                     silver_path = f"{layer}/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
                     dss_folder.write_remote_folder_output(self, silver_path, silver_df)
                     results.append([
-                        f"write/save - Dataiku Usage {category} -- SILVER",
+                        "dataiku_usage",
+                        f"write/save - {category} -- SILVER",
                         True,
                         None,
                     ])
             except Exception as e:
                 results.append([
-                    f"write/save - Dataiku Usage {category} -- SILVER/QUALITY",
+                    "dataiku_usage",
+                    f"write/save - {category} -- SILVER/QUALITY",
                     False,
                     e,
                 ])
