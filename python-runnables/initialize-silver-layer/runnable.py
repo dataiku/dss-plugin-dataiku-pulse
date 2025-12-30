@@ -58,7 +58,7 @@ class MyRunnable(Runnable):
             results.append([project_key, category, module_name, f"write/save -- {layer}", False, "Check raw errors"])
         else:
             layer = "silver"
-            path = _build_write_path(self, layer, category, module_name, file_name)
+            path = dss_funcs._build_write_path(self, layer, category, module_name, file_name)
             dss_folder.write_remote_folder_output(self, path, df_clean)
             results.append([project_key, category, module_name, f"write/save -- {layer}", True, None])
         return results
