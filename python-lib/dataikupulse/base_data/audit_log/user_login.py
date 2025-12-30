@@ -133,5 +133,8 @@ def main(self, df):
         
         classification = classify_users_by_activity(grp)
         users_login_df = classification_to_df(classification, date)
+        results = _persist_raw(self, df, category, module_name, project_key, results)
+        results = _process_quality_and_persist(self, df, category, module_name, project_key, results)
+    return results
         
         
