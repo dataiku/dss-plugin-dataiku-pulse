@@ -35,11 +35,10 @@ class MyRunnable(Runnable):
         self.instance_name = path.split("/")[4]
         df_clean, dq = dss_funcs._normalize_and_validate(self, df, category, module_name)
         if dq is None:
-            results.append([project_key, category, module_name, "quality", False, "Unknown failure"])
+            results.append([category, module_name, "quality", False, "Unknown failure"])
             return results
         if df_clean is None:
             results.append([
-                project_key,
                 category,
                 module_name,
                 f"quality -- {dq['stage']}",
