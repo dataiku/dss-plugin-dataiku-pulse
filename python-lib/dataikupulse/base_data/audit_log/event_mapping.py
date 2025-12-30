@@ -95,12 +95,14 @@ def main(self, df):
                 raw_df_safe = raw_df.map(dss_silver.sanitize_for_parquet)
                 dss_folder.write_remote_folder_output(self, raw_path, raw_df_safe)
                 results.append([
+                    "dataiku_usage",
                     f"write/save - Dataiku Usage {category} -- RAW",
                     True,
                     file_name,
                 ])
             except Exception as e:
                 results.append([
+                    "dataiku_usage",
                     f"write/save - Dataiku Usage {category} -- RAW",
                     False,
                     e,
