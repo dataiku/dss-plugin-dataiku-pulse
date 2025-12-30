@@ -112,7 +112,7 @@ class MyRunnable(Runnable):
         
         # return results
         if results:
-            df = pd.DataFrame(results, columns=["step", "result", "message"])
+            df = pd.DataFrame(results, columns=["prcoess", "step", "result", "message"])
             df = df.astype(str)
             rt = ResultTable()
             n = 1
