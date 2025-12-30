@@ -34,9 +34,9 @@ REMOVE_WORDS = [
 ACTION_PATTERN = "|".join(ACTION_WORDS)
 REMOVE_PATTERN = "|".join(REMOVE_WORDS)
 
-
-
-
+# ------------------------------------------------
+# Clean the Audit Log DF
+# ------------------------------------------------
 def clean_audit_log_base(df, results,):
     # 1. Remove scenarios & jobs (if columns exist)
     if "message_scenarioId" in df.columns:
