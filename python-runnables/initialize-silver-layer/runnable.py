@@ -84,8 +84,7 @@ class MyRunnable(Runnable):
         
         # Re-Run Silver Quality Guard
         if self.preset_pc["do_parallel"]:
-            np.array_split(df, self.preset_pc["cores"])
-        
+            chunks = np.array_split(df, self.preset_pc["cores"])
         
         
         
