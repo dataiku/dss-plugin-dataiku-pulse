@@ -79,7 +79,7 @@ class MyRunnable(Runnable):
                 file_bytes = io.BytesIO(stream.read())
             df = pd.read_parquet(file_bytes)
             # Figure out which method to perform for NCQ
-            if "dataiku_usage" in path:
+            if "/dataiku_usage/" in path:
                 print(1)
             else:
                 results = silver_instance_projects(df, path, results)
