@@ -31,6 +31,10 @@ REMOVE_WORDS = [
     "project-save-variables",
 ]
 
+ACTION_PATTERN = "|".join(ACTION_WORDS)
+REMOVE_PATTERN = "|".join(REMOVE_WORDS)
+
+
 
 
 def clean_audit_log_base(df, results,):
