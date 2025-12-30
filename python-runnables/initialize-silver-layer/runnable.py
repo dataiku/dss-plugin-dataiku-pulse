@@ -135,28 +135,3 @@ class MyRunnable(Runnable):
         
         
         
-        
-        # list of paths
-        #paths = []
-        #for row in partitions_df.itertuples():
-        #    paths.extend(folder.get_partition_info(row.partitions)["paths"])
-        
-        #if self.preset_pc["do_parallel"]:
-        #    results = Parallel(
-        #        n_jobs=self.preset_pc["cores"],
-        #        backend="threading",
-        #        verbose=10,
-        #    )(
-        #        delayed(self.process_one_file)(path)
-        #        for path in paths
-        #    )
-        #else:
-        #    for path in paths:
-        #        results += process_one_file(path)
-        
-        
-        
-        
-        
-        
-        
