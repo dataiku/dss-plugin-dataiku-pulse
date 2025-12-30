@@ -78,6 +78,16 @@ def get_view_users(df):
         .unique()
     )
 
+def get_developing_users(df):
+    action_df = df[
+        df["message_msgType"].str.contains(ACTION_PATTERN, na=False)
+    ]
+    action_df = action_df[
+        ~action_df["message_msgType"].str.contains(REMOVE_PATTERN, na=False)
+    ]
+    return set(action_df["message_login"].dropna().unique())
+
+
 def main(self, df):
     results = []
     # Get cleaned DF
