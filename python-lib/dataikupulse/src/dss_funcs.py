@@ -245,9 +245,10 @@ def _normalize_and_validate(self, df, category, module_name, mode):
 
 
 def _process_quality_and_persist(self, df, category, module_name, project_key, mode, file_name, results):
-    file_name = "data.parquet"
-    if project_key:
-        file_name = f"{project_key}_data.parquet"
+    if file_name == None:
+        file_name = "data.parquet"
+        if project_key:
+            file_name = f"{project_key}_data.parquet"
     df_clean, dq = _normalize_and_validate(self, df, category, module_name, mode)
     if dq is None:
         results.append([project_key, category, module_name, "quality", False, "Unknown failure"])
