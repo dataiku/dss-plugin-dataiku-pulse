@@ -70,6 +70,8 @@ def rebuild_silver(self, chunk_df):
         df = pd.read_parquet(file_bytes)
         if "/dataiku_usage/" in path:
             results = silver_dataiku_usage(self, df, path, results)
+        elif "/operating_system/" in path:
+            continue
         else:
             results = silver_instance_projects(self, df, path, results)
     return results
