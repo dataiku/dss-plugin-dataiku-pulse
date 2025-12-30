@@ -134,6 +134,7 @@ def main(self, df):
         # Classify, dataframe
         classification = classify_users_by_activity(grp)
         users_login_df = classification_to_df(classification, instance_name, self.dt)
+        users_login_df["timestamp"] = pd.to_datetime(users_login_df["timestamp"], unit="ms", utc=True, errors="coerce").dt.floor("s")
 
         # RAW 
         try:
