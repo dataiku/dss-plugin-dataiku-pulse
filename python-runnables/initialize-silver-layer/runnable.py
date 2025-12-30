@@ -74,9 +74,10 @@ class MyRunnable(Runnable):
         # Get the partition folder
         folder = dss_folder.get_local_folder(self, self.project_handle, self.folder_name)
         # Grab the parquet file and load as a df
-        with folder.get_download_stream(path) as stream:
-            file_bytes = io.BytesIO(stream.read())
-        df = pd.read_parquet(file_bytes)
+        for path in paths:
+            with folder.get_download_stream(path) as stream:
+                file_bytes = io.BytesIO(stream.read())
+            df = pd.read_parquet(file_bytes)
         # Normalize / Coerce / Quality
         
         return
