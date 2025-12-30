@@ -44,7 +44,8 @@ class MyRunnable(Runnable):
         partitions_df = partitions_df.loc[partitions_df["layer"] == "raw"]
         
         # added filtering
-        partitions_df = partitions_df.loc[partitions_df["category"] == "dataiku_usage"]
+        #partitions_df = partitions_df.loc[partitions_df["category"] == "dataiku_usage"]
+        partitions_df = partitions_df.loc[partitions_df["category"] == "datasets"]
         
         # Re-Run Silver Quality Guard
         if self.preset_pc["do_parallel"]:
