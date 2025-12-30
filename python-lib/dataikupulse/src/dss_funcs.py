@@ -212,14 +212,18 @@ def _load_flat_columns(category, module_name):
     return getattr(schema_module, "FLAT_COLUMNS", None)
 
 
-def _normalize_and_validate(self, df, category=None, module_name=None, mode="client",):
-    # Flatten
+def _get_flat_cols(category=None, module_name=None, mode="client",):
     if mode == "client":
         flat_cols = _load_flat_columns(category, module_name)
     elif mode == "audit_logs":
         flat_cols = audit_dataiku_usage.get_flat_cols(module_name)
     elif mode == "operating_system":
         flat_cols = 0
+    return flat_cols
+
+def _normalize_and_validate(self, df, category=None, module_name=None, mode="client",):
+    # Flatten
+    flat_cols = _get_flat_cols(category, module_name, mode)
     if flat_cols and flat_cols != 0:
         try:
             df = dss_silver.normalize_dataframe(self, df, flat_cols)
