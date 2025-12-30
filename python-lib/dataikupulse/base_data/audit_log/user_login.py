@@ -101,14 +101,14 @@ def classification_to_df(classification, instance_name=None, date=None):
             "instance_name": instance_name,
             "login": user,
             "activity_type": "DEVELOPER",
-            "date": date,
+            "timestamp": date,
         })
     for user in classification.get("view_users", []):
         rows.append({
             "instance_name": instance_name,
             "login": user,
             "activity_type": "VIEWER",
-            "date": date,
+            "timestamp": date,
         })
     return pd.DataFrame(rows)
 
