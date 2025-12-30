@@ -66,11 +66,17 @@ class MyRunnable(Runnable):
                 "traceback": traceback.format_exc(),
             }   
         
-    def rebuild_silver(self, df):
+    def rebuild_silver(self, chunk_df):
         # Get all the partition paths
         paths = []
-        for row in df.itertuples():
+        for row in chunk_df.itertuples():
             paths.extend(folder.get_partition_info(row.partitions)["paths"])
+        # Get the partition folder
+        folder = dss_folder.get_local_folder(self, self.project_handle, self.folder_name)
+        # Grab the parquet file and load as a df
+        with folder.get_download_stream(path) as stream:
+            file_bytes = io.BytesIO(stream.read())
+        df = pd.read_parquet(file_bytes)
         return
         
     def run(self, progress_callback):
