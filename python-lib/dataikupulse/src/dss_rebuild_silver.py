@@ -51,6 +51,7 @@ def silver_dataiku_usage(self, df, path, results):
 
 
 def silver_operating_system(self, df, path, results):
+    df_clean, dq = dss_funcs._normalize_and_validate(self, df, "operating_system", None, mode="audit_logs")
     return results
 
 def silver_instance_projects(self, df, path, results):
