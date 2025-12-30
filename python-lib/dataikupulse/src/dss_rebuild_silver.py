@@ -50,6 +50,9 @@ def silver_dataiku_usage(self, df, path, results):
     return results
 
 
+def silver_operating_system(self, df, path, results):
+    return results
+
 def silver_instance_projects(self, df, path, results):
     category = path.split("/")[2]
     module_name = path.split("/")[3]
