@@ -5,7 +5,7 @@ import pandas as pd
 from dataikupulse.src.schemas import audit_dataiku_usage
 from dataikupulse.src import dss_folder, dss_funcs, dss_silver
 
-def check_save(self, df, path, results, df_clean, dq):
+def check_save(self, df_clean, dq, path, results):
     if dq is None:
         results.append([category, module_name, "quality", False, "Unknown failure"])
         return results
@@ -47,7 +47,7 @@ def check_save(self, df, path, results, df_clean, dq):
 def silver_dataiku_usage(self, df, path, results):
     category = df["dataiku_category"].iloc[0]
     df_clean, dq = dss_funcs._normalize_and_validate(self, df, category, module_name=None, mode="audit_logs")
-    results = check_save(self, df, path, results, df_clean, dq)
+    results = check_save(self, df_clean, dq, path, results)
     return results
 
 def silver_instance_projects(self, df, path, results):
@@ -55,7 +55,7 @@ def silver_instance_projects(self, df, path, results):
     module_name = path.split("/")[3]
     self.instance_name = path.split("/")[4]
     df_clean, dq = dss_funcs._normalize_and_validate(self, df, category, module_name)
-    results = check_save(self, df, path, results, df_clean, dq)
+    results = check_save(self, df_clean, dq, path, results)
     return results
 
 def rebuild_silver(self, chunk_df):
