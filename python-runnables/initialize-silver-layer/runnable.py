@@ -9,7 +9,6 @@ from joblib import Parallel, delayed
 from dataiku.runnables import Runnable, ResultTable
 from dataikupulse.src import dss_funcs
 from dataikupulse.src import dss_folder
-from dataikupulse.src import dss_silver
 
 
 class MyRunnable(Runnable):
