@@ -1,7 +1,9 @@
-import json
 import ast
-import pandas as pd
+import json
 import numpy as np
+import pandas as pd
+from datetime import date, datetime
+from decimal import Decimal
 
 
 UPPER_STR_COLS = [
@@ -148,34 +150,66 @@ def get_string_cols(df: pd.DataFrame) -> list[str]:
         if col not in NON_STRING_COLS
     ]
 
-def coerce_extras_to_json(series: pd.Series) -> pd.Series:
-    def to_json_canonical(val):
-        if val is None or pd.isna(val):
+def extras_to_json(series: pd.Series) -> pd.Series:
+    """
+    Canonicalize extras to a JSON string (or None).
+    - dict/list -> JSON
+    - np.ndarray -> list -> JSON
+    - pd.NA/NaN/None -> None
+    - strings -> if already JSON keep, else wrap as {"_value": "..."} to preserve info
+    - unknown objects -> string via default handler
+    """
+
+    def default(o):
+        # numpy
+        if isinstance(o, np.ndarray):
+            return o.tolist()
+        if isinstance(o, (np.integer, np.floating)):
+            return o.item()
+        # pandas / datetime-ish
+        if isinstance(o, (pd.Timestamp, datetime, date)):
+            return o.isoformat()
+        # decimals
+        if isinstance(o, Decimal):
+            return float(o)
+        # last resort
+        return str(o)
+
+    def to_json(val):
+        # true nulls
+        if val is None or val is pd.NA:
             return None
-        # Native dict / list
-        if isinstance(val, (dict, list)):
-            try:
-                return json.dumps(val, ensure_ascii=False)
-            except Exception:
+        # pandas nan (float nan)
+        try:
+            if pd.isna(val):
                 return None
-        # String input
+        except Exception:
+            pass
+
+        # already JSON string? keep it
         if isinstance(val, str):
-            # Already valid JSON
+            s = val.strip()
+            if s == "":
+                return None
             try:
-                json.loads(val)
-                return val
+                json.loads(s)
+                return s
             except Exception:
-                pass
-            # Python dict/list repr → parse → JSON
-            try:
-                parsed = ast.literal_eval(val)
-                if isinstance(parsed, (dict, list)):
-                    return json.dumps(parsed, ensure_ascii=False)
-            except Exception:
-                pass
-            return None
-        return None
-    return series.apply(to_json_canonical)
+                # preserve non-JSON strings rather than dropping them
+                return json.dumps({"_value": s}, ensure_ascii=False)
+
+        # ndarray -> list
+        if isinstance(val, np.ndarray):
+            val = val.tolist()
+
+        # dict/list -> dump
+        if isinstance(val, (dict, list)):
+            return json.dumps(val, ensure_ascii=False, default=default)
+
+        # anything else: dump with default coercion
+        return json.dumps(val, ensure_ascii=False, default=default)
+
+    return series.map(to_json).astype("string")
 
 
 # ------------------------------------------------
