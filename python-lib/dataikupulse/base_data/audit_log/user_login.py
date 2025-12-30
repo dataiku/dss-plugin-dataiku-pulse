@@ -111,7 +111,7 @@ def main(self, df):
 
     # Loop over any partitions of dates for data
     instance_name = df["instance_name"].iloc[0]
-    for i,grp in df.groupby("date"):
+    for date,grp in df.groupby("date"):
         # datetime for saving
         dt = grp["timestamp"].max()
         dt_year  = str(dt.year)
