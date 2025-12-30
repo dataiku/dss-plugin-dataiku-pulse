@@ -119,7 +119,6 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
         flat["extras"] = extras if extras else None
         rows.append(flat)
     df = pd.DataFrame(rows)
-    df["extras"] = df["extras"].astype("string")
     # 3. Add Additonal Information / output path
     if "instance_name" not in df.columns:
         df.insert(
