@@ -53,7 +53,7 @@ def silver_dataiku_usage(self, df, path, results):
 def silver_instance_projects(self, df, path, results):
 
     df_clean, dq = dss_funcs._normalize_and_validate(self, df, category, module_name)
-    results = check_save(self, df_clean, dq, path, category, module_name, results)
+    
     return results
 
 
@@ -80,6 +80,7 @@ def rebuild_silver(self, chunk_df):
             mode="operating_system"
         #
         df_clean, dq = dss_funcs._normalize_and_validate(self, df, category, module_name, mode)
+        results = check_save(self, df_clean, dq, path, category, module_name, results)
     return results
 
 #EOF
