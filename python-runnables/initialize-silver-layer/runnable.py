@@ -119,7 +119,20 @@ class MyRunnable(Runnable):
                 for chunk in chunks
                 if not chunk.empty
             )        
-        
+        else:
+            self.rebuild_silver(partition_df)
+            
+        # Return ResultsTable
+        results_df = pd.DataFrame(results)
+        results_df = results_df.astype(str)
+        rt = ResultTable()
+        n = 1
+        for col in results_df.columns:
+            rt.add_column(n, col, "STRING")
+            n +=1
+        for index, row in results_df.iterrows():
+            rt.add_record(row.tolist())
+        return rt
         
         
         
@@ -141,19 +154,6 @@ class MyRunnable(Runnable):
         #else:
         #    for path in paths:
         #        results += process_one_file(path)
-        results_df = pd.DataFrame(results)
-        
-        # Return ResultsTable
-        return ResultTable()
-        #results_df = results_df.astype(str)
-        #rt = ResultTable()
-        #n = 1
-        #for col in results_df.columns:
-        #    rt.add_column(n, col, "STRING")
-        #    n +=1
-        #for index, row in results_df.iterrows():
-        #    rt.add_record(row.tolist())
-        #return rt
         
         
         
