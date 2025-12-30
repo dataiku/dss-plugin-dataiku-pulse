@@ -63,7 +63,7 @@ def rebuild_silver(self, chunk_df):
     for row in chunk_df.itertuples():
         paths.extend(self.folder.get_partition_info(row.partitions)["paths"])
     results = []
-    for path in paths: # Loop paths
+    for path in paths:
         with self.folder.get_download_stream(path) as stream:
             file_bytes = io.BytesIO(stream.read())
         df = pd.read_parquet(file_bytes)
