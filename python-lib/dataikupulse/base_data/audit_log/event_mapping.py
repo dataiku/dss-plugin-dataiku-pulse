@@ -2,7 +2,7 @@ import pandas as pd
 import os
 
 from dataikupulse.src import dss_folder, dss_funcs, dss_silver
-from dataikupulse.base_data.audit_log import event_flat_cols
+from dataikupulse.src.schema import audit_dataiku_usage
 
 
 def parse_authvia(s):
@@ -113,7 +113,7 @@ def main(self, df):
             try:
                 silver_df = raw_df.copy()
                 # 2.1 Normalize (schema-aware)
-                FLAT_COLUMNS = event_flat_cols.get_flat_cols(category)
+                FLAT_COLUMNS = audit_dataiku_usage.get_flat_cols(category)
                 silver_df = dss_silver.normalize_dataframe(self, silver_df, FLAT_COLUMNS,)
 
                 # 2.2 Order columns (deterministic)
