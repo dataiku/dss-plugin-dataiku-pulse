@@ -118,12 +118,16 @@ class MyRunnable(Runnable):
                 delayed(self.rebuild_silver)(chunk)
                 for chunk in chunks
                 if not chunk.empty
-            )        
+            )
+            dfs = []
+            for r in results:
+                dfs.append(pd.DataFrame(r).astype(str))
+            results_df = pd.concat(dfs, ignore_index=True)
         else:
             self.rebuild_silver(partition_df)
             
         # Return ResultsTable
-        results_df = pd.DataFrame(results).astype(str)
+        
         rt = ResultTable()
         n = 1
         for col in results_df.columns:
