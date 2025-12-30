@@ -2,6 +2,15 @@
 from dataikupulse.src import dss_funcs
 from dataikupulse.src import dss_folders
 
+
+def silver_dataiku_usage(self, df, path, results):
+    return results
+
+
+
+
+
+
 def silver_instance_projects(self, df, path, results):
     category = path.split("/")[2]
     module_name = path.split("/")[3]
