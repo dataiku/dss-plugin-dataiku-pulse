@@ -1,5 +1,5 @@
 from dataiku.runnables import Runnable, ResultTable
-from dataikupulse.base_data.audit_log import user_login, event_mapping
+from dataikupulse.base_data.audit_log import event_mapping#, user_login
 from dataikupulse.src import dss_funcs
 from datetime import timedelta, datetime
 from pathlib import Path
