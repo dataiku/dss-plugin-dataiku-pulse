@@ -65,14 +65,7 @@ def clean_audit_log_base(df, results,):
 # Calculate who is who / Actions
 # ------------------------------------------------
 def get_view_users(df):
-    return set(
-        df.loc[
-            df["message_msgType"] == "application-open",
-            "message_login"
-        ]
-        .dropna()
-        .unique()
-    )
+    return set(df["message_login"].dropna().unique())
 
 def get_developing_users(df):
     action_df = df[
