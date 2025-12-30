@@ -280,9 +280,9 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-# ------------------------------------------------------------------------------------
-# # Data Quaility Rules
-# ------------------------------------------------------------------------------------
+# ------------------------------------------------
+# DATA QUALITY
+# ------------------------------------------------
 def data_quality(df: pd.DataFrame) -> dict:
     """
     Runs data quality checks on a SILVER dataframe.
