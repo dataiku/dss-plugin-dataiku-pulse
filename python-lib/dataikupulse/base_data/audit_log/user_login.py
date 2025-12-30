@@ -16,6 +16,22 @@ REQUIRED_COLUMNS = [
     "instance_name",
 ]
 
+ACTION_WORDS = [
+    "save",
+    "create",
+    "analysis",
+    "clear",
+    "run",
+]
+
+REMOVE_WORDS = [
+    "list",
+    "dataset-clear-samples",
+    "dataset-save-schema",
+    "project-save-variables",
+]
+
+
 
 def clean_audit_log_base(df, results,):
     # 1. Remove scenarios & jobs (if columns exist)
