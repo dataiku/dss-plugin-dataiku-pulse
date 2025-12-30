@@ -57,7 +57,7 @@ class MyRunnable(Runnable):
             write_path = f"/raw_errors/{base_path}"
         else:
             write_path = f"/silver/{base_path}"
-        dss_folder.write_remote_folder_output(self, write_path, df)
+        dss_folder.write_remote_folder_output(self, write_path, df_clean)
         if dq["errors"]:
             filename = os.path.basename(write_path)
             report_path = write_path.replace(filename, f"dq_{filename}")
