@@ -79,7 +79,6 @@ def rebuild_silver(self, chunk_df):
             mode="operating_system"
         else:
             mode="client"
-            results = silver_instance_projects(self, df, path, results)
         #
         df_clean, dq = dss_funcs._normalize_and_validate(self, df, category, module_name, mode)
     return results
