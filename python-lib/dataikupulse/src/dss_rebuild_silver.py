@@ -11,15 +11,15 @@ def silver_dataiku_usage(self, df, path, results):
 
     # 2.1 Normalize (schema-aware)
     FLAT_COLUMNS = audit_dataiku_usage.get_flat_cols(category)
-    silver_df = dss_silver.normalize_dataframe(self, silver_df, FLAT_COLUMNS,)
+    df = dss_silver.normalize_dataframe(self, df, FLAT_COLUMNS,)
     # 2.2 Order columns (deterministic)
-    ordered = [c for c in FLAT_COLUMNS if c in silver_df.columns]
-    rest = [c for c in silver_df.columns if c not in ordered]
-    silver_df = silver_df[ordered + rest]
+    ordered = [c for c in FLAT_COLUMNS if c in df.columns]
+    rest = [c for c in df.columns if c not in ordered]
+    df = df[ordered + rest]
     # 2.3 Coerce schema (includes extras canonicalization)
-    silver_df = dss_silver.coerce_schema(silver_df)
+    df = dss_silver.coerce_schema(df)
     # 2.4 Quality checks
-    dq = dss_silver.data_quality(silver_df)
+    dq = dss_silver.data_quality(df)
 
     
     return results
