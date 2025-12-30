@@ -2,7 +2,6 @@ import io
 import os
 import pandas as pd
 
-from dataikupulse.src.schemas import audit_dataiku_usage
 from dataikupulse.src import dss_folder, dss_funcs, dss_silver
 
 def check_save(self, df_clean, dq, path, category, module_name, results):
