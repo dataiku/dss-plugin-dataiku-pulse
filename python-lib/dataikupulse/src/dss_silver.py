@@ -137,6 +137,7 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
     )
     return df
 
+
 # ------------------------------------------------
 # COERCE
 # ------------------------------------------------
