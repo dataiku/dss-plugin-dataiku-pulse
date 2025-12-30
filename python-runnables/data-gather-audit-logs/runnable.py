@@ -1,5 +1,5 @@
 from dataiku.runnables import Runnable, ResultTable
-from dataikupulse.base_data.audit_log import event_mapping #, user_login
+from dataikupulse.base_data.audit_log import event_mapping , user_login
 from dataikupulse.src import dss_funcs
 from datetime import timedelta, datetime
 from pathlib import Path
@@ -102,8 +102,8 @@ class MyRunnable(Runnable):
             df = df.rename(columns={"message_authUser": "message_login"})
             
         # Module Import
-        #results += run_module(self, user_login, df)
-        results += run_module(self, event_mapping, df)
+        results += run_module(self, user_login, df)
+        #results += run_module(self, event_mapping, df)
         
         # Reset the audit_log_cache df
         variables["local"]["audit_logs_cache"] = str(df["timestamp"].max())
