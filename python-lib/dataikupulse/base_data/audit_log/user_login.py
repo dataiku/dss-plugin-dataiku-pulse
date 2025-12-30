@@ -126,9 +126,8 @@ def main(self, df):
     instance_name = df["instance_name"].iloc[0]
     for date,grp in df.groupby("date"):
         # datetime for saving
-        dt = grp["timestamp"].max()
-
-        dt_epoch = dt.value
+        self.dt = grp["timestamp"].max()
+        dt_epoch = self.dt.value
         
         # Classify, dataframe, raw, silver
         classification = classify_users_by_activity(grp)
