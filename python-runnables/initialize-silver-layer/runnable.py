@@ -67,14 +67,12 @@ class MyRunnable(Runnable):
         # Get all the partition paths
         paths = []
         for row in chunk_df.itertuples():
-            paths.extend(folder.get_partition_info(row.partitions)["paths"])
-        # Get the partition folder
-        folder = dss_folder.get_local_folder(self, self.project_handle, self.folder_name)
+            paths.extend(self.folder.get_partition_info(row.partitions)["paths"])
         # Grab the parquet file and load as a df
         results = []
         for path in paths: # Loop paths
             # Grab the parquet file and load as a df
-            with folder.get_download_stream(path) as stream:
+            with self.folder.get_download_stream(path) as stream:
                 file_bytes = io.BytesIO(stream.read())
             df = pd.read_parquet(file_bytes)
             # Figure out which method to perform for NCQ
@@ -90,8 +88,8 @@ class MyRunnable(Runnable):
         self.folder_name = "partitioned_data"
         
         # Get folder / raw paths
-        folder = dss_folder.get_local_folder(self, self.project_handle, self.folder_name)
-        partitions = folder.list_partitions()
+        self.folder = dss_folder.get_local_folder(self, self.project_handle, self.folder_name)
+        partitions = self.folder.list_partitions()
         partitions_df = pd.DataFrame(partitions, columns=["partitions"])
         cols = ["layer", "category", "module", "instance_name", "date"]
         partitions_df[cols] = partitions_df["partitions"].str.split("|", expand=True)
