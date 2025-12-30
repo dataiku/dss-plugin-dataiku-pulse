@@ -73,12 +73,11 @@ def rebuild_silver(self, chunk_df):
         module_name = path.split("/")[3]
         self.instance_name = path.split("/")[4]
         #
+        mode="client"
         if "dataiku_usage" == category:
             mode="dataiku_usage"
         elif "operating_system" == category:
             mode="operating_system"
-        else:
-            mode="client"
         #
         df_clean, dq = dss_funcs._normalize_and_validate(self, df, category, module_name, mode)
     return results
