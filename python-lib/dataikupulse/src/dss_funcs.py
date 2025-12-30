@@ -224,7 +224,7 @@ def _get_flat_cols(category=None, module_name=None, mode="client",):
 def _normalize_and_validate(self, df, category=None, module_name=None, mode="client",):
     # Flatten
     flat_cols = _get_flat_cols(category, module_name, mode)
-    if flat_cols and flat_cols != 0:
+    if flat_cols and flat_cols != "SKIP":
         try:
             df = dss_silver.normalize_dataframe(self, df, flat_cols)
         except Exception as e:
