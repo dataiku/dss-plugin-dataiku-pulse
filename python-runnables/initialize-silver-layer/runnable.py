@@ -82,12 +82,11 @@ class MyRunnable(Runnable):
         # added filtering
         partitions_df = partitions_df.loc[partitions_df["category"] == "datasets"]
         
-        # list of paths
-        paths = []
-        for row in partitions_df.itertuples():
-            paths.extend(folder.get_partition_info(row.partitions)["paths"])
+
         
         # Re-Run Silver Quality Guard
+        if self.preset_pc["do_parallel"]:
+            np.array_split(df, self.preset_pc["cores"])
         
         
         
@@ -96,7 +95,10 @@ class MyRunnable(Runnable):
         
         
         
-        
+        # list of paths
+        #paths = []
+        #for row in partitions_df.itertuples():
+        #    paths.extend(folder.get_partition_info(row.partitions)["paths"])
         
         #if self.preset_pc["do_parallel"]:
         #    results = Parallel(
