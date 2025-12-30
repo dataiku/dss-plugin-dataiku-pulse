@@ -215,7 +215,7 @@ def _load_flat_columns(category, module_name):
 def _get_flat_cols(category=None, module_name=None, mode="client",):
     if mode == "client":
         flat_cols = _load_flat_columns(category, module_name)
-    elif mode == "audit_logs":
+    elif mode == "dataiku_usage":
         flat_cols = audit_dataiku_usage.get_flat_cols(module_name)
     elif mode == "operating_system":
         flat_cols = "SKIP"
