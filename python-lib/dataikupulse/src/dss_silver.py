@@ -275,7 +275,7 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     # 6. Extras column to JSON dump
     # --------------------------------------------------
     if "extras" in df.columns:
-        df["extras"] = coerce_extras_to_json(df["extras"])
+        df["extras"] = extras_to_json(df["extras"])
 
     return df
 
