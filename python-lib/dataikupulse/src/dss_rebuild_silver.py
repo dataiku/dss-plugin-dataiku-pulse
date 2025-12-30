@@ -70,5 +70,5 @@ def rebuild_silver(self, chunk_df):
         if "/dataiku_usage/" in path:
             print(1)
         else:
-            results = dss_rebuild_silver.silver_instance_projects(self, df, path, results)
+            results = silver_instance_projects(self, df, path, results)
     return results
