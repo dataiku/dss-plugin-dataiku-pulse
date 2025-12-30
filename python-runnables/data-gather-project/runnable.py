@@ -95,8 +95,8 @@ class MyRunnable(Runnable):
                 df = pd.concat(dfs, ignore_index=True)
             else:
                 df = self.data_gather(project_keys)
-        except:
-            raise Exception("Something went wrong")
+        except Exception as e:
+            raise Exception(f"Something went wrong:: {e}")
             
         # return results
         if not df.empty:
