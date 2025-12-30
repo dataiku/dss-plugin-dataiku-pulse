@@ -226,7 +226,6 @@ def _normalize_and_validate(self, df, category, module_name,):
         df = dss_silver.coerce_schema(df)
     except Exception as e:
         return None, {"stage": "coerce_schema", "error": e}
-    raise Exception(df.head(1).T)
     # Quality
     try:
         dq = dss_silver.data_quality(df)
