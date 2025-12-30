@@ -132,6 +132,6 @@ class MyRunnable(Runnable):
         for index, row in results_df.iterrows():
             rt.add_record(row.tolist())
         return rt
-        
-        
-        
+
+# EOF
+
