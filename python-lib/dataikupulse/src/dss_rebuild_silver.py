@@ -50,14 +50,8 @@ def silver_dataiku_usage(self, df, path, results):
     return results
 
 
-def silver_operating_system(self, df, path, results):
-    df_clean, dq = dss_funcs._normalize_and_validate(self, df, "operating_system", None, mode="audit_logs")
-    return results
-
 def silver_instance_projects(self, df, path, results):
-    category = path.split("/")[2]
-    module_name = path.split("/")[3]
-    self.instance_name = path.split("/")[4]
+
     df_clean, dq = dss_funcs._normalize_and_validate(self, df, category, module_name)
     results = check_save(self, df_clean, dq, path, category, module_name, results)
     return results
@@ -67,15 +61,33 @@ def rebuild_silver(self, chunk_df):
     paths = []
     for row in chunk_df.itertuples():
         paths.extend(self.folder.get_partition_info(row.partitions)["paths"])
+    #
     results = []
     for path in paths:
+        #
         with self.folder.get_download_stream(path) as stream:
             file_bytes = io.BytesIO(stream.read())
         df = pd.read_parquet(file_bytes)
-        if "/dataiku_usage/" in path:
-            results = silver_dataiku_usage(self, df, path, results)
+        #
+        category = path.split("/")[2]
+        module_name = path.split("/")[3]
+        self.instance_name = path.split("/")[4]
+        
+        if "dataiku_usage" == category:
+            mode="audit_logs"
+            
+            
         elif "/operating_system/" in path:
             continue
         else:
             results = silver_instance_projects(self, df, path, results)
+        #
+        df_clean, dq = dss_funcs._normalize_and_validate(self, df, category, module_name, mode)
     return results
+
+#EOF
+
+
+
+
+
