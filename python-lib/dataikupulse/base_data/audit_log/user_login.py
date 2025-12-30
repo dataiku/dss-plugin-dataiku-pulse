@@ -119,7 +119,7 @@ def main(self, df):
     
     # Get cleaned DF
     df, results = clean_audit_log_base(df, results)
-    if df == None:
+    if df is None or not isinstance(df, pd.DataFrame):
         return results
 
     # Loop over any partitions of dates for data
