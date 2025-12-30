@@ -11,19 +11,9 @@ def check_save():
 
 def silver_dataiku_usage(self, df, path, results):
     category = df["dataiku_category"].iloc[0]
+    df_clean, dq = dss_funcs._normalize_and_validate(self, df, category, module_name=None, mode="audit_logs")
     
-    
-    # 2.1 Normalize (schema-aware)
-    FLAT_COLUMNS = audit_dataiku_usage.get_flat_cols(category)
-    df = dss_silver.normalize_dataframe(self, df, FLAT_COLUMNS,)
-    # 2.2 Order columns (deterministic)
-    ordered = [c for c in FLAT_COLUMNS if c in df.columns]
-    rest = [c for c in df.columns if c not in ordered]
-    df = df[ordered + rest]
-    # 2.3 Coerce schema (includes extras canonicalization)
-    df = dss_silver.coerce_schema(df)
-    # 2.4 Quality checks
-    dq = dss_silver.data_quality(df)
+
 
     
     return results
@@ -38,41 +28,6 @@ def silver_instance_projects(self, df, path, results):
     module_name = path.split("/")[3]
     self.instance_name = path.split("/")[4]
     df_clean, dq = dss_funcs._normalize_and_validate(self, df, category, module_name)
-    if dq is None:
-        results.append([category, module_name, "quality", False, "Unknown failure"])
-        return results
-    if df_clean is None:
-        results.append([
-            category,
-            module_name,
-            f"quality -- {dq['stage']}",
-            False,
-            dq["error"],
-        ])
-        return results
-    df_report = pd.DataFrame([{
-        "errors": dq["errors"],
-        "warnings": dq["warnings"],
-        **dq["stats"],
-    }])
-    base_path = path.replace("/raw/", "")
-    if dq["errors"]:
-        write_path = f"/raw_errors/{base_path}"
-    else:
-        write_path = f"/silver/{base_path}"
-    dss_folder.write_remote_folder_output(self, write_path, df_clean)
-    if dq["errors"]:
-        filename = os.path.basename(write_path)
-        report_path = write_path.replace(filename, f"dq_{filename}")
-        df_report = pd.DataFrame([{
-            "errors": dq["errors"],
-            "warnings": dq["warnings"],
-            **dq["stats"],
-        }])
-        dss_folder.write_remote_folder_output(self, report_path, df_report)
-        results.append([category, module_name, f"write/save -- raw_errors", False, "Check raw errors"])
-    else:
-        results.append([category, module_name, f"write/save -- silver", True, None])
     return results
 
 
