@@ -2,25 +2,60 @@ import pandas as pd
 from dataikupulse.src import dss_folder, dss_silver
 
 
-def main(self, df):
-    results = []
-    
-    # Remove scenarios, job and NaN's
+
+from typing import List, Tuple
+import pandas as pd
+
+REQUIRED_COLUMNS = [
+    "timestamp",
+    "date",
+    "message_callPath",
+    "message_msgType",
+    "message_login",
+    "message_project_key",
+    "instance_name",
+]
+
+
+def clean_audit_log_base(df, results,):
+    # 1. Remove scenarios & jobs (if columns exist)
     if "message_scenarioId" in df.columns:
         df = df[df["message_scenarioId"].isna()]
     if "message_jobId" in df.columns:
         df = df[df["message_jobId"].isna()]
-    df = df[df["message_authSource"] == "USER_FROM_UI"]
-    df = df.dropna(subset=["message_login"])
-    df = df.dropna(axis=1, how='all').reset_index(drop=True)
 
-    # Select the columns needed
-    try:
-        df = df[["timestamp", "date", "message_callPath", "message_msgType", "message_login", "message_project_key", "instance_name"]]
-    except:
-        cols = df.columns.tolist()
-        results.append(["Loading Audit Logs", False, f"Invalid or missing column names: {cols}"])
-        return results
+    # 2. Keep only user-generated UI actions
+    df = df[df["message_authSource"] == "USER_FROM_UI"]
+
+    # 3. Drop invalid rows / empty columns
+    df = (
+        df
+        .dropna(subset=["message_login"])
+        .dropna(axis=1, how="all")
+        .reset_index(drop=True)
+    )
+
+    # 4. Validate & project required columns
+    missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
+    if missing:
+        results.append([
+            "Loading Audit Logs",
+            False,
+            f"Missing required columns: {missing}"
+        ])
+        return None, results
+
+    df = df[REQUIRED_COLUMNS]
+
+    return df, results
+
+
+def main(self, df):
+    results = []
+    clean_audit_log_base(df, results)
+
+
+
 
     instance_name = df["instance_name"].iloc[0]
     # Loop over any partitions of dates for data
@@ -110,5 +145,5 @@ def main(self, df):
         except Exception as e:
             layer = "raw_errors"
             results.append([f"write/save -- QUALITY", False, e])
-           
+
     return results
