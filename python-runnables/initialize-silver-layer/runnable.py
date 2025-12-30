@@ -123,8 +123,7 @@ class MyRunnable(Runnable):
             self.rebuild_silver(partition_df)
             
         # Return ResultsTable
-        results_df = pd.DataFrame(results)
-        results_df = results_df.astype(str)
+        results_df = pd.DataFrame(results).astype(str)
         rt = ResultTable()
         n = 1
         for col in results_df.columns:
