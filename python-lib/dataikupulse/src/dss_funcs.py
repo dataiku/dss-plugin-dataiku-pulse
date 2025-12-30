@@ -221,7 +221,7 @@ def _get_flat_cols(category, module_name, mode,):
         flat_cols = "SKIP"
     return flat_cols
 
-def _normalize_and_validate(self, df, category, module_name, mode="client",):
+def _normalize_and_validate(self, df, category, module_name, mode="client"):
     # Flatten
     flat_cols = _get_flat_cols(category, module_name, mode)
     if flat_cols and flat_cols != "SKIP":
