@@ -131,10 +131,12 @@ def main(self, df):
         dt_day   = str(f'{dt.day:02d}')
         dt_epoch = dt.value
         
+        # Classify, dataframe, raw, silver
         classification = classify_users_by_activity(grp)
         users_login_df = classification_to_df(classification, date)
         results = _persist_raw(self, df, category, module_name, project_key, results)
         results = _process_quality_and_persist(self, df, category, module_name, project_key, results)
+
     return results
         
         
