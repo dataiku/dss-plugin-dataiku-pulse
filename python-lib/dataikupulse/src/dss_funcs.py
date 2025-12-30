@@ -7,6 +7,7 @@ import dataikuapi
 import pyarrow as pa
 from pathlib import Path
 from dataikupulse.src import dss_folder, dss_silver
+from dataikupulse.src.schemas import audit_dataiku_usage
 
 
 # ---------- DATAIKU CLIENT HANDLES -----------------------------
