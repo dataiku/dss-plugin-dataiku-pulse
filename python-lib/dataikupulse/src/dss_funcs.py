@@ -218,6 +218,8 @@ def _normalize_and_validate(self, df, category=None, module_name=None, mode="cli
         flat_cols = _load_flat_columns(category, module_name)
     elif mode == "audit_logs":
         flat_cols = audit_dataiku_usage.get_flat_cols(module_name)
+    elif mode == "operating_system":
+        flat_cols = 0
     if flat_cols and flat_cols != 0:
         try:
             df = dss_silver.normalize_dataframe(self, df, flat_cols)
