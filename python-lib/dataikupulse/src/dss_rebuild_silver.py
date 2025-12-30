@@ -3,8 +3,7 @@ import os
 import pandas as pd
 
 from dataikupulse.src.schemas import audit_dataiku_usage
-from dataikupulse.src import dss_funcs
-from dataikupulse.src import dss_folders
+from dataikupulse.src import dss_folder, dss_funcs, dss_silver
 
 
 def silver_dataiku_usage(self, df, path, results):
