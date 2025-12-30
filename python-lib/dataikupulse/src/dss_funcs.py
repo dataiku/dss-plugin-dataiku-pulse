@@ -213,7 +213,10 @@ def _load_flat_columns(category, module_name):
 
 def _normalize_and_validate(self, df, category=None, module_name=None, mode="client",):
     # Flatten
-    flat_cols = _load_flat_columns(category, module_name)
+    if mode == "client":
+        flat_cols = _load_flat_columns(category, module_name)
+    else:
+        
     if flat_cols:
         try:
             df = dss_silver.normalize_dataframe(self, df, flat_cols)
