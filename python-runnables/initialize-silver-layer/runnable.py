@@ -91,6 +91,7 @@ class MyRunnable(Runnable):
             results = Parallel(
                 n_jobs=self.preset_pc["cores"],
                 backend="threading",
+                batch_size=1,
                 verbose=10,
             )(
                 delayed(self.process_one_file)(path)
