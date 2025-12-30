@@ -127,9 +127,7 @@ def main(self, df):
     for date,grp in df.groupby("date"):
         # datetime for saving
         dt = grp["timestamp"].max()
-        dt_year  = str(dt.year)
-        dt_month = str(f'{dt.month:02d}')
-        dt_day   = str(f'{dt.day:02d}')
+
         dt_epoch = dt.value
         
         # Classify, dataframe, raw, silver
