@@ -94,21 +94,21 @@ def classify_users_by_activity(df):
         "view_users": view_only_users,
     }
 
-def classification_to_df(classification, instance_name=None, date=None):
+def classification_to_df(classification, instance_name=None, timestamp=None):
     rows = []
     for user in classification.get("developing_users", []):
         rows.append({
             "instance_name": instance_name,
             "login": user,
             "activity_type": "DEVELOPER",
-            "timestamp": date,
+            "timestamp": timestamp,
         })
     for user in classification.get("view_users", []):
         rows.append({
             "instance_name": instance_name,
             "login": user,
             "activity_type": "VIEWER",
-            "timestamp": date,
+            "timestamp": timestamp,
         })
     return pd.DataFrame(rows)
 
