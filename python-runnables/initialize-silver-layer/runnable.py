@@ -29,9 +29,6 @@ class MyRunnable(Runnable):
         
     def get_progress_target(self):
         return None
-    
-    def rebuild_silver(self, df):
-        return
 
     def process_one_file(self, path):
         try:
@@ -67,7 +64,14 @@ class MyRunnable(Runnable):
                 "status": "exception",
                 "error": str(e),
                 "traceback": traceback.format_exc(),
-            }        
+            }   
+        
+    def rebuild_silver(self, df):
+        # Get all the partition paths
+        paths = []
+        for row in df.itertuples():
+            paths.extend(folder.get_partition_info(row.partitions)["paths"])
+        return
         
     def run(self, progress_callback):
         # variables
@@ -94,8 +98,9 @@ class MyRunnable(Runnable):
                 batch_size=1,
                 verbose=10,
             )(
-                delayed(self.process_one_file)(path)
-                for path in paths
+                delayed(self.rebuild_silver)(chunk)
+                for chunk in chunks
+                if not chunk.empty
             )        
         
         
