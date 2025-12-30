@@ -53,3 +53,22 @@ def silver_instance_projects(self, df, path, results):
         results.append([category, module_name, f"write/save -- silver", True, None])
     return results
 
+
+def rebuild_silver(self, chunk_df):
+    # Get all the partition paths
+    paths = []
+    for row in chunk_df.itertuples():
+        paths.extend(self.folder.get_partition_info(row.partitions)["paths"])
+    # Grab the parquet file and load as a df
+    results = []
+    for path in paths: # Loop paths
+        # Grab the parquet file and load as a df
+        with self.folder.get_download_stream(path) as stream:
+            file_bytes = io.BytesIO(stream.read())
+        df = pd.read_parquet(file_bytes)
+        # Figure out which method to perform for NCQ
+        if "/dataiku_usage/" in path:
+            print(1)
+        else:
+            results = dss_rebuild_silver.silver_instance_projects(self, df, path, results)
+    return results
