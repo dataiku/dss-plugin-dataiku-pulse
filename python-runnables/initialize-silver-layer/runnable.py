@@ -72,13 +72,18 @@ class MyRunnable(Runnable):
         # Get the partition folder
         folder = dss_folder.get_local_folder(self, self.project_handle, self.folder_name)
         # Grab the parquet file and load as a df
-        for path in paths:
+        results = []
+        for path in paths: # Loop paths
+            # Grab the parquet file and load as a df
             with folder.get_download_stream(path) as stream:
                 file_bytes = io.BytesIO(stream.read())
             df = pd.read_parquet(file_bytes)
-        # Normalize / Coerce / Quality
-        
-        return
+            # Figure out which method to perform for NCQ
+            if "dataiku_usage" in path:
+                print(1)
+            else:
+                results = silver_instance_projects(self, df, path, results)
+        return results
         
     def run(self, progress_callback):
         # variables
