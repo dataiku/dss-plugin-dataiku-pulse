@@ -135,7 +135,8 @@ def main(self, df):
         try:
             # [project_key, category, module_name, "write/save -- RAW", True, None]
             long_results = dss_funcs._persist_raw(self, df, "users", "user_login_acivity", None, [])
-            #long_results = dss_funcs._process_quality_and_persist(self, df, category, module_name, project_key, "SKIP", f"data-{dt_epoch}.parquet", [])
+            raise Exception(long_results)
+            long_results = dss_funcs._process_quality_and_persist(self, df, category, module_name, project_key, "SKIP", f"data-{dt_epoch}.parquet", [])
             results.append(["User Login Classification", "write/save", True, f"{dt_epoch}"])
         except Exception as e:
             results.append(["User Login Classification", "write/save", False, e])
