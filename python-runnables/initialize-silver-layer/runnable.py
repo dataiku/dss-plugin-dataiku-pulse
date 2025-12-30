@@ -124,7 +124,8 @@ class MyRunnable(Runnable):
                 dfs.append(pd.DataFrame(r).astype(str))
             results_df = pd.concat(dfs, ignore_index=True)
         else:
-            self.rebuild_silver(partition_df)
+            results = self.rebuild_silver(partition_df)
+            results_df =pd.DataFrame(results).astype(str)
             
         # Return ResultsTable
         
