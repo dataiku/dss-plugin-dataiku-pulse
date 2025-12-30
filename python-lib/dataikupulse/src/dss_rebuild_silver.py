@@ -64,6 +64,8 @@ def rebuild_silver(self, chunk_df):
             mode="dataiku_usage"
         elif "operating_system" == category:
             mode="operating_system"
+        elif "_user_logins" in module_name:
+            continue
         #
         df_clean, dq = dss_funcs._normalize_and_validate(self, df, category, module_name, mode)
         results = check_save(self, df_clean, dq, path, category, module_name, results)
