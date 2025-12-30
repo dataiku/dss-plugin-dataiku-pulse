@@ -138,7 +138,7 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
     return df
 
 # ------------------------------------------------
-# 
+# COERCE
 # ------------------------------------------------
 def get_string_cols(df: pd.DataFrame) -> list[str]:
     return [
@@ -178,7 +178,7 @@ def coerce_extras_to_json(series: pd.Series) -> pd.Series:
 
 
 # ------------------------------------------------
-# 
+# QUALITY GUARD
 # ------------------------------------------------
 def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     """
