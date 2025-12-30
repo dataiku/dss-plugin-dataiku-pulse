@@ -94,6 +94,22 @@ def classify_users_by_activity(df):
         "view_users": view_only_users,
     }
 
+def classification_to_df(classification, date=None):
+    rows = []
+    for user in classification.get("developing_users", []):
+        rows.append({
+            "user": user,
+            "user_type": "DEVELOPING",
+            "date": date,
+        })
+    for user in classification.get("view_users", []):
+        rows.append({
+            "user": user,
+            "user_type": "VIEW",
+            "date": date,
+        })
+    return pd.DataFrame(rows)
+
 
 # ------------------------------------------------
 # Calculate who is who / Actions
