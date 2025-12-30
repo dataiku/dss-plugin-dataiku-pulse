@@ -316,7 +316,7 @@ def data_quality(df: pd.DataFrame) -> dict:
 
     # 4. Extras column validation
     def is_valid_json_or_null(val):
-        if val is None:
+        if val is None or val is pd.NA or pd.isna(val):
             return True
         if not isinstance(val, str):
             return False
