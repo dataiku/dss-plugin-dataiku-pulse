@@ -141,7 +141,7 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
 
 
 # ------------------------------------------------
-# COERCE
+# COERCE SCHEMA
 # ------------------------------------------------
 def get_string_cols(df: pd.DataFrame) -> list[str]:
     return [
