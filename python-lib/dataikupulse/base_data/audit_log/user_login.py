@@ -47,7 +47,9 @@ def clean_audit_log_base(df, results,):
 
 def main(self, df):
     results = []
-    clean_audit_log_base(df, results)
+    df, results = clean_audit_log_base(df, results)
+    if df == None:
+        return results
 
 
 
