@@ -133,7 +133,7 @@ def main(self, df):
         
         # Classify, dataframe
         classification = classify_users_by_activity(grp)
-        users_login_df = classification_to_df(classification, instance_name, pd.to_datetime(date))
+        users_login_df = classification_to_df(classification, instance_name, self.dt)
 
         # RAW 
         try:
