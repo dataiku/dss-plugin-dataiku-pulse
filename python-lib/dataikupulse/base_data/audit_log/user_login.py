@@ -87,7 +87,27 @@ def get_developing_users(df):
     ]
     return set(action_df["message_login"].dropna().unique())
 
+def classify_users_by_activity(df):
+    """
+    Classifies users as VIEW or DEVELOPING for a single partition.
+    """
 
+    view_users = get_view_users(df)
+    developing_users = get_developing_users(df)
+
+    # DEVELOPING overrides VIEW
+    developing_users = developing_users & view_users
+    view_only_users = view_users - developing_users
+
+    return {
+        "developing_users": developing_users,
+        "view_users": view_only_users,
+    }
+
+
+# ------------------------------------------------
+# Calculate who is who / Actions
+# ------------------------------------------------
 def main(self, df):
     results = []
     # Get cleaned DF
