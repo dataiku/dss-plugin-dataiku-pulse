@@ -99,7 +99,7 @@ def classification_to_df(classification, date=None):
     for user in classification.get("developing_users", []):
         rows.append({
             "login": user,
-            "activity_type": "DEVELOPING",
+            "activity_type": "DEVELOPER",
             "date": date,
         })
     for user in classification.get("view_users", []):
