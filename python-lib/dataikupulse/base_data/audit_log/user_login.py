@@ -116,6 +116,7 @@ def classification_to_df(classification, date=None):
 # ------------------------------------------------
 def main(self, df):
     results = []
+    
     # Get cleaned DF
     df, results = clean_audit_log_base(df, results)
     if df == None:
