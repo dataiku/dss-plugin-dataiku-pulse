@@ -218,7 +218,7 @@ def _get_flat_cols(category=None, module_name=None, mode="client",):
     elif mode == "audit_logs":
         flat_cols = audit_dataiku_usage.get_flat_cols(module_name)
     elif mode == "operating_system":
-        flat_cols = 0
+        flat_cols = "SKIP"
     return flat_cols
 
 def _normalize_and_validate(self, df, category=None, module_name=None, mode="client",):
