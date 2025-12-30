@@ -66,6 +66,7 @@ class MyRunnable(Runnable):
                 **dq["stats"],
             }])
             dss_folder.write_remote_folder_output(self, report_path, df_report)
+            results.append([category, module_name, f"write/save -- {layer}", False, "Check raw errors"])
         return results
         
     def rebuild_silver(self, chunk_df):
