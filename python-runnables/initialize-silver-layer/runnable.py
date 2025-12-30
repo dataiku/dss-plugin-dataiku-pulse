@@ -54,7 +54,7 @@ class MyRunnable(Runnable):
         }])
         if dq["errors"]:
             layer = "raw_errors"
-            _write_quality_outputs(self, layer, category, module_name, file_name, df_clean, df_report)
+            dss_funcs._write_quality_outputs(self, layer, category, module_name, file_name, df_clean, df_report)
             results.append([project_key, category, module_name, f"write/save -- {layer}", False, "Check raw errors"])
         else:
             layer = "silver"
