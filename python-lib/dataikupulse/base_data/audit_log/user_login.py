@@ -138,7 +138,7 @@ def main(self, df):
             #long_results = dss_funcs._process_quality_and_persist(self, df, category, module_name, project_key, "SKIP", f"data-{dt_epoch}.parquet", results)
             results.append(["User Login Classification", "write/save", True, f"{dt_epoch}"])
         except Exception as e:
-            results.append(["User Login Classification", "write/save - All", False, e])
+            results.append(["User Login Classification", "write/save", False, e])
 
     return results
         
