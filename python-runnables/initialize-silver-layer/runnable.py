@@ -30,41 +30,39 @@ class MyRunnable(Runnable):
     def get_progress_target(self):
         return None
 
-    def process_one_file(self, path):
-        try:
-            folder = dss_folder.get_local_folder(self, self.project_handle, self.folder_name)
-            with folder.get_download_stream(path) as stream:
-                file_bytes = io.BytesIO(stream.read())
-            df = pd.read_parquet(file_bytes)
-            df = dss_silver.coerce_schema(df)
-            dq = dss_silver.data_quality(df)
-            base_path = path.replace("/raw/", "")
-            if dq["errors"]:
-                write_path = f"/raw_errors/{base_path}"
-            else:
-                write_path = f"/silver/{base_path}"
-            dss_folder.write_remote_folder_output(self, write_path, df)
-            if dq["errors"]:
-                filename = os.path.basename(write_path)
-                report_path = write_path.replace(filename, f"dq_{filename}")
-                df_report = pd.DataFrame([{
-                    "errors": dq["errors"],
-                    "warnings": dq["warnings"],
-                    **dq["stats"],
-                }])
-                dss_folder.write_remote_folder_output(self, report_path, df_report)
-            return {
-                "status": "ok",
-                "errors": bool(dq["errors"]),
-                "tracenack": None
-            }
-        except Exception as e:
-            import traceback
-            return {
-                "status": "exception",
-                "error": str(e),
-                "traceback": traceback.format_exc(),
-            }   
+    def silver_instance_projects(self, df, path, results):
+        category = path.split("/")[2]
+        module = path.split("/")[3]
+        self.instance_name = path.split("/")[4]
+        df_clean, dq = dss_funcs._normalize_and_validate(self, df, category, module_name)
+        if dq is None:
+            results.append([project_key, category, module_name, "quality", False, "Unknown failure"])
+            return results
+        if df_clean is None:
+            results.append([
+                project_key,
+                category,
+                module_name,
+                f"quality -- {dq['stage']}",
+                False,
+                dq["error"],
+            ])
+            return results
+        df_report = pd.DataFrame([{
+            "errors": dq["errors"],
+            "warnings": dq["warnings"],
+            **dq["stats"],
+        }])
+        if dq["errors"]:
+            layer = "raw_errors"
+            _write_quality_outputs(self, layer, category, module_name, file_name, df_clean, df_report)
+            results.append([project_key, category, module_name, f"write/save -- {layer}", False, "Check raw errors"])
+        else:
+            layer = "silver"
+            path = _build_write_path(self, layer, category, module_name, file_name)
+            dss_folder.write_remote_folder_output(self, path, df_clean)
+            results.append([project_key, category, module_name, f"write/save -- {layer}", True, None])
+        return results
         
     def rebuild_silver(self, chunk_df):
         # Get all the partition paths
