@@ -74,7 +74,7 @@ class MyRunnable(Runnable):
         time_diff = datetime.now().astimezone() - last_update
         hours = round((time_diff.total_seconds() / 3600) + 1, 0)
         logs = find_recent_files(logs, hours=hours)
-        results.append(["Parse Latest Logs", True, None])
+        results.append(["setup", "Parse Latest Logs", True, None])
 
         # Open each remaining log for parsing
         dfs = []
@@ -83,7 +83,7 @@ class MyRunnable(Runnable):
             dfs.append(df)
         df = pd.concat(dfs, ignore_index=True)
         df = df[df["timestamp"] >= last_update]
-        results.append(["Gather Audit Logs", True, None])
+        results.append(["setup", "Gather Audit Logs", True, None])
         
         # Expand Messages and join
         jdf = pd.json_normalize(df["message"]).add_prefix("message_").reset_index(drop=True)
