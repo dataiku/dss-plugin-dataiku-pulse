@@ -47,10 +47,7 @@ def check_save(self, df, path, results, df_clean, dq):
 def silver_dataiku_usage(self, df, path, results):
     category = df["dataiku_category"].iloc[0]
     df_clean, dq = dss_funcs._normalize_and_validate(self, df, category, module_name=None, mode="audit_logs")
-    
-
-
-    
+    results = check_save(self, df, path, results, df_clean, dq)
     return results
 
 
