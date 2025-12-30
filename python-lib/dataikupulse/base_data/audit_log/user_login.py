@@ -101,14 +101,14 @@ def classification_to_df(classification, instance_name=None, timestamp=None):
             "instance_name": instance_name,
             "login": user,
             "activity_type": "DEVELOPER",
-            "timestamp": timestamp,
+            "timestampp": timestamp,
         })
     for user in classification.get("view_users", []):
         rows.append({
             "instance_name": instance_name,
             "login": user,
             "activity_type": "VIEWER",
-            "timestamp": timestamp,
+            "timestampp": timestamp,
         })
     return pd.DataFrame(rows)
 
@@ -134,7 +134,6 @@ def main(self, df):
         # Classify, dataframe
         classification = classify_users_by_activity(grp)
         users_login_df = classification_to_df(classification, instance_name, self.dt)
-        users_login_df["timestamp"] = pd.to_datetime(users_login_df["timestamp"], unit="ms", utc=True, errors="coerce").dt.floor("s")
 
         # RAW 
         try:
