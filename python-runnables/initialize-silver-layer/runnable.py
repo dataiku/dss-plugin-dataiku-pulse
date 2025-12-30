@@ -88,8 +88,14 @@ class MyRunnable(Runnable):
         # Re-Run Silver Quality Guard
         if self.preset_pc["do_parallel"]:
             chunks = np.array_split(df, self.preset_pc["cores"])
-        
-        
+            results = Parallel(
+                n_jobs=self.preset_pc["cores"],
+                backend="threading",
+                verbose=10,
+            )(
+                delayed(self.process_one_file)(path)
+                for path in paths
+            )        
         
         
         
