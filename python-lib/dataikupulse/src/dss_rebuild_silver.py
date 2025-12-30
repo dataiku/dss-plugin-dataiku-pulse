@@ -72,7 +72,7 @@ def rebuild_silver(self, chunk_df):
         category = path.split("/")[2]
         module_name = path.split("/")[3]
         self.instance_name = path.split("/")[4]
-        
+        #
         if "dataiku_usage" == category:
             mode="dataiku_usage"
         elif "operating_system" == category:
