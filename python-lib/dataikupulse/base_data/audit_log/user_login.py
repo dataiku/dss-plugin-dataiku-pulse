@@ -94,7 +94,7 @@ def classify_users_by_activity(df):
         "view_users": view_only_users,
     }
 
-def classification_to_df(classification, date=None):
+def classification_to_df(classification, instance_name=None, date=None):
     rows = []
     for user in classification.get("developing_users", []):
         rows.append({
