@@ -223,13 +223,13 @@ def _normalize_and_validate(self, df, category, module_name,):
             return None, {"stage": "normalize", "error": e}
     elif flat_cols == False:
         raise Exception(f"Failed to find FLAT COLUMNS file! {category}_{module_name}.py")
+    raise Exception(df.head(1).T)
     # Schema
     try:
         df = dss_silver.coerce_schema(df)
     except Exception as e:
         return None, {"stage": "coerce_schema", "error": e}
     #raise Exception(df.dtypes)
-    raise Exception(df.head(1).T)
     # Quality
     try:
         dq = dss_silver.data_quality(df)
