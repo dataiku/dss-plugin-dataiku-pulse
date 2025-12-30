@@ -3,6 +3,7 @@ import io
 import os
 import logging
 import pandas as pd
+import numpy as np
 from joblib import Parallel, delayed
 
 from dataiku.runnables import Runnable, ResultTable
@@ -87,30 +88,41 @@ class MyRunnable(Runnable):
             paths.extend(folder.get_partition_info(row.partitions)["paths"])
         
         # Re-Run Silver Quality Guard
-        if self.preset_pc["do_parallel"]:
-            results = Parallel(
-                n_jobs=self.preset_pc["cores"],
-                backend="threading",
-                verbose=10,
-            )(
-                delayed(self.process_one_file)(path)
-                for path in paths
-            )
-        else:
-            for path in paths:
-                results += process_one_file(path)
-        results_df = pd.DataFrame(results)
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        #if self.preset_pc["do_parallel"]:
+        #    results = Parallel(
+        #        n_jobs=self.preset_pc["cores"],
+        #        backend="threading",
+        #        verbose=10,
+        #    )(
+        #        delayed(self.process_one_file)(path)
+        #        for path in paths
+        #    )
+        #else:
+        #    for path in paths:
+        #        results += process_one_file(path)
+        #results_df = pd.DataFrame(results)
         
         # Return ResultsTable
-        results_df = results_df.astype(str)
-        rt = ResultTable()
-        n = 1
-        for col in results_df.columns:
-            rt.add_column(n, col, "STRING")
-            n +=1
-        for index, row in results_df.iterrows():
-            rt.add_record(row.tolist())
-        return rt
+        return ResultTable()
+        #results_df = results_df.astype(str)
+        #rt = ResultTable()
+        #n = 1
+        #for col in results_df.columns:
+        #    rt.add_column(n, col, "STRING")
+        #    n +=1
+        #for index, row in results_df.iterrows():
+        #    rt.add_record(row.tolist())
+        #return rt
         
         
         
