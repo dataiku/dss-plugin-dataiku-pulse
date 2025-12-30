@@ -34,7 +34,7 @@ class MyRunnable(Runnable):
         module_name = path.split("/")[3]
         self.instance_name = path.split("/")[4]
         df_clean, dq = dss_funcs._normalize_and_validate(self, df, category, module_name)
-        raise Exception(df_clean)
+        raise Exception(df_clean.iloc[0,].tolist())
         if dq is None:
             results.append([category, module_name, "quality", False, "Unknown failure"])
             return results
