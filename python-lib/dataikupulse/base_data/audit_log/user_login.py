@@ -2,10 +2,6 @@ import pandas as pd
 from dataikupulse.src import dss_folder, dss_silver
 
 
-
-from typing import List, Tuple
-import pandas as pd
-
 REQUIRED_COLUMNS = [
     "timestamp",
     "date",
