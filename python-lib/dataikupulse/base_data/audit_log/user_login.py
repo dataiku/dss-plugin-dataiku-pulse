@@ -132,6 +132,6 @@ def main(self, df):
         dt_epoch = dt.value
         
         classification = classify_users_by_activity(grp)
-        
+        users_login_df = classification_to_df(classification, date)
         
         
