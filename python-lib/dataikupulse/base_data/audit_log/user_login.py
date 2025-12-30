@@ -1,5 +1,5 @@
 import pandas as pd
-from dataikupulse.src import dss_folder, dss_silver
+from dataikupulse.src import dss_funcs
 
 
 REQUIRED_COLUMNS = [
