@@ -137,6 +137,7 @@ def main(self, df):
             results = dss_funcs._process_quality_and_persist(self, df, category, module_name, project_key, "SKIP", f"data-{dt_epoch}.parquet", results)
             #results.append(["write/save", True, f"login users data-{dt_epoch}.parquet"])
         except Exception as e:
+            pass
             #results.append(["write/save - All", False, e])
 
     return results
