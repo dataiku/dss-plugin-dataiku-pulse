@@ -44,9 +44,7 @@ def clean_audit_log_base(df, results,):
             f"Missing required columns: {missing}"
         ])
         return None, results
-
     df = df[REQUIRED_COLUMNS]
-
     return df, results
 
 
