@@ -98,12 +98,14 @@ def classification_to_df(classification, instance_name=None, date=None):
     rows = []
     for user in classification.get("developing_users", []):
         rows.append({
+            "instance_name": instance_name,
             "login": user,
             "activity_type": "DEVELOPER",
             "date": date,
         })
     for user in classification.get("view_users", []):
         rows.append({
+            "instance_name": instance_name,
             "login": user,
             "activity_type": "VIEWER",
             "date": date,
