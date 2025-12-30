@@ -96,14 +96,14 @@ def main(self, df):
                 dss_folder.write_remote_folder_output(self, raw_path, raw_df_safe)
                 results.append([
                     "dataiku_usage",
-                    f"write/save - Dataiku Usage {category} -- RAW",
+                    f"write/save - {category} -- RAW",
                     True,
                     file_name,
                 ])
             except Exception as e:
                 results.append([
                     "dataiku_usage",
-                    f"write/save - Dataiku Usage {category} -- RAW",
+                    f"write/save - {category} -- RAW",
                     False,
                     e,
                 ])
