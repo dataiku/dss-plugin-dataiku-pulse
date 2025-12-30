@@ -75,10 +75,8 @@ def rebuild_silver(self, chunk_df):
         
         if "dataiku_usage" == category:
             mode="audit_logs"
-            
-            
-        elif "/operating_system/" in path:
-            continue
+        elif "operating_system" == category:
+            mode="audit_logs"
         else:
             results = silver_instance_projects(self, df, path, results)
         #
