@@ -29,6 +29,9 @@ class MyRunnable(Runnable):
         
     def get_progress_target(self):
         return None
+    
+    def rebuild_silver(self, df):
+        return
 
     def process_one_file(self, path):
         try:
