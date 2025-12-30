@@ -52,10 +52,10 @@ def main(self, df):
     if df == None:
         return results
 
-
-
-
     instance_name = df["instance_name"].iloc[0]
+
+
+
     # Loop over any partitions of dates for data
     for i,grp in df.groupby("date"):
         # datetime for saving
