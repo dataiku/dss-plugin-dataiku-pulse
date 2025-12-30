@@ -29,7 +29,6 @@ class MyRunnable(Runnable):
         
     def get_progress_target(self):
         return None
-       
         
     def run(self, progress_callback):
         # variables
