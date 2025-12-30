@@ -293,9 +293,7 @@ def data_quality(df: pd.DataFrame) -> dict:
         "warnings": [],
         "stats": {}
     }
-    # -------------------------
     # 1. Timestamp sanity
-    # -------------------------
     for col in TIMESTAMP_COLS:
         if col in df.columns:
             if not pd.api.types.is_datetime64_any_dtype(df[col]):
@@ -309,9 +307,7 @@ def data_quality(df: pd.DataFrame) -> dict:
                     f"{col} is {df[col].dtype} (expected datetime)"
                 )
                 
-    # -------------------------
     # 2. Identifier columns must not be numeric
-    # -------------------------
     STRING_COLS = get_string_cols(df)
     
     for col in STRING_COLS + UPPER_STR_COLS:
@@ -321,9 +317,7 @@ def data_quality(df: pd.DataFrame) -> dict:
                     f"{col} is numeric (expected string identifier)"
                 )
 
-    # -------------------------
     # 3. Boolean columns must be boolean dtype
-    # -------------------------
     for col in BOOL_COLS:
         if col in df.columns:
             if not pd.api.types.is_bool_dtype(df[col]) \
@@ -332,9 +326,7 @@ def data_quality(df: pd.DataFrame) -> dict:
                     f"{col} is not boolean dtype"
                 )
 
-    # -------------------------
     # 4. Extras column validation
-    # -------------------------
     def is_valid_json_or_null(val):
         if val is None:
             return True
@@ -355,9 +347,7 @@ def data_quality(df: pd.DataFrame) -> dict:
             )
 
 
-    # -------------------------
     # 5. Numeric sanity checks
-    # -------------------------
     if "used_pct" in df.columns:
         bad_pct = df[
             (df["used_pct"] < 0) | (df["used_pct"] > 100)
@@ -374,9 +364,7 @@ def data_quality(df: pd.DataFrame) -> dict:
                 "used > size detected"
             )
 
-    # -------------------------
     # Stats
-    # -------------------------
     report["stats"] = {
         "row_count": len(df),
         "column_count": len(df.columns),
