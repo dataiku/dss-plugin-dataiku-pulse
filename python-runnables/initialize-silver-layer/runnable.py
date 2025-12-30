@@ -52,15 +52,21 @@ class MyRunnable(Runnable):
             "warnings": dq["warnings"],
             **dq["stats"],
         }])
+        base_path = path.replace("/raw/", "")
         if dq["errors"]:
-            layer = "raw_errors"
-            dss_funcs._write_quality_outputs(self, layer, category, module_name, file_name, df_clean, df_report)
-            results.append([project_key, category, module_name, f"write/save -- {layer}", False, "Check raw errors"])
+            write_path = f"/raw_errors/{base_path}"
         else:
-            layer = "silver"
-            path = dss_funcs._build_write_path(self, layer, category, module_name, file_name)
-            dss_folder.write_remote_folder_output(self, path, df_clean)
-            results.append([project_key, category, module_name, f"write/save -- {layer}", True, None])
+            write_path = f"/silver/{base_path}"
+        dss_folder.write_remote_folder_output(self, write_path, df)
+        if dq["errors"]:
+            filename = os.path.basename(write_path)
+            report_path = write_path.replace(filename, f"dq_{filename}")
+            df_report = pd.DataFrame([{
+                "errors": dq["errors"],
+                "warnings": dq["warnings"],
+                **dq["stats"],
+            }])
+            dss_folder.write_remote_folder_output(self, report_path, df_report)
         return results
         
     def rebuild_silver(self, chunk_df):
