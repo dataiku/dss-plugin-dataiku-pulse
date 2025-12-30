@@ -112,6 +112,7 @@ def main(self, df):
             # --------------------------------------------------
             try:
                 silver_df = raw_df.copy()
+
                 # 2.1 Normalize (schema-aware)
                 FLAT_COLUMNS = audit_dataiku_usage.get_flat_cols(category)
                 silver_df = dss_silver.normalize_dataframe(self, silver_df, FLAT_COLUMNS,)
