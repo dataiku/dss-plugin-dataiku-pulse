@@ -2,7 +2,7 @@ import pandas as pd
 import os
 
 from dataikupulse.src import dss_folder, dss_funcs, dss_silver
-from dataikupulse.src.schema import audit_dataiku_usage
+from dataikupulse.src.schemas import audit_dataiku_usage
 
 
 def parse_authvia(s):
