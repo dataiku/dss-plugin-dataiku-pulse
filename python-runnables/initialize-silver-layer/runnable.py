@@ -31,7 +31,7 @@ class MyRunnable(Runnable):
 
     def silver_instance_projects(self, df, path, results):
         category = path.split("/")[2]
-        module = path.split("/")[3]
+        module_name = path.split("/")[3]
         self.instance_name = path.split("/")[4]
         df_clean, dq = dss_funcs._normalize_and_validate(self, df, category, module_name)
         if dq is None:
