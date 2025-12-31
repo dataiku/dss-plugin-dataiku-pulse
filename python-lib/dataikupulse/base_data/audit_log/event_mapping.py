@@ -97,15 +97,15 @@ def main(self, df):
                     []
                 )
                 results.append([
-                    "dataiku_usage",
-                    f"write/save - {category} -- RAW",
+                    category,
+                    f"write/save - {module_name} -- RAW",
                     True,
                     file_name,
                 ])
             except Exception as e:
                 results.append([
                     "dataiku_usage",
-                    f"write/save - {category} -- RAW",
+                    f"write/save - {module_name} -- RAW",
                     False,
                     e,
                 ])
