@@ -46,6 +46,10 @@ class MyRunnable(Runnable):
         # added filtering
         partitions_df = partitions_df.loc[partitions_df["category"] == "dataiku_usage"]
         
+        # check
+        if partitions_df.empty:
+            raise Exception("No partitions found")
+        
         # Re-Run Silver Quality Guard
         if self.preset_pc["do_parallel"]:
             chunks = np.array_split(partitions_df, self.preset_pc["cores"])
