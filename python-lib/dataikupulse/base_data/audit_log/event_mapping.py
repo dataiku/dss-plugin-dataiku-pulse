@@ -108,7 +108,7 @@ def main(self, df):
                     category,
                     module_name,
                     None,
-                    category,
+                    "dataiku_usage",
                     file_name,
                     []
                 )
