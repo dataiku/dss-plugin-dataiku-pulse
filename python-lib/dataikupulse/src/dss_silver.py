@@ -112,15 +112,15 @@ def reorder_columns(df: pd.DataFrame, FLAT_COLUMNS: list[str]) -> pd.DataFrame:
 
 
 def normalize_dataframe(self, df, FLAT_COLUMNS):
-    # 0. NO PERIODS in column names
+    # 1. NO PERIODS in column names
     df.columns = df.columns.str.replace(".", "_", regex=False)
-    # 1. Ensure flat column(s) exist
-    for col in FLAT_COLUMNS:
-        if col not in df.columns:
-            df[col] = None
-    # FLAT COLUMNS
+    # 2. FLAT COLUMNS
     if FLAT_COLUMNS:
-        # 2. Split flat vs extras
+        # 2.A. Ensure flat column(s) exist
+        for col in FLAT_COLUMNS:
+            if col not in df.columns:
+                df[col] = None
+        # 2.B. Split flat vs extras
         rows = []
         for _, row in df.iterrows():
             row_dict = row.to_dict()
@@ -137,7 +137,7 @@ def normalize_dataframe(self, df, FLAT_COLUMNS):
             flat["extras"] = extras if extras else None
             rows.append(flat)
         df = pd.DataFrame(rows)
-        # 3 Order the dataframe
+        # 2.C Order the dataframe by FLAT COLUMNS
         df = reorder_columns(df, FLAT_COLUMNS)
     # 4. Add Additonal Information / output path
     if "instance_name" in df.columns:
