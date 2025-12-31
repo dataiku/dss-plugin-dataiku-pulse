@@ -101,8 +101,8 @@ def sanitize_for_parquet(value):
     return value
 
 
-def reorder_columns(df: pd.DataFrame, flat_columns: list[str]) -> pd.DataFrame:
-    ordered = [c for c in flat_columns if c in df.columns]
+def reorder_columns(df: pd.DataFrame, FLAT_COLUMNS: list[str]) -> pd.DataFrame:
+    ordered = [c for c in FLAT_COLUMNS if c in df.columns]
     rest = [c for c in df.columns if c not in ordered and c != "extras"]
 
     if "extras" in df.columns:
