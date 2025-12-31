@@ -222,7 +222,7 @@ def _get_flat_cols(category, module_name, mode,):
     elif mode == "SKIP":
         flat_cols = "SKIP"
     else:
-        raise Exception(f"Failed to find FLAT COLUMNS file! {category}_{module_name}.py")
+        raise Exception(f"Invalid FLAT COLUMNS mode - {mode}")
     return flat_cols
 
 def _normalize_and_validate(self, df, category, module_name, mode):
