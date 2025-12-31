@@ -312,7 +312,7 @@ def run_modules(self, mode="instance", project_handle=None, client_d={}, project
         )
         if not _is_valid_df(df):
             continue
-        results = _persist_raw(self, df, category, module_name, project_key, results)
+        results = _persist_raw(self, df, category, module_name, project_key, None, results)
         results = _process_quality_and_persist(self, df, category, module_name, project_key, "client", None, results)
     return results
 
