@@ -44,7 +44,7 @@ class MyRunnable(Runnable):
         partitions_df = partitions_df.loc[partitions_df["layer"] == "raw"]
         
         # added filtering
-        #partitions_df = partitions_df.loc[partitions_df["category"] == "dataiku_usage"]
+        #partitions_df = partitions_df.loc[partitions_df["category"] == "users"]
         
         # check
         if partitions_df.empty:
@@ -72,7 +72,7 @@ class MyRunnable(Runnable):
             results_df =pd.DataFrame(results).astype(str)
             
         # Return ResultsTable
-        
+        results_df.columns = ["category", "module", "step", "results", "errors"]
         rt = ResultTable()
         n = 1
         for col in results_df.columns:
