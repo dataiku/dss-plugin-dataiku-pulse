@@ -1,4 +1,4 @@
-FLAT_COLUMNS = {
+FLAT_COLUMNS = [
     # Project identity
     "project_key",
     "project_name",
@@ -23,4 +23,4 @@ FLAT_COLUMNS = {
     "project_creationTag_versionNumber",
     "project_creationTag_lastModifiedOn",
     "project_creationTag_lastModifiedBy_login",
-}
+]
