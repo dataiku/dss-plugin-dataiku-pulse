@@ -1,4 +1,4 @@
-FLAT_COLUMNS = {
+FLAT_COLUMNS = [
     # Dataset identity
     "project_key",
     "dataset_name",
@@ -17,4 +17,4 @@ FLAT_COLUMNS = {
     "dataset_creationTag_versionNumber",
     "dataset_creationTag_lastModifiedOn",
     "dataset_creationTag_lastModifiedBy_login",
-}
+]
