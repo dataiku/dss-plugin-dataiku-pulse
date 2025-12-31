@@ -96,9 +96,9 @@ def main(self, df):
                     file_name,
                     []
                 )
-                results.append([category, f"write/save - {module_name} -- RAW", True, file_name, ])
+                results.append([category, f"write/save - {module_name} -- RAW", True, file_name])
             except Exception as e:
-                results.append([category, f"write/save - {module_name} -- RAW", False, e, ])
+                results.append([category, f"write/save - {module_name} -- RAW", False, e])
                 continue
             # SILVER
             try:
