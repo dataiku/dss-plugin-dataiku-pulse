@@ -17,6 +17,7 @@ UPPER_STR_COLS = [
 ]
 TIMESTAMP_COLS = [
     "timestamp",
+    "date",
     "run_timestamp",
     "dssStartupTimestamp",
     "creationDate",
