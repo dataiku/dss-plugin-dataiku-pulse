@@ -83,31 +83,14 @@ def main(self, df):
             file_name = f"{module_name}-{dt_epoch}.parquet"
             # RAW 
             try:
-                long_results = dss_funcs._persist_raw(
-                    self,
-                    mn_df,
-                    category,
-                    module_name,
-                    None,
-                    file_name,
-                    []
-                )
+                long_results = dss_funcs._persist_raw(self, mn_df, category, module_name, None, file_name, [])
                 results.append([category, f"write/save - {module_name} -- RAW", True, file_name])
             except Exception as e:
                 results.append([category, f"write/save - {module_name} -- RAW", False, e])
                 continue
             # SILVER
             try:
-                long_results = dss_funcs._process_quality_and_persist(
-                    self,
-                    mn_df,
-                    category,
-                    module_name,
-                    None,
-                    "dataiku_usage",
-                    file_name,
-                    []
-                )
+                long_results = dss_funcs._process_quality_and_persist(self, mn_df, category, module_name, None, "dataiku_usage", file_name, [])
                 results.append([category, "write/save - {module_name} -- SILVER", True, None])
             except Exception as e:
                 results.append([category, "write/save - {module_name} -- SILVER", False, e])
