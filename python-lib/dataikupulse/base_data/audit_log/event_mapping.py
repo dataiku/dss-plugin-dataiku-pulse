@@ -82,14 +82,14 @@ def main(self, df):
 
         # Save outputs
         category = "dataiku_category"
-        for module_name, raw_df in merged_df.groupby(category):
-            raw_df = raw_df.dropna(axis=1, how="all").reset_index(drop=True)
+        for module_name, mn_df in merged_df.groupby(category):
+            mn_df = mn_df.dropna(axis=1, how="all").reset_index(drop=True)
             file_name = f"{module_name}-{dt_epoch}.parquet"
             # RAW 
             try:
                 long_results = dss_funcs._persist_raw(
                     self,
-                    users_login_df,
+                    mn_df,
                     category,
                     module_name,
                     None,
@@ -104,12 +104,12 @@ def main(self, df):
             try:
                 long_results = dss_funcs._process_quality_and_persist(
                     self,
-                    users_login_df,
-                    "users",
-                    "user_login_acivity",
+                    mn_df,
+                    category,
+                    module_name,
                     None,
-                    "SKIP",
-                    f"data-{dt_epoch}.parquet",
+                    category,
+                    file_name,
                     []
                 )
                 results.append(["User Login Classification", "write/save - SILVER", True, None])
