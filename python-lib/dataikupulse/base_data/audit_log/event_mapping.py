@@ -90,8 +90,8 @@ def main(self, df):
                 long_results = dss_funcs._persist_raw(
                     self,
                     users_login_df,
-                    "users",
-                    "user_login_acivity",
+                    category,
+                    module_name,
                     None,
                     []
                 )
