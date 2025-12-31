@@ -40,13 +40,6 @@ def main(self, df):
 
     # Loop over any partitions of dates for data
     for i,grp in df.groupby("date"):
-        # datetime for saving
-        dt = grp["timestamp"].max()
-        dt_year  = str(dt.year)
-        dt_month = str(f'{dt.month:02d}')
-        dt_day   = str(f'{dt.day:02d}')
-        dt_epoch = dt.value
-        
         # Merge the mapping tables
         merged_df = pd.merge(
             grp,
@@ -83,6 +76,9 @@ def main(self, df):
         # Save outputs
         category = "dataiku_category"
         for module_name, mn_df in merged_df.groupby(category):
+            self.dt = mn_df["timestamp"].max()
+            dt_epoch = self.dt.value
+        
             mn_df = mn_df.dropna(axis=1, how="all").reset_index(drop=True)
             file_name = f"{module_name}-{dt_epoch}.parquet"
             # RAW 
