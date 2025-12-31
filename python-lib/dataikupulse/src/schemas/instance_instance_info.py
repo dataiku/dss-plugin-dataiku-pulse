@@ -1,4 +1,4 @@
-FLAT_COLUMNS = {
+FLAT_COLUMNS = [
     # Identity
     "nodeId",
     "nodeName",
@@ -21,4 +21,4 @@ FLAT_COLUMNS = {
 
     # Time (convert upstream if possible)
     "dssStartupTimestamp",
-}
+]
