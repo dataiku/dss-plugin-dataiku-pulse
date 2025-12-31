@@ -118,14 +118,7 @@ def main(self, df):
             
 
 
-            # --------------------------------------------------
-            # 1. Write RAW (Parquet-safe only)
-            # --------------------------------------------------
-            try:
-                raw_df_safe = raw_df.map(dss_silver.sanitize_for_parquet)
-                dss_folder.write_remote_folder_output(self, raw_path, raw_df_safe)
 
-                continue
 
             # --------------------------------------------------
             # 2. SILVER: normalize → coerce → quality
