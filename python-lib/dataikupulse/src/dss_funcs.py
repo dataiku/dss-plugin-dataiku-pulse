@@ -228,13 +228,13 @@ def _get_flat_cols(category, module_name, mode,):
 def _normalize_and_validate(self, df, category, module_name, mode):
     # Flatten
     flat_cols = _get_flat_cols(category, module_name, mode)
-    if flat_cols and flat_cols != "SKIP":
-        try:
-            df = dss_silver.normalize_dataframe(self, df, flat_cols)
-        except Exception as e:
-            return None, {"stage": "normalize", "error": e}
-    elif flat_cols == False:
+    if flat_cols == False:
         raise Exception(f"Failed to find FLAT COLUMNS file! {category}_{module_name}.py")
+    try:
+        df = dss_silver.normalize_dataframe(self, df, flat_cols)
+    except Exception as e:
+        return None, {"stage": "normalize", "error": e}
+        
     # Schema
     try:
         df = dss_silver.coerce_schema(df)
