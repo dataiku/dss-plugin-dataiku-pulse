@@ -135,16 +135,16 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
         flat["extras"] = extras if extras else None
         rows.append(flat)
     df = pd.DataFrame(rows)
-    # 2.1 Order the dataframe
+    # 3 Order the dataframe
     df = reorder_columns(df, FLAT_COLUMNS)
-    # 3. Add Additonal Information / output path
+    # 4. Add Additonal Information / output path
     if "instance_name" not in df.columns:
         df.insert(
             loc=0,
             column="instance_name",
             value=self.instance_name
         )
-    # 4. Add run_time
+    # 5. Add run_time
     df.insert(
         loc=df.columns.get_loc("extras"),
         column="run_timestamp",
