@@ -44,7 +44,7 @@ class MyRunnable(Runnable):
         partitions_df = partitions_df.loc[partitions_df["layer"] == "raw"]
         
         # added filtering
-        partitions_df = partitions_df.loc[partitions_df["category"] == "dataiku_usage"]
+        #partitions_df = partitions_df.loc[partitions_df["category"] == "dataiku_usage"]
         
         # check
         if partitions_df.empty:
