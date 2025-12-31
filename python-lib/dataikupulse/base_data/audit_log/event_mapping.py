@@ -104,7 +104,7 @@ def main(self, df):
                 ])
             except Exception as e:
                 results.append([
-                    "dataiku_usage",
+                    category,
                     f"write/save - {module_name} -- RAW",
                     False,
                     e,
