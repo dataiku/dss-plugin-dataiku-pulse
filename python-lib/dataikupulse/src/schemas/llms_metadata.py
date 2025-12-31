@@ -1,4 +1,4 @@
-FLAT_COLUMNS = {
+FLAT_COLUMNS = [
     # Identity
     "llms_id",
     "llms_friendlyName",
@@ -8,4 +8,4 @@ FLAT_COLUMNS = {
     "llms_type",
     "llms_connection",
     "llms_model",
-}
+]
