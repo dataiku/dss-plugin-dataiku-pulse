@@ -1,4 +1,4 @@
-FLAT_COLUMNS = {
+FLAT_COLUMNS = [
     # Identity
     "login",
     "displayName",
@@ -15,4 +15,4 @@ FLAT_COLUMNS = {
     "last_session_activity",
     "first_commit_date",
     "last_commit_date",
-}
+]
