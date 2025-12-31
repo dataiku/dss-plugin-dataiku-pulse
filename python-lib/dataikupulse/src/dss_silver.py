@@ -111,7 +111,7 @@ def reorder_columns(df: pd.DataFrame, FLAT_COLUMNS: list[str]) -> pd.DataFrame:
     return df[ordered + rest]
 
 
-def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFrame:
+def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: []) -> pd.DataFrame:
     # 0. NO PERIODS in column names
     df.columns = df.columns.str.replace(".", "_", regex=False)
     # 1. Ensure flat column(s) exist
