@@ -234,7 +234,6 @@ def _normalize_and_validate(self, df, category, module_name, mode):
         df = dss_silver.normalize_dataframe(self, df, flat_cols)
     except Exception as e:
         return None, {"stage": "normalize", "error": e}
-        
     # Schema
     try:
         df = dss_silver.coerce_schema(df)
