@@ -220,7 +220,7 @@ def _get_flat_cols(category, module_name, mode,):
     elif mode == "dataiku_usage":
         flat_cols = audit_dataiku_usage.get_flat_cols(module_name)
     elif mode == "SKIP":
-        flat_cols = "SKIP"
+        flat_cols = []
     else:
         raise Exception(f"Invalid FLAT COLUMNS mode - {mode}")
     return flat_cols
