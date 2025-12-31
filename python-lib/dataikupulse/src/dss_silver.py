@@ -118,25 +118,27 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
     for col in FLAT_COLUMNS:
         if col not in df.columns:
             df[col] = None
-    # 2. Split flat vs extras
-    rows = []
-    for _, row in df.iterrows():
-        row_dict = row.to_dict()
-        flat = {}
-        extras = {}
-        for col, value in row_dict.items():
-            if col in FLAT_COLUMNS:
-                flat[col] = value
-            else:
-                if value is None or (isinstance(value, float) and pd.isna(value)):
-                    continue
-                # Parquet-safe normalization
-                extras[col] = sanitize_for_parquet(value)
-        flat["extras"] = extras if extras else None
-        rows.append(flat)
-    df = pd.DataFrame(rows)
-    # 3 Order the dataframe
-    df = reorder_columns(df, FLAT_COLUMNS)
+    # FLAT COLUMNS
+    if FLAT_COLUMNS:
+        # 2. Split flat vs extras
+        rows = []
+        for _, row in df.iterrows():
+            row_dict = row.to_dict()
+            flat = {}
+            extras = {}
+            for col, value in row_dict.items():
+                if col in FLAT_COLUMNS:
+                    flat[col] = value
+                else:
+                    if value is None or (isinstance(value, float) and pd.isna(value)):
+                        continue
+                    # Parquet-safe normalization
+                    extras[col] = sanitize_for_parquet(value)
+            flat["extras"] = extras if extras else None
+            rows.append(flat)
+        df = pd.DataFrame(rows)
+        # 3 Order the dataframe
+        df = reorder_columns(df, FLAT_COLUMNS)
     # 4. Add Additonal Information / output path
     if "instance_name" in df.columns:
         col = df.pop("instance_name")
