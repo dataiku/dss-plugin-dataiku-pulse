@@ -1,4 +1,4 @@
-FLAT_COLUMNS = {
+FLAT_COLUMNS = [
     # Recipe identity
     "project_key",
     "recipes_name",
@@ -22,4 +22,4 @@ FLAT_COLUMNS = {
     "recipes_creationTag_versionNumber",
     "recipes_creationTag_lastModifiedOn",
     "recipes_creationTag_lastModifiedBy_login",
-}
+]
