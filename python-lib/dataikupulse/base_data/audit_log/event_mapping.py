@@ -112,9 +112,9 @@ def main(self, df):
                     file_name,
                     []
                 )
-                results.append(["User Login Classification", "write/save - SILVER", True, None])
+                results.append([category, "write/save - {module_name} -- SILVER", True, None])
             except Exception as e:
-                results.append(["User Login Classification", "write/save - SILVER", False, e])
+                results.append([category, "write/save - {module_name} -- SILVER", False, e])
             
 
 
