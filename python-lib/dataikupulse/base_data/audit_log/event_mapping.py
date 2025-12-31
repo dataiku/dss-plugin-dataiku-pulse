@@ -80,9 +80,11 @@ def main(self, df):
             merged_df["webappid"] = dupes.bfill(axis=1).iloc[:, 0]
             merged_df = merged_df.loc[:, ~merged_df.columns.duplicated()]
 
-        for category, raw_df in merged_df.groupby("dataiku_category"):
+        # Save outputs
+        category = "dataiku_category"
+        for module_name, raw_df in merged_df.groupby(category):
             raw_df = raw_df.dropna(axis=1, how="all").reset_index(drop=True)
-            file_name = f"{category}-{dt_epoch}.parquet"
+            file_name = f"{module_name}-{dt_epoch}.parquet"
             # RAW 
             try:
                 long_results = dss_funcs._persist_raw(
