@@ -93,6 +93,7 @@ def main(self, df):
                     category,
                     module_name,
                     None,
+                    file_name,
                     []
                 )
                 results.append([
