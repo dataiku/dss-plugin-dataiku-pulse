@@ -1,4 +1,4 @@
-FLAT_COLUMNS = {
+FLAT_COLUMNS = [
     # Knowledge bank identity
     "project_key",
     "knowledge_banks_id",
@@ -22,4 +22,4 @@ FLAT_COLUMNS = {
     "knowledge_banks_creationTag_versionNumber",
     "knowledge_banks_creationTag_lastModifiedOn",
     "knowledge_banks_creationTag_lastModifiedBy_login",
-}
+]
