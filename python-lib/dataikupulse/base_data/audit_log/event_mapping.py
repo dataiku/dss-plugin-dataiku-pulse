@@ -81,19 +81,18 @@ def main(self, df):
             merged_df = merged_df.loc[:, ~merged_df.columns.duplicated()]
 
         for category, raw_df in merged_df.groupby("dataiku_category"):
-            # --------------------------------------------------
-            # 0. Prepare RAW dataframe (as-is)
-            # --------------------------------------------------
             raw_df = raw_df.dropna(axis=1, how="all").reset_index(drop=True)
             file_name = f"{category}-{dt_epoch}.parquet"
-            raw_path = f"raw/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
-
-            # --------------------------------------------------
-            # 1. Write RAW (Parquet-safe only)
-            # --------------------------------------------------
+            # RAW 
             try:
-                raw_df_safe = raw_df.map(dss_silver.sanitize_for_parquet)
-                dss_folder.write_remote_folder_output(self, raw_path, raw_df_safe)
+                long_results = dss_funcs._persist_raw(
+                    self,
+                    users_login_df,
+                    "users",
+                    "user_login_acivity",
+                    None,
+                    []
+                )
                 results.append([
                     "dataiku_usage",
                     f"write/save - {category} -- RAW",
@@ -107,6 +106,31 @@ def main(self, df):
                     False,
                     e,
                 ])
+            # SILVER
+            try:
+                long_results = dss_funcs._process_quality_and_persist(
+                    self,
+                    users_login_df,
+                    "users",
+                    "user_login_acivity",
+                    None,
+                    "SKIP",
+                    f"data-{dt_epoch}.parquet",
+                    []
+                )
+                results.append(["User Login Classification", "write/save - SILVER", True, None])
+            except Exception as e:
+                results.append(["User Login Classification", "write/save - SILVER", False, e])
+            
+
+
+            # --------------------------------------------------
+            # 1. Write RAW (Parquet-safe only)
+            # --------------------------------------------------
+            try:
+                raw_df_safe = raw_df.map(dss_silver.sanitize_for_parquet)
+                dss_folder.write_remote_folder_output(self, raw_path, raw_df_safe)
+
                 continue
 
             # --------------------------------------------------
