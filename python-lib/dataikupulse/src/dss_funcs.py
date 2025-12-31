@@ -181,10 +181,12 @@ def _sanitize_df_for_raw_parquet(df):
     return df
 
 
-def _persist_raw(self, df, category, module_name, project_key, results):
-    file_name = "data.parquet"
-    if project_key:
-        file_name = f"{project_key}_data.parquet"
+def _persist_raw(self, df, category, module_name, project_key, file_name, results):
+    # Set file name if needed
+    if file_name == None:
+        file_name = "data.parquet"
+        if project_key:
+            file_name = f"{project_key}_data.parquet"
     path = _build_write_path(self, "raw", category, module_name, file_name)
     try:
         df = _sanitize_df_for_raw_parquet(df)
