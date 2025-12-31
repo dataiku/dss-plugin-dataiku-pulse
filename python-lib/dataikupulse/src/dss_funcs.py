@@ -316,12 +316,14 @@ def run_modules(self, mode="instance", project_handle=None, client_d={}, project
         results = _process_quality_and_persist(self, df, category, module_name, project_key, "client", None, results)
     return results
 
-
-
-
-
-
-
-
-
 # EOF
+
+
+
+
+
+
+
+
+
+
