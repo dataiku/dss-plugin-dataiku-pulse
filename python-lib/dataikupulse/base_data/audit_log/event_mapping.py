@@ -99,6 +99,7 @@ def main(self, df):
                 results.append([category, f"write/save - {module_name} -- RAW", True, file_name, ])
             except Exception as e:
                 results.append([category, f"write/save - {module_name} -- RAW", False, e, ])
+                continue
             # SILVER
             try:
                 long_results = dss_funcs._process_quality_and_persist(
