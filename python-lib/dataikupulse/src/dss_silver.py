@@ -150,6 +150,7 @@ def get_string_cols(df: pd.DataFrame) -> list[str]:
         if col not in NON_STRING_COLS
     ]
 
+
 def extras_to_json(series: pd.Series) -> pd.Series:
     """
     Canonicalize extras to a JSON string (or None).
