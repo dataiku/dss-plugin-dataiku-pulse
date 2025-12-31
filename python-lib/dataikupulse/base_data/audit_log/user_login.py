@@ -130,7 +130,7 @@ def main(self, df):
 
         # RAW 
         try:
-            long_results = dss_funcs._persist_raw(self, users_login_df, "users", "user_login_acivity", None, [])
+            long_results = dss_funcs._persist_raw(self, users_login_df, "users", "user_login_acivity", None, f"data-{dt_epoch}.parquet", [])
             results.append(["User Login Classification", "write/save - RAW", True, None])
         except Exception as e:
             results.append(["User Login Classification", "write/save - RAW", False, e])
