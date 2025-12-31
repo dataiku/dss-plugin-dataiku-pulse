@@ -138,7 +138,10 @@ def normalize_dataframe(self, df: pd.DataFrame, FLAT_COLUMNS: {}) -> pd.DataFram
     # 3 Order the dataframe
     df = reorder_columns(df, FLAT_COLUMNS)
     # 4. Add Additonal Information / output path
-    if "instance_name" not in df.columns:
+    if "instance_name" in df.columns:
+        col = df.pop("instance_name")
+        df.insert(0, "instance_name", col)
+    else:
         df.insert(
             loc=0,
             column="instance_name",
