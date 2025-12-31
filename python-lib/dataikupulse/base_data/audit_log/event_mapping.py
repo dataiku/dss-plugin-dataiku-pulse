@@ -115,62 +115,9 @@ def main(self, df):
                 results.append([category, "write/save - {module_name} -- SILVER", True, None])
             except Exception as e:
                 results.append([category, "write/save - {module_name} -- SILVER", False, e])
-            
-
-
-
-
-            # --------------------------------------------------
-            # 2. SILVER: normalize → coerce → quality
-            # --------------------------------------------------
-            try:
-                silver_df = raw_df.copy()
-
-                # 2.1 Normalize (schema-aware)
-                FLAT_COLUMNS = audit_dataiku_usage.get_flat_cols(category)
-                silver_df = dss_silver.normalize_dataframe(self, silver_df, FLAT_COLUMNS,)
-
-                # 2.2 Order columns (deterministic)
-                ordered = [c for c in FLAT_COLUMNS if c in silver_df.columns]
-                rest = [c for c in silver_df.columns if c not in ordered]
-                silver_df = silver_df[ordered + rest]
-
-                # 2.3 Coerce schema (includes extras canonicalization)
-                silver_df = dss_silver.coerce_schema(silver_df)
-
-                # 2.4 Quality checks
-                dq = dss_silver.data_quality(silver_df)
-
-                # --------------------------------------------------
-                # 3. Route based on quality
-                # --------------------------------------------------
-                if dq["errors"]:
-                    layer = "raw_errors"
-                    data_path = f"{layer}/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
-                    dq_path = f"{layer}/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/dq_{file_name}"
-                    dss_folder.write_remote_folder_output(self, data_path, silver_df)
-                    dss_folder.write_remote_folder_output(self, dq_path, pd.DataFrame([dq]),)
-                    results.append([
-                        "dataiku_usage",
-                        f"write/save - {category} -- {layer}",
-                        False,
-                        "Quality errors detected",
-                    ])
-                else:
-                    layer = "silver"
-                    silver_path = f"{layer}/dataiku_usage/{category}/{instance_name}/{dt_year}/{dt_month}/{dt_day}/{file_name}"
-                    dss_folder.write_remote_folder_output(self, silver_path, silver_df)
-                    results.append([
-                        "dataiku_usage",
-                        f"write/save - {category} -- SILVER",
-                        True,
-                        None,
-                    ])
-            except Exception as e:
-                results.append([
-                    "dataiku_usage",
-                    f"write/save - {category} -- SILVER/QUALITY",
-                    False,
-                    e,
-                ])
     return results
+
+
+#EOF
+
+
