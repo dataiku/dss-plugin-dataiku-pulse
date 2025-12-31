@@ -63,7 +63,7 @@ def rebuild_silver(self, chunk_df):
         if "dataiku_usage" == category:
             mode="dataiku_usage"
         elif "operating_system" == category:
-            mode="operating_system"
+            mode="SKIP"
         elif "user_login_acivity" == module_name:
             mode="SKIP"
         elif "_user_logins" in module_name:
