@@ -1,4 +1,4 @@
-FLAT_COLUMNS = {
+FLAT_COLUMNS = [
     # Agent identity
     "project_key",
     "agents_id",
@@ -16,4 +16,4 @@ FLAT_COLUMNS = {
     "agents_versions_creationTag_versionNumber",
     "agents_versions_creationTag_lastModifiedOn",
     "agents_versions_creationTag_lastModifiedBy_login",
-}
+]
