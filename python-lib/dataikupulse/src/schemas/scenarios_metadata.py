@@ -1,4 +1,4 @@
-FLAT_COLUMNS = {
+FLAT_COLUMNS = [
     # Scenario identity
     "project_key",
     "scenarios_id",
@@ -19,4 +19,4 @@ FLAT_COLUMNS = {
 
     # Execution context
     "scenarios_runAsUser",
-}
+]
