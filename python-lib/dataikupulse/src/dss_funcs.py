@@ -214,7 +214,7 @@ def _load_flat_columns(category, module_name):
     return getattr(schema_module, "FLAT_COLUMNS", None)
 
 
-def _get_flat_cols(category, module_name, mode,):
+def _get_flat_cols(category, module_name, mode):
     if mode == "client":
         flat_cols = _load_flat_columns(category, module_name)
     elif mode == "dataiku_usage":
