@@ -91,7 +91,7 @@ def main(self, df):
                 continue
             # SILVER
             try:
-                long_results = dss_funcs._process_quality_and_persist(self, mn_df, category, module_name, None, "dataiku_usage", file_name, [])
+                long_results = dss_funcs._process_quality_and_persist(self, mn_df, category, module_name, None, category, file_name, [])
                 results.append([category, "write/save - {module_name} -- SILVER", True, None])
             except Exception as e:
                 results.append([category, "write/save - {module_name} -- SILVER", False, e])
