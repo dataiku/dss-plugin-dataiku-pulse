@@ -153,11 +153,14 @@ def normalize_dataframe(self, df, FLAT_COLUMNS):
         )
         
     # 4. Add run_time
-    df.insert(
-        loc=df.columns.get_loc("extras"),
-        column="run_timestamp",
-        value=self.dt
-    )
+    if "extras" in df.columns:
+        df.insert(
+            loc=df.columns.get_loc("extras"),
+            column="run_timestamp",
+            value=self.dt
+        )
+    else:
+        df["run_timestamp"] = self.dt
     
     return df
 
