@@ -142,6 +142,9 @@ def normalize_dataframe(self, df, FLAT_COLUMNS):
         df = reorder_columns(df, FLAT_COLUMNS)
     else:
         df["extras"] = "{}"
+    
+    cols = [c for c in df.columns if c != "extras"]
+    df = df[cols + ["extras"]]
         
     # 3. Add Additonal Information / output path
     if "instance_name" in df.columns:
@@ -155,14 +158,14 @@ def normalize_dataframe(self, df, FLAT_COLUMNS):
         )
         
     # 4. Add run_time
-    if "extras" in df.columns:
-        df.insert(
-            loc=df.columns.get_loc("extras"),
-            column="run_timestamp",
-            value=self.dt
-        )
-    else:
-        df["run_timestamp"] = self.dt
+    if "run_timestamp" in df.columns:
+        
+    df.insert(
+        loc=df.columns.get_loc("extras"),
+        column="run_timestamp",
+        value=self.dt
+    )
+
     
     return df
 
