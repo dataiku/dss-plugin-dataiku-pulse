@@ -115,7 +115,7 @@ def normalize_dataframe(self, df, FLAT_COLUMNS):
     # 1. NO PERIODS in column names
     df.columns = df.columns.str.replace(".", "_", regex=False)
     
-    # 2. FLAT COLUMNS
+    # 2.A FLAT COLUMNS --> "extras"
     if FLAT_COLUMNS:
         # 2.A. Ensure flat column(s) exist
         for col in FLAT_COLUMNS:
@@ -143,6 +143,7 @@ def normalize_dataframe(self, df, FLAT_COLUMNS):
     else:
         df["extras"] = "{}"
     
+    # 2.B "extras" is last column
     cols = [c for c in df.columns if c != "extras"]
     df = df[cols + ["extras"]]
         
