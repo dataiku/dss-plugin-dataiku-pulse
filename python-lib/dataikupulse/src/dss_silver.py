@@ -140,6 +140,8 @@ def normalize_dataframe(self, df, FLAT_COLUMNS):
         df = pd.DataFrame(rows)
         # 2.C Order the dataframe by FLAT COLUMNS
         df = reorder_columns(df, FLAT_COLUMNS)
+    else:
+        df["extras"] = "{}"
         
     # 3. Add Additonal Information / output path
     if "instance_name" in df.columns:
@@ -161,7 +163,7 @@ def normalize_dataframe(self, df, FLAT_COLUMNS):
         )
     else:
         df["run_timestamp"] = self.dt
-        df["extras"] = "{}"
+        
     
     return df
 
