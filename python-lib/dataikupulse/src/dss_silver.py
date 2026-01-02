@@ -163,7 +163,6 @@ def normalize_dataframe(self, df, FLAT_COLUMNS):
         )
     else:
         df["run_timestamp"] = self.dt
-        
     
     return df
 
