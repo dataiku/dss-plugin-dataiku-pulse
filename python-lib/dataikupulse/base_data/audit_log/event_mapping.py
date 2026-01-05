@@ -75,7 +75,7 @@ def main(self, df):
 
         # Save outputs
         
-        for module_name, mn_df in merged_df.groupby(dataiku_category):
+        for module_name, mn_df in merged_df.groupby("dataiku_category"):
             category = "dataiku_usage"
             self.dt = mn_df["timestamp"].max()
             dt_epoch = self.dt.value
