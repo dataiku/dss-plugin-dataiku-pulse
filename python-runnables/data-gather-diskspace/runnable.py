@@ -100,7 +100,7 @@ class MyRunnable(Runnable):
         df["instance_name"] = instance_name
         df["timestamp"] = self.dt
         
-        # RAW self, df, category, module_name, project_key, file_name, result
+        # RAW
         try:
             long_results = dss_funcs._persist_raw(
                 self=self,
@@ -114,6 +114,7 @@ class MyRunnable(Runnable):
             results.append(["write/save - RAW", True, None])
         except Exception as e:
             results.append(["write/save - RAW", False, e])
+            
         # SILVER
         try:
             long_results = dss_funcs._process_quality_and_persist(self, df, "users", "user_login_activity", None, "SKIP", f"data-{dt_epoch}.parquet", [])
