@@ -115,7 +115,7 @@ class MyRunnable(Runnable):
         except Exception as e:
             results.append(["write/save - RAW", False, e])
             
-        # SILVER self, df, category, module_name, project_key, mode, file_name, results
+        # SILVER
         try:
             long_results = dss_funcs._process_quality_and_persist(
                 self=self,
