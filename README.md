@@ -1,5 +1,5 @@
 # Dataiku PULSE Dashboard and Collector
-* Version - 2.1.4
+* Version - 2.5.0
 
 ## Scope
 
