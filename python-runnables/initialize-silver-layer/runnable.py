@@ -44,7 +44,7 @@ class MyRunnable(Runnable):
         partitions_df = partitions_df.loc[partitions_df["layer"] == "raw"]
         
         # added filtering
-        #partitions_df = partitions_df.loc[partitions_df["category"] == "users"]
+        partitions_df = partitions_df.loc[partitions_df["category"] == "operating_system"]
         
         # check
         if partitions_df.empty:
