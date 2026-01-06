@@ -60,7 +60,7 @@ class MyRunnable(Runnable):
                 self=self,
                 df=df,
                 category="operating_system",
-                module_name="diskspace",
+                module_name="filesystem",
                 project_key=None,
                 file_name=f"data.parquet", 
                 results=[]
@@ -75,7 +75,7 @@ class MyRunnable(Runnable):
                 self=self,
                 df=df,
                 category="operating_system",
-                module_name="diskspace",
+                module_name="filesystem",
                 project_key=None,
                 mode="client",
                 file_name=f"data.parquet",
