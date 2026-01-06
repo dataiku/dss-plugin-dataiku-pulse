@@ -109,15 +109,24 @@ class MyRunnable(Runnable):
                 module_name="diskspace",
                 project_key=None,
                 file_name=f"data.parquet", 
-                result=[]
+                results=[]
             )
             results.append(["write/save - RAW", True, None])
         except Exception as e:
             results.append(["write/save - RAW", False, e])
             
-        # SILVER
+        # SILVER self, df, category, module_name, project_key, mode, file_name, results
         try:
-            long_results = dss_funcs._process_quality_and_persist(self, df, "users", "user_login_activity", None, "SKIP", f"data-{dt_epoch}.parquet", [])
+            long_results = dss_funcs._process_quality_and_persist(
+                self=self,
+                df=df,
+                category="operating_system",
+                module_name="diskspace",
+                project_key=None,
+                mode="SKIP",
+                file_name=f"data.parquet",
+                results=[]
+            )
             results.append(["write/save - SILVER", True, None])
         except Exception as e:
             results.append(["write/save - SILVER", False, e])
