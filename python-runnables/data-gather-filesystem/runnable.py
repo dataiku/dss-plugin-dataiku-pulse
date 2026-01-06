@@ -46,13 +46,49 @@ class MyRunnable(Runnable):
         df = df[~df["filesystem"].isin(["devtmpfs", "tmpfs"])]
         results.append(["read/parse", True, None])
 
-        # loop topics and save data
+        # datetime stuff
         remote_client = dss_funcs.build_remote_client(self)
         dt_year  = str(self.dt.year)
         dt_month = str(f'{self.dt.month:02d}')
         dt_day   = str(f'{self.dt.day:02d}')
         df["instance_name"] = instance_name
         df["timestamp"] = self.dt
+        
+        # RAW
+        try:
+            long_results = dss_funcs._persist_raw(
+                self=self,
+                df=df,
+                category="operating_system",
+                module_name="diskspace",
+                project_key=None,
+                file_name=f"data.parquet", 
+                results=[]
+            )
+            results.append(["write/save - RAW", True, None])
+        except Exception as e:
+            results.append(["write/save - RAW", False, e])
+            
+        # SILVER
+        try:
+            long_results = dss_funcs._process_quality_and_persist(
+                self=self,
+                df=df,
+                category="operating_system",
+                module_name="diskspace",
+                project_key=None,
+                mode="client",
+                file_name=f"data.parquet",
+                results=[]
+            )
+            results.append(["write/save - SILVER", True, None])
+        except Exception as e:
+            results.append(["write/save - SILVER", False, e])
+        
+        
+        
+        
+        
         try:
             write_path = f"raw/operating_system/filesystem/{instance_name}/{dt_year}/{dt_month}/{dt_day}/data.parquet"
             dss_folder.write_remote_folder_output(self, write_path, df)
