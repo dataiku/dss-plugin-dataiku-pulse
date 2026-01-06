@@ -1,5 +1,8 @@
 FLAT_COLUMNS = [
+    # Identity
     "instance_name",
+    
+    # Metrics
     "filesystem",
     "size",
     "used",
