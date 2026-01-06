@@ -111,15 +111,15 @@ class MyRunnable(Runnable):
                 file_name=f"data.parquet", 
                 result=[]
             )
-            results.append(["User Login Classification", "write/save - RAW", True, None])
+            results.append(["Operating System - Diskspace", "write/save - RAW", True, None])
         except Exception as e:
-            results.append(["User Login Classification", "write/save - RAW", False, e])
+            results.append(["Operating System - Diskspace", "write/save - RAW", False, e])
         # SILVER
         try:
             long_results = dss_funcs._process_quality_and_persist(self, df, "users", "user_login_activity", None, "SKIP", f"data-{dt_epoch}.parquet", [])
-            results.append(["User Login Classification", "write/save - SILVER", True, None])
+            results.append(["Operating System - Diskspace", "write/save - SILVER", True, None])
         except Exception as e:
-            results.append(["User Login Classification", "write/save - SILVER", False, e])
+            results.append(["Operating System - Diskspace", "write/save - SILVER", False, e])
         
         
         
