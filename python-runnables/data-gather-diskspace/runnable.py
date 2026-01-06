@@ -100,9 +100,17 @@ class MyRunnable(Runnable):
         df["instance_name"] = instance_name
         df["timestamp"] = self.dt
         
-        # RAW 
+        # RAW self, df, category, module_name, project_key, file_name, result
         try:
-            long_results = dss_funcs._persist_raw(self, df, "operating_system", "diskspace", None, f"data.parquet", [])
+            long_results = dss_funcs._persist_raw(
+                self=self,
+                df=df,
+                category="operating_system",
+                module_name="diskspace",
+                project_key=None,
+                file_name=f"data.parquet", 
+                result=[]
+            )
             results.append(["User Login Classification", "write/save - RAW", True, None])
         except Exception as e:
             results.append(["User Login Classification", "write/save - RAW", False, e])
