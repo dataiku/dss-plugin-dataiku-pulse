@@ -1,11 +1,13 @@
 FLAT_COLUMNS = [
     # Identity
-    "llms_id",
-    "llms_friendlyName",
-    "llms_friendlyNameShort",
-
-    # Provider / Classification
-    "llms_type",
-    "llms_connection",
-    "llms_model",
+    "instance_name",
+    
+    # Metrics
+    "level_1",
+    "level_2",
+    "level_3",
+    "level_1_size",
+    "level_2_size",
+    "level_3_size",
+    "timestamp",
 ]
