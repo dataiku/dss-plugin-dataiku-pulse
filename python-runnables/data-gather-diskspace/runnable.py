@@ -123,7 +123,7 @@ class MyRunnable(Runnable):
                 category="operating_system",
                 module_name="diskspace",
                 project_key=None,
-                mode="SKIP",
+                mode="client",
                 file_name=f"data.parquet",
                 results=[]
             )
