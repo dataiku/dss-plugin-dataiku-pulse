@@ -1,25 +1,30 @@
-import streamlit as st
 import sys
-import os
-import dataiku
-
 sys.dont_write_bytecode = True
 
-from src import dss_duck
+import logging
+import streamlit as st
+import dataiku
+from backend import settings
+from backend.duck_db import init_duckdb
 
-#
-#
-client = dataiku.api_client()
-plugin = client.get_plugin(plugin_id="dataiku-pulse")
-settings = plugin.get_settings()
-param_set = settings.get_parameter_set(parameter_set_name="params-dashboard-instance")
-preset = param_set.get_preset(preset_name=param_set.list_preset_names()[0])
-monitor_os = preset.get_raw()["pluginConfig"]["monitor_os"]
+logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.DEBUG)
 
 # -----------------------------------------------------------------------------
-# Initialization
-if not os.path.isfile(dss_duck.funcs.duckdb_home):
-    dss_duck.initiate_db()
+# Capture User (if applicable)
+DEBUG = False
+request_headers = dict(st.context.headers)
+try:
+    auth_info_browser = dataiku.api_client().get_auth_info_from_browser_headers(request_headers)
+    groups = [item.lower() for item in auth_info_browser["groups"]]
+except:
+    groups = []
+if "administrators" in groups:
+    DEBUG = True
+
+# -----------------------------------------------------------------------------
+# Check DuckDB
+if not settings.DB_PATH.exists():
+    init_duckdb.initialize_database(reset=False)
 
 # -----------------------------------------------------------------------------
 # Setup streamlit configs
@@ -33,63 +38,54 @@ st.set_page_config(
 # -----------------------------------------------------------------------------
 # Pulse Home
 home = st.Page("pages/main/home.py", title="Home", default=True)
+about = st.Page("pages/main/about.py", title="About")
+faq = st.Page("pages/main/faq.py", title="FAQ")
+debug = st.Page("pages/main/debug.py", title="DEBUG")
 
-# -----------------------------------------------------------------------------
-# Platform Insights
+# Infrastructure
+platform  = st.Page("pages/infrastructure/platform.py",  title="Platform")
 
-## Operating System
-disk_space = st.Page("pages/insights/disk_space.py", title="Disk Space")
-## Dataiku - Client
+# Insights
 users = st.Page("pages/insights/users.py", title="Users")
-## Dataiku - Project
 projects  = st.Page("pages/insights/projects.py",  title="Projects")
 datasets  = st.Page("pages/insights/datasets.py",  title="Datasets")
-recipes   = st.Page("pages/insights/recipes.py",   title="Recipes")
-scenarios = st.Page("pages/insights/scenarios.py", title="Scenarios")
-llms_connections = st.Page("pages/insights/llms_connections.py", title="LLM Connections")
+recipes  = st.Page("pages/insights/recipes.py",  title="Recipes")
+scenarios  = st.Page("pages/insights/scenarios.py",  title="Scenarios")
 
-# -----------------------------------------------------------------------------
-# Dataiku Usage Patterns
-dataiku_usage  = st.Page("pages/usages/dataiku_usage.py", title="Dataiku Usage")
-genai_llm = st.Page("pages/usages/genai_llm.py", title="GEN AI / LLM")
-
-# -----------------------------------------------------------------------------
-# 
-debug = st.Page("pages/main/debug.py", title="DEBUG")
+# Usage
+usage_demo = st.Page("pages/usages/usage_demo.py", title="Usage Demo")
+development = st.Page("pages/usages/development.py", title="Development")
 
 # -----------------------------------------------------------------------------
 # Navigation Panel
-default_pages = {
-    "PULSE Home": [
-        home
+pages = {
+    "Pulse": [
+        home,
+        about,
+        faq,
     ],
-    "Operating System": [
-        disk_space
+    "Infrastructure": [
+        platform,
     ],
-    "Platform Insights": [
+    "Insight Patterns": [
         users,
         projects,
         datasets,
         recipes,
         scenarios,
-        llms_connections
     ],
-    "Usage Patterns": [
-        dataiku_usage,
-        genai_llm
-    ]
+    "Usage Overview": [
+        usage_demo,
+        development,
+    ],
+    "DEBUG": [
+        debug,
+    ],
 }
-if "DEBUG" not in st.session_state:
-    st.session_state.DEBUG = False
-    
-if st.session_state.DEBUG:
-    pages = default_pages
-    pages["DEBUG"] = [debug]
-else:
-    pages = default_pages
-
-if not monitor_os:
-    del pages["Operating System"]
+if not DEBUG:
+    del pages["DEBUG"]
+if not settings.monitor_os:
+    del pages["Infrastructure"]
 
 pg = st.navigation(pages, position="top")
 pg.run()

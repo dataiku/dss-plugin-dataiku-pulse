@@ -1,102 +1,64 @@
 import streamlit as st
-from src import dss_duck
-
 st.set_page_config(initial_sidebar_state="collapsed")
-
-# -----------------------------------------------------------------------------
-# Variables
-if "partition_df" not in st.session_state:
-    st.session_state["partition_df"] = dss_duck.funcs.query_direct_sql("SELECT * FROM partition_table")
-
-try:
-    if not st.session_state["partition_df"].empty:
-        partition = st.session_state["partition_df"]["date"].max()
-    else:
-        st.session_state["partition_df"] = dss_duck.funcs.query_direct_sql("SELECT * FROM partition_table")
-        partition = st.session_state["partition_df"]["date"].max()
-        partition = False
-except:
-    partition = "Error to load proper partition date information"
-
-# -----------------------------------------------------------------------------
-# Homepage
-title = "# 📊 Dataiku PULSE Insights Dashboard"
-if st.session_state.DEBUG:
-    title = "# 📊 Dataiku PULSE Insights Dashboard -- DEBUG MODE"
-
-st.markdown(f"""{title}
+st.markdown(f"""# 📊 Dataiku Pulse Dashboard
 
 ## Overview
 
-This dashboard provides key administrative insights into the Dataiku platform to help platform owners, administrators, and governance teams monitor usage, performance, project activity, and compliance metrics.
+The **Dataiku Pulse Dashboard** provides a structured, scalable view into how activity, adoption, and usage patterns evolve across multiple domains over time.
 
-* PULSE
-    * People (Developers, Readers, Consumers)
-    * Usage (Objects and Patterns)
-    * Lifecycle (Scope, Design, Govern, Automation)
-    * System Evaluation (Performance and Expectations)
-* **Latest Snapshot Partition:** {partition}
+Rather than acting as a static reporting surface, Pulse is designed as an **insight-oriented analytics layer** built on curated platform metadata. It combines metrics, trends, and activity signals to help users understand **what is happening**, **where activity is concentrated**, and **how behavior is changing** — without requiring direct interaction with raw event data.
 
----
+The dashboard is intentionally modular. Each domain is analyzed independently using a consistent framework, allowing new categories to be added incrementally while preserving performance, clarity, and comparability.
 
-## 🧭 Goals (TBD)
-
-- Monitor platform health and system performance
-- Track user and project activity
-- Identify inactive or stale projects
-- Provide audit trails for security and governance
-- Enable better resource planning and license usage insights
-
+Pulse focuses on surfacing **meaningful signals**, not exhaustive detail. Every metric and chart is designed to answer a specific question and contribute to a broader understanding of platform behavior.
 
 ---
 
-## 📅 Refresh Schedule
+## 🎯 Goals of the Dashboard
 
-| Data Source           | Frequency |
-|-----------------------|-----------|
-| Log Ingestion         | Daily     |
-| Insights & Statistics | Instant   |
+The primary goals of Pulse are to:
 
----
+- Provide clear, high-level signals about Dataiku usage and growth
+- Surface trends early (growth, decline, concentration of activity)
+- Support operational and strategic decision-making
+- Scale gracefully as historical data, metrics, and user-defined analytics increase
+- Separate insight from raw usage, avoiding noisy or misleading interpretations
 
-## 👤 Access & Permissions
-
-> Only users in the `administrative` group have full access to this dashboard.
-
----
-
-## 📌 Notes
-
-- This dashboard is built to be modular. Designed for ease of use and scale.
-- For questions or enhancements, contact the **Platform Admin Team** at `Stephen.Mazzei@dataiku.com`.
+Pulse intentionally avoids “everything dashboards.” Each metric and chart is designed to answer a specific question.
 
 ---
 
-## 🔃 Refresh Dataiku PULSE Insight Data
+## Intended Audience
 
-* This is an "administration" function and is locked behind a password.
+The **Dataiku Pulse Dashboard** is intended for **administrative and leadership audiences** responsible for overseeing platform usage, adoption, and overall health.
+
+### Platform & System Administrators
+Administrators use Pulse to:
+- Monitor high-level activity and adoption patterns
+- Identify trends, growth, or anomalies across domains
+- Support operational planning and governance decisions
+- Inform where optimization, standardization, or deeper investigation may be required
+
+Pulse is designed to provide administrators with **clear signals**, not raw operational logs.
+
+### Leadership & Decision Makers
+Leadership uses Pulse to:
+- Gain a concise view of platform evolution over time
+- Understand where activity and investment are concentrated
+- Support strategic planning, capacity discussions, and prioritization
+- Ask informed follow-up questions without needing technical detail
+
+The dashboard is intentionally structured to be **interpretable without deep platform expertise**.
 
 ---
+
+## 🚀 Final Thought
+
+The Dataiku Pulse Dashboard is not about showing everything.  
+It is about showing **the right information**, at the right level, to the right audience.
+
+If a chart or metric does not help answer a real question — it does not belong here.
+
+---
+
 """)
-
-
-pwd = st.text_input("Password", type="password")
-reload_duckdb = st.button("Complete Reload DuckDB")
-if reload_duckdb:
-    if pwd == "dataikupulse2026":
-        dss_duck.initiate_db()
-    else:
-        st.error("Invalid password.")
-
-
-toggle_debug = st.button("Toggle Debug")
-if toggle_debug:
-    if pwd == "dataikupulse2026":
-        plugin_handle = dss_duck.funcs.client.get_plugin(plugin_id="dataiku-pulse")
-        settings = plugin_handle.get_settings()
-        param_set = settings.get_parameter_set(parameter_set_name="params-dashboard-instance")
-        preset = param_set.get_preset(preset_name=param_set.list_preset_names()[0])
-        st.session_state.DEBUG = preset.get_raw()["pluginConfig"]["pulse_dashboard_debug"]
-        st.rerun()
-    else:
-        st.error("Invalid password.")

@@ -1,0 +1,22 @@
+users_git_history_table:
+  description: >
+    Deduplicated git commit history per instance and project.
+    Preserves all historical commit events while removing duplicate rows.
+  depends_on:
+    - users_git_history_view
+  sql: |
+    CREATE OR REPLACE TABLE users_git_history_base AS
+    SELECT DISTINCT
+        instance_name,
+        project_key,
+        commit,
+        login,
+        timestamp,
+        message,
+        --run_timestamp,
+        --extras
+    FROM users_git_history_view
+    ORDER BY
+        instance_name,
+        project_key,
+        timestamp;

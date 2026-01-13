@@ -1,0 +1,44 @@
+users_metadata_table:
+  description: >
+    Deduplicated user metadata per instance + login.
+    Keeps most recent activity based on session or commit.
+  depends_on:
+    - users_metadata_view
+  sql: |
+    CREATE OR REPLACE TABLE users_metadata_base AS
+    WITH ranked_users AS (
+        SELECT
+            instance_name,
+            login,
+            sourceType,
+            displayName,
+            userProfile,
+            creationDate,
+            enabled,
+            resultingUserProfile,
+            email,
+            last_session_activity,
+            first_commit_date,
+            last_commit_date,
+            GREATEST(
+                last_session_activity,
+                last_commit_date
+            ) AS last_activity_ts,
+            --run_timestamp,
+            --extras,
+
+            ROW_NUMBER() OVER (
+                PARTITION BY instance_name, login
+                ORDER BY
+                    GREATEST(
+                        last_session_activity,
+                        last_commit_date
+                    ) DESC
+            ) AS rn
+        FROM users_metadata_view
+    )
+    SELECT
+        *
+    FROM ranked_users
+    WHERE rn = 1
+    ORDER BY instance_name, login;

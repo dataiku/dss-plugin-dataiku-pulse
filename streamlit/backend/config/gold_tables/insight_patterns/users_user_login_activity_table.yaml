@@ -1,0 +1,44 @@
+users_user_login_activity_table:
+  description: >
+    Daily deduplicated user login activity per instance and login.
+    Keeps one activity record per user per day, selecting the latest
+    timestamp when multiple ingestion runs exist.
+  depends_on:
+    - users_user_login_activity_view
+  sql: |
+    CREATE OR REPLACE TABLE users_user_login_activity_base AS
+    WITH ranked_activity AS (
+        SELECT
+            instance_name,
+            login,
+            activity_type,
+            timestamp,
+            --run_timestamp,
+            --extras,
+
+            DATE(timestamp) AS activity_date,
+
+            ROW_NUMBER() OVER (
+                PARTITION BY
+                    instance_name,
+                    login,
+                    activity_type,
+                    DATE(timestamp)
+                ORDER BY
+                    timestamp DESC
+            ) AS rn
+        FROM users_user_login_activity_view
+    )
+    SELECT
+        instance_name,
+        login,
+        activity_type,
+        timestamp,
+        --run_timestamp,
+        --extras
+    FROM ranked_activity
+    WHERE rn = 1
+    ORDER BY
+        instance_name,
+        login,
+        timestamp;
