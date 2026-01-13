@@ -53,7 +53,6 @@ recipes  = st.Page("pages/insights/recipes.py",  title="Recipes")
 scenarios  = st.Page("pages/insights/scenarios.py",  title="Scenarios")
 
 # Usage
-usage_demo = st.Page("pages/usages/usage_demo.py", title="Usage Demo")
 development = st.Page("pages/usages/development.py", title="Development")
 
 # -----------------------------------------------------------------------------
@@ -75,7 +74,6 @@ pages = {
         scenarios,
     ],
     "Usage Overview": [
-        usage_demo,
         development,
     ],
     "DEBUG": [
