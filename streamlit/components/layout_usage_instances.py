@@ -1,5 +1,6 @@
 import streamlit as st
 from collections import defaultdict
+from components import panel_filters
 from backend.utils import helper
 from backend.streamlit.registry import load_analytics
 from backend.streamlit.engine.executor import execute_analytic
@@ -9,28 +10,30 @@ def display(tab, data_category):
     # Sidebar: Instance selection
     with st.sidebar:
         with st.container(border=True):
-            instance_name = st.selectbox(
-                label = "## Select Overview or an Instance Name",
-                options = ["All (General)"] + helper.get_instances(),
-                index = 0
-            )
+            instance_name_f = panel_filters.filter_instance_name()
+
     # Usage scope (NOT filters)
-    if instance_name == "All (General)":
+    if instance_name_f == "All (General)":
         base_scope = {
             "mode": "overview"
         }
     else:
         base_scope = {
             "mode": "instance",
-            "instance_name": instance_name
+            "instance_name": instance_name_f
         }
 
     # Filters remain empty for now (dates, flags later)
     filters = {}
 
     # Load analytics
-    analytics = load_analytics(f"gold/{tab}/{data_category}instances")
-
+    analytics = load_analytics(f"gold/{tab}/{data_category}/instances")
+    if not analytics:
+        st.warning(
+            f"No analytics found for path: gold/{tab}/{data_category}/instances"
+        )
+        return
+    
     # Tabs: Overview + Capabilities
     capabilities = ["Overview"] + helper.get_canonical_capabilities()
     tab_labels =  [helper.format_capability_label(c) for c in capabilities]
@@ -53,7 +56,6 @@ def display(tab, data_category):
             scope = dict(base_scope)
             if capability != "Overview":
                 scope["capability"] = capability
-
             # Capability explanation
             if capability != "Overview":
                 subcats = helper.get_subcategories_for_capability(capability)
@@ -63,7 +65,7 @@ def display(tab, data_category):
                 )
                 signal = helper.get_capability_summary_signal(
                     capability,
-                    instance_name if instance_name != "All (General)" else None
+                    instance_name_f if instance_name_f != "All (General)" else None
                 )
                 if not signal:
                     st.warning(

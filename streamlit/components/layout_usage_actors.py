@@ -1,4 +1,5 @@
 import streamlit as st
+from collections import defaultdict
 from components import panel_filters
 from backend.utils import helper
 from backend.streamlit.registry import load_analytics
@@ -53,4 +54,9 @@ def display(tab, data_category):
         "days_since_activity": days_since_activity_f
     }
     analytics = load_analytics(f"gold/{tab}/{data_category}/actors")
+    if not analytics:
+        st.warning(
+            f"No analytics found for path: gold/{tab}/{data_category}/instances"
+        )
+        return
     dataiku_login(analytics, actor_filters)
