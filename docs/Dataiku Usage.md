@@ -12,51 +12,128 @@ and how individual usage categories roll up into those capabilities.
 
 ```mermaid
 graph TD
-    %% Top Layer
     U((Dataiku Usage))
 
-    %% Dataiku Capabilities
     U --> ML((Advanced Analytics & ML))
     U --> API((APIs & Integration))
     U --> AD((Applications & Delivery))
     U --> AO((Automation & Orchestration))
     U --> DE((Data Engineering))
     U --> GEN((GenAI & LLM))
+```
 
-    %% Dataiku Categories
-    ML --> ML1[Machine Learning & Operations]
-        ML1 --> SUBML1[MLFlow, Machine Learning, Modeling, Clustering<br/>Green Recipes]
-    ML --> ML2[Statistics & Analytics]
-        ML2 --> SUBML2[Data Quality, Metrics, Checks, Analyse]
+## Advanced Analytics & ML
 
-    API --> API1[APIs Services]
-        API1 --> SUBAPI1[Dataiku API]
+Short explanation of what this capability represents and how usage is counted.
 
-    AD --> AD1[Application Designer]
-        AD1 --> SUBAD1[Dataiku Application Designer Creation]
-    AD --> AD2[Web Applications]
-        AD2 --> SUBAD2[WebApps: Bokeh, Dash, HTML, Streamlit, etc.]
+```mermaid
+mindmap
+  root((Advanced Analytics & ML))
+    Machine Learning & Operations
+      MLFlow
+      Machine Learning
+      Modeling
+      Clustering
+      Green Recipes
+    Statistics & Analytics
+      Data Quality
+      Metrics
+      Checks
+      Analyse
+```
 
-    AO --> AO1[Automation]
-        AD1 --> SUBAD1[Bundling]
-    AO --> AO2[Deployer]
-        AO2 --> SUBAO2[Deployer Node, Unified Monitoring, Publishing]
-    AO --> AO3[Scenarios]
-        AO2 --> SUBAO3[Jobs, Scenarios, Scheduling]
+## APIs & Integration
 
-    DE --> DE1[Coding]
-        DE1 --> SUBDE1[Python, R, SQL, Spark, Jupyter, Code Studios<br/>Orange Recipes]
-    DE --> DE2[Datasets]
-        DE2 --> SUBDE2[Dataiku Datasets & Connections]
-    DE --> DE3[Flow]
-        DE3 --> SUBDE3[Dataiku Flow Manipulation]
-    DE --> DE4[Folders]
-        DE4 --> SUBDE4[Dataiku Folders Managed & Unmanaged]
-    DE --> DE5[Misc Recipes]
-        DE5 --> SUBDE5[Download, Export, Import]
-    DE --> DE6[Visual Recipes]
-        DE6 --> SUBDE6[Sync, Prepare, Join, Filter, etc.<br/>Yellow Recipes]
+Short explanation of what this capability represents and how usage is counted.
 
-    GEN --> GEN1[Generative AI & LLM]
-        GEN1 --> SUBGEN1[AI, Prompt, Answers, Agents, Explain, Generate]
+```mermaid
+mindmap
+  root((APIs & Integration))
+    API Services
+      Dataiku API
+```
+
+## Applications & Delivery
+
+Short explanation of what this capability represents and how usage is counted.
+
+```mermaid
+mindmap
+  root((Applications & Delivery))
+    Application Designer
+      Application Designer Creation
+    Web Applications
+      WebApps
+      Bokeh
+      Dash
+      HTML
+      Streamlit
+```
+
+## Automation & Orchestration
+
+Short explanation of what this capability represents and how usage is counted.
+
+```mermaid
+mindmap
+  root((Automation & Orchestration))
+    Automation
+      Bundling
+    Deployer
+      Deployer Node
+      Unified Monitoring
+      Publishing
+    Scenarios
+      Jobs
+      Scheduling
+```
+
+## Data Engineering
+
+Short explanation of what this capability represents and how usage is counted.
+
+```mermaid
+mindmap
+  root((Data Engineering))
+    Coding
+      Python
+      R
+      SQL
+      Spark
+      Jupyter
+      Code Studios
+      Orange Recipes
+    Datasets
+      Datasets & Connections
+    Flow
+      Flow Manipulation
+    Folders
+      Managed
+      Unmanaged
+    Misc Recipes
+      Download
+      Export
+      Import
+    Visual Recipes
+      Sync
+      Prepare
+      Join
+      Filter
+      Yellow Recipes
+```
+
+## GenAI & LLM
+
+Short explanation of what this capability represents and how usage is counted.
+
+```mermaid
+mindmap
+  root((GenAI & LLM))
+    Generative AI & LLM
+      AI
+      Prompt
+      Answers
+      Agents
+      Explain
+      Generate
 ```
