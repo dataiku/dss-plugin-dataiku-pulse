@@ -79,9 +79,5 @@ Due to the web application being built on Streamlit, installation requires a bit
 * Special Thanks
   * Development
     * Jordan Burke
-    * Ben Bourgeois
-    * Jonathan Sill
-  * Documentation
-    * Rob Harris
   * Project Management
     * Arjun Srivatsa
