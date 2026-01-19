@@ -10,7 +10,7 @@
         "licenseInfo": "Apache Software License",
         "url": "https://github.com/dataiku/dss-plugin-dataiku-pulse.git",
         "tags": [
-            "Administration", "PULSE", "Data Gather", "Insights", "Usages"
+            "Administration", "Pulse", "Data Gather", "Insights", "Usages"
         ],
         "supportLevel": "PLATINUM_SUPPORT"
     }
