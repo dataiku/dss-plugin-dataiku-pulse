@@ -2,9 +2,9 @@
     "id": "dataiku-pulse",
     "version": "2.5.0",
     "meta": {
-        "label": "Dataiku PULSE",
+        "label": "Dataiku Pulse Dashboard",
         "category": "Dataiku Usage & Insights",
-        "description": "This plugin contains the framework for the Dataiku PULSE Dashbaord.",
+        "description": "This plugin contains the framework for the Dataiku Pulse Dashbaord.",
         "author": "Stephen Mazzei",
         "icon": "fa fa-heartbeat",
         "licenseInfo": "Apache Software License",
