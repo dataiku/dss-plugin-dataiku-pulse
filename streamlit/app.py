@@ -9,6 +9,15 @@ from backend.duck_db import init_duckdb
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.DEBUG)
 
+
+# -----------------------------------------------------------------------------
+# Load css
+def load_css(path: str):
+    with open(path) as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
+load_css("assets/css/custom.css")
+
 # -----------------------------------------------------------------------------
 # Capture User (if applicable)
 DEBUG = False

@@ -19,7 +19,11 @@ usage_events: |
     *,
     CASE
       WHEN dataiku_category IN (
-        'DATASET','FLOW','VISUAL_RECIPES','PREPARE','MISC_RECIPES','FOLDERS', 'CODING'
+        'PROJECTS', 'FLOW', 'DATASET', 'FOLDERS', 'WIKI_ARTICAL_DISCUSSIONS'
+      ) THEN 'PROJECT_MAINTENANCE'
+
+      WHEN dataiku_category IN (
+        'VISUAL_RECIPES','PREPARE','MISC_RECIPES','CODING'
       ) THEN 'DATA_ENGINEERING'
 
       WHEN dataiku_category IN (
@@ -31,8 +35,8 @@ usage_events: |
       ) THEN 'AUTOMATION_ORCHESTRATION'
 
       WHEN dataiku_category IN (
-        'APPLICATION_DESIGNER','WEBAPPS'
-      ) THEN 'APPLICATIONS_DELIVERY'
+        'APPLICATION_DESIGNER','WEBAPPS', 'CHARTS_DASHBOARD'
+      ) THEN 'DATA_DELIVERY'
 
       WHEN dataiku_category = 'APIS'
         THEN 'APIS_INTEGRATION'

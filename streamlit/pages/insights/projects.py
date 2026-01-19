@@ -1,4 +1,4 @@
-from components import insights_main
+from components.dataiku_insights import insights_main
 
 tab = "insights"
 category = "Projects"

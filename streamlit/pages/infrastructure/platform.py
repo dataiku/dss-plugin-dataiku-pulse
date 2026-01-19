@@ -1,4 +1,4 @@
-from components import infrastructure_main
+from components.dataiku_insights import infrastructure_main
 
 tab = "infrastructure"
 category = "Platform"

@@ -1,7 +1,7 @@
 import streamlit as st
 from backend.streamlit.registry import load_analytics
 from backend.utils import helper
-from components import layout_metrics, layout_graphs, layout_dataframes
+from components.dataiku_insights import layout_metrics, layout_graphs, layout_dataframes
 
 st.set_page_config(initial_sidebar_state="expanded")
 st.set_page_config(layout="wide")

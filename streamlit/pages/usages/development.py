@@ -1,4 +1,4 @@
-from components import layout_usage_main
+from components.dataiku_usages import layout_usage_main
 
 tab = "usages"
 category = "Development"
