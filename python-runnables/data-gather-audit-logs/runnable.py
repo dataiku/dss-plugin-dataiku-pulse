@@ -67,7 +67,7 @@ class MyRunnable(Runnable):
         project_handle = self.local_client.get_default_project()
         variables = project_handle.get_variables()
         try:
-            last_update = variables["local"]["audit_logs_cachea"]
+            last_update = variables["local"]["audit_logs_cache"]
         except:
             last_update = str(datetime.now().astimezone() - timedelta(days=1))
         last_update = pd.to_datetime(last_update)
