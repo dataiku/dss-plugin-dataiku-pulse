@@ -1,12 +1,14 @@
 projects_metadata_table:
   description: >
     Deduplicated project metadata per instance + project.
-    Keeps the most recent project record based on versionTag lastModifiedOn.
+    Incremental rebuild using a rolling hot window based on
+    project versionTag lastModifiedOn.
+    Keeps the most recent project record.
   depends_on:
     - projects_metadata_view
   sql: |
     CREATE OR REPLACE TABLE projects_metadata_base AS
-    WITH ranked_projects AS (
+    WITH recent_updates AS (
         SELECT
             instance_name,
             project_key,
@@ -23,10 +25,40 @@ projects_metadata_table:
             project_versionTag_lastModifiedBy_login,
             project_creationTag_versionNumber,
             project_creationTag_lastModifiedOn,
-            project_creationTag_lastModifiedBy_login,
-            --run_timestamp,
-            --extras,
-
+            project_creationTag_lastModifiedBy_login
+        FROM projects_metadata_view
+        WHERE
+            project_versionTag_lastModifiedOn
+                >= CURRENT_DATE - INTERVAL 7 DAY
+    ),
+    existing_gold AS (
+        SELECT
+            instance_name,
+            project_key,
+            login,
+            project_projectType,
+            project_projectAppType,
+            project_permissionsVersion,
+            project_tutorialProject,
+            project_commitMode,
+            project_name,
+            project_ownerDisplayName,
+            project_versionTag_versionNumber,
+            project_versionTag_lastModifiedOn,
+            project_versionTag_lastModifiedBy_login,
+            project_creationTag_versionNumber,
+            project_creationTag_lastModifiedOn,
+            project_creationTag_lastModifiedBy_login
+        FROM projects_metadata_base
+    ),
+    combined AS (
+        SELECT * FROM existing_gold
+        UNION ALL
+        SELECT * FROM recent_updates
+    ),
+    ranked_projects AS (
+        SELECT
+            *,
             ROW_NUMBER() OVER (
                 PARTITION BY
                     instance_name,
@@ -34,7 +66,7 @@ projects_metadata_table:
                 ORDER BY
                     project_versionTag_lastModifiedOn DESC
             ) AS rn
-        FROM projects_metadata_view
+        FROM combined
     )
     SELECT
         *

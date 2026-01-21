@@ -1,6 +1,6 @@
 # Dataiku Pulse Dashboard
 
-* Version - 2.5.1
+* Version - 2.5.01
 
 ## Scope
 

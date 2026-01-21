@@ -39,9 +39,9 @@ if connection_type == "EC2":
     blob_root = dss_partitioned_folder.get_info()["accessInfo"]["root"][1:]
 elif connection_type == "Azure":
     blob_header = "az"
-    blob_bket = folder.get_info()["accessInfo"]["container"]
-    blob_root = folder.get_info()["accessInfo"]["root"][1:]
+    blob_bket = dss_partitioned_folder.get_info()["accessInfo"]["container"]
+    blob_root = dss_partitioned_folder.get_info()["accessInfo"]["root"][1:]
 elif connection_type == "GCS":
     blob_header = "gs"
-    blob_bket = folder.get_info()["accessInfo"]["bucket"]
-    blob_root = folder.get_info()["accessInfo"]["root"][1:]
+    blob_bket = dss_partitioned_folder.get_info()["accessInfo"]["bucket"]
+    blob_root = dss_partitioned_folder.get_info()["accessInfo"]["root"][1:]

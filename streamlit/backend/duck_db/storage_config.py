@@ -37,16 +37,16 @@ def aws_credentials(blob_module=None, blob_credentials=None):
 # -------------------------------------------------------------------
 def azure_credentials(blob_module=None, blob_credentials=None):
     blob_module = queries["blob_setup"]["azure_modules"]
-    storageAccount = connection_handle.get_info()["params"]["storageAccount"]
-    credentials_mode = connection_handle.get_info()["params"]["authType"]
+    storageAccount = settings.connection_handle.get_info()["params"]["storageAccount"]
+    credentials_mode = settings.connection_handle.get_info()["params"]["authType"]
     if credentials_mode == "SHARED_KEY":
-        accessKey = connection_handle.get_info()["params"]["accessKey"]
+        accessKey = settings.connection_handle.get_info()["params"]["accessKey"]
         logger.error("SHARED KEY NEEDS TO BE INIT")
         raise Exception("Failed to find proper BLOB information. Check logs for detail.")
     elif credentials_mode == "OAUTH2_APP":
-        tenant_id = connection_handle.get_info()["params"]["tenantId"]
-        client_id = connection_handle.get_info()["params"]["appId"]
-        client_secret = connection_handle.get_info()["params"]["appSecret"]
+        tenant_id = settings.connection_handle.get_info()["params"]["tenantId"]
+        client_id = settings.connection_handle.get_info()["params"]["appId"]
+        client_secret = settings.connection_handle.get_info()["params"]["appSecret"]
         blob_credentials = yaml_loader.render_query(
             queries["blob_setup"]["azure_oauth2_headers"],
             tenant_id=tenant_id,
@@ -111,9 +111,9 @@ def configure_storage(conn):
     if connection_type == "EC2":
         blob_module, blob_credentials = aws_credentials(blob_module, blob_credentials)
     elif connection_type == "Azure":
-        blob_module, blob_credentials = aws_credentials(blob_module, blob_credentials)
+        blob_module, blob_credentials = azure_credentials(blob_module, blob_credentials)
     elif connection_type == "GCS":
-        blob_module, blob_credentials = aws_credentials(blob_module, blob_credentials)
+        blob_module, blob_credentials = gcp_credentials(blob_module, blob_credentials)
     else:
         raise ValueError(f"Unknown storage provider: {connection_type}")
 
