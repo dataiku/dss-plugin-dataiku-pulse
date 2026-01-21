@@ -1,4 +1,5 @@
 # Dataiku Pulse Dashboard
+
 * Version - 2.5.1
 
 ## Scope
@@ -7,7 +8,6 @@ This dashboard is designed to give Dataiku Admins insights into the DSS instance
 
 * Dataiku Insights (API Dataiku)
 * Dataiku Usage (Audit Logs)
-
 
 ## Tested Dataiku Versions
 
