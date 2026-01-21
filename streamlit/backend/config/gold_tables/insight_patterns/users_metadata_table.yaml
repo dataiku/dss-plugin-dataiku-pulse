@@ -1,12 +1,13 @@
 users_metadata_table:
   description: >
     Deduplicated user metadata per instance + login.
-    Keeps most recent activity based on session or commit.
+    Incremental rebuild using a rolling hot window based on last activity.
+    Keeps the most recent record per user.
   depends_on:
     - users_metadata_view
   sql: |
     CREATE OR REPLACE TABLE users_metadata_base AS
-    WITH ranked_users AS (
+    WITH recent_updates AS (
         SELECT
             instance_name,
             login,
@@ -23,19 +24,44 @@ users_metadata_table:
             GREATEST(
                 last_session_activity,
                 last_commit_date
-            ) AS last_activity_ts,
-            --run_timestamp,
-            --extras,
-
+            ) AS last_activity_ts
+        FROM users_metadata_view
+        WHERE
+            GREATEST(
+                last_session_activity,
+                last_commit_date
+            ) >= CURRENT_DATE - INTERVAL 7 DAY
+    ),
+    existing_gold AS (
+        SELECT
+            instance_name,
+            login,
+            sourceType,
+            displayName,
+            userProfile,
+            creationDate,
+            enabled,
+            resultingUserProfile,
+            email,
+            last_session_activity,
+            first_commit_date,
+            last_commit_date,
+            last_activity_ts
+        FROM users_metadata_base
+    ),
+    combined AS (
+        SELECT * FROM existing_gold
+        UNION ALL
+        SELECT * FROM recent_updates
+    ),
+    ranked_users AS (
+        SELECT
+            *,
             ROW_NUMBER() OVER (
                 PARTITION BY instance_name, login
-                ORDER BY
-                    GREATEST(
-                        last_session_activity,
-                        last_commit_date
-                    ) DESC
+                ORDER BY last_activity_ts DESC
             ) AS rn
-        FROM users_metadata_view
+        FROM combined
     )
     SELECT
         *
