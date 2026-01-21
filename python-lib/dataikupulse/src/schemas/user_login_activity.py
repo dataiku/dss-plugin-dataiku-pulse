@@ -1,5 +1,5 @@
 FLAT_COLUMNS = [
-login
-    activity_type
-    timestamp
+    "login",
+    "activity_type",
+    "timestamp",
 ]
