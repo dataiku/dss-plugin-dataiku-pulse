@@ -1,12 +1,14 @@
 scenarios_metadata_table:
   description: >
     Deduplicated scenario metadata per instance + project + scenario.
-    Keeps the most recent scenario record based on lastModifiedOn.
+    Incremental rebuild using a rolling hot window based on
+    scenarios lastModifiedOn.
+    Keeps the most recent scenario record.
   depends_on:
     - scenarios_metadata_view
   sql: |
     CREATE OR REPLACE TABLE scenarios_metadata_base AS
-    WITH ranked_scenarios AS (
+    WITH recent_updates AS (
         SELECT
             instance_name,
             project_key,
@@ -21,10 +23,38 @@ scenarios_metadata_table:
             scenarios_lastModifiedOn,
             scenarios_start,
             scenarios_nextRun,
-            scenarios_runAsUser,
-            --run_timestamp,
-            --extras,
-
+            scenarios_runAsUser
+        FROM scenarios_metadata_view
+        WHERE
+            scenarios_lastModifiedOn
+                >= CURRENT_DATE - INTERVAL 7 DAY
+    ),
+    existing_gold AS (
+        SELECT
+            instance_name,
+            project_key,
+            scenarios_id,
+            scenarios_name,
+            scenarios_type,
+            scenarios_active,
+            scenarios_unavailable,
+            scenarios_running,
+            scenarios_markedAsTest,
+            scenarios_createdOn,
+            scenarios_lastModifiedOn,
+            scenarios_start,
+            scenarios_nextRun,
+            scenarios_runAsUser
+        FROM scenarios_metadata_base
+    ),
+    combined AS (
+        SELECT * FROM existing_gold
+        UNION ALL
+        SELECT * FROM recent_updates
+    ),
+    ranked_scenarios AS (
+        SELECT
+            *,
             ROW_NUMBER() OVER (
                 PARTITION BY
                     instance_name,
@@ -33,7 +63,7 @@ scenarios_metadata_table:
                 ORDER BY
                     scenarios_lastModifiedOn DESC
             ) AS rn
-        FROM scenarios_metadata_view
+        FROM combined
     )
     SELECT
         *

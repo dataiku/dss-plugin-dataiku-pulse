@@ -1,12 +1,14 @@
 datasets_metadata_table:
   description: >
     Deduplicated dataset metadata per instance + project + dataset.
-    Keeps the most recent dataset record based on versionTag lastModifiedOn.
+    Incremental rebuild using a rolling hot window based on dataset
+    versionTag lastModifiedOn.
+    Keeps the most recent dataset record.
   depends_on:
     - datasets_metadata_view
   sql: |
     CREATE OR REPLACE TABLE datasets_metadata_base AS
-    WITH ranked_datasets AS (
+    WITH recent_updates AS (
         SELECT
             instance_name,
             project_key,
@@ -21,10 +23,38 @@ datasets_metadata_table:
             dataset_creationTag_versionNumber,
             dataset_creationTag_lastModifiedBy_login,
             dataset_creationTag_lastModifiedOn,
-            dataset_smartName,
-            --run_timestamp,
-            --extras,
-
+            dataset_smartName
+        FROM datasets_metadata_view
+        WHERE
+            dataset_versionTag_lastModifiedOn
+                >= CURRENT_DATE - INTERVAL 7 DAY
+    ),
+    existing_gold AS (
+        SELECT
+            instance_name,
+            project_key,
+            dataset_type,
+            dataset_managed,
+            dataset_featureGroup,
+            dataset_name,
+            dataset_typeSystemVersion,
+            dataset_versionTag_versionNumber,
+            dataset_versionTag_lastModifiedBy_login,
+            dataset_versionTag_lastModifiedOn,
+            dataset_creationTag_versionNumber,
+            dataset_creationTag_lastModifiedBy_login,
+            dataset_creationTag_lastModifiedOn,
+            dataset_smartName
+        FROM datasets_metadata_base
+    ),
+    combined AS (
+        SELECT * FROM existing_gold
+        UNION ALL
+        SELECT * FROM recent_updates
+    ),
+    ranked_datasets AS (
+        SELECT
+            *,
             ROW_NUMBER() OVER (
                 PARTITION BY
                     instance_name,
@@ -33,7 +63,7 @@ datasets_metadata_table:
                 ORDER BY
                     dataset_versionTag_lastModifiedOn DESC
             ) AS rn
-        FROM datasets_metadata_view
+        FROM combined
     )
     SELECT
         *
