@@ -71,7 +71,7 @@ class MyRunnable(Runnable):
         try:
             last_update = variables["local"]["projects_deltaa"]
         except:
-            last_update = 0
+            last_update = "2026-01-01 00:00:00.000000"
         last_update = pd.to_datetime(last_update)
         self.last_update = last_update
         
