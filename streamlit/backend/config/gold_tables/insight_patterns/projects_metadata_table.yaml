@@ -6,7 +6,45 @@ projects_metadata_table:
     Keeps the most recent project record.
   depends_on:
     - projects_metadata_view
-  sql: |
+
+  full_sql: |
+    CREATE OR REPLACE TABLE projects_metadata_base AS
+    WITH ranked_projects AS (
+        SELECT
+            instance_name,
+            project_key,
+            login,
+            project_projectType,
+            project_projectAppType,
+            project_permissionsVersion,
+            project_tutorialProject,
+            project_commitMode,
+            project_name,
+            project_ownerDisplayName,
+            project_versionTag_versionNumber,
+            project_versionTag_lastModifiedOn,
+            project_versionTag_lastModifiedBy_login,
+            project_creationTag_versionNumber,
+            project_creationTag_lastModifiedOn,
+            project_creationTag_lastModifiedBy_login,
+            ROW_NUMBER() OVER (
+                PARTITION BY
+                    instance_name,
+                    project_key
+                ORDER BY
+                    project_versionTag_lastModifiedOn DESC
+            ) AS rn
+        FROM projects_metadata_view
+    )
+    SELECT
+        *
+    FROM ranked_projects
+    WHERE rn = 1
+    ORDER BY
+        instance_name,
+        project_key;
+
+  incremental_sql: |
     CREATE OR REPLACE TABLE projects_metadata_base AS
     WITH recent_updates AS (
         SELECT

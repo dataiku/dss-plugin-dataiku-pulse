@@ -6,7 +6,45 @@ scenarios_metadata_table:
     Keeps the most recent scenario record.
   depends_on:
     - scenarios_metadata_view
-  sql: |
+
+  full_sql: |
+    CREATE OR REPLACE TABLE scenarios_metadata_base AS
+    WITH ranked_scenarios AS (
+        SELECT
+            instance_name,
+            project_key,
+            scenarios_id,
+            scenarios_name,
+            scenarios_type,
+            scenarios_active,
+            scenarios_unavailable,
+            scenarios_running,
+            scenarios_markedAsTest,
+            scenarios_createdOn,
+            scenarios_lastModifiedOn,
+            scenarios_start,
+            scenarios_nextRun,
+            scenarios_runAsUser,
+            ROW_NUMBER() OVER (
+                PARTITION BY
+                    instance_name,
+                    project_key,
+                    scenarios_id
+                ORDER BY
+                    scenarios_lastModifiedOn DESC
+            ) AS rn
+        FROM scenarios_metadata_view
+    )
+    SELECT
+        *
+    FROM ranked_scenarios
+    WHERE rn = 1
+    ORDER BY
+        instance_name,
+        project_key,
+        scenarios_id;
+
+  incremental_sql: |
     CREATE OR REPLACE TABLE scenarios_metadata_base AS
     WITH recent_updates AS (
         SELECT
