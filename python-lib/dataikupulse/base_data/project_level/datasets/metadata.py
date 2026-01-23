@@ -11,4 +11,5 @@ def main(self, project_handle, client_d = {}):
     prefix = "dataset_"
     df = pd.json_normalize(project_handle.list_datasets()).add_prefix(prefix)
     df = dss_funcs.rename_and_move_first(df, f"{prefix}projectKey", "project_key")
+    df = _trim_raw_df_by_last_modified(df, last_modified_col="", last_update=self.last_update)
     return df
