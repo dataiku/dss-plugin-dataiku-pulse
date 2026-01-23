@@ -176,7 +176,7 @@
             "type": "BOOLEAN",
             "description": "",
             "mandatory": true,
-            "defaultValue": true
+            "defaultValue": false
         },
         {
             "name": "end_separator",
