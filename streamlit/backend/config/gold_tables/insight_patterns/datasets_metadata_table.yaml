@@ -6,7 +6,45 @@ datasets_metadata_table:
     Keeps the most recent dataset record.
   depends_on:
     - datasets_metadata_view
-  sql: |
+
+  full_sql: |
+    CREATE OR REPLACE TABLE datasets_metadata_base AS
+    WITH ranked_datasets AS (
+        SELECT
+            instance_name,
+            project_key,
+            dataset_type,
+            dataset_managed,
+            dataset_featureGroup,
+            dataset_name,
+            dataset_typeSystemVersion,
+            dataset_versionTag_versionNumber,
+            dataset_versionTag_lastModifiedBy_login,
+            dataset_versionTag_lastModifiedOn,
+            dataset_creationTag_versionNumber,
+            dataset_creationTag_lastModifiedBy_login,
+            dataset_creationTag_lastModifiedOn,
+            dataset_smartName,
+            ROW_NUMBER() OVER (
+                PARTITION BY
+                    instance_name,
+                    project_key,
+                    dataset_name
+                ORDER BY
+                    dataset_versionTag_lastModifiedOn DESC
+            ) AS rn
+        FROM datasets_metadata_view
+    )
+    SELECT
+        *
+    FROM ranked_datasets
+    WHERE rn = 1
+    ORDER BY
+        instance_name,
+        project_key,
+        dataset_name;
+
+  incremental_sql: |
     CREATE OR REPLACE TABLE datasets_metadata_base AS
     WITH recent_updates AS (
         SELECT
