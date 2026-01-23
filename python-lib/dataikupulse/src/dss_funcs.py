@@ -152,6 +152,19 @@ def _execute_module(self, module_name, module_path, project_handle, client_d, pr
 # ----------------------------------------------------------
 # Validate and Save RAW
 # ----------------------------------------------------------
+def _trim_raw_df_by_last_modified(df, *, last_modified_col, last_update):
+    tmp = df.copy(deep=False)
+    tmp[last_modified_col] = pd.to_datetime(
+        tmp.get(last_modified_col),
+        errors="coerce"
+    )
+    keep_mask = (
+        tmp[last_modified_col].isna()
+        |
+        (tmp[last_modified_col] >= last_update)
+    )
+    return df.loc[keep_mask].copy()
+
 def _is_valid_df(df):
     return isinstance(df, pd.DataFrame) and not df.empty
 
