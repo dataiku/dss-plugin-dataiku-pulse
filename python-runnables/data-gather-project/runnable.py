@@ -96,7 +96,7 @@ class MyRunnable(Runnable):
         except Exception as e:
             raise Exception(f"Something went wrong:: {e}")
             
-        # st vars
+        # set new timestamp var
         variables["local"]["projects_delta"] = str(datetime.utcnow())
         project_handle.set_variables(variables)
         
