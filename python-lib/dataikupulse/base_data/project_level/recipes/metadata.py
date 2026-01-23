@@ -110,4 +110,5 @@ def main(self, project_handle, client_d = {}):
             llm_model = ""
         df.loc[df["recipes_name"] == recipes_name, "recipes_params_llmId"] = llm_model
 
+    df = _trim_raw_df_by_last_modified(df, last_modified_col="recipes_versionTag_lastModifiedOn", last_update=self.last_update)
     return df
