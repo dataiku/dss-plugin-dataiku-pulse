@@ -73,6 +73,7 @@ class MyRunnable(Runnable):
         except:
             last_update = 0
         last_update = pd.to_datetime(last_update)
+        self.last_update = last_update
         
         # Preprocess Project Keys for only DELTAS
         df = pd.DataFrame(self.local_client.list_projects())
