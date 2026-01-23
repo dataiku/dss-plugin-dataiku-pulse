@@ -156,6 +156,7 @@ def _trim_raw_df_by_last_modified(df, *, last_modified_col, last_update):
     tmp = df.copy(deep=False)
     tmp[last_modified_col] = pd.to_datetime(
         tmp.get(last_modified_col),
+        unit="ms",
         errors="coerce"
     )
     keep_mask = (
