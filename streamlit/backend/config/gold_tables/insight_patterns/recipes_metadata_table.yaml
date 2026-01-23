@@ -6,7 +6,48 @@ recipes_metadata_table:
     Keeps the most recent recipe record.
   depends_on:
     - recipes_metadata_view
-  sql: |
+
+  full_sql: |
+    CREATE OR REPLACE TABLE recipes_metadata_base AS
+    WITH ranked_recipes AS (
+        SELECT
+            instance_name,
+            project_key,
+            recipes_name,
+            recipes_type,
+            recipes_neverRecomputeExistingPartitions,
+            recipes_redispatchPartitioning,
+            recipes_maxRunningActivities,
+            recipes_hashPropagationBehavior,
+            recipes_versionTag_versionNumber,
+            recipes_versionTag_lastModifiedBy_login,
+            recipes_versionTag_lastModifiedOn,
+            recipes_creationTag_versionNumber,
+            recipes_creationTag_lastModifiedBy_login,
+            recipes_creationTag_lastModifiedOn,
+            recipes_params_engineType,
+            recipes_params_engineLabel,
+            recipes_params_engineRecommended,
+            ROW_NUMBER() OVER (
+                PARTITION BY
+                    instance_name,
+                    project_key,
+                    recipes_name
+                ORDER BY
+                    recipes_versionTag_lastModifiedOn DESC
+            ) AS rn
+        FROM recipes_metadata_view
+    )
+    SELECT
+        *
+    FROM ranked_recipes
+    WHERE rn = 1
+    ORDER BY
+        instance_name,
+        project_key,
+        recipes_name;
+
+  incremental_sql: |
     CREATE OR REPLACE TABLE recipes_metadata_base AS
     WITH recent_updates AS (
         SELECT

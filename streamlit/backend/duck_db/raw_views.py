@@ -64,7 +64,7 @@ def register_raw_views(conn, *, show_ui: bool = False):
         total = len(raw_queries)
         for idx, q in enumerate(raw_queries, start=1):
             if show_ui:
-                status_text.text(f"Registering RAW view {idx}/{total}")
+                status_text.text(f"Registering RAW view {idx}/{total}: (table_name)")
                 progress_bar.progress(int(idx / total * 100), text=progress_text)
 
             logger.debug(f"Executing view registration query:\n{q}")

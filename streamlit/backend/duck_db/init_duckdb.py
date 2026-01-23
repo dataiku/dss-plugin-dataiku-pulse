@@ -9,6 +9,14 @@ from backend.duck_db import dataiku_sources
 
 logger = logging.getLogger(__name__)
 
+STEP_LABELS = {
+    "create_connection": "Initializing DuckDB",
+    "register_partition_df": "Registering folder partitions",
+    "register_raw_views": "Registering RAW views",
+    "register_dataiku_usage_views": "Register Dataiku Usage Views",
+    "register_gold_tables": "Building GOLD tables",
+}
+
 # -------------------------------------------------------
 def _run_init_pipeline(init_funcs, *, reset=False, success_message="Initialization complete"):
     try:
@@ -31,6 +39,8 @@ def _run_init_pipeline(init_funcs, *, reset=False, success_message="Initializati
                 total_funcs = len(init_funcs)
                 for i, func in enumerate(init_funcs, start=1):
                     func_name = func.__name__
+                    label = STEP_LABELS.get(func_name, func_name)
+                    status_text.text(f"Running step {i}/{total_funcs}: {label}")
                     logger.info(f"Running DuckDB init function {func_name}")
                     if func_name == "create_connection":
                         conn = func(read_only=False, show_ui=True)
@@ -38,7 +48,7 @@ def _run_init_pipeline(init_funcs, *, reset=False, success_message="Initializati
                         func(conn, show_ui=True)
                     progress = int(i / total_funcs * 100)
                     progress_bar.progress(progress, text=progress_text)
-                    status_text.text(f"Completed step {i}/{total_funcs}")
+                    status_text.text(f"Completed step {i}/{total_funcs}: {label}")
                     time.sleep(1)
                 elapsed = time.perf_counter() - start_time
                 st.success(f"{success_message} ({elapsed:.2f}s)")

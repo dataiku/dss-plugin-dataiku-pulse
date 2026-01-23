@@ -8,14 +8,27 @@ logger = logging.getLogger(__name__)
 root = Path(settings.BASE_DIR / "backend/config/gold_tables")
 queries = {}
 for path in root.rglob("*.yaml"):
-    queries = queries | yaml_loader.load_yaml(path)
+    queries |= yaml_loader.load_yaml(path)
+
+
+def table_exists(conn, table_name: str) -> bool:
+    return conn.execute(
+        """
+        SELECT COUNT(*)
+        FROM information_schema.tables
+        WHERE table_schema = 'main'
+          AND table_name = ?
+        """,
+        [table_name]
+    ).fetchone()[0] == 1
+
 
 # -------------------------------------------------------
-# Register views from RAW parquet
+# Register GOLD tables
 # -------------------------------------------------------
-def register_gold_tables(conn, *, show_ui: bool = False):
+def register_gold_tables(conn, *, show_ui: bool = False, force_full: bool = False):
     """
-    Registers GOLD tables from gold_tables.yaml
+    Registers GOLD tables using full or incremental SQL
     """
     progress_bar = None
     status_text = None
@@ -40,14 +53,30 @@ def register_gold_tables(conn, *, show_ui: bool = False):
 
         for idx, (table_name, cfg) in enumerate(queries.items(), start=1):
             current_table = table_name
-            current_sql = cfg.get("sql")
-
-            if not current_sql:
-                raise ValueError(f"No SQL defined for GOLD table `{table_name}`")
+            full_sql = cfg.get("full_sql")
+            incremental_sql = cfg.get("incremental_sql")
+            legacy_sql = cfg.get("sql")
 
             if show_ui:
-                status_text.text(f"Registering GOLD table {idx}/{total}: {table_name}")
+                status_text.text(f"Registering GOLD table {idx}/{total}")
                 progress_bar.progress(int(idx / total * 100), text=progress_text)
+
+            if force_full and full_sql:
+                current_sql = full_sql
+                logger.info(f"Force full rebuild for `{table_name}`")
+            elif full_sql and incremental_sql:
+                base_table = f"{table_name.replace('_table', '')}_base"
+                if table_exists(conn, base_table):
+                    current_sql = incremental_sql
+                    logger.info(f"Incremental rebuild for `{table_name}`")
+                else:
+                    current_sql = full_sql
+                    logger.info(f"Bootstrap full rebuild for `{table_name}`")
+            elif legacy_sql:
+                current_sql = legacy_sql
+                logger.info(f"Legacy rebuild for `{table_name}`")
+            else:
+                raise ValueError(f"No SQL defined for GOLD table `{table_name}`")
 
             logger.debug(f"Executing GOLD table query for `{table_name}`:\n{current_sql}")
             conn.execute(current_sql)
@@ -61,16 +90,13 @@ def register_gold_tables(conn, *, show_ui: bool = False):
         return True
 
     except Exception:
-        logger.exception(
-            f"Failed to build GOLD table `{current_table}`"
-        )
+        logger.exception(f"Failed to build GOLD table `{current_table}`")
         if current_sql:
             logger.exception(current_sql)
         raise
 
     finally:
-        if progress_bar is not None:
+        if progress_bar:
             progress_bar.empty()
-        if status_text is not None:
+        if status_text:
             status_text.empty()
-    return

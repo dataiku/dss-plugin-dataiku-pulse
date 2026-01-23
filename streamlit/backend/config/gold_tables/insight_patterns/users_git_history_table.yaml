@@ -5,7 +5,23 @@ users_git_history_table:
     commit events while removing duplicate rows.
   depends_on:
     - users_git_history_view
-  sql: |
+
+  full_sql: |
+    CREATE OR REPLACE TABLE users_git_history_base AS
+    SELECT DISTINCT
+        instance_name,
+        project_key,
+        commit,
+        login,
+        timestamp,
+        message
+    FROM users_git_history_view
+    ORDER BY
+        instance_name,
+        project_key,
+        timestamp;
+
+  incremental_sql: |
     CREATE OR REPLACE TABLE users_git_history_base AS
     WITH existing_gold AS (
         SELECT
