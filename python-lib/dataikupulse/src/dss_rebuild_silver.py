@@ -45,15 +45,17 @@ def check_save(self, df_clean, dq, path, category, module_name, results):
 
 def rebuild_silver(self, chunk_df):
     paths = []
+    # Collect all candidate paths
     for row in chunk_df.itertuples():
         paths.extend(self.folder.get_partition_info(row.partitions)["paths"])
-    #
-    for path in paths:
-        if "category=" not in path:
-            paths.remove(path)
-    #
+    # Keep only Hive-style paths
+    paths = [
+        path for path in paths
+        if "/category=" in path
+    ]
+    # Fail fast if nothing matched
     if not paths:
-        raise Exception("No paths found!")
+        raise Exception("No Hive-partitioned paths found")
     #
     results = []
     for path in paths:
