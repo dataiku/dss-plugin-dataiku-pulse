@@ -58,9 +58,9 @@ class MyRunnable(Runnable):
         self.folder = dss_folder.get_local_folder(self, self.project_handle, self.folder_name)
         
         # Gather Paths
-        paths = collect_all_paths(self.folder, n_threads=self.preset_pc["cores"])
+        all_paths = collect_all_paths(self.folder, n_threads=self.preset_pc["cores"])
         paths = [
-            path for path in paths
+            path for path in all_paths
             if "/category=" in path
         ]
         if not paths:
