@@ -44,11 +44,6 @@ def check_save(self, df_clean, dq, path, category, module_name, results):
 
 
 def rebuild_silver(self, paths):
-    paths = []
-    # Collect all candidate paths
-    for row in chunk_df.itertuples():
-        paths.extend(self.folder.get_partition_info(row.partitions)["paths"])
-
     # Main loop
     results = []
     for path in paths:
