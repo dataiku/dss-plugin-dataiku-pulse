@@ -60,7 +60,6 @@ class MyRunnable(Runnable):
         # ALl
         all_paths = collect_all_paths(self.folder, n_threads=self.preset_pc["cores"])
         
-        
         # check
         if partitions_df.empty:
             raise Exception("No partitions found")
