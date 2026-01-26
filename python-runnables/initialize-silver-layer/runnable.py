@@ -63,7 +63,6 @@ class MyRunnable(Runnable):
             path for path in paths
             if "/category=" in path
         ]
-        # Fail fast if nothing matched
         if not paths:
             raise Exception("No Hive-partitioned paths found")
         
