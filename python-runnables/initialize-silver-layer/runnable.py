@@ -12,7 +12,7 @@ from dataikupulse.src import dss_folder
 from dataikupulse.src import dss_rebuild_silver
 
 
-def collect_all_paths(folder, n_threads=2, FILTER_KEYS=[]):
+def collect_all_paths(folder, n_threads=2):
     partitions = folder.list_partitions()
     if FILTER_KEYS:
         filtered_partitions = [
