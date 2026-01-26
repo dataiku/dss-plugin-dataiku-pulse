@@ -11,32 +11,21 @@ from dataikupulse.src import dss_funcs
 from dataikupulse.src import dss_folder
 from dataikupulse.src import dss_rebuild_silver
 
+def get_paths(partition):
+    info = folder.get_partition_info(partition)
+    return info.get("paths", [])
 
 def collect_all_paths(folder, n_threads=2):
     partitions = folder.list_partitions()
-    if FILTER_KEYS:
-        filtered_partitions = [
-            p for p in partitions
-            if any(key in p for key in FILTER_KEYS)
-        ]
-    else:
-        filtered_partitions = partitions
-
-    def get_paths(partition):
-        info = folder.get_partition_info(partition)
-        return info.get("paths", [])
-
     results = Parallel(
         n_jobs=n_threads,
         backend="threading",
         prefer="threads",
     )(
-        delayed(get_paths)(p) for p in filtered_partitions
+        delayed(get_paths)(p) for p in partitions
     )
-
     # Flatten list of lists
     all_paths = [path for sublist in results for path in sublist]
-
     return all_paths
 
 
