@@ -37,7 +37,7 @@ class MyRunnable(Runnable):
         self.folder = dss_folder.get_local_folder(self, self.project_handle, self.folder_name)
         
         # Gather Paths
-        all_paths = folder.list_paths_in_partition()
+        all_paths = self.folder.list_paths_in_partition()
         paths = [
             path for path in all_paths
             if "/category=" in path
