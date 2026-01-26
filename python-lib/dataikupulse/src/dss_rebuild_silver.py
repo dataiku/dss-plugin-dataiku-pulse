@@ -57,9 +57,9 @@ def rebuild_silver(self, chunk_df):
             file_bytes = io.BytesIO(stream.read())
         df = pd.read_parquet(file_bytes)
         #
-        category = path.split("/")[2]
-        module_name = path.split("/")[3]
-        self.instance_name = path.split("/")[4]
+        category = path.split("/")[2].replace("category=", "")
+        module_name = path.split("/")[3].replace("module=", "")
+        self.instance_name = path.split("/")[4].replace("instance_name=", "")
         #
         mode="client"
         if "dataiku_usage" == category:
