@@ -50,6 +50,8 @@ def rebuild_silver(self, chunk_df):
     #
     results = []
     for path in paths:
+        if "=" is not in path:
+            continue
         #
         with self.folder.get_download_stream(path) as stream:
             file_bytes = io.BytesIO(stream.read())
