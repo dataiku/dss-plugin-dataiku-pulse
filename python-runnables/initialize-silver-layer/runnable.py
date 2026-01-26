@@ -18,16 +18,10 @@ def get_paths(partition):
     
 def collect_all_paths(folder, n_threads=2):
     partitions = folder.list_partitions()
-    if FILTER_KEYS:
-        filtered_partitions = [
-            p for p in partitions
-            if any(key in p for key in ["raw|"])
-        ]
-    else:
-        filtered_partitions = partitions
-
-
-
+    filtered_partitions = [
+        p for p in partitions
+        if any(key in p for key in ["raw|"])
+    ]
     results = Parallel(
         n_jobs=n_threads,
         backend="threading",
@@ -35,10 +29,7 @@ def collect_all_paths(folder, n_threads=2):
     )(
         delayed(get_paths)(p) for p in filtered_partitions
     )
-
-    # Flatten list of lists
     all_paths = [path for sublist in results for path in sublist]
-
     return all_paths
 
 
