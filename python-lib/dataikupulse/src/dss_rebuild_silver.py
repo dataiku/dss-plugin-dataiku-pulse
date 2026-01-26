@@ -48,6 +48,13 @@ def rebuild_silver(self, chunk_df):
     for row in chunk_df.itertuples():
         paths.extend(self.folder.get_partition_info(row.partitions)["paths"])
     #
+    for path in paths:
+        if "category=" not in path:
+            paths.remove(path)
+    #
+    if not paths:
+        raise Exception("No paths found!")
+    #
     results = []
     for path in paths:
         if "category=" not in path:
