@@ -58,11 +58,16 @@ class MyRunnable(Runnable):
         self.folder = dss_folder.get_local_folder(self, self.project_handle, self.folder_name)
         
         # Gather Paths
-        all_paths = collect_all_paths(self.folder, n_threads=self.preset_pc["cores"])
+        paths = collect_all_paths(self.folder, n_threads=self.preset_pc["cores"])
         
-        # check
-        if partitions_df.empty:
-            raise Exception("No partitions found")
+        # Keep only Hive-style paths
+        paths = [
+            path for path in paths
+            if "/category=" in path
+        ]
+        # Fail fast if nothing matched
+        if not paths:
+            raise Exception("No Hive-partitioned paths found")
         
         # Re-Run Silver Quality Guard
         if self.preset_pc["do_parallel"]:
