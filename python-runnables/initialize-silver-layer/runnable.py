@@ -57,7 +57,7 @@ class MyRunnable(Runnable):
         self.folder_name = "partitioned_data"
         self.folder = dss_folder.get_local_folder(self, self.project_handle, self.folder_name)
         
-        # ALl
+        # Gather Paths
         all_paths = collect_all_paths(self.folder, n_threads=self.preset_pc["cores"])
         
         # check
