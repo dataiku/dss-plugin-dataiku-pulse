@@ -68,7 +68,7 @@ class MyRunnable(Runnable):
         
         # Re-Run Silver Quality Guard
         if self.preset_pc["do_parallel"]:
-            chunks = np.array_split(partitions_df, self.preset_pc["cores"])
+            chunks = np.array_split(paths, self.preset_pc["cores"])
             results = Parallel(
                 n_jobs=self.preset_pc["cores"],
                 backend="threading",
@@ -84,7 +84,7 @@ class MyRunnable(Runnable):
                 dfs.append(pd.DataFrame(r).astype(str))
             results_df = pd.concat(dfs, ignore_index=True)
         else:
-            results = dss_rebuild_silver.rebuild_silver(self, partition_df)
+            results = dss_rebuild_silver.rebuild_silver(self, paths)
             results_df =pd.DataFrame(results).astype(str)
             
         # Return ResultsTable
