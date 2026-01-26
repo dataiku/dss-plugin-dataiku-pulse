@@ -43,9 +43,6 @@ class MyRunnable(Runnable):
         partitions_df[cols] = partitions_df["partitions"].str.split("|", expand=True)
         partitions_df = partitions_df.loc[partitions_df["layer"] == "raw"]
         
-        # added filtering
-        #
-        
         # check
         if partitions_df.empty:
             raise Exception("No partitions found")
