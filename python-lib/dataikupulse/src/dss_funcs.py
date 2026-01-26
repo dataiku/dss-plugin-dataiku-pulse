@@ -176,8 +176,16 @@ def _date_parts(self):
 
 def _build_write_path(self, layer, category, module_name, file_name):
     year, month, day = _date_parts(self)
-    return f"{layer}/{category}/{module_name}/{self.instance_name}/{year}/{month}/{day}/{file_name}"
-
+    return (
+        f"{layer}/"
+        f"category={category}/"
+        f"module={module_name}/"
+        f"instance_name={self.instance_name}/"
+        f"year={year}/"
+        f"month={month}/"
+        f"day={day}/"
+        f"{file_name}"
+    )
 
 def _sanitize_df_for_parquet(df):
     for col in df.columns:
