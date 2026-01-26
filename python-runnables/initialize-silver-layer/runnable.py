@@ -55,14 +55,11 @@ class MyRunnable(Runnable):
         # variables
         self.project_handle = self.local_client.get_default_project()
         self.folder_name = "partitioned_data"
-        
-        # Get folder / raw paths
         self.folder = dss_folder.get_local_folder(self, self.project_handle, self.folder_name)
-        partitions = self.folder.list_partitions()
-        partitions_df = pd.DataFrame(partitions, columns=["partitions"])
-        cols = ["layer", "category", "module", "instance_name", "date"]
-        partitions_df[cols] = partitions_df["partitions"].str.split("|", expand=True)
-        partitions_df = partitions_df.loc[partitions_df["layer"] == "raw"]
+        
+        # ALl
+        all_paths = collect_all_paths(self.folder, n_threads=self.preset_pc["cores"])
+        
         
         # check
         if partitions_df.empty:
