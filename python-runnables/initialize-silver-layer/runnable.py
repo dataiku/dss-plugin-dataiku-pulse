@@ -59,8 +59,6 @@ class MyRunnable(Runnable):
         
         # Gather Paths
         paths = collect_all_paths(self.folder, n_threads=self.preset_pc["cores"])
-        
-        # Keep only Hive-style paths
         paths = [
             path for path in paths
             if "/category=" in path
