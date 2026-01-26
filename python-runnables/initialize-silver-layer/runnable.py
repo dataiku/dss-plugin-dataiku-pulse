@@ -33,7 +33,6 @@ def collect_all_paths(folder, n_threads=2):
     return all_paths
 
 
-
 class MyRunnable(Runnable):
     def __init__(self, project_key, config, plugin_config):
         self.project_key = project_key
