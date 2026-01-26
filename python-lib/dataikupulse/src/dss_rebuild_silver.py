@@ -56,7 +56,7 @@ def rebuild_silver(self, chunk_df):
     # Fail fast if nothing matched
     if not paths:
         raise Exception("No Hive-partitioned paths found")
-    #
+    # Main loop
     results = []
     for path in paths:
         if "category=" not in path:
