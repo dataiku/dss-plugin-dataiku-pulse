@@ -56,7 +56,7 @@ class MyRunnable(Runnable):
             )(
                 delayed(dss_rebuild_silver.rebuild_silver)(self, chunk)
                 for chunk in chunks
-                if not chunk.empty
+                if not chunk
             )
             dfs = []
             for r in results:
