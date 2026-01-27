@@ -9,6 +9,7 @@ def skip_file(self, path):
     exists = self.folder.get_path_details(new_path).get("exists", False)
     return exists
 
+
 def check_save(self, df_clean, dq, path, category, module_name, results):
     if dq is None:
         results.append([category, module_name, "quality", False, "Unknown failure"])
