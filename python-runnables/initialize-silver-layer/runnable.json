@@ -20,6 +20,12 @@
             "label": "Choose PULSE Primary Configuration",
             "parameterSetId": "params-dashboard-instance",
             "mandatory": true
+        },
+        {
+            "type": "BOOLEAN",
+            "name": "force_update",
+            "label": "Check to force rebuild of silver layer.",
+            "defaultValue": false
         }
     ]
 }
