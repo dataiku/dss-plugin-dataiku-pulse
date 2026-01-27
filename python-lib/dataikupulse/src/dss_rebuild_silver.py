@@ -53,6 +53,8 @@ def rebuild_silver(self, paths):
     # Main loop
     results = []
     for path in paths:
+        if skip_file(self, path):
+            continue
         #
         with self.folder.get_download_stream(path) as stream:
             file_bytes = io.BytesIO(stream.read())
