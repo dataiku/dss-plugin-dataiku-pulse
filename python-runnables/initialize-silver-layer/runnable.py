@@ -40,7 +40,7 @@ class MyRunnable(Runnable):
         all_paths = self.folder.list_paths_in_partition()
         paths = [
             path for path in all_paths
-            if "/category=" in path
+            if "/raw/category=" in path
         ]
         if not paths:
             raise Exception("No Hive-partitioned paths found")
