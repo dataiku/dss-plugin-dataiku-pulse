@@ -7,6 +7,7 @@ from dataikupulse.src import dss_folder, dss_funcs, dss_silver
 def skip_file(self, path):
     new_path = path.replace("/raw/", "/silver/")
     exists = self.folder.get_path_details(new_path).get("exists", False)
+    return exists
 
 def check_save(self, df_clean, dq, path, category, module_name, results):
     if dq is None:
