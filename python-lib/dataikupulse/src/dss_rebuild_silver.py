@@ -5,6 +5,7 @@ import pandas as pd
 from dataikupulse.src import dss_folder, dss_funcs, dss_silver
 
 def skip_file(self, path):
+    if self.config["update_github"]
     new_path = path.replace("/raw/", "/silver/")
     exists = self.folder.get_path_details(new_path).get("exists", False)
     return exists
