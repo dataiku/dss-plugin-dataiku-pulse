@@ -6,3 +6,4 @@ plugin_config = get_plugin_config()
 
 ####################################################################################################################
 from duckdb.settings import DB_PATH
+print(DB_PATH)
