@@ -3,8 +3,8 @@ from dataiku.customrecipe import get_input_names_for_role
 from dataiku.customrecipe import get_output_names_for_role
 from dataiku.customrecipe import get_recipe_config
 
-#output_A_names = get_output_names_for_role('main_output')
-#output_A_datasets = [dataiku.Dataset(name) for name in output_A_names]
+#partitioned_data_folder = get_output_names_for_role('partitioned_data_folder')
+#pdf = [dataiku.Dataset(name) for name in partitioned_data_folder]
 
 my_variable = get_recipe_config().get('parameter_name', None)
 
