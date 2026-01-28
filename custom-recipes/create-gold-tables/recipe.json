@@ -1,7 +1,7 @@
 {
     "meta": {
-        "label": "Create gold tables",
-        "description": "",
+        "label": "Create DuckDB Gold Tables",
+        "description": "Custom Python module to run on k8s. Creates the DuckDB gold tables for Pulse Dashboard.",
         "icon": "fas fa-puzzle-piece"
     },
     "kind": "PYTHON",
