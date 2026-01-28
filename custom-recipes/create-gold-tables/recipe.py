@@ -5,5 +5,12 @@ from dataiku.customrecipe import get_plugin_config
 plugin_config = get_plugin_config()
 
 ####################################################################################################################
-from backend.duckdb import init_duckdb
-init_duckdb.build_gold_tables()
+from backend.duck_db import create_conn
+
+
+def build_gold_tables():
+    try:
+        create_conn.reset_duckdb(reset=True)
+    except Exception as e:
+        raise Exception(e)
+    return
