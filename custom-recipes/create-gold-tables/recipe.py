@@ -14,7 +14,10 @@ from backend.duck_db import gold_tables
 
 
 def build_gold_tables():
+    # Delete anything existing
     create_conn.reset_duckdb(reset=True)
+    
+    # build and populate
     conn = create_conn.create_connection(read_only=False)
     expand_duckdb.configure_duckdb_runtime(conn)
     dataiku_sources.register_partition_df(conn)
