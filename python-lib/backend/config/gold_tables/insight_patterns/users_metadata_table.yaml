@@ -1,107 +1,69 @@
 users_metadata_table:
   description: >
     Deduplicated user metadata per instance + login.
-    Incremental rebuild using a rolling hot window based on last activity.
-    Keeps the most recent record per user.
+    Keeps exactly one row per user based on the most recent
+    activity (last session activity or last commit date),
+    with deterministic tie-breaking.
+    Optimized to avoid full-history window scans.
+
   depends_on:
     - users_metadata_view
 
   full_sql: |
     CREATE OR REPLACE TABLE users_metadata_base AS
-    WITH ranked_users AS (
+    WITH activity AS (
         SELECT
-            instance_name,
-            login,
-            sourceType,
-            displayName,
-            userProfile,
-            creationDate,
-            enabled,
-            resultingUserProfile,
-            email,
-            last_session_activity,
-            first_commit_date,
-            last_commit_date,
-            GREATEST(
-                last_session_activity,
-                last_commit_date
-            ) AS last_activity_ts,
-            ROW_NUMBER() OVER (
-                PARTITION BY instance_name, login
-                ORDER BY
-                    GREATEST(
-                        last_session_activity,
-                        last_commit_date
-                    ) DESC
-            ) AS rn
-        FROM users_metadata_view
-    )
-    SELECT
-        *
-    FROM ranked_users
-    WHERE rn = 1
-    ORDER BY instance_name, login;
-
-  incremental_sql: |
-    CREATE OR REPLACE TABLE users_metadata_base AS
-    WITH recent_updates AS (
-        SELECT
-            instance_name,
-            login,
-            sourceType,
-            displayName,
-            userProfile,
-            creationDate,
-            enabled,
-            resultingUserProfile,
-            email,
-            last_session_activity,
-            first_commit_date,
-            last_commit_date,
+            *,
             GREATEST(
                 last_session_activity,
                 last_commit_date
             ) AS last_activity_ts
         FROM users_metadata_view
-        WHERE
-            GREATEST(
-                last_session_activity,
-                last_commit_date
-            ) >= CURRENT_DATE - INTERVAL 7 DAY
     ),
-    existing_gold AS (
+    latest_ts AS (
         SELECT
             instance_name,
             login,
-            sourceType,
-            displayName,
-            userProfile,
-            creationDate,
-            enabled,
-            resultingUserProfile,
-            email,
-            last_session_activity,
-            first_commit_date,
-            last_commit_date,
-            last_activity_ts
-        FROM users_metadata_base
+            MAX(last_activity_ts) AS max_activity_ts
+        FROM activity
+        GROUP BY
+            instance_name,
+            login
     ),
-    combined AS (
-        SELECT * FROM existing_gold
-        UNION ALL
-        SELECT * FROM recent_updates
+    filtered AS (
+        SELECT a.*
+        FROM activity a
+        JOIN latest_ts l
+          ON a.instance_name = l.instance_name
+         AND a.login = l.login
+         AND a.last_activity_ts = l.max_activity_ts
     ),
-    ranked_users AS (
+    ranked AS (
         SELECT
             *,
             ROW_NUMBER() OVER (
-                PARTITION BY instance_name, login
-                ORDER BY last_activity_ts DESC
+                PARTITION BY
+                    instance_name,
+                    login
+                ORDER BY
+                    last_activity_ts DESC,
+                    creationDate DESC
             ) AS rn
-        FROM combined
+        FROM filtered
     )
     SELECT
-        *
-    FROM ranked_users
-    WHERE rn = 1
-    ORDER BY instance_name, login;
+        instance_name,
+        login,
+        sourceType,
+        displayName,
+        userProfile,
+        creationDate,
+        enabled,
+        resultingUserProfile,
+        email,
+        last_session_activity,
+        first_commit_date,
+        last_commit_date,
+        last_activity_ts
+    FROM ranked
+    WHERE rn = 1;
