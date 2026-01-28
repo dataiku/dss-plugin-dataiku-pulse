@@ -34,4 +34,4 @@ def build_gold_tables():
 
 build_gold_tables()
 df = query.query_df("PRAGMA show_tables_expanded;", page="DEBUG")
-print(df)
+print(df.to_json())
