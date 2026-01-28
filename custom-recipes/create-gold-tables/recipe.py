@@ -5,10 +5,9 @@ from dataiku.customrecipe import get_plugin_config
 plugin_config = get_plugin_config()
 
 ####################################################################################################################
-# -*- coding: utf-8 -*-
+from pathlib import Path
 import dataiku
-import pandas as pd, numpy as np
-from dataiku import pandasutils as pdu
+
 
 print("MAZZEI hello")
 print(plugin_config)
