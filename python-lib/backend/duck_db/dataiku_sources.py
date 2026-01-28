@@ -25,15 +25,17 @@ def build_partition_df():
     logger.warning("Building partition dataframe from Dataiku folder...")
     partitions = settings.dss_partitioned_folder.list_partitions()
     df = pd.DataFrame(partitions, columns=["partitions"])
-    cols = ["layer", "category", "module", "instance_name", "date"]
+    cols = ["layer", "category", "module", "instance_name"]
     df[cols] = df["partitions"].str.split("|", expand=True)
-    df["date"] = pd.to_datetime(df["date"])
     df = (
         df
         .loc[df["layer"]
         .isin(["silver"])]
         .reset_index(drop=True)
     )
+    df["category"] = df["category"].str.replace("category=", "", regex=False)
+    df["module"] = df["module"].str.replace("module=", "", regex=False)
+    df["instance_name"] = df["instance_name"].str.replace("cateinstance_namegory=", "", regex=False)
     logger.warning(f"Partition dataframe created with {len(df)} rows.")
     return df
 
