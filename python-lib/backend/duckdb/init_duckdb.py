@@ -1,4 +1,4 @@
-from duckdb_handle import
+from duckdb_handle import create_conn
 
 def build_gold_tables():
     try:
