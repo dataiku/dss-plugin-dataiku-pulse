@@ -1,96 +1,37 @@
 datasets_metadata_table:
   description: >
     Deduplicated dataset metadata per instance + project + dataset.
-    Incremental rebuild using a rolling hot window based on dataset
-    versionTag lastModifiedOn.
-    Keeps the most recent dataset record.
+    Keeps exactly one row per dataset based on the most recent
+    dataset_versionTag_lastModifiedOn, with deterministic tie-breaking.
+    Optimized to avoid full-history window scans.
+
   depends_on:
     - datasets_metadata_view
 
   full_sql: |
     CREATE OR REPLACE TABLE datasets_metadata_base AS
-    WITH ranked_datasets AS (
+    WITH latest_ts AS (
         SELECT
             instance_name,
             project_key,
-            dataset_type,
-            dataset_managed,
-            dataset_featureGroup,
             dataset_name,
-            dataset_typeSystemVersion,
-            dataset_versionTag_versionNumber,
-            dataset_versionTag_lastModifiedBy_login,
-            dataset_versionTag_lastModifiedOn,
-            dataset_creationTag_versionNumber,
-            dataset_creationTag_lastModifiedBy_login,
-            dataset_creationTag_lastModifiedOn,
-            dataset_smartName,
-            ROW_NUMBER() OVER (
-                PARTITION BY
-                    instance_name,
-                    project_key,
-                    dataset_name
-                ORDER BY
-                    dataset_versionTag_lastModifiedOn DESC
-            ) AS rn
+            MAX(dataset_versionTag_lastModifiedOn) AS max_modified
         FROM datasets_metadata_view
-    )
-    SELECT
-        *
-    FROM ranked_datasets
-    WHERE rn = 1
-    ORDER BY
-        instance_name,
-        project_key,
-        dataset_name;
-
-  incremental_sql: |
-    CREATE OR REPLACE TABLE datasets_metadata_base AS
-    WITH recent_updates AS (
-        SELECT
+        GROUP BY
             instance_name,
             project_key,
-            dataset_type,
-            dataset_managed,
-            dataset_featureGroup,
-            dataset_name,
-            dataset_typeSystemVersion,
-            dataset_versionTag_versionNumber,
-            dataset_versionTag_lastModifiedBy_login,
-            dataset_versionTag_lastModifiedOn,
-            dataset_creationTag_versionNumber,
-            dataset_creationTag_lastModifiedBy_login,
-            dataset_creationTag_lastModifiedOn,
-            dataset_smartName
-        FROM datasets_metadata_view
-        WHERE
-            dataset_versionTag_lastModifiedOn
-                >= CURRENT_DATE - INTERVAL 7 DAY
+            dataset_name
     ),
-    existing_gold AS (
-        SELECT
-            instance_name,
-            project_key,
-            dataset_type,
-            dataset_managed,
-            dataset_featureGroup,
-            dataset_name,
-            dataset_typeSystemVersion,
-            dataset_versionTag_versionNumber,
-            dataset_versionTag_lastModifiedBy_login,
-            dataset_versionTag_lastModifiedOn,
-            dataset_creationTag_versionNumber,
-            dataset_creationTag_lastModifiedBy_login,
-            dataset_creationTag_lastModifiedOn,
-            dataset_smartName
-        FROM datasets_metadata_base
+    filtered AS (
+        SELECT v.*
+        FROM datasets_metadata_view v
+        JOIN latest_ts l
+          ON v.instance_name = l.instance_name
+         AND v.project_key = l.project_key
+         AND v.dataset_name = l.dataset_name
+         AND v.dataset_versionTag_lastModifiedOn = l.max_modified
     ),
-    combined AS (
-        SELECT * FROM existing_gold
-        UNION ALL
-        SELECT * FROM recent_updates
-    ),
-    ranked_datasets AS (
+    ranked AS (
         SELECT
             *,
             ROW_NUMBER() OVER (
@@ -99,15 +40,25 @@ datasets_metadata_table:
                     project_key,
                     dataset_name
                 ORDER BY
-                    dataset_versionTag_lastModifiedOn DESC
+                    dataset_versionTag_versionNumber DESC,
+                    dataset_creationTag_versionNumber DESC
             ) AS rn
-        FROM combined
+        FROM filtered
     )
     SELECT
-        *
-    FROM ranked_datasets
-    WHERE rn = 1
-    ORDER BY
         instance_name,
         project_key,
-        dataset_name;
+        dataset_type,
+        dataset_managed,
+        dataset_featureGroup,
+        dataset_name,
+        dataset_typeSystemVersion,
+        dataset_versionTag_versionNumber,
+        dataset_versionTag_lastModifiedBy_login,
+        dataset_versionTag_lastModifiedOn,
+        dataset_creationTag_versionNumber,
+        dataset_creationTag_lastModifiedBy_login,
+        dataset_creationTag_lastModifiedOn,
+        dataset_smartName
+    FROM ranked
+    WHERE rn = 1;
