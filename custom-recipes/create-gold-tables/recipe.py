@@ -9,6 +9,13 @@ from dataiku.customrecipe import get_recipe_config
 my_variable = get_recipe_config().get('parameter_name', None)
 
 
+
+from dataiku.customrecipe import get_plugin_config
+
+# Returns the global settings of the plugin as a Python dictionary
+plugin_config = get_plugin_config()
+
+
 ####################################################################################################################
 # -*- coding: utf-8 -*-
 import dataiku
@@ -16,4 +23,4 @@ import pandas as pd, numpy as np
 from dataiku import pandasutils as pdu
 
 print("MAZZEI hello")
-print(my_variable)
+print(plugin_config)
