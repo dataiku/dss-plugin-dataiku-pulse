@@ -1,4 +1,4 @@
 from duckdb_handle import
 
-def _run_gold_pipeline():
+def build_gold_tables():
     create_conn.reset_duckdb(reset=reset)
