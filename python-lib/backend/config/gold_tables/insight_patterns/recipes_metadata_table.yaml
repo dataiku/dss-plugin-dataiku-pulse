@@ -1,105 +1,37 @@
 recipes_metadata_table:
   description: >
     Deduplicated recipe metadata per instance + project + recipe.
-    Incremental rebuild using a rolling hot window based on
-    recipe versionTag lastModifiedOn.
-    Keeps the most recent recipe record.
+    Keeps exactly one row per recipe based on the most recent
+    recipes_versionTag_lastModifiedOn, with deterministic tie-breaking.
+    Optimized to avoid full-history window scans.
+
   depends_on:
     - recipes_metadata_view
 
   full_sql: |
     CREATE OR REPLACE TABLE recipes_metadata_base AS
-    WITH ranked_recipes AS (
+    WITH latest_ts AS (
         SELECT
             instance_name,
             project_key,
             recipes_name,
-            recipes_type,
-            recipes_neverRecomputeExistingPartitions,
-            recipes_redispatchPartitioning,
-            recipes_maxRunningActivities,
-            recipes_hashPropagationBehavior,
-            recipes_versionTag_versionNumber,
-            recipes_versionTag_lastModifiedBy_login,
-            recipes_versionTag_lastModifiedOn,
-            recipes_creationTag_versionNumber,
-            recipes_creationTag_lastModifiedBy_login,
-            recipes_creationTag_lastModifiedOn,
-            recipes_params_engineType,
-            recipes_params_engineLabel,
-            recipes_params_engineRecommended,
-            ROW_NUMBER() OVER (
-                PARTITION BY
-                    instance_name,
-                    project_key,
-                    recipes_name
-                ORDER BY
-                    recipes_versionTag_lastModifiedOn DESC
-            ) AS rn
+            MAX(recipes_versionTag_lastModifiedOn) AS max_modified
         FROM recipes_metadata_view
-    )
-    SELECT
-        *
-    FROM ranked_recipes
-    WHERE rn = 1
-    ORDER BY
-        instance_name,
-        project_key,
-        recipes_name;
-
-  incremental_sql: |
-    CREATE OR REPLACE TABLE recipes_metadata_base AS
-    WITH recent_updates AS (
-        SELECT
+        GROUP BY
             instance_name,
             project_key,
-            recipes_name,
-            recipes_type,
-            recipes_neverRecomputeExistingPartitions,
-            recipes_redispatchPartitioning,
-            recipes_maxRunningActivities,
-            recipes_hashPropagationBehavior,
-            recipes_versionTag_versionNumber,
-            recipes_versionTag_lastModifiedBy_login,
-            recipes_versionTag_lastModifiedOn,
-            recipes_creationTag_versionNumber,
-            recipes_creationTag_lastModifiedBy_login,
-            recipes_creationTag_lastModifiedOn,
-            recipes_params_engineType,
-            recipes_params_engineLabel,
-            recipes_params_engineRecommended
-        FROM recipes_metadata_view
-        WHERE
-            recipes_versionTag_lastModifiedOn
-                >= CURRENT_DATE - INTERVAL 7 DAY
+            recipes_name
     ),
-    existing_gold AS (
-        SELECT
-            instance_name,
-            project_key,
-            recipes_name,
-            recipes_type,
-            recipes_neverRecomputeExistingPartitions,
-            recipes_redispatchPartitioning,
-            recipes_maxRunningActivities,
-            recipes_hashPropagationBehavior,
-            recipes_versionTag_versionNumber,
-            recipes_versionTag_lastModifiedBy_login,
-            recipes_versionTag_lastModifiedOn,
-            recipes_creationTag_versionNumber,
-            recipes_creationTag_lastModifiedBy_login,
-            recipes_creationTag_lastModifiedOn,
-            recipes_params_engineType,
-            recipes_params_engineLabel,
-            recipes_params_engineRecommended
-        FROM recipes_metadata_base
+    filtered AS (
+        SELECT v.*
+        FROM recipes_metadata_view v
+        JOIN latest_ts l
+          ON v.instance_name = l.instance_name
+         AND v.project_key = l.project_key
+         AND v.recipes_name = l.recipes_name
+         AND v.recipes_versionTag_lastModifiedOn = l.max_modified
     ),
-    combined AS (
-        SELECT * FROM existing_gold
-        UNION ALL
-        SELECT * FROM recent_updates
-    ),
-    ranked_recipes AS (
+    ranked AS (
         SELECT
             *,
             ROW_NUMBER() OVER (
@@ -108,15 +40,28 @@ recipes_metadata_table:
                     project_key,
                     recipes_name
                 ORDER BY
-                    recipes_versionTag_lastModifiedOn DESC
+                    recipes_versionTag_versionNumber DESC,
+                    recipes_creationTag_versionNumber DESC
             ) AS rn
-        FROM combined
+        FROM filtered
     )
     SELECT
-        *
-    FROM ranked_recipes
-    WHERE rn = 1
-    ORDER BY
         instance_name,
         project_key,
-        recipes_name;
+        recipes_name,
+        recipes_type,
+        recipes_neverRecomputeExistingPartitions,
+        recipes_redispatchPartitioning,
+        recipes_maxRunningActivities,
+        recipes_hashPropagationBehavior,
+        recipes_versionTag_versionNumber,
+        recipes_versionTag_lastModifiedBy_login,
+        recipes_versionTag_lastModifiedOn,
+        recipes_creationTag_versionNumber,
+        recipes_creationTag_lastModifiedBy_login,
+        recipes_creationTag_lastModifiedOn,
+        recipes_params_engineType,
+        recipes_params_engineLabel,
+        recipes_params_engineRecommended
+    FROM ranked
+    WHERE rn = 1;
