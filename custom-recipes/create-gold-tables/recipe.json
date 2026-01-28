@@ -12,8 +12,9 @@
             "label": "main output displayed name",
             "description": "what main output means",
             "arity": "UNARY",
-            "required": false,
-            "acceptsDataset": true
+            "required": true,
+            "acceptsDataset": false,
+            "acceptsManagedFolder": true
         }
     ],
     "params": [
