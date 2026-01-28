@@ -27,7 +27,7 @@ def register_dataiku_usage_views(conn, *, show_ui: bool = False):
         parquet_path = (
             f"{settings.blob_header}://"
             f"{settings.blob_bket}/"
-            f"{settings.blob_root}/silver/dataiku_usage/**/*.parquet"
+            f"{settings.blob_root}/silver/category=dataiku_usage/**/*.parquet"
         )
         q_raw = yaml_loader.render_query(
             queries["usage_events_raw"],
