@@ -8,9 +8,9 @@
     "inputRoles": [],
     "outputRoles": [
         {
-            "name": "main_output",
-            "label": "main output displayed name",
-            "description": "what main output means",
+            "name": "partitioned_data_folder",
+            "label": "Partitioned Data Folder",
+            "description": "Folder for all partitioned Data",
             "arity": "UNARY",
             "required": true,
             "acceptsDataset": false,
