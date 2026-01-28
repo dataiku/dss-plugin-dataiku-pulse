@@ -11,8 +11,6 @@ my_variable = get_recipe_config().get('parameter_name', None)
 
 
 from dataiku.customrecipe import get_plugin_config
-
-# Returns the global settings of the plugin as a Python dictionary
 plugin_config = get_plugin_config()
 
 
