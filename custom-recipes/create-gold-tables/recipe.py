@@ -17,3 +17,5 @@ def build_gold_tables():
     dataiku_usage.register_dataiku_usage_views(conn)
     gold_tables.register_gold_tables(conn)
     return
+
+build_gold_tables()
