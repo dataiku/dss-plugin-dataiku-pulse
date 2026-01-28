@@ -1,96 +1,37 @@
 scenarios_metadata_table:
   description: >
     Deduplicated scenario metadata per instance + project + scenario.
-    Incremental rebuild using a rolling hot window based on
-    scenarios lastModifiedOn.
-    Keeps the most recent scenario record.
+    Keeps exactly one row per scenario based on the most recent
+    scenarios_lastModifiedOn, with deterministic tie-breaking.
+    Optimized to avoid full-history window scans.
+
   depends_on:
     - scenarios_metadata_view
 
   full_sql: |
     CREATE OR REPLACE TABLE scenarios_metadata_base AS
-    WITH ranked_scenarios AS (
+    WITH latest_ts AS (
         SELECT
             instance_name,
             project_key,
             scenarios_id,
-            scenarios_name,
-            scenarios_type,
-            scenarios_active,
-            scenarios_unavailable,
-            scenarios_running,
-            scenarios_markedAsTest,
-            scenarios_createdOn,
-            scenarios_lastModifiedOn,
-            scenarios_start,
-            scenarios_nextRun,
-            scenarios_runAsUser,
-            ROW_NUMBER() OVER (
-                PARTITION BY
-                    instance_name,
-                    project_key,
-                    scenarios_id
-                ORDER BY
-                    scenarios_lastModifiedOn DESC
-            ) AS rn
+            MAX(scenarios_lastModifiedOn) AS max_modified
         FROM scenarios_metadata_view
-    )
-    SELECT
-        *
-    FROM ranked_scenarios
-    WHERE rn = 1
-    ORDER BY
-        instance_name,
-        project_key,
-        scenarios_id;
-
-  incremental_sql: |
-    CREATE OR REPLACE TABLE scenarios_metadata_base AS
-    WITH recent_updates AS (
-        SELECT
+        GROUP BY
             instance_name,
             project_key,
-            scenarios_id,
-            scenarios_name,
-            scenarios_type,
-            scenarios_active,
-            scenarios_unavailable,
-            scenarios_running,
-            scenarios_markedAsTest,
-            scenarios_createdOn,
-            scenarios_lastModifiedOn,
-            scenarios_start,
-            scenarios_nextRun,
-            scenarios_runAsUser
-        FROM scenarios_metadata_view
-        WHERE
-            scenarios_lastModifiedOn
-                >= CURRENT_DATE - INTERVAL 7 DAY
+            scenarios_id
     ),
-    existing_gold AS (
-        SELECT
-            instance_name,
-            project_key,
-            scenarios_id,
-            scenarios_name,
-            scenarios_type,
-            scenarios_active,
-            scenarios_unavailable,
-            scenarios_running,
-            scenarios_markedAsTest,
-            scenarios_createdOn,
-            scenarios_lastModifiedOn,
-            scenarios_start,
-            scenarios_nextRun,
-            scenarios_runAsUser
-        FROM scenarios_metadata_base
+    filtered AS (
+        SELECT v.*
+        FROM scenarios_metadata_view v
+        JOIN latest_ts l
+          ON v.instance_name = l.instance_name
+         AND v.project_key = l.project_key
+         AND v.scenarios_id = l.scenarios_id
+         AND v.scenarios_lastModifiedOn = l.max_modified
     ),
-    combined AS (
-        SELECT * FROM existing_gold
-        UNION ALL
-        SELECT * FROM recent_updates
-    ),
-    ranked_scenarios AS (
+    ranked AS (
         SELECT
             *,
             ROW_NUMBER() OVER (
@@ -99,15 +40,25 @@ scenarios_metadata_table:
                     project_key,
                     scenarios_id
                 ORDER BY
-                    scenarios_lastModifiedOn DESC
+                    scenarios_lastModifiedOn DESC,
+                    scenarios_createdOn DESC
             ) AS rn
-        FROM combined
+        FROM filtered
     )
     SELECT
-        *
-    FROM ranked_scenarios
-    WHERE rn = 1
-    ORDER BY
         instance_name,
         project_key,
-        scenarios_id;
+        scenarios_id,
+        scenarios_name,
+        scenarios_type,
+        scenarios_active,
+        scenarios_unavailable,
+        scenarios_running,
+        scenarios_markedAsTest,
+        scenarios_createdOn,
+        scenarios_lastModifiedOn,
+        scenarios_start,
+        scenarios_nextRun,
+        scenarios_runAsUser
+    FROM ranked
+    WHERE rn = 1;
