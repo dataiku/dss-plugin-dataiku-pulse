@@ -1,5 +1,4 @@
 import logging
-import time
 from pathlib import Path
 import duckdb
 import streamlit as st
@@ -58,19 +57,18 @@ def create_connection(*, read_only: bool, show_ui: bool = False):
             progress_bar = st.progress(0, text=progress_text)
             status_text = st.empty()
 
-        logger.info("Initializing DuckDB connection...")
+        logger.warning("Initializing DuckDB connection...")
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
         conn = duckdb.connect(str(DB_PATH), read_only=read_only)
         storage_config.configure_storage(conn)
 
-        logger.info(f"DuckDB connected at: {DB_PATH}")
+        logger.warning(f"DuckDB connected at: {DB_PATH}")
         
         if show_ui:
             progress = int(1 / 1 * 100)
             progress_bar.progress(progress, text=progress_text)
             status_text.text(f"DuckDB Created")
-            time.sleep(1)
 
         return conn
 
