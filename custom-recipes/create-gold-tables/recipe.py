@@ -6,6 +6,10 @@ plugin_config = get_plugin_config()
 
 ####################################################################################################################
 from backend.duck_db import create_conn
+from backend.duck_db import raw_views
+from backend.duck_db import dataiku_usage
+from backend.duck_db import gold_tables
+from backend.duck_db import dataiku_sources
 
 
 def build_gold_tables():
