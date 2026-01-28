@@ -4,7 +4,7 @@ from backend import settings
 from backend.utils import yaml_loader
 
 logger = logging.getLogger(__name__)
-queries = yaml_loader.load_yaml(settings.BASE_DIR / "backend/config/raw_views.yaml")
+queries = yaml_loader.load_yaml(settings.BASE_DIR / "backend/config/raw_views/base_query.yaml")
 
 # -------------------------------------------------------
 # Register views from RAW parquet
@@ -42,17 +42,31 @@ def register_raw_views(conn, *, show_ui: bool = False):
             category = getattr(row, "category")
             module = getattr(row, "module")
             table_name = f"{category}_{module}_view"
-            
-            paths = [
-                f"{settings.blob_header}://{settings.blob_bket}/"
-                f"{settings.blob_root}/silver/{category}/{module}/**/*.parquet"
-            ]
+            base_path = f"{settings.blob_header}://{settings.blob_bket}/{settings.blob_root}/silver"
 
+            # load in select statements
+            yaml_path = (
+                settings.BASE_DIR
+                / f"backend/config/raw_views/{category}_{module}.yaml"
+            )
+            try:
+                config = yaml_loader.load_yaml(yaml_path)
+                columns = config["columns"]
+                select_clause = ",\n  ".join(columns)
+            except FileNotFoundError:
+                select_clause = "*"
+            except KeyError:
+                raise ValueError(f"'columns' missing in {yaml_path}")
+
+            # create query and append to list
             raw_queries.append(
                 yaml_loader.render_query(
                     queries["raw_view"],
-                    table_name = table_name,
-                    paths = paths,
+                    table_name=table_name,
+                    select_clause=select_clause,
+                    base_path=base_path,
+                    category=category,
+                    module=module,
                 )
             )
 
@@ -64,7 +78,7 @@ def register_raw_views(conn, *, show_ui: bool = False):
         total = len(raw_queries)
         for idx, q in enumerate(raw_queries, start=1):
             if show_ui:
-                status_text.text(f"Registering RAW view {idx}/{total}: (table_name)")
+                status_text.text(f"Registering RAW view {idx}/{total}")
                 progress_bar.progress(int(idx / total * 100), text=progress_text)
 
             logger.debug(f"Executing view registration query:\n{q}")
