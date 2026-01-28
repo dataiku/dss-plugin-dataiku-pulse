@@ -5,6 +5,6 @@ from dataiku.customrecipe import get_plugin_config
 plugin_config = get_plugin_config()
 
 ####################################################################################################################
-from duckdb.settings import DB_PATH
+from duckdb import settings
 print("####################################################################################################################")
-print(DB_PATH)
+print(settings.DB_PATH)
