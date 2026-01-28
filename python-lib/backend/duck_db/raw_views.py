@@ -4,7 +4,7 @@ from backend import settings
 from backend.utils import yaml_loader
 
 logger = logging.getLogger(__name__)
-queries = yaml_loader.load_yaml(settings.BASE_DIR / "backend/config/raw/raw_views/base_query.yaml")
+queries = yaml_loader.load_yaml(settings.BASE_DIR / "backend/config/raw_views/base_query.yaml")
 
 # -------------------------------------------------------
 # Register views from RAW parquet
