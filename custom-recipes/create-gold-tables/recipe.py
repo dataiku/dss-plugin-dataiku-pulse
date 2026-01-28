@@ -13,6 +13,11 @@ from backend.duck_db import dataiku_usage
 from backend.duck_db import gold_tables
 
 
+
+import logging
+logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.DEBUG)
+
+
 def build_gold_tables():
     # Delete anything existing
     create_conn.reset_duckdb(reset=True)
