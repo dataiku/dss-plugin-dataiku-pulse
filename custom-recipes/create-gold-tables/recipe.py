@@ -11,6 +11,7 @@ from backend.duck_db import dataiku_sources
 from backend.duck_db import raw_views
 from backend.duck_db import dataiku_usage
 from backend.duck_db import gold_tables
+from backend.duck_db import query
 
 
 
@@ -32,3 +33,5 @@ def build_gold_tables():
     return
 
 build_gold_tables()
+df = query.query_df("PRAGMA show_tables_expanded;", page="DEBUG")
+print(df)
