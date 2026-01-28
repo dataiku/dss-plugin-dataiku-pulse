@@ -6,3 +6,4 @@ plugin_config = get_plugin_config()
 
 ####################################################################################################################
 from backend.duckdb import init_duckdb
+init_duckdb.
