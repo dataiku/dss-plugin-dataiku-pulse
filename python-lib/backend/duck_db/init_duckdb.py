@@ -1,4 +1,4 @@
-from backend.duckdb import create_conn
+from backend.duck_db import create_conn
 
 
 def build_gold_tables():
