@@ -5,9 +5,4 @@ from dataiku.customrecipe import get_plugin_config
 plugin_config = get_plugin_config()
 
 ####################################################################################################################
-from pathlib import Path
-import dataiku
-
-
-print("MAZZEI hello")
-print(plugin_config)
+from duckdb.settings import DB_PATH
