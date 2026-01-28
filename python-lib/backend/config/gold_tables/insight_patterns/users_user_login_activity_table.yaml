@@ -1,96 +1,66 @@
 users_user_login_activity_table:
   description: >
     Daily deduplicated user login activity per instance and login.
-    Keeps one activity record per user per day, selecting the latest
-    timestamp when multiple ingestion runs exist.
+    Keeps exactly one activity record per user per day and activity type,
+    selecting the latest timestamp when multiple ingestion runs exist.
+    Optimized to avoid full-history window scans.
+
   depends_on:
     - users_user_login_activity_view
 
   full_sql: |
     CREATE OR REPLACE TABLE users_user_login_activity_base AS
-    WITH ranked_activity AS (
+    WITH activity AS (
         SELECT
             instance_name,
             login,
             activity_type,
             timestamp,
-            DATE(timestamp) AS activity_date,
+            DATE(timestamp) AS activity_date
+        FROM users_user_login_activity_view
+    ),
+    latest_ts AS (
+        SELECT
+            instance_name,
+            login,
+            activity_type,
+            activity_date,
+            MAX(timestamp) AS max_timestamp
+        FROM activity
+        GROUP BY
+            instance_name,
+            login,
+            activity_type,
+            activity_date
+    ),
+    filtered AS (
+        SELECT a.*
+        FROM activity a
+        JOIN latest_ts l
+          ON a.instance_name = l.instance_name
+         AND a.login = l.login
+         AND a.activity_type = l.activity_type
+         AND a.activity_date = l.activity_date
+         AND a.timestamp = l.max_timestamp
+    ),
+    ranked AS (
+        SELECT
+            *,
             ROW_NUMBER() OVER (
                 PARTITION BY
                     instance_name,
                     login,
                     activity_type,
-                    DATE(timestamp)
+                    activity_date
                 ORDER BY
                     timestamp DESC
             ) AS rn
-        FROM users_user_login_activity_view
+        FROM filtered
     )
     SELECT
         instance_name,
         login,
         activity_type,
         timestamp
-    FROM ranked_activity
-    WHERE rn = 1
-    ORDER BY
-        instance_name,
-        login,
-        timestamp;
-
-  incremental_sql: |
-    CREATE OR REPLACE TABLE users_user_login_activity_base AS
-    WITH recent_activity AS (
-        SELECT
-            instance_name,
-            login,
-            activity_type,
-            timestamp
-        FROM users_user_login_activity_view
-        WHERE
-            timestamp >= CURRENT_DATE - INTERVAL 7 DAY
-    ),
-    existing_gold AS (
-        SELECT
-            instance_name,
-            login,
-            activity_type,
-            timestamp
-        FROM users_user_login_activity_base
-        WHERE
-            timestamp < CURRENT_DATE - INTERVAL 7 DAY
-    ),
-    combined AS (
-        SELECT * FROM existing_gold
-        UNION ALL
-        SELECT * FROM recent_activity
-    ),
-    ranked_activity AS (
-        SELECT
-            instance_name,
-            login,
-            activity_type,
-            timestamp,
-            DATE(timestamp) AS activity_date,
-            ROW_NUMBER() OVER (
-                PARTITION BY
-                    instance_name,
-                    login,
-                    activity_type,
-                    DATE(timestamp)
-                ORDER BY
-                    timestamp DESC
-            ) AS rn
-        FROM combined
-    )
-    SELECT
-        instance_name,
-        login,
-        activity_type,
-        timestamp
-    FROM ranked_activity
-    WHERE rn = 1
-    ORDER BY
-        instance_name,
-        login,
-        timestamp;
+    FROM ranked
+    WHERE rn = 1;
