@@ -63,6 +63,13 @@ class MyRunnable(Runnable):
             except Exception as e:
                 results.append(["Create Folders", False, f"An error occurred: {e}"])
                 cont = False
+            
+            try:
+                f = dss_folder.get_local_folder(self, project_handle, "gold_tables")
+                results.append(["Create Folders", True, None])
+            except Exception as e:
+                results.append(["Create Folders", False, f"An error occurred: {e}"])
+                cont = False
 
         # Get plugin directory
         if cont:
