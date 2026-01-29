@@ -66,12 +66,12 @@ class MyRunnable(Runnable):
                     cont = False
         # Create the gold recipe
         if cont:
-            create_recipe = True
+            create_recipe = False
             try:
                 exists = project_handle.get_recipe(recipe_name="generate_gold_tables")
                 exists.get_settings()
             except:
-                create_recipe = False
+                create_recipe = True
             
             if create_recipe:
                 folder = get_local_folder(self, project_handle, "gold_tables")
