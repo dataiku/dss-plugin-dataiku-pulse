@@ -67,6 +67,7 @@ def build_gold_tables():
 def main():
     logger.debug("##############################################################################")
     logger.debug(get_output_names_for_role)
+    logger.debug("WTF MAZZEI")
     #build_gold_tables()
 
 main()
