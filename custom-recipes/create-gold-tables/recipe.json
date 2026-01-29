@@ -8,9 +8,9 @@
     "inputRoles": [],
     "outputRoles": [
         {
-            "name": "partitioned_data_folder",
-            "label": "Partitioned Data Folder",
-            "description": "Folder for all partitioned Data",
+            "name": "gold_tables_folder",
+            "label": "Gold Tables Data Folder",
+            "description": "Folder for all Gold Tables",
             "arity": "UNARY",
             "required": true,
             "acceptsDataset": false,
