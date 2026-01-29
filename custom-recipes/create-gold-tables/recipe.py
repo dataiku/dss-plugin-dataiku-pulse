@@ -15,7 +15,6 @@ from streamlit.backend.duck_db import query
 from streamlit.backend import settings
 
 
-
 import logging
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.DEBUG)
 
@@ -62,4 +61,4 @@ def build_gold_tables():
     logging.warning("Export process complete.")
     return
 
-build_gold_tables()
+#build_gold_tables()
