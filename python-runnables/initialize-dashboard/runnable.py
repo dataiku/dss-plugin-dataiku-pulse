@@ -67,7 +67,16 @@ class MyRunnable(Runnable):
         # Create the gold recipe
         folder = get_local_folder(self, project_handle, "gold_tables")
         folder_id = folder.get_id()
-        
+        recipe_handle = project_handle.create_recipe(
+            recipe_proto={
+                'type': 'CustomCode_create-gold-tables',
+                'name': 'generate_gold_tables'
+            },
+            creation_settings={}
+        )
+        settings = recipe.get_settings()
+        settings.add_output(role="partitioned_data_folder", ref="QzWEv5JW")
+        settings.save()
                     
         # return results
         if results:
