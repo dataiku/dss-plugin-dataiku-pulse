@@ -47,6 +47,7 @@ def register_raw_views(conn, *, show_ui: bool = False):
                 f"{settings.blob_bket}/"
                 f"{settings.dss_partitioned_folder_root}/"
                 "silver"
+            )
 
             # load in select statements
             yaml_path = (
