@@ -61,4 +61,10 @@ def build_gold_tables():
     logging.warning("Export process complete.")
     return
 
-#build_gold_tables()
+# -------------------------------------------------------------------------------------------
+# Main
+# -------------------------------------------------------------------------------------------
+if __name__ == "__main__":
+    logging.debug(get_output_names_for_role)
+    #build_gold_tables()
+    
