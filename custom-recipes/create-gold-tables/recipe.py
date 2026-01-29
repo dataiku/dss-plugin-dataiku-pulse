@@ -33,7 +33,6 @@ def build_gold_tables():
     gold_tables.register_gold_tables(conn)
     
     # 3. Get table listing
-    try:
     query = """
         SELECT table_name 
         FROM information_schema.tables 
