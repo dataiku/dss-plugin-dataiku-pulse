@@ -5,14 +5,14 @@ from dataiku.customrecipe import get_plugin_config
 plugin_config = get_plugin_config()
 
 ####################################################################################################################
-from streamlit.backend.duck_db import create_conn
-from streamlit.backend.duck_db import expand_duckdb
-from streamlit.backend.duck_db import dataiku_sources
-from streamlit.backend.duck_db import raw_views
-from streamlit.backend.duck_db import dataiku_usage
-from streamlit.backend.duck_db import gold_tables
-from streamlit.backend.duck_db import query
-from streamlit.backend import settings
+from streamli_app.backend.duck_db import create_conn
+from streamli_app.backend.duck_db import expand_duckdb
+from streamli_app.backend.duck_db import dataiku_sources
+from streamli_app.backend.duck_db import raw_views
+from streamli_app.backend.duck_db import dataiku_usage
+from streamli_app.backend.duck_db import gold_tables
+from streamli_app.backend.duck_db import query
+from streamli_app.backend import settings
 
 
 import logging
