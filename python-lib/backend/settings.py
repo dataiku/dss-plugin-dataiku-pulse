@@ -14,6 +14,12 @@ dss_partitioned_folder = dataiku.Folder(
     ignore_flow=True
 )
 
+gold_tables_folder = dataiku.Folder(
+    lookup="gold_tables",
+    project_key=dataiku.default_project_key(),
+    ignore_flow=True
+)
+
 # Dataiku Handlers
 client = dataiku.api_client()
 
