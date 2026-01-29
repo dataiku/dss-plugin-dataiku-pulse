@@ -17,7 +17,7 @@ from backend import settings
 
 import logging
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.DEBUG)
-
+logger = logging.getLogger(__name__)
 
 def build_gold_tables():
     # 1. Delete anything existing
@@ -44,29 +44,29 @@ def build_gold_tables():
     base_path = f"{settings.blob_header}://{settings.blob_bket}/{settings.blob_root}/gold"
     for table_name in base_tables:
         destination = f"{base_path}/{table_name}.parquet"
-        logging.warning(f"Unloading {table_name} to {destination}...")
+        logger.warning(f"Unloading {table_name} to {destination}...")
         query = (
             f"COPY {table_name} "
             f"TO '{destination}' "
             f"(FORMAT 'PARQUET', OVERWRITE TRUE);"
         )
-        logging.debug(query)
+        logger.debug(query)
         try:
             
             conn.execute(query)
         except Exception as e:
-            logging.warning(f"Failed to unload {table_name}: {e}")
+            logger.warning(f"Failed to unload {table_name}: {e}")
     
     # End
-    logging.warning("Export process complete.")
+    logger.warning("Export process complete.")
     return
 
 # -------------------------------------------------------------------------------------------
 # Main
 # -------------------------------------------------------------------------------------------
 def main():
-    logging.debug("##############################################################################")
-    logging.debug(get_output_names_for_role)
+    logger.debug("##############################################################################")
+    logger.debug(get_output_names_for_role)
     #build_gold_tables()
 
 main()
