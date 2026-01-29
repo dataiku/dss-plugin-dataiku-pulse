@@ -71,4 +71,4 @@ def main():
 
 main()
 
-print()
+print("WTF - MAZZEI")
