@@ -42,7 +42,11 @@ def register_raw_views(conn, *, show_ui: bool = False):
             category = getattr(row, "category")
             module = getattr(row, "module")
             table_name = f"{category}_{module}_view"
-            base_path = f"{settings.blob_header}://{settings.blob_bket}/{settings.blob_root}/silver"
+            base_path = (
+                f"{settings.blob_header}://"
+                f"{settings.blob_bket}/"
+                f"{settings.dss_partitioned_folder_root}/"
+                "silver"
 
             # load in select statements
             yaml_path = (
