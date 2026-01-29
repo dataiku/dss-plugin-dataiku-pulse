@@ -70,6 +70,7 @@ def main():
     logger.debug("WTF MAZZEI")
     print("WTF MAZZEI WTF MAZZEI")
     #build_gold_tables()
+    return
 
 main()
 print(WTF MAZZEI)
