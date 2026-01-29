@@ -70,5 +70,3 @@ def main():
     #build_gold_tables()
 
 main()
-
-print("WTF - MAZZEI")
