@@ -41,9 +41,7 @@ def build_gold_tables():
 
     for table_name in base_tables['name']:
         destination = f"{base_path}{table_name}.parquet"
-
         logging.warning(f"Unloading {table_name} to {destination}...")
-
         try:
             conn.execute(f"""
                 COPY {table_name} 
@@ -51,16 +49,9 @@ def build_gold_tables():
                 (FORMAT PARQUET, OVERWRITE_OR_IGNORE 1);
             """)
         except Exception as e:
-            print(f"Failed to unload {table_name}: {e}")
+            logging.warning(f"Failed to unload {table_name}: {e}")
 
-    print("Export process complete.")
-    
-    cconn.execute(f"""
-        COPY {table_name}
-        TO '{s3_path}'
-        (FORMAT PARQUET, OVERWRITE_OR_IGNORE 1)
-        ;
-    """)
+    logging.warning("Export process complete.")
     
     return
 
