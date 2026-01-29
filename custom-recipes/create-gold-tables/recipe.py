@@ -32,9 +32,11 @@ def build_gold_tables():
     dataiku_usage.register_dataiku_usage_views(conn)
     gold_tables.register_gold_tables(conn)
     
-    # 3. Unload the gold tables
+    # 3. Get table listing
     df = conn.execute("PRAGMA show_tables_expanded;").df()
     base_tables = df[df['name'].str.endswith('_base')]
+    
+    # 4. Unload the gold tables
     base_path = f"{settings.blob_header}://{settings.blob_bket}/{settings.blob_root}/gold"
     for table_name in base_tables['name']:
         destination = f"{base_path}/{table_name}.parquet"
@@ -51,7 +53,7 @@ def build_gold_tables():
         except Exception as e:
             logging.warning(f"Failed to unload {table_name}: {e}")
     
-    # 4. End
+    # End
     logging.warning("Export process complete.")
     return
 
