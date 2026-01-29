@@ -37,7 +37,7 @@ def build_gold_tables():
     base_tables = df[df['name'].str.endswith('_base')]
     base_path = f"{settings.blob_header}://{settings.blob_bket}/{settings.blob_root}/gold"
     for table_name in base_tables['name']:
-        destination = f"{base_path}{table_name}.parquet"
+        destination = f"{base_path}/{table_name}.parquet"
         logging.warning(f"Unloading {table_name} to {destination}...")
         try:
             conn.execute(f"""
