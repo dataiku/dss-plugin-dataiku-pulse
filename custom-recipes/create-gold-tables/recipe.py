@@ -4,7 +4,7 @@ from dataiku.customrecipe import get_recipe_config
 from dataiku.customrecipe import get_plugin_config
 plugin_config = get_plugin_config()
 
-####################################################################################################################
+# -------------------------------------------------------------------------------------------
 from backend.duck_db import create_conn
 from backend.duck_db import expand_duckdb
 from backend.duck_db import dataiku_sources
@@ -65,6 +65,7 @@ def build_gold_tables():
 # Main
 # -------------------------------------------------------------------------------------------
 def main():
+    the_flying_f
     logging.debug("##############################################################################")
     logging.debug(get_output_names_for_role)
     #build_gold_tables()
