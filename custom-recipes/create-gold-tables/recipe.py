@@ -39,12 +39,15 @@ def build_gold_tables():
     for table_name in base_tables['name']:
         destination = f"{base_path}/{table_name}.parquet"
         logging.warning(f"Unloading {table_name} to {destination}...")
+        query = (
+            f"COPY {table_name} "
+            f"TO '{destination}' "
+            f"(FORMAT 'PARQUET', OVERWRITE TRUE);"
+        )
+        logging.debug(query)
         try:
-            conn.execute(f"""
-                COPY {table_name} 
-                TO '{destination}' 
-                (FORMAT PARQUET, OVERWRITE_OR_IGNORE 1);
-            """)
+            
+            conn.execute(query)
         except Exception as e:
             logging.warning(f"Failed to unload {table_name}: {e}")
     
