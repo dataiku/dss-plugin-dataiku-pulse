@@ -33,7 +33,26 @@ def build_gold_tables():
     
     # Unload the gold tables
     df = query.query_df("PRAGMA show_tables_expanded;", page="DEBUG")
-    print(df["name"].to_json())
+    base_tables = df[df['name'].str.endswith('_base')]
+
+    # 3. Loop and Unload
+    s3_base_path = "s3://your-bucket-name/pulse/exports/"
+
+    for table_name in base_tables['name']:
+        destination = f"{s3_base_path}{table_name}.parquet"
+
+        print(f"Unloading {table_name} to {destination}...")
+
+        try:
+            conn.execute(f"""
+                COPY {table_name} 
+                TO '{destination}' 
+                (FORMAT PARQUET, OVERWRITE_OR_IGNORE 1);
+            """)
+        except Exception as e:
+            print(f"Failed to unload {table_name}: {e}")
+
+    print("Export process complete.")
     
     cconn.execute(f"""
         COPY {table_name}
