@@ -21,10 +21,10 @@ logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=lo
 
 
 def build_gold_tables():
-    # Delete anything existing
+    # 1. Delete anything existing
     create_conn.reset_duckdb(reset=True)
     
-    # build and populate
+    # 2. build and populate
     conn = create_conn.create_connection(read_only=False)
     expand_duckdb.configure_duckdb_runtime(conn)
     dataiku_sources.register_partition_df(conn)
@@ -32,13 +32,10 @@ def build_gold_tables():
     dataiku_usage.register_dataiku_usage_views(conn)
     gold_tables.register_gold_tables(conn)
     
-    # Unload the gold tables
+    # 3. Unload the gold tables
     df = query.query_df("PRAGMA show_tables_expanded;", page="DEBUG")
     base_tables = df[df['name'].str.endswith('_base')]
-
-    # 3. Loop and Unload
     base_path = f"{settings.blob_header}://{settings.blob_bket}/{settings.blob_root}/gold"
-
     for table_name in base_tables['name']:
         destination = f"{base_path}{table_name}.parquet"
         logging.warning(f"Unloading {table_name} to {destination}...")
@@ -50,9 +47,9 @@ def build_gold_tables():
             """)
         except Exception as e:
             logging.warning(f"Failed to unload {table_name}: {e}")
-
-    logging.warning("Export process complete.")
     
+    # 4. End
+    logging.warning("Export process complete.")
     return
 
 build_gold_tables()
