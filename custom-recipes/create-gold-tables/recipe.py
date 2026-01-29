@@ -30,7 +30,13 @@ def build_gold_tables():
     raw_views.register_raw_views(conn)
     dataiku_usage.register_dataiku_usage_views(conn)
     gold_tables.register_gold_tables(conn)
-    return
+    
+    # Unload the gold tables
+    conn.execute(f"""
+    COPY {table_name} 
+    TO '{s3_path}' 
+    (FORMAT PARQUET);
+""")
 
 build_gold_tables()
 df = query.query_df("PRAGMA show_tables_expanded;", page="DEBUG")
