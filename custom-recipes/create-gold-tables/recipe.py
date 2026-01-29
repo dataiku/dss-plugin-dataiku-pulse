@@ -42,7 +42,7 @@ def build_gold_tables():
     for table_name in base_tables['name']:
         destination = f"{base_path}{table_name}.parquet"
 
-        print(f"Unloading {table_name} to {destination}...")
+        logging.warning(f"Unloading {table_name} to {destination}...")
 
         try:
             conn.execute(f"""
