@@ -65,18 +65,27 @@ class MyRunnable(Runnable):
                     results.append([f"Create Folders - {folder}", False, f"An error occurred: {e}"])
                     cont = False
         # Create the gold recipe
-        folder = get_local_folder(self, project_handle, "gold_tables")
-        folder_id = folder.get_id()
-        recipe_handle = project_handle.create_recipe(
-            recipe_proto={
-                'type': 'CustomCode_create-gold-tables',
-                'name': 'generate_gold_tables'
-            },
-            creation_settings={}
-        )
-        settings = recipe.get_settings()
-        settings.add_output(role="gold_tables_folder", ref=folder_id)
-        settings.save()
+        if cont:
+            create_recipe = True
+            try:
+                exists = project_handle.get_recipe(recipe_name="generate_gold_tables")
+                exists.get_settings()
+            except:
+                create_recipe = False
+            
+            if create_recipe:
+                folder = get_local_folder(self, project_handle, "gold_tables")
+                folder_id = folder.get_id()
+                recipe_handle = project_handle.create_recipe(
+                    recipe_proto={
+                        'type': 'CustomCode_create-gold-tables',
+                        'name': 'generate_gold_tables'
+                    },
+                    creation_settings={}
+                )
+                settings = recipe.get_settings()
+                settings.add_output(role="gold_tables_folder", ref=folder_id)
+                settings.save()
                     
         # return results
         if results:
