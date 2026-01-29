@@ -59,10 +59,10 @@ class MyRunnable(Runnable):
         if cont:
             for folder in ["partitioned_data", "gold_tables"]:
                 try:
-                    f = dss_folder.get_local_folder(self, project_handle, "partitioned_data")
-                    results.append(["Create Folders - ", True, None])
+                    f = dss_folder.get_local_folder(self, project_handle, folder)
+                    results.append([f"Create Folders - {folder}", True, None])
                 except Exception as e:
-                    results.append(["Create Folders", False, f"An error occurred: {e}"])
+                    results.append([f"Create Folders - {folder}", False, f"An error occurred: {e}"])
                     cont = False
 
                     
