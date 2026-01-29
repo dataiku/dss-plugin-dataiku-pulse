@@ -65,7 +65,6 @@ def build_gold_tables():
 # Main
 # -------------------------------------------------------------------------------------------
 def main():
-    the_flying_f
     logging.debug("##############################################################################")
     logging.debug(get_output_names_for_role)
     #build_gold_tables()
