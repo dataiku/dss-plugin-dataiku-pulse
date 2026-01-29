@@ -33,7 +33,7 @@ def build_gold_tables():
     gold_tables.register_gold_tables(conn)
     
     # 3. Unload the gold tables
-    df = query.query_df("PRAGMA show_tables_expanded;", page="DEBUG")
+    df = conn.execute("PRAGMA show_tables_expanded;").df()
     base_tables = df[df['name'].str.endswith('_base')]
     base_path = f"{settings.blob_header}://{settings.blob_bket}/{settings.blob_root}/gold"
     for table_name in base_tables['name']:
