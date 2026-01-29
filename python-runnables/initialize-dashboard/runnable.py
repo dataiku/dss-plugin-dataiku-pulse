@@ -64,6 +64,7 @@ class MyRunnable(Runnable):
                 except Exception as e:
                     results.append([f"Create Folders - {folder}", False, f"An error occurred: {e}"])
                     cont = False
+        
         # Create the gold recipe
         if cont:
             create_recipe = False
