@@ -32,12 +32,16 @@ def build_gold_tables():
     gold_tables.register_gold_tables(conn)
     
     # Unload the gold tables
-    conn.execute(f"""
-    COPY {table_name} 
-    TO '{s3_path}' 
-    (FORMAT PARQUET);
-""")
+    df = query.query_df("PRAGMA show_tables_expanded;", page="DEBUG")
+    print(df["name"].to_json())
+    
+    cconn.execute(f"""
+        COPY {table_name}
+        TO '{s3_path}'
+        (FORMAT PARQUET, OVERWRITE_OR_IGNORE 1)
+        ;
+    """)
+    
+    return
 
 build_gold_tables()
-df = query.query_df("PRAGMA show_tables_expanded;", page="DEBUG")
-print(df["name"].to_json())
