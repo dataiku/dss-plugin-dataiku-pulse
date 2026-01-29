@@ -75,7 +75,7 @@ class MyRunnable(Runnable):
             creation_settings={}
         )
         settings = recipe.get_settings()
-        settings.add_output(role="partitioned_data_folder", ref="QzWEv5JW")
+        settings.add_output(role="gold_tables_folder", ref=folder_id)
         settings.save()
                     
         # return results
