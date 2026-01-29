@@ -66,7 +66,7 @@ def build_gold_tables():
 # -------------------------------------------------------------------------------------------
 def main():
     print("# -----------------------------------------------------------------")
-    print(get_output_names_for_role("gold_tables_folder")[0])
+    print(get_output_names_for_role("gold_tables_folder"))
     print("# -----------------------------------------------------------------")
     #build_gold_tables()
     return
