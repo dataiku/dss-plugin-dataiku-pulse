@@ -87,7 +87,7 @@ class MyRunnable(Runnable):
                 settings = recipe.get_settings()
                 settings.add_output(role="gold_tables_folder", ref=folder_id)
                 settings.save()
-                    
+        
         # return results
         if results:
             df = pd.DataFrame(results, columns=["step", "result", "message"])
