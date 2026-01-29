@@ -12,6 +12,7 @@ from backend.duck_db import raw_views
 from backend.duck_db import dataiku_usage
 from backend.duck_db import gold_tables
 from backend.duck_db import query
+from backend import settings
 
 
 
@@ -36,10 +37,10 @@ def build_gold_tables():
     base_tables = df[df['name'].str.endswith('_base')]
 
     # 3. Loop and Unload
-    s3_base_path = "s3://your-bucket-name/pulse/exports/"
+    base_path = f"{settings.blob_header}://{settings.blob_bket}/{settings.blob_root}/gold"
 
     for table_name in base_tables['name']:
-        destination = f"{s3_base_path}{table_name}.parquet"
+        destination = f"{base_path}{table_name}.parquet"
 
         print(f"Unloading {table_name} to {destination}...")
 
