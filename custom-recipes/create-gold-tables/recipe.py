@@ -33,14 +33,20 @@ def build_gold_tables():
     gold_tables.register_gold_tables(conn)
     
     # 3. Get table listing
-    base_tables = []
     try:
-        df = conn.execute("PRAGMA show_tables_expanded;").df()
-        base_tables = df[df['name'].str.endswith('_base')]
-    except:
-        logging.warning("Failed to query DuckDB")
-    if not base_tables:
-        raise Exception("No base tables found. Check logs for details.")
+        query = """
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_name LIKE '%_base'
+        """
+        df = conn.execute(query).df()
+        if df.empty:
+            logging.error("DuckDB query returned no results for '%_base' tables.")
+            raise ValueError("No base tables found in the current DuckDB schema.")
+        return df['table_name'].tolist()
+    except Exception as e:
+        logging.error(f"Failed to query DuckDB tables: {e}")
+        raise
     
     # 4. Unload the gold tables
     base_path = f"{settings.blob_header}://{settings.blob_bket}/{settings.blob_root}/gold"
