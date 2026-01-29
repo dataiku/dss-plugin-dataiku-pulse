@@ -41,13 +41,13 @@ connection_type = connection_handle.get_info()["type"]
 
 if connection_type == "EC2":
     blob_header = "s3"
-    blob_bket = dss_partitioned_folder.get_info()["accessInfo"]["bucket"]
-    blob_root = dss_partitioned_folder.get_info()["accessInfo"]["root"][1:]
+    blob_bket = dss_partitioned_folder.get_info()["accessInfo"]["bucket"]    
 elif connection_type == "Azure":
     blob_header = "az"
     blob_bket = dss_partitioned_folder.get_info()["accessInfo"]["container"]
-    blob_root = dss_partitioned_folder.get_info()["accessInfo"]["root"][1:]
 elif connection_type == "GCS":
     blob_header = "gs"
     blob_bket = dss_partitioned_folder.get_info()["accessInfo"]["bucket"]
-    blob_root = dss_partitioned_folder.get_info()["accessInfo"]["root"][1:]
+
+dss_partitioned_folder_root = dss_partitioned_folder.get_info()["accessInfo"]["root"][1:]
+gold_tables_folder_root = gold_tables_folder.get_info()["accessInfo"]["root"][1:]
