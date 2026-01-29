@@ -65,6 +65,8 @@ class MyRunnable(Runnable):
                     results.append([f"Create Folders - {folder}", False, f"An error occurred: {e}"])
                     cont = False
         # Create the gold recipe
+        folder = get_local_folder(self, project_handle, "gold_tables")
+        folder_id = folder.get_id()
         
                     
         # return results
