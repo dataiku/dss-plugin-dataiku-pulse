@@ -39,11 +39,11 @@ def build_gold_tables():
         WHERE table_name LIKE '%_base'
     """
     df = conn.execute(query).df()
-    base_tables = df[df['name'].str.endswith('_base')]
+    base_tables = df['table_name'].tolist()
     
     # 4. Unload the gold tables
     base_path = f"{settings.blob_header}://{settings.blob_bket}/{settings.blob_root}/gold"
-    for table_name in base_tables['name']:
+    for table_name in base_tables:
         destination = f"{base_path}/{table_name}.parquet"
         logging.warning(f"Unloading {table_name} to {destination}...")
         query = (
