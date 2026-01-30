@@ -35,7 +35,6 @@ def load_gold_tables(conn, *, show_ui: bool = False):
         for row in tables_df.itertuples():
             path = getattr(row, "paths").lstrip('/')
             table_name = getattr(row, "gold_table").replace(".parquet", "")
-
             parquet_path = (
                 f"{settings.blob_header}://"
                 f"{settings.blob_bket}/"
@@ -47,9 +46,7 @@ def load_gold_tables(conn, *, show_ui: bool = False):
                 f"SELECT * "
                 f"FROM read_parquet('{parquet_path}'); "
             )
-            raw_queries.append(
-
-            )
+            raw_queries.append(q)
 
         # 3.
         logger.warning(f"Number of Gold Table queries: {len(raw_queries)}")
