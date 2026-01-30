@@ -182,4 +182,9 @@ def dashboard_scenrios(self, project_handle):
             r = scenario_handle.delete()
     # 
     macros = load_yaml(path="./scenarios/dashboard.yaml")
+    for key in macros["macros"]:
+        # rebase and setup macro in step
+        trigger = json.loads(macros["trigger"])
+        step = json.loads(macros["step"])
+
     return
