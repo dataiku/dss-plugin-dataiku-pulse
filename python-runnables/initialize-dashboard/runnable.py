@@ -84,7 +84,7 @@ class MyRunnable(Runnable):
                     },
                     creation_settings={}
                 )
-                settings = recipe.get_settings()
+                settings = recipe_handle.get_settings()
                 settings.add_output(role="gold_tables_folder", ref=folder_id)
                 settings.save()
         
