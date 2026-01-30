@@ -21,10 +21,10 @@ logger = logging.getLogger(__name__)
 
 def build_gold_tables():
     # 1. Delete anything existing
-    create_conn.reset_duckdb(reset=True)
+    create_conn.reset_duckdb()
     
     # 2. build and populate
-    conn = create_conn.create_connection()
+    conn = create_conn.create_connection(read_only=False)
     expand_duckdb.configure_duckdb_runtime(conn)
     dataiku_sources.reg_dss_source_folder_df(conn, data_src="partitioned_data", show_ui=True)
     raw_views.register_raw_views(conn)
