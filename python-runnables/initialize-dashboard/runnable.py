@@ -87,6 +87,8 @@ class MyRunnable(Runnable):
                 settings = recipe_handle.get_settings()
                 settings.add_output(role="gold_tables_folder", ref=self.folder_id)
                 settings.save()
+                
+            dashboard_scenrios(self, project_handle)
         
         # Get plugin directory
         if cont:
