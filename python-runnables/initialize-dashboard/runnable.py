@@ -76,7 +76,7 @@ class MyRunnable(Runnable):
             
             if create_recipe:
                 folder = dss_folder.get_local_folder(self, project_handle, "gold_tables")
-                folder_id = folder.get_id()
+                self.folder_id = folder.get_id()
                 recipe_handle = project_handle.create_recipe(
                     recipe_proto={
                         'type': 'CustomCode_create-gold-tables',
@@ -85,7 +85,7 @@ class MyRunnable(Runnable):
                     creation_settings={}
                 )
                 settings = recipe_handle.get_settings()
-                settings.add_output(role="gold_tables_folder", ref=folder_id)
+                settings.add_output(role="gold_tables_folder", ref=self.folder_id)
                 settings.save()
         
         # Get plugin directory
