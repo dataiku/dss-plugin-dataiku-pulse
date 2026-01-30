@@ -10,6 +10,7 @@ import base64
 import os
 import pandas as pd
 import shutil
+from pathlib import Path
 import logging
 
 
@@ -130,7 +131,6 @@ class MyRunnable(Runnable):
         # Get Code Studio directory
         if cont:
             code_studio_path = f"{root_path}/config/projects/{self.params['pulse_project_key']}/code_studios/{cs_id}"
-            streamlit_path = f"{code_studio_path}/dataiku_pulse"
             if os.path.isdir(code_studio_path):
                 results.append(["Project Library Confirmed", True, None])
             else:
@@ -139,6 +139,10 @@ class MyRunnable(Runnable):
 
         # Copy the streamlit application
         if cont:
+            streamlit_path = f"{code_studio_path}/dataiku_pulse"
+            shutil.rmtree(streamlit_path, ignore_errors=True)
+            Path(streamlit_path).mkdir(parents=True, exist_ok=True)
+            
             try:
                 r = shutil.copytree(f"{source_path}/streamlit", streamlit_path)
                 results.append(["Copy Streamlit", True, None])
