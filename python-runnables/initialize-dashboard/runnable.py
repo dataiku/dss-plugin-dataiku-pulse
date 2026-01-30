@@ -138,6 +138,13 @@ class MyRunnable(Runnable):
                 results.append(["Copy Streamlit", False, f"An error occurred: {e}"])
                 cont = False
                 
+            try:
+                r = shutil.copytree(f"{source_path}/python-lib/backend", f"{streamlit_path}/streamlit")
+                results.append(["Copy Streamlit", True, None])
+            except Exception as e:
+                results.append(["Copy Streamlit", False, f"An error occurred: {e}"])
+                cont = False
+                
         # Google Cloud HMAC Key
         if cont and self.params.get("connection_gcs", False):
             try:
