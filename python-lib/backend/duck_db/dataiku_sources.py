@@ -11,18 +11,8 @@ logger = logging.getLogger(__name__)
 # -------------------------------------------------------------------
 # Create Dataiku Partitioned DataFrame
 # -------------------------------------------------------------------
-def build_partition_df():
-    """
-    Builds a DataFrame of partitions from a Dataiku folder-like object.
-    Returns:
-        pd.DataFrame with columns:
-        - layer
-        - category
-        - module
-        - instance_name
-        - date (converted to datetime)
-    """
-    logger.warning("Building partition dataframe from Dataiku folder...")
+def build_partitioned_data_df():
+    logger.warning("Building dataframe from Dataiku Partitioned Data folder...")
     partitions = settings.dss_partitioned_folder.list_partitions()
     df = pd.DataFrame(partitions, columns=["partitions"])
     cols = ["layer", "category", "module", "instance_name"]
@@ -36,61 +26,75 @@ def build_partition_df():
     df["category"] = df["category"].str.replace("category=", "", regex=False)
     df["module"] = df["module"].str.replace("module=", "", regex=False)
     df["instance_name"] = df["instance_name"].str.replace("cateinstance_namegory=", "", regex=False)
-    logger.warning(f"Partition dataframe created with {len(df)} rows.")
+    logger.warning(f"Dataframe created with {len(df)} rows.")
+    return df
+
+def build_gold_tables_df():
+    logger.warning("Building dataframe from Dataiku Partitioned Data folder...")
+    paths = settings.dss_gold_tables_folder.list_paths_in_partition()
+    if not paths:
+        return pd.DataFrame()
+    df = pd.DataFrame(paths, columns=["paths"])
+    cols = ["dot", "layer", "gold_table"]
+    df[cols] = df["paths"].str.split("/", expand=True)
+    del df["dot"]
+    logger.warning(f"Dataframe created with {len(df)} rows.")
     return df
 
 # -------------------------------------------------------
 # Register views from RAW parquet (example)
 # -------------------------------------------------------
-def register_partition_df(conn, *, show_ui: bool = False):
-    """
-    Loads the Dataiku folder partitions, registers them as a DuckDB view,
-    and materializes them as a physical table.
-    """
+def reg_dss_source_folder_df(conn, *, data_src: str = "", show_ui: bool = False):
     progress_bar = None
     status_text = None
 
     try:
         if show_ui:
-            progress_text = "Registering folder partitions"
+            progress_text = "Registering Dataiku Source Folders"
             progress_bar = st.progress(0, text=progress_text)
             status_text = st.empty()
 
-        logger.warning("Registering Dataiku Folder Partitioned DataFrame...")
-
-
         # Load DataFrame from Dataiku folder
-        partitioned_df = build_partition_df()
-        if partitioned_df.empty:
-            logger.warning("Partition DataFrame is empty. Skipping table creation.")
+        logger.warning("Registering Dataiku Source Folders...")
+        if data_src == "partitioned_data":
+            dss_src_fld_df = build_partitioned_data_df()
+            table_name = "folder_partitions"
+        elif data_src == "gold_tables":
+            dss_src_fld_df = build_gold_tables_df()
+            table_name = "gold_tables"
+        else:
+            logger.exception(f"Invalid data type: {data}")
+            raise
+            
+        if dss_src_fld_df.empty:
+            logger.warning("Dataiku Source Folder DataFrame is empty. Skipping table creation.")
             if show_ui:
-                status_text.text("No partitions found — skipping")
+                status_text.text("No Dataiku Source Folder data found — skipping")
                 progress_bar.progress(100, text=progress_text)
-            return False
+            raise
 
         if show_ui:
-            status_text.text(f"Loaded {len(partitioned_df)} partitions")
+            status_text.text(f"Loading {len(dss_src_fld_df)} sources")
 
         # Register DataFrame as an in-memory view for SQL
-        conn.register("df_view", partitioned_df)
+        conn.register("df_view", dss_src_fld_df)
 
         # Materialize as DuckDB table
-        table_name = "folder_partitions"
         conn.execute(f"""
             CREATE OR REPLACE TABLE {table_name} AS
             SELECT * FROM df_view
         ;""")
 
-        logger.warning(f"Materialized table `{table_name}` with {len(partitioned_df)} rows.")
+        logger.warning(f"Materialized table `{table_name}` with {len(dss_src_fld_df)} rows.")
 
         if show_ui:
             progress_bar.progress(100, text=progress_text)
-            status_text.text(f"`{table_name}` ready ({len(partitioned_df)} rows)")
+            status_text.text(f"`{table_name}` ready ({len(dss_src_fld_df)} rows)")
 
         return True
 
     except Exception as e:
-        logger.exception(f"Failed to register folder_partitions. {e}")
+        logger.exception(f"Failed to register data source: {data_src} -- {e}")
         raise
     
     finally:
