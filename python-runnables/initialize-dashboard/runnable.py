@@ -117,12 +117,14 @@ class MyRunnable(Runnable):
                         code_studios_handle = project_handle.get_code_studio(code_studio_id=code_studios.id)
                         found = True
                         break
-                if not found:
+                if found:
+                    cs_id = code_studios_handle.code_studio_id
+                else:
                     code_studio = project_handle.create_code_studio(
                         name="Dataiku Pulse Dashboard",
                         template_id="dataiku_pulse_dashboard"
                     )
-                cs_id = code_studio.code_studio_id
+                    cs_id = code_studio.code_studio_id
                 results.append(["Create Code Studio", True, None])
             except Exception as e:
                 results.append(["Create Code Studio", False, f"An error occurred: {e}"])
