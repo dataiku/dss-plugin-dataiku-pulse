@@ -75,7 +75,7 @@ class MyRunnable(Runnable):
                 create_recipe = True
             
             if create_recipe:
-                folder = get_local_folder(self, project_handle, "gold_tables")
+                folder = dss_folder.get_local_folder(self, project_handle, "gold_tables")
                 folder_id = folder.get_id()
                 recipe_handle = project_handle.create_recipe(
                     recipe_proto={
