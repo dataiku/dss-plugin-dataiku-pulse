@@ -194,5 +194,15 @@ def dashboard_scenrios(self, project_handle):
         except:
             scenario_handle = project_handle.create_scenario(scenario_name=key, type="step_based")
             settings = scenario_handle.get_settings()
-        
+        # Run As User
+        settings.data["runAsUser"] = self.preset_pc["pulse_dataiku_user"]
+        # Trigger
+        del settings.raw_triggers[:]
+        settings.raw_triggers.append(trigger)
+        # Steps
+        del settings.raw_steps[:]
+        settings.raw_steps.append(step)
+        # Save
+        settings.data["active"] = True
+        settings.save()
     return
