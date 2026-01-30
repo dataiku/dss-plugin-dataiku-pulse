@@ -17,22 +17,32 @@ trigger: |
   }
 step: |
   {
-    "type": "runnable",
-    "name": "run_macro",
-    "enabled": true,
-    "alwaysShowComment": false,
-    "runConditionType": "RUN_IF_STATUS_MATCH",
-    "runConditionStatuses": ["SUCCESS", "WARNING"],
-    "runConditionExpression": "",
-    "resetScenarioStatus": false,
-    "delayBetweenRetries": 10,
-    "maxRetriesOnFail": 0,
-    "params": {
-      "runnableType": "REPLACE_MACRO_HERE",
-      "config": {},
-      "adminConfig": {},
-      "proceedOnFailure": false
+    'type': 'build_flowitem',
+    'name': 'build_gold_tables',
+    'enabled': True,
+    'alwaysShowComment': False,
+    'runConditionType': 'RUN_IF_STATUS_MATCH',
+    'runConditionStatuses': ['SUCCESS', 'WARNING'],
+    'runConditionExpression': '',
+    'resetScenarioStatus': False,
+    'delayBetweenRetries': 10,
+    'maxRetriesOnFail': 0,
+    'params': {
+      'builds': [
+        {
+          'type': 'MANAGED_FOLDER',
+          'itemId': 'FOLDER_ID',
+          'partitionsSpec': ''
+        }
+      ],
+      'jobType': 'RECURSIVE_FORCED_BUILD',
+      'autoUpdateSchemaBeforeEachRecipeRun': False,
+      'stopAtFlowZoneBoundary': False,
+      'refreshHiveMetastore': True,
+      'handleWarningsAs': 'WARNING',
+      'proceedOnFailure': False
     }
   }
+
 
 recipes:
