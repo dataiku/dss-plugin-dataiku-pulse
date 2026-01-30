@@ -10,7 +10,7 @@ from backend.duck_db import expand_duckdb
 from backend.duck_db import dataiku_sources
 from backend.duck_db import raw_views
 from backend.duck_db import dataiku_usage
-from backend.duck_db import gold_tables
+from backend.duck_db import create_gold_tables
 from backend.duck_db import query
 from backend import settings
 
