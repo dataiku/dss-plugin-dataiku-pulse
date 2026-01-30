@@ -4,6 +4,7 @@ from cryptography.fernet import Fernet
 from dataiku.runnables import Runnable, ResultTable
 from dataikupulse.src import dss_folder
 from dataikupulse.src import dss_funcs
+from dataikupulse.src import dss_init
 from datetime import datetime
 import base64
 import os
@@ -88,7 +89,7 @@ class MyRunnable(Runnable):
                 settings.add_output(role="gold_tables_folder", ref=self.folder_id)
                 settings.save()
                 
-            dashboard_scenrios(self, project_handle)
+            dss_init.dashboard_scenrios(self, project_handle)
         
         # Get plugin directory
         if cont:
