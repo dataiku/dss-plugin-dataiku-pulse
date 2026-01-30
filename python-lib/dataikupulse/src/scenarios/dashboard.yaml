@@ -43,3 +43,6 @@ step: |
       'proceedOnFailure': false
     }
   }
+
+recipes:
+  - gold_data_refresh
