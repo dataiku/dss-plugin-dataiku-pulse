@@ -175,4 +175,9 @@ def create_scenarios(self, project_handle):
     return
 
 def dashboard_scenrios(self, project_handle):
+    # Clear out any old
+    for scenario in project_handle.list_scenarios():
+        if "gold_data_" in scenario["name"]:
+            scenario_handle = project_handle.get_scenario(scenario["id"])
+            r = scenario_handle.delete()
     return
