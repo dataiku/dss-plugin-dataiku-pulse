@@ -43,5 +43,3 @@ step: |
       'proceedOnFailure': False
     }
   }
-
-recipes:
