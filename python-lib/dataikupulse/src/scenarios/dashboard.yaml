@@ -17,30 +17,30 @@ trigger: |
   }
 step: |
   {
-    'type': 'build_flowitem',
-    'name': 'build_gold_tables',
-    'enabled': true,
-    'alwaysShowComment': false,
-    'runConditionType': 'RUN_IF_STATUS_MATCH',
-    'runConditionStatuses': ['SUCCESS', 'WARNING'],
-    'runConditionExpression': '',
-    'resetScenarioStatus': false,
-    'delayBetweenRetries': 10,
-    'maxRetriesOnFail': 0,
-    'params': {
-      'builds': [
+    "type": "build_flowitem",
+    "name": "build_gold_tables",
+    "enabled": true,
+    "alwaysShowComment": false,
+    "runConditionType": "RUN_IF_STATUS_MATCH",
+    "runConditionStatuses": ["SUCCESS", "WARNING"],
+    "runConditionExpression": "",
+    "resetScenarioStatus": false,
+    "delayBetweenRetries": 10,
+    "maxRetriesOnFail": 0,
+    "params": {
+      "builds": [
         {
-          'type': 'MANAGED_FOLDER',
-          'itemId': 'FOLDER_ID',
-          'partitionsSpec': ''
+          "type": "MANAGED_FOLDER",
+          "itemId": "FOLDER_ID",
+          "partitionsSpec": ""
         }
       ],
-      'jobType': 'RECURSIVE_FORCED_BUILD',
-      'autoUpdateSchemaBeforeEachRecipeRun': false,
-      'stopAtFlowZoneBoundary': false,
-      'refreshHiveMetastore': true,
-      'handleWarningsAs': 'WARNING',
-      'proceedOnFailure': false
+      "jobType": "RECURSIVE_FORCED_BUILD",
+      "autoUpdateSchemaBeforeEachRecipeRun": false,
+      "stopAtFlowZoneBoundary": false,
+      "refreshHiveMetastore": true,
+      "handleWarningsAs": "WARNING",
+      "proceedOnFailure": false
     }
   }
 
