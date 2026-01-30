@@ -34,34 +34,5 @@ step: |
       "proceedOnFailure": false
     }
   }
-audit_trigger: |
-  {
-    "repeatFrequency": 4,
-    "frequency": "Hourly"
-  }
-cleanup_step: |
-  {
-    "type": "runnable",
-    "name": "run_macro",
-    "enabled": true,
-    "alwaysShowComment": false,
-    "runConditionType": "RUN_IF_STATUS_MATCH",
-    "runConditionStatuses": ["SUCCESS", "WARNING"],
-    "runConditionExpression": "",
-    "resetScenarioStatus": false,
-    "delayBetweenRetries": 10,
-    "maxRetriesOnFail": 0,
-    "params": {
-      "runnableType": "pyrunnable_builtin-macros_clear-scenario-logs",
-      "config": {"age": 3, "performDeletion": true},
-      "adminConfig": {"allProjects": false},
-      "proceedOnFailure": false
-    }
-  }
-macros:
-  data_gather_audit_logs: pyrunnable_dataiku-pulse_data-gather-audit-logs
-  data_gather_cleanup:    runmacro_pyrunnable_builtin-macros_clear-scenario-logs
-  data_gather_diskspace:  pyrunnable_dataiku-pulse_data-gather-diskspace
-  data_gather_filesystem: pyrunnable_dataiku-pulse_data-gather-filesystem
-  data_gather_instance:   pyrunnable_dataiku-pulse_data-gather-instance
-  data_gather_project:    pyrunnable_dataiku-pulse_data-gather-project
+
+recipes:
