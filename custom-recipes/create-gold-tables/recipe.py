@@ -16,7 +16,7 @@ from backend import settings
 
 
 import logging
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.DEBUG)
+logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.warning)
 logger = logging.getLogger(__name__)
 
 def build_gold_tables():
