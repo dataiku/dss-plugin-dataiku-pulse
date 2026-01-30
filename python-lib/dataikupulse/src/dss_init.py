@@ -187,5 +187,12 @@ def dashboard_scenrios(self, project_handle):
         trigger = json.loads(macros["trigger"])
         step = json.loads(macros["step"])
         step['params']['builds'][0]['itemId'] = self.folder_id
-
+        # create or connect to scenario
+        try:
+            scenario_handle = project_handle.get_scenario(scenario_id=key)
+            settings = scenario_handle.get_settings()
+        except:
+            scenario_handle = project_handle.create_scenario(scenario_name=key, type="step_based")
+            settings = scenario_handle.get_settings()
+        
     return
