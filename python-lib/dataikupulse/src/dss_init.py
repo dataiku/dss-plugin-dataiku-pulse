@@ -186,5 +186,6 @@ def dashboard_scenrios(self, project_handle):
         # rebase and setup macro in step
         trigger = json.loads(macros["trigger"])
         step = json.loads(macros["step"])
+        step['params']['builds'][0]['itemId'] = self.folder_id
 
     return
