@@ -180,4 +180,6 @@ def dashboard_scenrios(self, project_handle):
         if "gold_data_" in scenario["name"]:
             scenario_handle = project_handle.get_scenario(scenario["id"])
             r = scenario_handle.delete()
+    # 
+    macros = load_yaml(path="./scenarios/dashboard.yaml")
     return
