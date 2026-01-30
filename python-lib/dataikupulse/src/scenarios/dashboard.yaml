@@ -19,12 +19,12 @@ step: |
   {
     'type': 'build_flowitem',
     'name': 'build_gold_tables',
-    'enabled': True,
-    'alwaysShowComment': False,
+    'enabled': true,
+    'alwaysShowComment': false,
     'runConditionType': 'RUN_IF_STATUS_MATCH',
     'runConditionStatuses': ['SUCCESS', 'WARNING'],
     'runConditionExpression': '',
-    'resetScenarioStatus': False,
+    'resetScenarioStatus': false,
     'delayBetweenRetries': 10,
     'maxRetriesOnFail': 0,
     'params': {
@@ -36,10 +36,10 @@ step: |
         }
       ],
       'jobType': 'RECURSIVE_FORCED_BUILD',
-      'autoUpdateSchemaBeforeEachRecipeRun': False,
-      'stopAtFlowZoneBoundary': False,
-      'refreshHiveMetastore': True,
+      'autoUpdateSchemaBeforeEachRecipeRun': false,
+      'stopAtFlowZoneBoundary': false,
+      'refreshHiveMetastore': true,
       'handleWarningsAs': 'WARNING',
-      'proceedOnFailure': False
+      'proceedOnFailure': false
     }
   }
