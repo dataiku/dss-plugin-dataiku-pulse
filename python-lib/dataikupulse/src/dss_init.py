@@ -173,3 +173,6 @@ def create_scenarios(self, project_handle):
         if self.config["force_scenarios"]:
             run = scenario_handle.run()
     return
+
+def dashboard_scenrios():
+    return
