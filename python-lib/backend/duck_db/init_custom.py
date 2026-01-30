@@ -75,7 +75,7 @@ def _run_init_pipeline(init_funcs, *, reset=False, success_message="Initializati
     return
 
 
-def initialize_database(reset: bool = False):
+def custom_recipe_create_gold_tables(reset: bool = False):
     init_funcs = [
         create_conn.create_connection,
         expand_duckdb.configure_duckdb_runtime,
@@ -94,7 +94,7 @@ def initialize_database(reset: bool = False):
     return
 
 
-def rebuild_gold_tables():
+def streamlit_load_tables():
     init_funcs = [
         create_conn.create_connection,
         gold_tables.register_gold_tables,

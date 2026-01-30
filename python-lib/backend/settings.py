@@ -14,7 +14,7 @@ dss_partitioned_folder = dataiku.Folder(
     ignore_flow=True
 )
 
-gold_tables_folder = dataiku.Folder(
+dss_gold_tables_folder = dataiku.Folder(
     lookup="gold_tables",
     project_key=dataiku.default_project_key(),
     ignore_flow=True
@@ -50,4 +50,4 @@ elif connection_type == "GCS":
     blob_bket = dss_partitioned_folder.get_info()["accessInfo"]["bucket"]
 
 dss_partitioned_folder_root = dss_partitioned_folder.get_info()["accessInfo"]["root"][1:]
-gold_tables_folder_root = gold_tables_folder.get_info()["accessInfo"]["root"][1:]
+dss_gold_tables_folder_root = dss_gold_tables_folder.get_info()["accessInfo"]["root"][1:]

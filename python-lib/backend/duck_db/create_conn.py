@@ -10,14 +10,7 @@ logger = logging.getLogger(__name__)
 # -------------------------------------------------------------------
 # DuckDB Reset
 # -------------------------------------------------------------------
-def reset_duckdb(reset: bool = False):
-    """
-    Deletes the DuckDB file and parent directory if reset=True.
-    Useful when rebuilding DB from scratch.
-    """
-    if not reset:
-        return
-
+def reset_duckdb():
     # Delete old DuckDB file if present
     if DB_PATH.exists():
         try:
