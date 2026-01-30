@@ -140,10 +140,8 @@ class MyRunnable(Runnable):
         # Copy the streamlit application
         if cont:
             streamlit_path = f"{code_studio_path}/dataiku_pulse"
-            shutil.rmtree(streamlit_path, ignore_errors=True)
-            Path(streamlit_path).mkdir(parents=True, exist_ok=True)
-            
             try:
+                shutil.rmtree(streamlit_path, ignore_errors=True)
                 r = shutil.copytree(f"{source_path}/streamlit", streamlit_path)
                 results.append(["Copy Streamlit", True, None])
             except Exception as e:
