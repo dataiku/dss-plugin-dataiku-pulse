@@ -29,7 +29,7 @@ def build_gold_tables():
     dataiku_sources.register_partition_df(conn)
     raw_views.register_raw_views(conn)
     dataiku_usage.register_dataiku_usage_views(conn)
-    gold_tables.register_gold_tables(conn)
+    create_gold_tables.register_gold_tables(conn)
     
     # 3. Get table listing
     query = """
