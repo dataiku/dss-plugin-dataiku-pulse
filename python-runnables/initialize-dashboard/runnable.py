@@ -65,7 +65,7 @@ class MyRunnable(Runnable):
                     results.append([f"Create Folders - {folder}", False, f"An error occurred: {e}"])
                     cont = False
         
-        # Create the gold recipe
+        # Create the gold custom recipe
         if cont:
             create_recipe = False
             try:
