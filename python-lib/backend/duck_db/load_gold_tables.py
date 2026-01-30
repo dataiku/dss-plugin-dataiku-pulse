@@ -1,10 +1,8 @@
 import logging
 import streamlit as st
 from backend import settings
-from backend.utils import yaml_loader
 
 logger = logging.getLogger(__name__)
-queries = yaml_loader.load_yaml(settings.BASE_DIR / "backend/config/gold_tables/base_query.yaml")
 
 def load_gold_tables(conn, *, show_ui: bool = False):
     progress_bar = None
