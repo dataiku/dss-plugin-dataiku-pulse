@@ -41,7 +41,7 @@ def build_gold_tables():
     base_tables = df['table_name'].tolist()
     
     # 4. Unload the gold tables
-    base_path = f"{settings.blob_header}://{settings.blob_bket}/{settings.dss_gold_tables_folder_rootdss_gold_tables_folder_root}/gold"
+    base_path = f"{settings.blob_header}://{settings.blob_bket}/{settings.dss_gold_tables_folder_root}/gold"
     for table_name in base_tables:
         destination = f"{base_path}/{table_name}.parquet"
         logger.warning(f"Unloading {table_name} to {destination}...")
