@@ -174,5 +174,5 @@ def create_scenarios(self, project_handle):
             run = scenario_handle.run()
     return
 
-def dashboard_scenrios():
+def dashboard_scenrios(self, project_handle):
     return
