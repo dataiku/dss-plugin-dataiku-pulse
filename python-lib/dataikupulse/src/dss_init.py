@@ -3,7 +3,7 @@ import yaml
 import json
 
 
-def load_yaml(path="./scenarios.yaml"):
+def load_yaml(path):
     script_dir = os.path.dirname(os.path.realpath(__file__))
     try:
         yaml_path = os.path.join(script_dir, path)
