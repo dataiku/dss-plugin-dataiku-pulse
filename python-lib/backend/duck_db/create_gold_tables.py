@@ -5,31 +5,23 @@ from backend import settings
 from backend.utils import yaml_loader
 
 logger = logging.getLogger(__name__)
+
 root = Path(settings.BASE_DIR / "backend/config/gold_tables")
 queries = {}
+
 for path in root.rglob("*.yaml"):
     queries |= yaml_loader.load_yaml(path)
 
 
-def table_exists(conn, table_name: str) -> bool:
-    return conn.execute(
-        """
-        SELECT COUNT(*)
-        FROM information_schema.tables
-        WHERE table_schema = 'main'
-          AND table_name = ?
-        """,
-        [table_name]
-    ).fetchone()[0] == 1
-
-
 # -------------------------------------------------------
-# Register GOLD tables
+# Register GOLD tables (FULL ONLY)
 # -------------------------------------------------------
-def register_gold_tables(conn, *, show_ui: bool = False, force_full: bool = False):
+def register_gold_tables(conn, *, show_ui: bool = False):
     """
-    Registers GOLD tables using full or incremental SQL
+    Registers GOLD tables using full_sql only.
+    GOLD tables are treated as fully rebuildable artifacts.
     """
+
     progress_bar = None
     status_text = None
     current_table = None
@@ -41,7 +33,7 @@ def register_gold_tables(conn, *, show_ui: bool = False, force_full: bool = Fals
             progress_bar = st.progress(0, text=progress_text)
             status_text = st.empty()
 
-        logger.info("Registering GOLD tables...")
+        logger.warning("Registering GOLD tables (full rebuild only)...")
 
         total = len(queries)
         if total == 0:
@@ -53,35 +45,30 @@ def register_gold_tables(conn, *, show_ui: bool = False, force_full: bool = Fals
 
         for idx, (table_name, cfg) in enumerate(queries.items(), start=1):
             current_table = table_name
+
             full_sql = cfg.get("full_sql")
-            incremental_sql = cfg.get("incremental_sql")
             legacy_sql = cfg.get("sql")
 
             if show_ui:
-                status_text.text(f"Registering GOLD table {idx}/{total}")
+                status_text.text(f"Registering GOLD table {idx}/{total}: {table_name}")
                 progress_bar.progress(int(idx / total * 100), text=progress_text)
 
-            if force_full and full_sql:
+            if full_sql:
                 current_sql = full_sql
-                logger.info(f"Force full rebuild for `{table_name}`")
-            elif full_sql and incremental_sql:
-                base_table = f"{table_name.replace('_table', '')}_base"
-                if table_exists(conn, base_table):
-                    current_sql = incremental_sql
-                    logger.info(f"Incremental rebuild for `{table_name}`")
-                else:
-                    current_sql = full_sql
-                    logger.info(f"Bootstrap full rebuild for `{table_name}`")
+                logger.warning(f"Full rebuild for `{table_name}`")
             elif legacy_sql:
                 current_sql = legacy_sql
-                logger.info(f"Legacy rebuild for `{table_name}`")
+                logger.warning(f"Legacy rebuild for `{table_name}`")
             else:
-                raise ValueError(f"No SQL defined for GOLD table `{table_name}`")
+                raise ValueError(f"No `full_sql` defined for GOLD table `{table_name}`")
 
-            logger.debug(f"Executing GOLD table query for `{table_name}`:\n{current_sql}")
+            logger.debug(
+                f"Executing GOLD table query for `{table_name}`:\n{current_sql}"
+            )
+
             conn.execute(current_sql)
 
-        logger.info("GOLD tables registration complete.")
+        logger.warning("GOLD tables registration complete.")
 
         if show_ui:
             status_text.text("GOLD tables registered successfully")

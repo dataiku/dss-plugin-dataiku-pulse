@@ -3,7 +3,7 @@ import yaml
 import json
 
 
-def load_yaml(path="./scenarios.yaml"):
+def load_yaml(path):
     script_dir = os.path.dirname(os.path.realpath(__file__))
     try:
         yaml_path = os.path.join(script_dir, path)
@@ -134,7 +134,7 @@ def create_scenarios(self, project_handle):
             r = scenario_handle.delete()
     
     # Create the scenarios
-    macros = load_yaml()
+    macros = load_yaml(path="./scenarios/worker.yaml")
     for key in macros["macros"]:
         if not self.params["monitor_os"] and key in ["data_gather_diskspace", "data_gather_filesystem"]:
             continue
@@ -172,4 +172,37 @@ def create_scenarios(self, project_handle):
         # RUN
         if self.config["force_scenarios"]:
             run = scenario_handle.run()
+    return
+
+def dashboard_scenrios(self, project_handle):
+    # Clear out any old
+    for scenario in project_handle.list_scenarios():
+        if "gold_data_" in scenario["name"]:
+            scenario_handle = project_handle.get_scenario(scenario["id"])
+            r = scenario_handle.delete()
+    # 
+    macros = load_yaml(path="./scenarios/dashboard.yaml")
+    for key in macros.get("recipes"):
+        # rebase and setup macro in step
+        trigger = json.loads(macros["trigger"])
+        step = json.loads(macros["step"])
+        step['params']['builds'][0]['itemId'] = self.folder_id
+        # create or connect to scenario
+        try:
+            scenario_handle = project_handle.get_scenario(scenario_id=key)
+            settings = scenario_handle.get_settings()
+        except:
+            scenario_handle = project_handle.create_scenario(scenario_name=key, type="step_based")
+            settings = scenario_handle.get_settings()
+        # Run As User
+        settings.data["runAsUser"] = "admin"
+        # Trigger
+        del settings.raw_triggers[:]
+        settings.raw_triggers.append(trigger)
+        # Steps
+        del settings.raw_steps[:]
+        settings.raw_steps.append(step)
+        # Save
+        settings.data["active"] = True
+        settings.save()
     return

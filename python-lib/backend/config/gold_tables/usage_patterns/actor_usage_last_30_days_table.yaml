@@ -1,0 +1,104 @@
+actor_usage_last_30_days_table:
+  description: >
+    Developer activity summary per actor over the last 30 days.
+    One row per instance and login, describing how development effort
+    is distributed across core Dataiku build capabilities.
+    Consumption events are excluded from totals to ensure capability
+    ratios represent development activity only.
+
+  depends_on:
+    - usage_events_view
+
+  sql: |
+    CREATE OR REPLACE TABLE actor_usage_last_30_days_base AS
+    SELECT
+        instance_name,
+        login,
+
+        -- activity window
+        MIN(timestamp) AS first_seen_ts,
+        MAX(timestamp) AS last_seen_ts,
+        COUNT(DISTINCT DATE(timestamp)) AS active_days,
+
+        -- build capability event counts
+        COUNT(*) FILTER (
+            WHERE canonical_capability = 'DATA_ENGINEERING'
+        ) AS data_engineering_events,
+
+        COUNT(*) FILTER (
+            WHERE canonical_capability = 'ADVANCED_ANALYTICS_ML'
+        ) AS advanced_analytics_ml_events,
+
+        COUNT(*) FILTER (
+            WHERE canonical_capability = 'GENAI_LLM'
+        ) AS genai_llm_events,
+
+        COUNT(*) FILTER (
+            WHERE canonical_capability = 'AUTOMATION_ORCHESTRATION'
+        ) AS automation_orchestration_events,
+
+        COUNT(*) FILTER (
+            WHERE canonical_capability = 'APPLICATIONS_DELIVERY'
+        ) AS applications_delivery_events,
+
+        COUNT(*) FILTER (
+            WHERE canonical_capability = 'APIS_INTEGRATION'
+        ) AS apis_integration_events,
+
+        -- total build events (explicit, authoritative denominator)
+        (
+            COUNT(*) FILTER (WHERE canonical_capability = 'DATA_ENGINEERING')
+          + COUNT(*) FILTER (WHERE canonical_capability = 'ADVANCED_ANALYTICS_ML')
+          + COUNT(*) FILTER (WHERE canonical_capability = 'GENAI_LLM')
+          + COUNT(*) FILTER (WHERE canonical_capability = 'AUTOMATION_ORCHESTRATION')
+          + COUNT(*) FILTER (WHERE canonical_capability = 'APPLICATIONS_DELIVERY')
+          + COUNT(*) FILTER (WHERE canonical_capability = 'APIS_INTEGRATION')
+        ) AS build_events,
+
+        -- development-only ratios (sum to 1.0)
+        COUNT(*) FILTER (
+            WHERE canonical_capability = 'DATA_ENGINEERING'
+        )::DOUBLE
+        /
+        NULLIF(
+            (
+              COUNT(*) FILTER (WHERE canonical_capability = 'DATA_ENGINEERING')
+            + COUNT(*) FILTER (WHERE canonical_capability = 'ADVANCED_ANALYTICS_ML')
+            + COUNT(*) FILTER (WHERE canonical_capability = 'GENAI_LLM')
+            + COUNT(*) FILTER (WHERE canonical_capability = 'AUTOMATION_ORCHESTRATION')
+            + COUNT(*) FILTER (WHERE canonical_capability = 'APPLICATIONS_DELIVERY')
+            + COUNT(*) FILTER (WHERE canonical_capability = 'APIS_INTEGRATION')
+            ), 0
+        ) AS data_engineering_ratio,
+
+        COUNT(*) FILTER (
+            WHERE canonical_capability = 'ADVANCED_ANALYTICS_ML'
+        )::DOUBLE / NULLIF(build_events, 0) AS advanced_analytics_ml_ratio,
+
+        COUNT(*) FILTER (
+            WHERE canonical_capability = 'GENAI_LLM'
+        )::DOUBLE / NULLIF(build_events, 0) AS genai_llm_ratio,
+
+        COUNT(*) FILTER (
+            WHERE canonical_capability = 'AUTOMATION_ORCHESTRATION'
+        )::DOUBLE / NULLIF(build_events, 0) AS automation_orchestration_ratio,
+
+        COUNT(*) FILTER (
+            WHERE canonical_capability = 'APPLICATIONS_DELIVERY'
+        )::DOUBLE / NULLIF(build_events, 0) AS applications_delivery_ratio,
+
+        COUNT(*) FILTER (
+            WHERE canonical_capability = 'APIS_INTEGRATION'
+        )::DOUBLE / NULLIF(build_events, 0) AS apis_integration_ratio
+
+    FROM usage_events_view
+    WHERE
+        timestamp >= CURRENT_TIMESTAMP - INTERVAL 30 DAY
+        AND canonical_capability <> 'NON_CORE'
+        AND canonical_capability IS NOT NULL
+    GROUP BY
+        instance_name,
+        login
+    ORDER BY
+        instance_name,
+        login;

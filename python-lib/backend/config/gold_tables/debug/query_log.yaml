@@ -1,0 +1,14 @@
+query_log:
+  description: >
+    DEBUG table to capture queries
+    Used to help determine what values are required in GOLD Tables
+  type: table
+  depends_on: None
+  sql: |
+    CREATE OR REPLACE TABLE query_log (
+        ts              TIMESTAMP,
+        session_id      VARCHAR,
+        page            VARCHAR,
+        query_type      VARCHAR,
+        sql_text        VARCHAR
+    );

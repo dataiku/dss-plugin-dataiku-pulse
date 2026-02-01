@@ -1,0 +1,48 @@
+trigger: |
+  {
+    "type": "temporal",
+    "name": "Time-based",
+    "delay": 5,
+    "active": true,
+    "params": {
+      "repeatFrequency": 1,
+      "frequency": "Daily",
+      "startingFrom": "2025-07-16",
+      "daysOfWeek": ["Wednesday"],
+      "monthlyRunOn": "ON_THE_DAY",
+      "minute": 0,
+      "hour": 0,
+      "timezone": "Canada/Eastern"
+    }
+  }
+step: |
+  {
+    "type": "build_flowitem",
+    "name": "build_gold_tables",
+    "enabled": true,
+    "alwaysShowComment": false,
+    "runConditionType": "RUN_IF_STATUS_MATCH",
+    "runConditionStatuses": ["SUCCESS", "WARNING"],
+    "runConditionExpression": "",
+    "resetScenarioStatus": false,
+    "delayBetweenRetries": 10,
+    "maxRetriesOnFail": 0,
+    "params": {
+      "builds": [
+        {
+          "type": "MANAGED_FOLDER",
+          "itemId": "FOLDER_ID",
+          "partitionsSpec": ""
+        }
+      ],
+      "jobType": "RECURSIVE_FORCED_BUILD",
+      "autoUpdateSchemaBeforeEachRecipeRun": false,
+      "stopAtFlowZoneBoundary": false,
+      "refreshHiveMetastore": true,
+      "handleWarningsAs": "WARNING",
+      "proceedOnFailure": false
+    }
+  }
+
+recipes:
+  - gold_data_refresh

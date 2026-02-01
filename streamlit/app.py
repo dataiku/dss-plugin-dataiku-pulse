@@ -5,10 +5,9 @@ import logging
 import streamlit as st
 import dataiku
 from backend import settings
-from backend.duck_db import init_duckdb
+from backend.duck_db import init_streamlit
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.DEBUG)
-
 
 # -----------------------------------------------------------------------------
 # Load css
@@ -33,7 +32,7 @@ if "administrators" in groups:
 # -----------------------------------------------------------------------------
 # Check DuckDB
 if not settings.DB_PATH.exists():
-    init_duckdb.initialize_database(reset=False)
+    init_streamlit.initialize_database()
 
 # -----------------------------------------------------------------------------
 # Setup streamlit configs

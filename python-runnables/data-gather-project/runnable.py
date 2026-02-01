@@ -71,10 +71,9 @@ class MyRunnable(Runnable):
         try:
             last_update = variables["local"]["projects_delta"]
         except:
-            last_update = 0
+            last_update = "2026-01-01 00:00:00.000000"
         last_update = pd.to_datetime(last_update)
-        variables["local"]["projects_delta"] = str(datetime.utcnow())
-        project_handle.set_variables(variables)
+        self.last_update = last_update
         
         # Preprocess Project Keys for only DELTAS
         df = pd.DataFrame(self.local_client.list_projects())
@@ -98,6 +97,10 @@ class MyRunnable(Runnable):
         except Exception as e:
             raise Exception(f"Something went wrong:: {e}")
             
+        # set new timestamp var
+        variables["local"]["projects_delta"] = str(datetime.utcnow())
+        project_handle.set_variables(variables)
+        
         # return results
         if not df.empty:
             df = df.astype(str)

@@ -152,6 +152,20 @@ def _execute_module(self, module_name, module_path, project_handle, client_d, pr
 # ----------------------------------------------------------
 # Validate and Save RAW
 # ----------------------------------------------------------
+def _trim_raw_df_by_last_modified(df, *, last_modified_col, last_update):
+    tmp = df.copy(deep=False)
+    tmp[last_modified_col] = pd.to_datetime(
+        tmp.get(last_modified_col),
+        unit="ms",
+        errors="coerce"
+    )
+    keep_mask = (
+        tmp[last_modified_col].isna()
+        |
+        (tmp[last_modified_col] >= last_update)
+    )
+    return df.loc[keep_mask].copy()
+
 def _is_valid_df(df):
     return isinstance(df, pd.DataFrame) and not df.empty
 
@@ -162,8 +176,16 @@ def _date_parts(self):
 
 def _build_write_path(self, layer, category, module_name, file_name):
     year, month, day = _date_parts(self)
-    return f"{layer}/{category}/{module_name}/{self.instance_name}/{year}/{month}/{day}/{file_name}"
-
+    return (
+        f"{layer}/"
+        f"category={category}/"
+        f"module={module_name}/"
+        f"instance_name={self.instance_name}/"
+        f"year={year}/"
+        f"month={month}/"
+        f"day={day}/"
+        f"{file_name}"
+    )
 
 def _sanitize_df_for_parquet(df):
     for col in df.columns:

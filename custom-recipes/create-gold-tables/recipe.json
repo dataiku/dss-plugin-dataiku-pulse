@@ -1,0 +1,29 @@
+{
+    "meta": {
+        "label": "Create DuckDB Gold Tables",
+        "description": "Custom Python module to run on k8s. Creates the DuckDB gold tables for Pulse Dashboard.",
+        "icon": "fas fa-puzzle-piece"
+    },
+    "kind": "PYTHON",
+    "inputRoles": [],
+    "outputRoles": [
+        {
+            "name": "gold_tables_folder",
+            "label": "Gold Tables Data Folder",
+            "description": "Folder for all Gold Tables",
+            "arity": "UNARY",
+            "required": true,
+            "acceptsDataset": false,
+            "acceptsManagedFolder": true
+        }
+    ],
+    "params": [
+        {
+            "name": "sep",
+            "label": "⚠️ DO NOT EDIT THIS RECIPE",
+            "description": "This recipe is self-managed.",
+            "type": "SEPARATOR"
+        }
+    ],
+    "resourceKeys": []
+}
