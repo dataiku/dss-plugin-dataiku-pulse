@@ -1,0 +1,64 @@
+users_git_history_table:
+  description: >
+    Deduplicated git commit history per instance and project.
+    Incremental append-only build that preserves all historical
+    commit events while removing duplicate rows.
+  depends_on:
+    - users_git_history_view
+
+  full_sql: |
+    CREATE OR REPLACE TABLE users_git_history_base AS
+    SELECT DISTINCT
+        instance_name,
+        project_key,
+        commit,
+        login,
+        timestamp,
+        message
+    FROM users_git_history_view
+    ORDER BY
+        instance_name,
+        project_key,
+        timestamp;
+
+  incremental_sql: |
+    CREATE OR REPLACE TABLE users_git_history_base AS
+    WITH existing_gold AS (
+        SELECT
+            instance_name,
+            project_key,
+            commit,
+            login,
+            timestamp,
+            message
+        FROM users_git_history_base
+    ),
+    recent_commits AS (
+        SELECT
+            instance_name,
+            project_key,
+            commit,
+            login,
+            timestamp,
+            message
+        FROM users_git_history_view
+        WHERE
+            timestamp >= CURRENT_DATE - INTERVAL 7 DAY
+    ),
+    combined AS (
+        SELECT * FROM existing_gold
+        UNION ALL
+        SELECT * FROM recent_commits
+    )
+    SELECT DISTINCT
+        instance_name,
+        project_key,
+        commit,
+        login,
+        timestamp,
+        message
+    FROM combined
+    ORDER BY
+        instance_name,
+        project_key,
+        timestamp;
