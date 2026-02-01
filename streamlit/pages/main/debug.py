@@ -1,5 +1,6 @@
 import streamlit as st
-from backend.duck_db import init_duckdb
+from backend import settings
+from backend.duck_db import init_streamlit
 from backend.duck_db import query
 
 st.set_page_config(initial_sidebar_state="collapsed")
@@ -7,22 +8,13 @@ st.set_page_config(initial_sidebar_state="collapsed")
 def reload_duckdb():
     with st.container(border=True):
         st.subheader("DuckDB Data Maintenance")
-        genre = st.radio(
-            "DuckDB Maintenance",
-            ["🔄 Complete Reload DuckDB", "✨ Reload GOLD Tables Only"],
-            horizontal=True,
-            label_visibility="collapsed"
-        )
         pwd = st.text_input("Password", type="password", width="stretch")
         btn_duckdb = st.button("Start", use_container_width=True)
         if btn_duckdb:
             if pwd == "dataikupulse2026":
                 st.cache_data.clear()
                 st.cache_resource.clear()
-                if genre == "🔄 Complete Reload DuckDB":
-                    init_duckdb.initialize_database(reset=True)
-                elif genre == "✨ Reload GOLD Tables Only":
-                    init_duckdb.rebuild_gold_tables()
+                init_streamlit.initialize_database()
             else:
                 st.error("Invalid Password.")
     return
@@ -30,15 +22,8 @@ def reload_duckdb():
 def debug_duckdb():
     with st.container(border=True):
         st.subheader("DuckDB Table Listing")
-        object_type = st.radio(
-            "DuckDB Object Type:",
-            ["view", "base"],
-            format_func=lambda x: "Views (virtual)" if x == "view" else "Base Tables (materialized)",
-            horizontal=True
-        )
         st.markdown("---")
         df = query.query_df("PRAGMA show_tables_expanded;", page="DEBUG")
-        df = df.loc[df["name"].str.contains(f"_{object_type}")]
         st.write(f"Total Tables: {len(df)}")
         selected_rows = st.dataframe(
             df,
@@ -70,7 +55,10 @@ def display():
     with tab1:
         reload_duckdb()
     with tab2:
-        debug_duckdb()
+        if settings.DB_PATH.exists():
+            debug_duckdb()
+        else:
+            st.error("No DuckDB to read from")
 
 if __name__ == "__main__":
     display()

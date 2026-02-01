@@ -13,11 +13,10 @@ def create_local_folder(self, project_handle, folder_name):
         settings = folder_handle.get_settings()
         settings.remove_partitioning()
         settings.add_discrete_partitioning_dimension("layer")
-        settings.add_discrete_partitioning_dimension("instance_name")
         settings.add_discrete_partitioning_dimension("category")
         settings.add_discrete_partitioning_dimension("module")
-        settings.add_time_partitioning_dimension("date", period='DAY')
-        settings.set_partitioning_file_pattern("%{layer}/%{instance_name}/%{category}/%{module}/%Y/%M/%D/.*")
+        settings.add_discrete_partitioning_dimension("instance_name")
+        settings.set_partitioning_file_pattern("%{layer}/%{category}/%{module}/%{instance_name}/.*")
         settings.save()
     return
 

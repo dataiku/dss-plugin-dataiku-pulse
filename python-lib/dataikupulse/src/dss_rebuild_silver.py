@@ -4,6 +4,14 @@ import pandas as pd
 
 from dataikupulse.src import dss_folder, dss_funcs, dss_silver
 
+def skip_file(self, path):
+    if self.config["force_update"]:
+        return False
+    new_path = path.replace("/raw/", "/silver/")
+    exists = self.folder.get_path_details(new_path).get("exists", False)
+    return exists
+
+
 def check_save(self, df_clean, dq, path, category, module_name, results):
     if dq is None:
         results.append([category, module_name, "quality", False, "Unknown failure"])
@@ -43,21 +51,20 @@ def check_save(self, df_clean, dq, path, category, module_name, results):
     return results
 
 
-def rebuild_silver(self, chunk_df):
-    paths = []
-    for row in chunk_df.itertuples():
-        paths.extend(self.folder.get_partition_info(row.partitions)["paths"])
-    #
+def rebuild_silver(self, paths):
+    # Main loop
     results = []
     for path in paths:
+        if skip_file(self, path):
+            continue
         #
         with self.folder.get_download_stream(path) as stream:
             file_bytes = io.BytesIO(stream.read())
         df = pd.read_parquet(file_bytes)
         #
-        category = path.split("/")[2]
-        module_name = path.split("/")[3]
-        self.instance_name = path.split("/")[4]
+        category = path.split("/")[2].replace("category=", "")
+        module_name = path.split("/")[3].replace("module=", "")
+        self.instance_name = path.split("/")[4].replace("instance_name=", "")
         #
         mode="client"
         if "dataiku_usage" == category:

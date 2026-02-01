@@ -4,13 +4,14 @@ import time
 import os
 from filelock import FileLock, Timeout
 import streamlit as st
-from backend.duck_db import create_conn, raw_views, dataiku_usage, gold_tables
+from backend.duck_db import create_conn, expand_duckdb, raw_views, dataiku_usage, gold_tables
 from backend.duck_db import dataiku_sources
 
 logger = logging.getLogger(__name__)
 
 STEP_LABELS = {
     "create_connection": "Initializing DuckDB",
+    "configure_duckdb_runtime": "Configure DuckDB Runtime Procs",
     "register_partition_df": "Registering folder partitions",
     "register_raw_views": "Registering RAW views",
     "register_dataiku_usage_views": "Register Dataiku Usage Views",
@@ -41,7 +42,7 @@ def _run_init_pipeline(init_funcs, *, reset=False, success_message="Initializati
                     func_name = func.__name__
                     label = STEP_LABELS.get(func_name, func_name)
                     status_text.text(f"Running step {i}/{total_funcs}: {label}")
-                    logger.info(f"Running DuckDB init function {func_name}")
+                    logger.warning(f"Running DuckDB init function {func_name}")
                     if func_name == "create_connection":
                         conn = func(read_only=False, show_ui=True)
                     else:
@@ -52,6 +53,7 @@ def _run_init_pipeline(init_funcs, *, reset=False, success_message="Initializati
                     time.sleep(1)
                 elapsed = time.perf_counter() - start_time
                 st.success(f"{success_message} ({elapsed:.2f}s)")
+                logger.warning(f"{success_message} ({elapsed:.2f}s)")
             
             except Exception as e:
                 logger.exception(f"DuckDB init function {func_name} :: e")
@@ -73,9 +75,10 @@ def _run_init_pipeline(init_funcs, *, reset=False, success_message="Initializati
     return
 
 
-def initialize_database(reset: bool = False):
+def custom_recipe_create_gold_tables(reset: bool = False):
     init_funcs = [
         create_conn.create_connection,
+        expand_duckdb.configure_duckdb_runtime,
         dataiku_sources.register_partition_df,
         raw_views.register_raw_views,
         dataiku_usage.register_dataiku_usage_views,
@@ -91,7 +94,7 @@ def initialize_database(reset: bool = False):
     return
 
 
-def rebuild_gold_tables():
+def streamlit_load_tables():
     init_funcs = [
         create_conn.create_connection,
         gold_tables.register_gold_tables,

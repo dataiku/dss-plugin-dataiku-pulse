@@ -4,6 +4,7 @@ from cryptography.fernet import Fernet
 from dataiku.runnables import Runnable, ResultTable
 from dataikupulse.src import dss_folder
 from dataikupulse.src import dss_funcs
+from dataikupulse.src import dss_init
 from datetime import datetime
 import base64
 import os
@@ -57,13 +58,40 @@ class MyRunnable(Runnable):
                 
         # Create the folders
         if cont:
+            for folder in ["partitioned_data", "gold_tables"]:
+                try:
+                    f = dss_folder.get_local_folder(self, project_handle, folder)
+                    results.append([f"Create Folders - {folder}", True, None])
+                except Exception as e:
+                    results.append([f"Create Folders - {folder}", False, f"An error occurred: {e}"])
+                    cont = False
+        
+        # Create the gold custom recipe
+        if cont:
+            create_recipe = False
             try:
-                f = dss_folder.get_local_folder(self, project_handle, "partitioned_data")
-                results.append(["Create Folders", True, None])
-            except Exception as e:
-                results.append(["Create Folders", False, f"An error occurred: {e}"])
-                cont = False
-
+                exists = project_handle.get_recipe(recipe_name="generate_gold_tables")
+                exists.get_settings()
+            except:
+                create_recipe = True
+            
+            folder = dss_folder.get_local_folder(self, project_handle, "gold_tables")
+            self.folder_id = folder.get_id()
+            
+            if create_recipe:
+                recipe_handle = project_handle.create_recipe(
+                    recipe_proto={
+                        'type': 'CustomCode_create-gold-tables',
+                        'name': 'generate_gold_tables'
+                    },
+                    creation_settings={}
+                )
+                settings = recipe_handle.get_settings()
+                settings.add_output(role="gold_tables_folder", ref=self.folder_id)
+                settings.save()
+                
+            dss_init.dashboard_scenrios(self, project_handle)
+        
         # Get plugin directory
         if cont:
             root_path = self.local_client.get_instance_info().raw["dataDirPath"]
@@ -83,13 +111,17 @@ class MyRunnable(Runnable):
         # Create the Code Studio Template
         if cont:
             try:
-                found = False
-                for code_studios in project_handle.list_code_studios(): # lets delete the existing if found
-                    if code_studios.name == "Dataiku Pulse Dashboard":
-                        code_studios_handle = project_handle.get_code_studio(code_studio_id=code_studios.id)
-                        code_studios_handle.delete()
-                code_studio = project_handle.create_code_studio(name="Dataiku Pulse Dashboard", template_id="dataiku_pulse_dashboard")
-                cs_id = code_studio.code_studio_id
+                cs_id = False
+                for code_studio in project_handle.list_code_studios(): # lets delete the existing if found
+                    if code_studio.name == "Dataiku Pulse Dashboard":
+                        cs_id = code_studio.id
+                        break
+                if not cs_id:
+                    code_studio = project_handle.create_code_studio(
+                        name="Dataiku Pulse Dashboard",
+                        template_id="dataiku_pulse_dashboard"
+                    )
+                    cs_id = code_studio.code_studio_id
                 results.append(["Create Code Studio", True, None])
             except Exception as e:
                 results.append(["Create Code Studio", False, f"An error occurred: {e}"])
@@ -98,7 +130,6 @@ class MyRunnable(Runnable):
         # Get Code Studio directory
         if cont:
             code_studio_path = f"{root_path}/config/projects/{self.params['pulse_project_key']}/code_studios/{cs_id}"
-            streamlit_path = f"{code_studio_path}/dataiku_pulse"
             if os.path.isdir(code_studio_path):
                 results.append(["Project Library Confirmed", True, None])
             else:
@@ -107,8 +138,17 @@ class MyRunnable(Runnable):
 
         # Copy the streamlit application
         if cont:
+            streamlit_path = f"{code_studio_path}/dataiku_pulse"
             try:
+                shutil.rmtree(streamlit_path, ignore_errors=True)
                 r = shutil.copytree(f"{source_path}/streamlit", streamlit_path)
+                results.append(["Copy Streamlit", True, None])
+            except Exception as e:
+                results.append(["Copy Streamlit", False, f"An error occurred: {e}"])
+                cont = False
+                
+            try:
+                r = shutil.copytree(f"{source_path}/python-lib/backend", f"{streamlit_path}/backend")
                 results.append(["Copy Streamlit", True, None])
             except Exception as e:
                 results.append(["Copy Streamlit", False, f"An error occurred: {e}"])
@@ -129,7 +169,7 @@ class MyRunnable(Runnable):
             except Exception as e:
                 results.append(["Store Encrypted HMAC", False, f"An error occurred: {e}"])
                 cont = False
-        
+
         # return results
         if results:
             df = pd.DataFrame(results, columns=["step", "result", "message"])

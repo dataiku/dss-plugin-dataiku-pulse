@@ -34,25 +34,20 @@ class MyRunnable(Runnable):
         # variables
         self.project_handle = self.local_client.get_default_project()
         self.folder_name = "partitioned_data"
-        
-        # Get folder / raw paths
         self.folder = dss_folder.get_local_folder(self, self.project_handle, self.folder_name)
-        partitions = self.folder.list_partitions()
-        partitions_df = pd.DataFrame(partitions, columns=["partitions"])
-        cols = ["layer", "category", "module", "instance_name", "date"]
-        partitions_df[cols] = partitions_df["partitions"].str.split("|", expand=True)
-        partitions_df = partitions_df.loc[partitions_df["layer"] == "raw"]
         
-        # added filtering
-        #partitions_df = partitions_df.loc[partitions_df["category"] == "operating_system"]
-        
-        # check
-        if partitions_df.empty:
-            raise Exception("No partitions found")
+        # Gather Paths
+        all_paths = self.folder.list_paths_in_partition()
+        paths = [
+            path for path in all_paths
+            if "/raw/category=" in path
+        ]
+        if not paths:
+            raise Exception("No Hive-partitioned paths found")
         
         # Re-Run Silver Quality Guard
         if self.preset_pc["do_parallel"]:
-            chunks = np.array_split(partitions_df, self.preset_pc["cores"])
+            chunks = np.array_split(paths, self.preset_pc["cores"])
             results = Parallel(
                 n_jobs=self.preset_pc["cores"],
                 backend="threading",
@@ -61,14 +56,14 @@ class MyRunnable(Runnable):
             )(
                 delayed(dss_rebuild_silver.rebuild_silver)(self, chunk)
                 for chunk in chunks
-                if not chunk.empty
+                if chunk.size > 0
             )
             dfs = []
             for r in results:
                 dfs.append(pd.DataFrame(r).astype(str))
             results_df = pd.concat(dfs, ignore_index=True)
         else:
-            results = dss_rebuild_silver.rebuild_silver(self, partition_df)
+            results = dss_rebuild_silver.rebuild_silver(self, paths)
             results_df =pd.DataFrame(results).astype(str)
             
         # Return ResultsTable
