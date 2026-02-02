@@ -92,12 +92,12 @@ def gcp_credentials(blob_module=None, blob_credentials=None):
     except:
         try:
             from fsspec import filesystem
+            import duckdb
             duckdb.register_filesystem(filesystem('gcs'))
             blob_module = False
             blob_credentials = False
         except Exception as e:
             logger.error(f"Failed to get HMAC Key and Secret: {e}")
-            st.error("Failed to get HMAC Key and Secret. Check logs for more details.")
     return blob_module, blob_credentials
 
 # -------------------------------------------------------------------
