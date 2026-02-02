@@ -90,14 +90,8 @@ def gcp_credentials(blob_module=None, blob_credentials=None):
             hmac_secret=hmac_secret
         )
     except:
-        try:
-            from fsspec import filesystem
-            import duckdb
-            duckdb.register_filesystem(filesystem('gcs'))
-            blob_module = False
-            blob_credentials = False
-        except Exception as e:
-            logger.error(f"Failed to get HMAC Key and Secret: {e}")
+        blob_module = False
+        blob_credentials = False
     return blob_module, blob_credentials
 
 # -------------------------------------------------------------------
@@ -124,4 +118,10 @@ def configure_storage(conn):
     if blob_module and blob_credentials:
         conn.execute(f"{blob_module}")
         conn.execute(f"{blob_credentials}")
+    elif not blob_module and not blob_credentials and connection_type = "GCS":
+        try:
+            from fsspec import filesystem
+            conn.register_filesystem(filesystem('gcs'))
+        except Exception as e:
+            logger.error(f"Failed to get HMAC Key and Secret: {e}")
     return
