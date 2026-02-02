@@ -124,6 +124,4 @@ def configure_storage(conn):
     if blob_module and blob_credentials:
         conn.execute(f"{blob_module}")
         conn.execute(f"{blob_credentials}")
-    else:
-        conn.register_filesystem(filesystem('gcs'))
     return
