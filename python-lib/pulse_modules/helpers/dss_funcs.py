@@ -6,9 +6,21 @@ import dataiku
 import dataikuapi
 import pyarrow as pa
 from pathlib import Path
-from dataikupulse.src import dss_folder, dss_silver
-from dataikupulse.src.schemas import audit_dataiku_usage
+from pulse_modules.helpers import dss_folder, dss_silver
+from pulse_modules.flat_columns import audit_dataiku_usage
+import yaml
 
+
+# ---------- YAML LOADER -----------------------------
+PULSE_MODULES_DIR = Path(__file__).resolve().parents[1]
+
+def load_yaml(path: str) -> dict:
+    yaml_path = PULSE_MODULES_DIR / path
+    try:
+        with yaml_path.open("r") as f:
+            return yaml.safe_load(f) or {}
+    except (FileNotFoundError, yaml.YAMLError):
+        return {}
 
 # ---------- DATAIKU CLIENT HANDLES -----------------------------
 def build_local_client():
@@ -109,9 +121,9 @@ def get_nested_value(data, keys, dt=False):
 # ----------------------------------------------------------
 def _resolve_module_namespace(mode):
     if mode == "instance":
-        from dataikupulse.base_data import instance_level as dss_objs
+        from pulse_modules.domain import instance_level as dss_objs
     elif mode == "projects":
-        from dataikupulse.base_data import project_level as dss_objs
+        from pulse_modules.domain import project_level as dss_objs
     else:
         raise ValueError(f"Unknown module mode: {mode}")
     return dss_objs
