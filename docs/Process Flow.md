@@ -1,6 +1,18 @@
 # Dataiku Pulse - Process Flow
 
 ```mermaid
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'background': '#ffffff',
+    'primaryColor': '#E3F2FD',
+    'primaryTextColor': '#000000',
+    'primaryBorderColor': '#1E88E5',
+    'lineColor': '#333333',
+    'fontSize': '14px'
+  }
+}}%%
+
 flowchart TD
 
     %% =========================
