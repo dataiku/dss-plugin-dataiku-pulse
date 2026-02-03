@@ -5,15 +5,15 @@ from pathlib import Path
 import yaml
 
 
-def load_yaml(path):
-    BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent
+
+def load_yaml(relative_path: str) -> dict:
+    yaml_path = BASE_DIR / relative_path
     try:
-        yaml_path = os.path.join(script_dir, path)
-        with open(yaml_path, "r") as f:
-            config = yaml.safe_load(f)
-    except:
-        config = {}
-    return config
+        with yaml_path.open("r") as f:
+            return yaml.safe_load(f) or {}
+    except (FileNotFoundError, yaml.YAMLError):
+        return {}
 
 
 def update_plugin_config(self, plugin_handle):
