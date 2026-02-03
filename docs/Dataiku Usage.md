@@ -71,6 +71,18 @@ mindmap
 Short explanation of what this capability represents and how usage is counted.
 
 ```mermaid
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'background': '#ffffff',
+    'primaryColor': '#E3F2FD',
+    'primaryTextColor': '#000000',
+    'primaryBorderColor': '#1E88E5',
+    'lineColor': '#333333',
+    'fontSize': '14px'
+  }
+}}%%
+
 mindmap
   root((APIs & Integration))
     API Services
@@ -82,6 +94,18 @@ mindmap
 Short explanation of what this capability represents and how usage is counted.
 
 ```mermaid
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'background': '#ffffff',
+    'primaryColor': '#E3F2FD',
+    'primaryTextColor': '#000000',
+    'primaryBorderColor': '#1E88E5',
+    'lineColor': '#333333',
+    'fontSize': '14px'
+  }
+}}%%
+
 mindmap
   root((Applications & Delivery))
     Application Designer
@@ -99,6 +123,18 @@ mindmap
 Short explanation of what this capability represents and how usage is counted.
 
 ```mermaid
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'background': '#ffffff',
+    'primaryColor': '#E3F2FD',
+    'primaryTextColor': '#000000',
+    'primaryBorderColor': '#1E88E5',
+    'lineColor': '#333333',
+    'fontSize': '14px'
+  }
+}}%%
+
 mindmap
   root((Automation & Orchestration))
     Automation
@@ -117,6 +153,18 @@ mindmap
 Short explanation of what this capability represents and how usage is counted.
 
 ```mermaid
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'background': '#ffffff',
+    'primaryColor': '#E3F2FD',
+    'primaryTextColor': '#000000',
+    'primaryBorderColor': '#1E88E5',
+    'lineColor': '#333333',
+    'fontSize': '14px'
+  }
+}}%%
+
 mindmap
   root((Data Engineering))
     Coding
@@ -151,6 +199,18 @@ mindmap
 Short explanation of what this capability represents and how usage is counted.
 
 ```mermaid
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'background': '#ffffff',
+    'primaryColor': '#E3F2FD',
+    'primaryTextColor': '#000000',
+    'primaryBorderColor': '#1E88E5',
+    'lineColor': '#333333',
+    'fontSize': '14px'
+  }
+}}%%
+
 mindmap
   root((GenAI & LLM))
     Generative AI & LLM
