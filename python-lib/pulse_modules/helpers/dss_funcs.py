@@ -264,6 +264,7 @@ def _get_flat_cols(category, module_name, mode):
         raise Exception(f"Invalid FLAT COLUMNS mode - {mode}")
     return flat_cols
 
+
 def _normalize_and_validate(self, df, category, module_name, mode):
     # Flatten
     flat_cols = _get_flat_cols(category, module_name, mode)
