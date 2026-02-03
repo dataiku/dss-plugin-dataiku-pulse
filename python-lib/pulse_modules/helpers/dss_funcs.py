@@ -14,7 +14,6 @@ from pulse_modules.flat_columns import audit_dataiku_usage
 from pulse_modules.helpers import dss_folder, dss_silver
 
 
-
 # ---------- YAML LOADER -----------------------------
 PULSE_MODULES_DIR = Path(__file__).resolve().parents[1]
 
