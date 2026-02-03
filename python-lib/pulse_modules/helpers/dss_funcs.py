@@ -24,8 +24,9 @@ def load_yaml(path: str) -> dict:
             return yaml.safe_load(f) or {}
     except (FileNotFoundError, yaml.YAMLError):
         return {}
+    return
 
-    
+
 # ---------- DATAIKU CLIENT HANDLES -----------------------------
 def build_local_client():
     client = dataiku.api_client()
