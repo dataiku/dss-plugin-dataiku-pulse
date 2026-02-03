@@ -230,9 +230,9 @@ def _persist_raw(self, df, category, module_name, project_key, file_name, result
     try:
         df = _sanitize_df_for_raw_parquet(df)
         dss_folder.write_remote_folder_output(self, path, df)
-        results.append([project_key, category, module_name, "write/save -- RAW", True, None])
+        results.append([project_key, category, module_name, "write/save -- raw", True, None])
     except Exception as e:
-        results.append([project_key, category, module_name, "write/save -- RAW", False, e])
+        results.append([project_key, category, module_name, "write/save -- raw", False, e])
     return results
 
 # ----------------------------------------------------------
