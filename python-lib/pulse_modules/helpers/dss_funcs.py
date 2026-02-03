@@ -240,8 +240,8 @@ def _persist_raw(self, df, category, module_name, project_key, file_name, result
 # ----------------------------------------------------------
 def _load_flat_columns(category, module_name):
     flat_name = f"{category}_{module_name}.py"
-    schemas_dir = Path(__file__).parent / "schemas"
-    schema_file = schemas_dir / flat_name
+    flat_col_dir = PULSE_MODULES_DIR / "flat_columns"
+    schema_file = flat_col_dir / flat_name
     if not schema_file.exists():
         return False  # No schema defined → skip normalization
     spec = importlib.util.spec_from_file_location(
