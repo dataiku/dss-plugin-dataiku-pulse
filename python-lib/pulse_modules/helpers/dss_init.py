@@ -136,7 +136,7 @@ def create_scenarios(self, project_handle):
             r = scenario_handle.delete()
     
     # Create the scenarios
-    macros = load_yaml(path="./scenarios/worker.yaml")
+    macros = load_yaml(path="scenarios_yamls/worker.yaml")
     for key in macros["macros"]:
         if not self.params["monitor_os"] and key in ["data_gather_diskspace", "data_gather_filesystem"]:
             continue
