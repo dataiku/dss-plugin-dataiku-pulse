@@ -1,6 +1,7 @@
 # Dataiku Pulse - Process Flow
 
 ```mermaid
+
 flowchart TD
 
     %% =========================
