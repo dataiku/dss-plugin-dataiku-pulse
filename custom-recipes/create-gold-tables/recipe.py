@@ -1,14 +1,17 @@
-from backend.duck_db import create_conn
-from backend.duck_db import expand_duckdb
-from backend.duck_db import dataiku_sources
-from backend.duck_db import raw_views
-from backend.duck_db import dataiku_usage
-from backend.duck_db import create_gold_tables
-from backend.duck_db import query
-from backend import settings
-
-
 import logging
+
+from pulse_duckdb import settings
+from pulse_duckdb.engine import (
+    create_conn,
+    create_gold_tables,
+    dataiku_sources,
+    dataiku_usage,
+    expand_duckdb,
+    query,
+    raw_views,
+)
+
+
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.warning)
 logger = logging.getLogger(__name__)
 
