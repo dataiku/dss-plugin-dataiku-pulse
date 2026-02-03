@@ -7,6 +7,7 @@ from dataiku.runnables import ResultTable, Runnable
 
 from pulse_modules.helpers import dss_funcs, dss_init
 
+
 class MyRunnable(Runnable):
     def __init__(self, project_key, config, plugin_config):
         self.project_key = project_key
