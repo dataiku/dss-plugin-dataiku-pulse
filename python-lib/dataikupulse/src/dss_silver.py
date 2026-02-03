@@ -176,6 +176,20 @@ def normalize_dataframe(self, df, FLAT_COLUMNS):
 # ------------------------------------------------
 # COERCE SCHEMA
 # ------------------------------------------------
+def detect_epoch_unit(series: pd.Series) -> str:
+    s = pd.to_numeric(series, errors="coerce").dropna()
+    if s.empty:
+        return "ms"
+    v = np.median(s.values)
+    if v >= 1e18:
+        return "ns"
+    elif v >= 1e15:
+        return "us"
+    elif v >= 1e12:
+        return "ms"
+    else:
+        return "s"
+    
 def get_string_cols(df: pd.DataFrame) -> list[str]:
     return [
         col for col in df.columns
@@ -253,7 +267,8 @@ def coerce_schema(df: pd.DataFrame) -> pd.DataFrame:
     # 1. Epoch millis → UTC timestamps
     for col in TIMESTAMP_COLS:
         if col in df.columns:
-            df[col] = pd.to_datetime(df[col], unit="ms", utc=True, errors="coerce").dt.floor("s")
+            unit = detect_epoch_unit(df[col])
+            df[col] = pd.to_datetime(df[col], unit=unit, utc=True, errors="coerce").dt.floor("s")
     for col in df.select_dtypes(include="datetimetz").columns:
         df[col] = df[col].astype("datetime64[s, UTC]")
     
