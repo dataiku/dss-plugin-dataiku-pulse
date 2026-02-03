@@ -150,7 +150,7 @@ class MyRunnable(Runnable):
                 cont = False
                 
             try:
-                r = shutil.copytree(f"{source_path}/python-lib/pulse_duckdb", f"{streamlit_path}/backend")
+                r = shutil.copytree(f"{source_path}/python-lib/pulse_duckdb", f"{streamlit_path}/pulse_duckdb")
                 results.append(["Copy Streamlit", True, None])
             except Exception as e:
                 results.append(["Copy Streamlit", False, f"An error occurred: {e}"])
