@@ -2,18 +2,7 @@ import json
 import os
 from pathlib import Path
 
-import yaml
-
-
-PULSE_MODULES_DIR = Path(__file__).resolve().parents[1]
-
-def load_yaml(path: str) -> dict:
-    yaml_path = PULSE_MODULES_DIR / path
-    try:
-        with yaml_path.open("r") as f:
-            return yaml.safe_load(f) or {}
-    except (FileNotFoundError, yaml.YAMLError):
-        return {}
+from pulse_modules.helpers.dss_funcs import load_yaml
 
 
 def update_plugin_config(self, plugin_handle):
