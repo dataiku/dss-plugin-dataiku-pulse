@@ -5,10 +5,10 @@ from pathlib import Path
 import yaml
 
 
-BASE_DIR = Path(__file__).resolve().parent
+PULSE_MODULES_DIR = Path(__file__).resolve().parents[1]
 
 def load_yaml(relative_path: str) -> dict:
-    yaml_path = BASE_DIR / relative_path
+    yaml_path = PULSE_MODULES_DIR / relative_path
     try:
         with yaml_path.open("r") as f:
             return yaml.safe_load(f) or {}
@@ -183,7 +183,7 @@ def dashboard_scenrios(self, project_handle):
             scenario_handle = project_handle.get_scenario(scenario["id"])
             r = scenario_handle.delete()
     # 
-    macros = load_yaml(path="./scenarios/dashboard.yaml")
+    macros = load_yaml(path="scenarios_yamls/dashboard.yaml")
     for key in macros.get("recipes"):
         # rebase and setup macro in step
         trigger = json.loads(macros["trigger"])
