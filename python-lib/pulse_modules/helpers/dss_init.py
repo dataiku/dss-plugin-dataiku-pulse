@@ -7,7 +7,7 @@ import yaml
 
 PULSE_MODULES_DIR = Path(__file__).resolve().parents[1]
 
-def load_yaml(relative_path: str) -> dict:
+def load_yaml(path: str) -> dict:
     yaml_path = PULSE_MODULES_DIR / relative_path
     try:
         with yaml_path.open("r") as f:
