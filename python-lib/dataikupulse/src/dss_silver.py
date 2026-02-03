@@ -176,6 +176,20 @@ def normalize_dataframe(self, df, FLAT_COLUMNS):
 # ------------------------------------------------
 # COERCE SCHEMA
 # ------------------------------------------------
+def detect_epoch_unit(series: pd.Series) -> str:
+    s = pd.to_numeric(series, errors="coerce").dropna()
+    if s.empty:
+        return "ms"
+    v = np.median(s.values)
+    if v >= 1e18:
+        return "ns"
+    elif v >= 1e15:
+        return "us"
+    elif v >= 1e12:
+        return "ms"
+    else:
+        return "s"
+    
 def get_string_cols(df: pd.DataFrame) -> list[str]:
     return [
         col for col in df.columns
