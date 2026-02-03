@@ -1,10 +1,13 @@
-from dataiku.runnables import Runnable, ResultTable
-from dataikupulse.src import dss_funcs, dss_folder, dss_silver
+from datetime import date, datetime, timedelta
+import logging
 import os
 import subprocess
+
 import pandas as pd
-from datetime import datetime, date, timedelta
-import logging
+
+from dataiku.runnables import ResultTable, Runnable
+
+from pulse_modules.helpers import dss_folder, dss_funcs, dss_silver
 
 
 def get_size(d):
