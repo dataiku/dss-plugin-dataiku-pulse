@@ -1,10 +1,12 @@
-import os
-import yaml
 import json
+import os
+from pathlib import Path
+
+import yaml
 
 
 def load_yaml(path):
-    script_dir = os.path.dirname(os.path.realpath(__file__))
+    BASE_DIR = Path(__file__).resolve().parent
     try:
         yaml_path = os.path.join(script_dir, path)
         with open(yaml_path, "r") as f:
