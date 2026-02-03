@@ -1,8 +1,8 @@
 import pandas as pd
 import os
 
-from dataikupulse.src import dss_folder, dss_funcs, dss_silver
-from dataikupulse.src.schemas import audit_dataiku_usage
+from pulse_modules.helpers import dss_folder, dss_funcs, dss_silver
+from pulse_modules.flat_columns import audit_dataiku_usage
 
 
 def parse_authvia(s):
@@ -85,16 +85,16 @@ def main(self, df):
             # RAW 
             try:
                 long_results = dss_funcs._persist_raw(self, mn_df, category, module_name, None, file_name, [])
-                results.append([category, f"write/save - {module_name} -- RAW", True, file_name])
+                results.append([category, f"write/save - {module_name} -- raw", True, file_name])
             except Exception as e:
-                results.append([category, f"write/save - {module_name} -- RAW", False, e])
+                results.append([category, f"write/save - {module_name} -- raw", False, e])
                 continue
             # SILVER
             try:
                 long_results = dss_funcs._process_quality_and_persist(self, mn_df, category, module_name, None, category, file_name, [])
-                results.append([category, "write/save - {module_name} -- SILVER", True, None])
+                results.append([category, f"write/save - {module_name} -- silver", True, None])
             except Exception as e:
-                results.append([category, "write/save - {module_name} -- SILVER", False, e])
+                results.append([category, f"write/save - {module_name} -- silver", False, e])
     return results
 
 
