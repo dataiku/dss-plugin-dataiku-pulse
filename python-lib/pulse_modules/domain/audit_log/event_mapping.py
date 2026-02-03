@@ -92,7 +92,7 @@ def main(self, df):
             # SILVER
             try:
                 long_results = dss_funcs._process_quality_and_persist(self, mn_df, category, module_name, None, category, file_name, [])
-                results.append([category, f"write/save - {module_name} -- silver", True, None])
+                results.append([category, f"write/save - {module_name} -- silver", True, file_name])
             except Exception as e:
                 results.append([category, f"write/save - {module_name} -- silver", False, e])
     return results
