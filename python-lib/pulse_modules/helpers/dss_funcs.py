@@ -1,14 +1,18 @@
+import importlib
 import os
 import re
-import importlib
+from pathlib import Path
+
 import pandas as pd
+import pyarrow as pa
+import yaml
+
 import dataiku
 import dataikuapi
-import pyarrow as pa
-from pathlib import Path
-from pulse_modules.helpers import dss_folder, dss_silver
+
 from pulse_modules.flat_columns import audit_dataiku_usage
-import yaml
+from pulse_modules.helpers import dss_folder, dss_silver
+
 
 
 # ---------- YAML LOADER -----------------------------
