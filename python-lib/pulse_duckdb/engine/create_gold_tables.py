@@ -1,12 +1,12 @@
 import logging
 from pathlib import Path
 import streamlit as st
-from backend import settings
-from backend.utils import yaml_loader
+from pulse_duckdb import settings
+from pulse_duckdb.utils import yaml_loader
 
 logger = logging.getLogger(__name__)
 
-root = Path(settings.BASE_DIR / "backend/config/gold_tables")
+root = Path(settings.BASE_DIR / "pulse_duckdb/config/gold_tables")
 queries = {}
 
 for path in root.rglob("*.yaml"):
