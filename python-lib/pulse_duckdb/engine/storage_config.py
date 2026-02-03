@@ -1,9 +1,9 @@
 import logging
-from backend import settings
-from backend.utils import yaml_loader
+from pulse_duckdb import settings
+from pulse_duckdb.utils import yaml_loader
 
 logger = logging.getLogger(__name__)
-queries = yaml_loader.load_yaml(settings.BASE_DIR / "backend/config/blob/blob_credentials.yaml")
+queries = yaml_loader.load_yaml(settings.BASE_DIR / "pulse_duckdb/config/blob/blob_credentials.yaml")
 
 # -------------------------------------------------------------------
 # AWS Credentials

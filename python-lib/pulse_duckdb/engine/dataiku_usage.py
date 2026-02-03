@@ -1,10 +1,10 @@
 import logging
 import streamlit as st
-from backend import settings
-from backend.utils import yaml_loader
+from pulse_duckdb import settings
+from pulse_duckdb.utils import yaml_loader
 
 logger = logging.getLogger(__name__)
-queries = yaml_loader.load_yaml(settings.BASE_DIR / "backend/config/raw_views/raw_views.yaml")
+queries = yaml_loader.load_yaml(settings.BASE_DIR / "pulse_duckdb/config/raw_views/raw_views.yaml")
 
 # --------------------------------------------------------------------------------------------
 def register_dataiku_usage_views(conn, *, show_ui: bool = False):
