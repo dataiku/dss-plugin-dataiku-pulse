@@ -1,5 +1,5 @@
 from dataiku.runnables import Runnable, ResultTable
-from dataikupulse.src import dss_funcs
+from pulse_modules.helpers import dss_funcs
 from datetime import datetime, timezone
 import dataiku
 import pandas as pd
@@ -23,6 +23,7 @@ def build_rt(results):
     for _, row in df.iterrows():
         rt.add_record(row.tolist())
     return rt
+
 
 class MyRunnable(Runnable):
     def __init__(self, project_key, config, plugin_config):
