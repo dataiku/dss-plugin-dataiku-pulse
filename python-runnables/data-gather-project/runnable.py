@@ -1,12 +1,15 @@
-from dataiku.runnables import Runnable, ResultTable
-from dataikupulse.src import dss_funcs
 from datetime import datetime
-from joblib import Parallel, delayed
-import dataiku
+import logging
+import os
+
 import numpy as np
 import pandas as pd
-import os
-import logging
+from joblib import Parallel, delayed
+import dataiku
+
+from dataiku.runnables import ResultTable, Runnable
+
+from pulse_modules.helpers import dss_funcs
 
 
 class MyRunnable(Runnable):
