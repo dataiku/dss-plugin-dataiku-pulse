@@ -1,0 +1,33 @@
+data_disk_usage_percent_table:
+  description: >
+    Latest disk usage snapshot per instance.
+    Selects the most recent filesystem metrics per instance
+    based on timestamp.
+    Used for infrastructure health and capacity monitoring.
+
+  depends_on:
+    - operating_system_filesystem_view
+
+  full_sql: |
+    CREATE OR REPLACE TABLE data_disk_usage_percent_base AS
+    WITH latest AS (
+        SELECT
+            instance_name,
+            MAX(timestamp) AS max_ts
+        FROM operating_system_filesystem_view
+        GROUP BY
+            instance_name
+    )
+    SELECT
+        f.instance_name,
+        f.filesystem,
+        f.size,
+        f.used,
+        f.available,
+        f.used_pct,
+        f.mounted_on,
+        f.timestamp
+    FROM operating_system_filesystem_view f
+    JOIN latest l
+      ON f.instance_name = l.instance_name
+     AND f.timestamp = l.max_ts;
