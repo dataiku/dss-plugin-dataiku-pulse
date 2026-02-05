@@ -1,11 +1,12 @@
+import logging
 import sys
 sys.dont_write_bytecode = True
 
-import logging
 import streamlit as st
 import dataiku
-from backend import settings
-from backend.duck_db import init_streamlit
+
+from pulse_duckdb import settings
+from pulse_duckdb.engine import init_streamlit
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.DEBUG)
 

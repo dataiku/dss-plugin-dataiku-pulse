@@ -1,5 +1,5 @@
 import pandas as pd
-from dataikupulse.src import dss_funcs
+from pulse_modules.helpers import dss_funcs
 
 
 def get_column_names_from_schema(schema):

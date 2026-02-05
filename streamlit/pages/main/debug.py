@@ -1,9 +1,11 @@
 import streamlit as st
-from backend import settings
-from backend.duck_db import init_streamlit
-from backend.duck_db import query
+
+from pulse_duckdb import settings
+from pulse_duckdb.engine import init_streamlit, query
+
 
 st.set_page_config(initial_sidebar_state="collapsed")
+
 
 def reload_duckdb():
     with st.container(border=True):
@@ -18,6 +20,7 @@ def reload_duckdb():
             else:
                 st.error("Invalid Password.")
     return
+
 
 def debug_duckdb():
     with st.container(border=True):
@@ -50,15 +53,12 @@ def debug_duckdb():
                 st.write(col)
     return
 
-def display():
-    tab1, tab2 = st.tabs(["Administrative Actions", "DuckDB Quick Viewer"])
-    with tab1:
-        reload_duckdb()
-    with tab2:
-        if settings.DB_PATH.exists():
-            debug_duckdb()
-        else:
-            st.error("No DuckDB to read from")
 
-if __name__ == "__main__":
-    display()
+tab1, tab2 = st.tabs(["Administrative Actions", "DuckDB Quick Viewer"])
+with tab1:
+    reload_duckdb()
+with tab2:
+    if settings.DB_PATH.exists():
+        debug_duckdb()
+    else:
+        st.error("No DuckDB to read from")

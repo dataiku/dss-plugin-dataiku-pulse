@@ -1,67 +1,122 @@
+import base64
 import logging
+
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
 from pulse_duckdb import settings
-from pulse_duckdb.utils import yaml_loader
+from pulse_duckdb.helpers import yaml_loader
 
 logger = logging.getLogger(__name__)
+
 queries = yaml_loader.load_yaml(settings.BASE_DIR / "pulse_duckdb/config/blob/blob_credentials.yaml")
 
 # -------------------------------------------------------------------
 # AWS Credentials
 # -------------------------------------------------------------------
-def aws_credentials(blob_module=None, blob_credentials=None):
+def aws_credentials() -> tuple[str, str]:
+    info = settings.connection_handle.get_info()
+    params = info.get("params", {})
+    credentials_mode = params.get("credentialsMode")
+    aws_region = params.get("regionOrEndpoint")
+
     blob_module = queries["blob_setup"]["aws_modules"]
-    aws_region = settings.connection_handle.get_info()["params"]["regionOrEndpoint"]
-    credentials_mode = settings.connection_handle.get_info()["params"]["credentialsMode"]
+
     if credentials_mode == "KEYPAIR":
-        accessKey = settings.connection_handle.get_info()["params"]["accessKey"]
-        secretKey = settings.connection_handle.get_info()["params"]["secretKey"]
-        logger.exception("KEYPAIR NEEDS TO BE INIT")
-        raise Exception("Failed to find proper BLOB information. Check logs for detail.")
-    elif credentials_mode == "STS_ASSUME_ROLE" or credentials_mode == "ENVIRONMENT":
-        key_id = settings.connection_handle.get_info()["resolvedAWSCredential"]["accessKey"]
-        secret = settings.connection_handle.get_info()["resolvedAWSCredential"]["secretKey"]
-        token  = settings.connection_handle.get_info()["resolvedAWSCredential"]["sessionToken"]
+        try:
+            key_id = params["accessKey"]
+            secret = params["secretKey"]
+        except KeyError as exc:
+            logger.exception("Missing resolved AWS credentials")
+            raise RuntimeError(
+                "Failed to resolve AWS credentials from Dataiku connection"
+            ) from exc
+        blob_credentials = yaml_loader.render_query(
+            queries["blob_setup"]["aws_headers_static"],
+            key_id=key_id,
+            secret=secret,
+            aws_region=aws_region,
+        )
+        return blob_module, blob_credentials
+
+    if credentials_mode in {"STS_ASSUME_ROLE", "ENVIRONMENT"}:
+        try:
+            resolved = info["resolvedAWSCredential"]
+            key_id = resolved["accessKey"]
+            secret = resolved["secretKey"]
+            token = resolved["sessionToken"]
+        except KeyError as exc:
+            logger.exception("Missing resolved AWS credentials")
+            raise RuntimeError(
+                "Failed to resolve AWS credentials from Dataiku connection"
+            ) from exc
         blob_credentials = yaml_loader.render_query(
             queries["blob_setup"]["aws_headers_assume"],
             key_id=key_id,
             secret=secret,
             token=token,
-            aws_region=aws_region
+            aws_region=aws_region,
         )
-    else:
-        raise Exception("Failed to find proper BLOB information. Check logs for detail.")
-    return blob_module, blob_credentials
+        return blob_module, blob_credentials
+
+    logger.error("Unsupported AWS credentials mode: %s", credentials_mode)
+    raise RuntimeError(f"Unsupported AWS credentials mode: {credentials_mode}")
+    return
 
 # -------------------------------------------------------------------
 # Azure Credentials
 # -------------------------------------------------------------------
-def azure_credentials(blob_module=None, blob_credentials=None):
+def azure_credentials() -> tuple[str, str]:
+    info = settings.connection_handle.get_info()
+    params = info.get("params", {})
+    credentials_mode = params.get("authType")
+    storage_account = params.get("storageAccount")
+
     blob_module = queries["blob_setup"]["azure_modules"]
-    storageAccount = settings.connection_handle.get_info()["params"]["storageAccount"]
-    credentials_mode = settings.connection_handle.get_info()["params"]["authType"]
+
     if credentials_mode == "SHARED_KEY":
-        accessKey = settings.connection_handle.get_info()["params"]["accessKey"]
-        logger.error("SHARED KEY NEEDS TO BE INIT")
-        raise Exception("Failed to find proper BLOB information. Check logs for detail.")
-    elif credentials_mode == "OAUTH2_APP":
-        tenant_id = settings.connection_handle.get_info()["params"]["tenantId"]
-        client_id = settings.connection_handle.get_info()["params"]["appId"]
-        client_secret = settings.connection_handle.get_info()["params"]["appSecret"]
+        logger.error("Azure SHARED_KEY authentication is not supported yet")
+        raise RuntimeError("Azure SHARED_KEY authentication is not supported")
+
+    if credentials_mode == "OAUTH2_APP":
+        try:
+            tenant_id = params["tenantId"]
+            client_id = params["appId"]
+            client_secret = params["appSecret"]
+        except KeyError as exc:
+            logger.exception("Missing Azure OAuth2 parameters")
+            raise RuntimeError(
+                "Failed to resolve Azure OAuth2 credentials from Dataiku connection"
+            ) from exc
+
         blob_credentials = yaml_loader.render_query(
             queries["blob_setup"]["azure_oauth2_headers"],
             tenant_id=tenant_id,
             client_id=client_id,
             client_secret=client_secret,
-            account_name=storageAccount
+            account_name=storage_account,
         )
-    else:
-        raise Exception("Failed to find proper BLOB information. Check logs for detail.")
-    return blob_module, blob_credentials
+
+        return blob_module, blob_credentials
+
+    logger.error("Unsupported Azure authentication type: %s", credentials_mode)
+    raise RuntimeError(f"Unsupported Azure authentication type: {credentials_mode}")
 
 # -------------------------------------------------------------------
 # GCP Credentials
 #    - GCS HMAC Handler -- Designed to grab encrypted HMAC from Project Vars
 # -------------------------------------------------------------------
+def configure_gcs_filesystem(conn) -> None:
+    try:
+        from fsspec import filesystem
+        conn.register_filesystem(filesystem("gcs"))
+    except Exception as exc:
+        logger.exception("Failed to register GCS filesystem")
+        raise RuntimeError("Failed to configure GCS filesystem") from exc
+    return
+
+
 def derive_key_from_password(password: str, salt: bytes) -> bytes:
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
@@ -71,57 +126,97 @@ def derive_key_from_password(password: str, salt: bytes) -> bytes:
     )
     return base64.urlsafe_b64encode(kdf.derive(password.encode()))
 
+
 def decrypt_string(ciphertext: bytes, password: str, salt: bytes) -> str:
     key = derive_key_from_password(password, salt)
-    f = Fernet(key)
-    return f.decrypt(ciphertext).decode()
+    fernet = Fernet(key)
+    return fernet.decrypt(ciphertext).decode()
 
-def gcp_credentials(blob_module=None, blob_credentials=None):
+
+def gcp_credentials():
+    variables = settings.project_handle.get_variables()
+    gcs_hmac = variables.get("local", {}).get("gcs_hmac")
+
+    if not gcs_hmac:
+        logger.warning("No gsc_hmac found, falling back to filesystem.")
+        return None, None
+    
     try:
-        variables = project_handle.get_variables()
-        gcs_hmac = variables["local"].get("gcs_hmac", False)
         salt = base64.b64decode(gcs_hmac["salt"])
         ciphertext = base64.b64decode(gcs_hmac["ciphertext"])
-        hmac_secret = decrypt_string(ciphertext, "DF2!&sEkm)f4}i99,e&9bS:Wj", salt)
+        access_key = gcs_hmac["access_key"]
+    except KeyError:
+        logger.info("Incomplete gcs_hmac configuration, falling back to filesystem")
+        return None, None
+    except Exception:
+        logger.info(f"Invalid base64 encoding in gcs_hmac, falling back to filesystem")
+        return None, None
+
+    try:
+        hmac_secret = decrypt_string(ciphertext, password="DF2!&sEkm)f4}i99,e&9bS:Wj", salt=salt)
+    except Exception as e:
+        logger.info(f"Failed to decrypt GCS HMAC secret, falling back to filesystem: {e}")
+        return None, None
+
+    try:
         blob_module = queries["blob_setup"]["gcp_modules"]
-        blob_credentials = render_query(
+        blob_credentials = yaml_loader.render_query(
             queries["blob_setup"]["gcp_headers"],
-            hmac_id=gcs_hmac["access_key"],
-            hmac_secret=hmac_secret
+            hmac_id=access_key,
+            hmac_secret=hmac_secret,
         )
-    except:
-        blob_module = False
-        blob_credentials = False
+    except Exception:
+        logger.info("Failed to render GCS HMAC configuration, falling back to filesystem")
+        return None, None
+
+    logger.info("GCS HMAC credentials successfully loaded")
     return blob_module, blob_credentials
 
-# -------------------------------------------------------------------
+# ------------------------------------------------------------------- ""
 # Blob Storage Main
 # -------------------------------------------------------------------
-def configure_storage(conn):
+def configure_storage(conn) -> None:
+    connection_type = settings.connection_type
+    logger.info("Loading %s storage configuration", connection_type)
+
     blob_module = None
     blob_credentials = None
-    connection_type = settings.connection_type
-    logger.warning(f"Loading {connection_type} Storage...")
+
     if connection_type == "EC2":
-        blob_module, blob_credentials = aws_credentials(blob_module, blob_credentials)
+        blob_module, blob_credentials = aws_credentials()
     elif connection_type == "Azure":
-        blob_module, blob_credentials = azure_credentials(blob_module, blob_credentials)
+        blob_module, blob_credentials = azure_credentials()
     elif connection_type == "GCS":
-        blob_module, blob_credentials = gcp_credentials(blob_module, blob_credentials)
+        blob_module, blob_credentials = gcp_credentials()
+        if not blob_module or not blob_credentials:
+            logger.info("GCS HMAC not available, falling back to filesystem")
+            try:
+                configure_gcs_filesystem(conn)
+                logger.info("GCS filesystem registered successfully")
+                return
+            except Exception:
+                logger.exception("GCS filesystem fallback failed")
+                raise RuntimeError(
+                    "Failed to configure GCS storage via HMAC and filesystem"
+                )
     else:
         raise ValueError(f"Unknown storage provider: {connection_type}")
 
-    if blob_module == None or blob_credentials == None:
-        raise ValueError(f"Failed to configure blob storage: {connection_type}")
+    if not blob_module or not blob_credentials:
+        raise RuntimeError(
+            f"Failed to configure blob storage for {connection_type}"
+        )
 
-    logger.warning("Configuring BLOB Storage...")
-    if blob_module and blob_credentials:
-        conn.execute(f"{blob_module}")
-        conn.execute(f"{blob_credentials}")
-    elif not blob_module and not blob_credentials and connection_type == "GCS":
-        try:
-            from fsspec import filesystem
-            conn.register_filesystem(filesystem('gcs'))
-        except Exception as e:
-            logger.error(f"Failed to get HMAC Key and Secret: {e}")
-    return
+    logger.info("Configuring %s BLOB storage", connection_type)
+    try:
+        conn.execute(blob_module)
+        conn.execute(blob_credentials)
+    except Exception as exc:
+        logger.exception("DuckDB storage configuration failed")
+        raise RuntimeError(
+            f"Failed to configure {connection_type} blob storage"
+        ) from exc
+
+
+
+        

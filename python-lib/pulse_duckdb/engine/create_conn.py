@@ -1,9 +1,11 @@
 import logging
 from pathlib import Path
+
 import duckdb
 import streamlit as st
-from backend.settings import DB_PATH
-from backend.duck_db import storage_config
+
+from pulse_duckdb.settings import DB_PATH
+from pulse_duckdb.engine import storage_config
 
 logger = logging.getLogger(__name__)
 
@@ -34,13 +36,6 @@ def reset_duckdb():
 # DuckDB initialization
 # -------------------------------------------------------------------
 def create_connection(*, read_only: bool, show_ui: bool = False):
-    """
-    Create and return a DuckDB connection.
-
-    Args:
-        read_only (bool): Open DuckDB in read-only mode
-        show_ui (bool): Whether to show Streamlit progress/status
-    """
     progress_bar = None
     status_text = None
 

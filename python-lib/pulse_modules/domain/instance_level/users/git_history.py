@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from joblib import Parallel, delayed
 from datetime import date
-from dataikupulse.src import dss_funcs
+from pulse_modules.helpers import dss_funcs
 
 today = date.today()
 

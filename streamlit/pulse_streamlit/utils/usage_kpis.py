@@ -1,4 +1,5 @@
-from backend.duck_db import query
+from pulse_duckdb.engine import query
+
 
 def _sql_quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"

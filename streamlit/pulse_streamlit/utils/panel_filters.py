@@ -1,6 +1,7 @@
 import streamlit as st
-from backend.utils import helper
-from backend.duck_db import query
+
+from pulse_streamlit.utils import helper
+from pulse_duckdb.engine import query
 
 
 def filter_instance_name():

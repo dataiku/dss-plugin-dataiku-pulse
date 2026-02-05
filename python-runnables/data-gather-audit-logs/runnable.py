@@ -9,7 +9,7 @@ import dataiku
 
 from dataiku.runnables import ResultTable, Runnable
 
-from pulse_modules.base_data.audit_log import event_mapping, user_login
+from pulse_modules.domain.audit_log import event_mapping, user_login
 from pulse_modules.helpers import dss_funcs
 
 

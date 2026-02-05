@@ -4,8 +4,8 @@ import time
 import os
 from filelock import FileLock, Timeout
 import streamlit as st
-from backend.duck_db import create_conn, expand_duckdb, raw_views, dataiku_usage, gold_tables
-from backend.duck_db import dataiku_sources
+from pulse_duckdb.engine import create_conn, expand_duckdb, raw_views, dataiku_usage, gold_tables
+from pulse_duckdb.engine import dataiku_sources
 
 logger = logging.getLogger(__name__)
 

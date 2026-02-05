@@ -2,7 +2,7 @@ import io
 import os
 import pandas as pd
 
-from dataikupulse.src import dss_folder, dss_funcs, dss_silver
+from pulse_modules.helpers import dss_folder, dss_funcs, dss_silver
 
 def skip_file(self, path):
     if self.config["force_update"]:

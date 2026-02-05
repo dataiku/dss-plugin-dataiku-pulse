@@ -1,5 +1,7 @@
 import streamlit as st
-from backend.utils import helper
+
+from pulse_streamlit.utils import helper
+
 
 def get_actors(analytics, actor_filters, filters=None):
     scope = {}

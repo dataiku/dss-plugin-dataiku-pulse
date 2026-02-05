@@ -1,9 +1,12 @@
-import streamlit as st
 from collections import defaultdict
-from components.utils import usage_kpis
-from backend.utils import helper
-from backend.streamlit.engine.executor import execute_analytic
-from backend.streamlit.renderers.graphs import render_graph
+
+import streamlit as st
+
+from pulse_streamlit.utils import usage_kpis
+from pulse_streamlit.utils import helper
+from pulse_streamlit.engine.executor import execute_analytic
+from pulse_streamlit.renderers.graphs import render_graph
+
 
 def render(analytics, scope, filters=None):
     scope = dict(scope)

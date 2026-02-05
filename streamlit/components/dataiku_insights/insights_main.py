@@ -1,6 +1,10 @@
 import streamlit as st
-from backend.streamlit.registry import load_analytics
-from components.dataiku_insights import layout_metrics, layout_graphs
+
+from pulse_streamlit.registry import load_analytics
+from components.dataiku_insights import (
+    layout_metrics,
+    layout_graphs,
+)
 
 st.set_page_config(initial_sidebar_state="expanded")
 st.set_page_config(layout="wide")

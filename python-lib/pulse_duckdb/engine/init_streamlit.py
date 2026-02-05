@@ -1,14 +1,23 @@
 import logging
+import os
 import tempfile
 import time
-import os
-from filelock import FileLock, Timeout
+
 import streamlit as st
-from backend.duck_db import create_conn, expand_duckdb, dataiku_sources, load_gold_tables
+from filelock import FileLock, Timeout
+
+from pulse_duckdb.engine import (
+    create_conn,
+    expand_duckdb,
+    dataiku_sources,
+    load_gold_tables,
+)
 
 logger = logging.getLogger(__name__)
 
-# -------------------------------------------------------
+# -------------------------------------------------------------------
+# Initialize loop
+# -------------------------------------------------------------------
 def initialize_database():
     STEP_LABELS = {
         "create_connection": "Initializing DuckDB",
@@ -25,7 +34,6 @@ def initialize_database():
     success_message="Dataiku PULSE Insights database fully rebuilt"
 
     create_conn.reset_duckdb()
-    time.sleep(5)
 
     try:
         # Create lock and run duckdb init functions required

@@ -1,13 +1,16 @@
-import logging
 import json
+import logging
+
 import streamlit as st
 
-from backend.duck_db import create_conn
-from backend.duck_db import sql_logger
-from backend.duck_db import query
-from backend.streamlit.engine.filters import apply_filters
-from backend.streamlit.engine.grouping import apply_grouping
-from backend.streamlit.engine.usage_scope import apply_usage_scope
+from pulse_duckdb.engine import create_conn
+from pulse_duckdb.engine import query
+from pulse_duckdb.engine import sql_logger
+
+from pulse_streamlit.engine.filters import apply_filters
+from pulse_streamlit.engine.grouping import apply_grouping
+from pulse_streamlit.engine.usage_scope import apply_usage_scope
+
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +22,7 @@ logger = logging.getLogger(__name__)
 )
 def _execute_analytic_cached(analytic_id: str, sql: str, filters_key: str):
     return query.query_df(sql)
+
 
 def execute_analytic(analytic, filters=None, scope=None):
     filters = filters or {}

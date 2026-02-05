@@ -1,6 +1,7 @@
+import importlib.util
 import logging
 from pathlib import Path
-import importlib.util
+
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +11,7 @@ SUPPORTED_TYPES = {
     "graph": "graphs",
     "dataframe": "dataframes",
 }
+
 
 def load_analytics(root: str):
     root = Path(root)

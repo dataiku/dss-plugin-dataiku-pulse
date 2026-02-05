@@ -1,7 +1,7 @@
 import logging
 import duckdb
-from backend.settings import DB_PATH
-from backend.duck_db import create_conn
+from pulse_duckdb.settings import DB_PATH
+from pulse_duckdb.engine import create_conn
 
 logger = logging.getLogger(__name__)
 

@@ -1,5 +1,6 @@
 import streamlit as st
-from backend.streamlit.engine.executor import execute_analytic
+
+from pulse_streamlit.engine.executor import execute_analytic
 
 def display(analytics, filters=None):
     if not analytics:

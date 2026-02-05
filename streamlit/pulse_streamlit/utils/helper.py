@@ -1,4 +1,4 @@
-from backend.duck_db import query
+from pulse_duckdb.engine import query
 
 def get_instances():
     df = query.query_df("""
