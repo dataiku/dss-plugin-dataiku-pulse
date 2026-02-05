@@ -116,8 +116,3 @@ class MyRunnable(Runnable):
                 rt.add_record(row.tolist())
             return rt
         return ResultTable()
-        
-
-        
-
-# EOF
