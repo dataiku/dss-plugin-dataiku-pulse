@@ -144,16 +144,16 @@ class MyRunnable(Runnable):
             try:
                 shutil.rmtree(streamlit_path, ignore_errors=True)
                 r = shutil.copytree(f"{source_path}/streamlit", streamlit_path)
-                results.append(["Copy Streamlit", True, None])
+                results.append(["Copy Streamlit Core", True, None])
             except Exception as e:
-                results.append(["Copy Streamlit", False, f"An error occurred: {e}"])
+                results.append(["Copy Streamlit Core", False, f"An error occurred: {e}"])
                 cont = False
                 
             try:
                 r = shutil.copytree(f"{source_path}/python-lib/pulse_duckdb", f"{streamlit_path}/pulse_duckdb")
-                results.append(["Copy Streamlit", True, None])
+                results.append(["Copy Streamlit Engine", True, None])
             except Exception as e:
-                results.append(["Copy Streamlit", False, f"An error occurred: {e}"])
+                results.append(["Copy Streamlit Engine", False, f"An error occurred: {e}"])
                 cont = False
                 
         # Google Cloud HMAC Key
