@@ -59,8 +59,9 @@ Pulse installation requires **Dataiku platform admin access** and involves:
 - Code Studio template configuration
 - Project and macro initialization
 
-📘 **Full installation guide:**  
-See [`docs/installation_process.md`](docs/installation_process.md)
+For more information:
+
+* **Full installation guide:** [`docs/installation_process.md`](docs/installation_process.md)
 
 📘 **Prerequisites & permissions:**  
 See [`docs/installation_requirements.md`](docs/installation_requirements.md)
