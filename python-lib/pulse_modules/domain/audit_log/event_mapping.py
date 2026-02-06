@@ -74,7 +74,6 @@ def main(self, df):
             merged_df = merged_df.loc[:, ~merged_df.columns.duplicated()]
 
         # Save outputs
-        
         for module_name, mn_df in merged_df.groupby("dataiku_category"):
             category = "dataiku_usage"
             self.dt = mn_df["timestamp"].max()
