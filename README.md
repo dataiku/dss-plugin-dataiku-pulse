@@ -72,10 +72,6 @@ Due to the web application being built on Streamlit, installation requires a bit
         1. Start the Web Application (Auto-Start)
         1. Nothing may be available at first while the first day cycle needs to run to gather data
 
-## Data Flow Diagrams
-
-![Data Flow Diagram](<images/PULSE Data Flow.svg>)
-
 ## Contributors
 
 * Author - Stephen Mazzei
