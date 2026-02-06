@@ -72,7 +72,10 @@ def get_dss_name_id_mapping(self):
         or getattr(instance_info, "node_id", None)
         or "unknown_instance_name_base"
     )
-    instance_id_base = instance_info.node_id
+    instance_id_base = (
+        getattr(instance_info, "node_id", None)
+        or "unknown_instance_id_base"
+    )
     mapping = [instance_name, instance_name_base, instance_id_base]
     return mapping
 
