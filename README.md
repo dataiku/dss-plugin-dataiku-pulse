@@ -60,9 +60,9 @@ Pulse installation requires **Dataiku platform admin access** and involves:
 - Project and macro initialization
 
 📘 **Full installation guide:**  
-See [`docs/installation.md`](docs/Installation Process.md)
+See [`docs/installation_process.md`](docs/installation_process.md)
 
 📘 **Prerequisites & permissions:**  
-See [`docs/installation.md`](docs/Installation Requirements.md)
+See [`docs/installation_requirements.md`](docs/installation_requirements.md)
 
 ---
