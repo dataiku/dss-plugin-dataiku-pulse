@@ -81,7 +81,14 @@ def main(self, df):
         for module_name, mn_df in merged_df.groupby("dataiku_category"):
             category = "dataiku_usage"
             # Safe epoch for filename only
-            self.dt = pd.to_datetime(mn_df["timestamp"], errors="coerce").max()
+            ts = (
+                mn_df
+                .filter(regex="^timestamp$")
+                .bfill(axis=1)
+                .infer_objects(copy=False)
+                .iloc[:, 0]
+            )
+            self.dt = pd.to_datetime(ts, errors="coerce").max()
             dt_epoch = (
                 int(self.dt.timestamp() * 1_000_000_000)
                 if pd.notna(self.dt)
