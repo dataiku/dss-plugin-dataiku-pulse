@@ -61,7 +61,9 @@ Pulse installation requires **Dataiku platform admin access** and involves:
 
 For more information:
 
+* **Pulse Process Flow:** [`docs/pulse_process_flow.md`](docs/pulse_process_flow.md)
 * **Prerequisites & permissions:** [`docs/installation_requirements.md`](docs/installation_requirements.md)
 * **Full installation guide:** [`docs/installation_process.md`](docs/installation_process.md)
+* **Pulse Usage Categories:** [`docs/pulse_usage_categories.md`](docs/pulse_usage_categories.md)
 
 ---
