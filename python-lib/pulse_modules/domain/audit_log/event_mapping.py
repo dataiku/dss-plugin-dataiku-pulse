@@ -76,9 +76,14 @@ def main(self, df):
         # Save outputs
         for module_name, mn_df in merged_df.groupby("dataiku_category"):
             category = "dataiku_usage"
-            self.dt = mn_df["timestamp"].max()
-            dt_epoch = self.dt.value
-        
+            # Safe epoch for filename only
+            self.dt = pd.to_datetime(mn_df["timestamp"], errors="coerce").max()
+            dt_epoch = (
+                int(self.dt.timestamp() * 1_000_000_000)
+                if pd.notna(self.dt)
+                else "unknown"
+            )
+            # Final cleanse
             mn_df = mn_df.dropna(axis=1, how="all").reset_index(drop=True)
             file_name = f"{module_name}-{dt_epoch}.parquet"
             # RAW 
