@@ -70,7 +70,11 @@ def main(self, df):
         
         if "webappid" in merged_df.columns:
             dupes = merged_df.loc[:, merged_df.columns == "webappid"]
-            merged_df["webappid"] = dupes.bfill(axis=1).iloc[:, 0]
+            merged_df["webappid"] = (
+                dupes.bfill(axis=1)
+                     .iloc[:, 0]
+                     .infer_objects(copy=False)
+            )
             merged_df = merged_df.loc[:, ~merged_df.columns.duplicated()]
 
         # Save outputs
