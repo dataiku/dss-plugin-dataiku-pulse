@@ -1,83 +1,88 @@
 # Dataiku Pulse Dashboard
 
-* Version - 2.7.1
+**Version:** 2.7.1
+
+Pulse is an administrative dashboard for **Dataiku DSS** that provides
+centralized visibility into platform metadata and usage across one or more
+Dataiku instances.
+
+It is designed for **Dataiku Platform Admins, TAMs, and Solution Architects**
+who need operational insight into how DSS is being used at scale.
+
+---
+
+## Overview
+
+Pulse collects and presents:
+
+- **Platform metadata** via the Dataiku API
+- **Usage and activity metrics** via audit logs
+- **Cross-instance insights** from one or more DSS environments
+
+The application is delivered as a **Streamlit dashboard** running in
+**Dataiku Code Studios**, backed by **DuckDB** and external blob storage.
+
+---
 
 ## Scope
 
-This dashboard is designed to give Dataiku Admins insights into the DSS instance.
+Pulse provides insights into:
 
-* Dataiku Insights (API Dataiku)
-* Dataiku Usage (Audit Logs)
+- Dataiku instance configuration and metadata
+- User activity and usage patterns
+- Projects, datasets, recipes, and platform objects
+- Multi-instance operational visibility
 
-## Tested Dataiku Versions
+Pulse does **not** modify customer data or platform state.
+It is a read-only analytics and observability layer.
 
-1. v2.7
-    1. v14.3
-1. v2.6
-    1. v14.3
-1. v2.5
-    1. v14.3
-1. v2.1/0
-    1. v14.2
-1. V1.X
-    1. v14.1
-    1. v14.0
-    1. v13.5
+---
 
+## Supported & Tested Versions
 
-## Installation Notes
+| Pulse Version | Dataiku DSS Version |
+|--------------|---------------------|
+| v2.7 | v14.3 |
+| v2.6 | v14.3 |
+| v2.5 | v14.3 |
+| v2.1 | v14.2 |
+| v1.x | v14.0 – v14.1 |
 
-Due to the web application being built on Streamlit, installation requires a bit of dedicated code use. Hoping this changes in later DSS versions.
+---
 
-1. Plugin
-    1. Login as an Administrative account
-    1. Migrate to `Waffle::Plugins` and install from GIT: <https://github.com/dataiku/dss-plugin-dataiku-pulse.git>
-    1. Build the code-environment, **no containers needed**
-    1. After the plugin is installed, switch to the plugin settings page and fill in the information ("EXAMPLE BELOW")
-        1. PULSE Dashbaord: This is the main parameter set to house all the base configurations for the application. Create a single PARAM_SET named `primary` (LOWERCASE!) and populate each field.
-            1. GitHub Repository Information
-                1. Repo: <https://github.com/dataiku/dss-plugin-dataiku-pulse.git>
-                1. Branch: `main`
-            1. Dashboard Information
-                1. Dashboard Project Key: `DATAIKU_PULSE_DASHBOARD`
-                1. Dashboard Host URL: Hostname or IP:Port
-                1. Dashboard Host API: Admin Level Api Key
-                1. BLOB Folder: <Dataiku Connection String name [AWS|Azure|GCS]
-            1. Worker Nodes
-                1. Worker Node Project Key: `DATAIKU_PULSE_WORKER`
-                1. Fill out each host including the local host if you want to track the local host.
-                    1. Need both Hostname or IP:Port and Admin level API Key
-                    1. For more custom control add a PARAM_SET name specific to the host for the next section
-                1. User: User to own/run the scenarios
-                1. Ignore Certs: Auto trust https between nodes
-                1. Project Data Parallel: Gather Project metadata in parallel
-                1. Cores: How many cores to run for project data
-        1. (OPTIONAL) Worker Nodes: This will container additional auto information or custom information per host
-            1. Create a PARAM_SET matching the name of the worker node PARAM_SET from the previous section
-            1. Custom User, Certs, Parallel/Cores
-            1. Macro Configuration: PLACE HOLDER -- Coming v2.2
-1. Code Studios
-    1. Create the template name `dataiku_pulse_dashboard` # this name is important
-    1. Setup K8s to run on
-    1. Add the `Dataiku Pulse (Streamlit Custom)` block
-    1. Disable permissions for users
-    1. Build
-1. Create the Dataiku PULSE Dashboard project based off 1.4.2 information
-    1. Go to Macros
-    1. Filter on `Dataiku Pulse: Initialize`
-    1. Run `Initialize Dashboard`
-    1. Run `Initialize Workers`
-    1. Switch to Code Studios page under the Code tab
-        1. Click the checkbox and publish as a Web Application (No API for this)
-        1. Start the Web Application (Auto-Start)
-        1. Nothing may be available at first while the first day cycle needs to run to gather data
+## Installation
+
+Pulse installation requires **Dataiku platform admin access** and involves:
+
+- Plugin installation
+- Code environment creation
+- Code Studio template configuration
+- Project and macro initialization
+
+📘 **Full installation guide:**  
+See [`docs/installation.md`](docs/installation.md)
+
+📘 **Prerequisites & permissions:**  
+See the docs folder for cloud storage and IAM requirements.
+
+---
+
+## Repository Structure
+
+```text
+README.md
+docs/
+  installation.md
+  prerequisites.md
+  gcs-auth.md
+```
 
 ## Contributors
 
-* Author - Stephen Mazzei
-* Email - <Stephen.Mazzei@dataiku.com>
-* Special Thanks
-  * Development
-    * Jordan Burke
-  * Project Management
-    * Arjun Srivatsa
+**Author:** Stephen Mazzei  
+**Email:** Stephen.Mazzei@dataiku.com  
+
+### Special Thanks
+
+- **Development:** Jordan Burke  
+- **Project Management:** Arjun Srivatsa
