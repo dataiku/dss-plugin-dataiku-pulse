@@ -66,23 +66,3 @@ See [`docs/installation.md`](docs/installation.md)
 See the docs folder for cloud storage and IAM requirements.
 
 ---
-
-## Repository Structure
-
-```text
-README.md
-docs/
-  installation.md
-  prerequisites.md
-  gcs-auth.md
-```
-
-## Contributors
-
-**Author:** Stephen Mazzei  
-**Email:** Stephen.Mazzei@dataiku.com  
-
-### Special Thanks
-
-- **Development:** Jordan Burke  
-- **Project Management:** Arjun Srivatsa
