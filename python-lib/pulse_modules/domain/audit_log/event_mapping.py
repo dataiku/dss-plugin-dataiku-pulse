@@ -29,7 +29,6 @@ def parse_authvia(s):
                      index=["message_project_key_temp", "message_webapp_id"])
 
 
-
 def main(self, df):
     results = []
     instance_name = df["instance_name"].iloc[0]
