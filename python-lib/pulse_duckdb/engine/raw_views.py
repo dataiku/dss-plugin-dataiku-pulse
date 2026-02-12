@@ -3,7 +3,7 @@ import streamlit as st
 from pulse_duckdb import settings
 from pulse_duckdb.helpers import yaml_loader
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("dataiku_pulse_logger")
 queries = yaml_loader.load_yaml(settings.BASE_DIR / "pulse_duckdb/config/raw_views/base_query.yaml")
 
 # -------------------------------------------------------
