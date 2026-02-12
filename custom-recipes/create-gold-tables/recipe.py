@@ -11,9 +11,12 @@ from pulse_duckdb.engine import (
     raw_views,
 )
 
-
+LOG_LEVEL = logging.DEBUG
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=LOG_LEVEL
+)
 logger = logging.getLogger("dataiku_pulse_logger")
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.warning)
 
 def build_gold_tables():
     # 1. Delete anything existing
