@@ -2,7 +2,7 @@
     "meta": {
         "label": "Data Gather Filesystem",
         "description": "Data gather the OS/VM Filesystem",
-        "icon": "fas fa-puzzle-piece",
+        "icon": "fas fa-satellite-dish",
         "category": "Dataiku PULSE Insights: Data Gather"
     },
     "impersonate": false,
