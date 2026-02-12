@@ -11,7 +11,7 @@ from pulse_duckdb.engine import (
     raw_views,
 )
 
-LOG_LEVEL = logging.DEBUG
+LOG_LEVEL = logging.WARNING
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=LOG_LEVEL
