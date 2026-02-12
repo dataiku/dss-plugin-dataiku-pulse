@@ -11,7 +11,7 @@ from pulse_duckdb.engine import (
     raw_views,
 )
 
-LOG_LEVEL = logging.WARNING  # change to INFO when needed
+LOG_LEVEL = logging.WARNING
 logging.getLogger("pulse_duckdb").setLevel(LOG_LEVEL)
 
 def build_gold_tables():
