@@ -2,7 +2,7 @@
     "meta" : {
         "label": "PULSE Dashboard",
         "description": "",
-        "icon": "fa fa-bar-chart"
+        "icon": "fas fa-sliders-h"
     },
     "defaultDefinableInline": false,
     "defaultDefinableAtProjectLevel": false,
