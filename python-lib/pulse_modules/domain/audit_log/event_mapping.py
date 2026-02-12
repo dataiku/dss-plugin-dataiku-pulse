@@ -60,14 +60,22 @@ def main(self, df):
         
         # Filter - remove dropped columns
         merged_df = merged_df[merged_df["dataiku_category"] != "DROP_DELETE"]
+
+        if merged_df.empty:
+            continue
+
+        # Minor cleanse
         merged_df.columns = merged_df.columns.str.lower()
         merged_df.columns = merged_df.columns.str.replace('message_', '', regex=False)
         merged_df["dataiku_category"] = merged_df["dataiku_category"].str.lower()
-        
+
         # AuthVia
         merged_df["authvia"] = merged_df["authvia"].fillna("")
-        merged_df["authvia"] = merged_df["authvia"].apply(lambda x: ', '.join(map(str, x)))
-        merged_df[["project_key_temp", "webapp_id_temp"]] = merged_df["authvia"].apply(parse_authvia)
+        merged_df["authvia"] = merged_df["authvia"].apply(normalize_authvia)
+        merged_df[["project_key_temp", "webapp_id_temp"]] = pd.DataFrame(
+                        merged_df["authvia"].apply(parse_authvia).tolist(),
+                        index=merged_df.index
+                    )
         
         # Update columns from AuthVia
         if "project_key" not in merged_df.columns:
