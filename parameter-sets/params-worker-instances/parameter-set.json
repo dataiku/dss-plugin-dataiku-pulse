@@ -1,5 +1,5 @@
 {
-    "meta" :
+    "meta" : {}
         "label": "Worker Nodes",
         "description": "",
         "icon": "fas fa-sliders-h"
