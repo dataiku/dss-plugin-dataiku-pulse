@@ -2,7 +2,7 @@
     "meta": {
         "label": "Initialize Worker Host",
         "description": "Create worker host project and initial datasets / scenarios. **WARNING** This will override plugin settings / changes to scenarios.",
-        "icon": "far fa-satellite-dish",
+        "icon": "fas fa-satellite-dish",
         "category": "Dataiku PULSE Insights: Initialize"
     },
     "impersonate": false,
