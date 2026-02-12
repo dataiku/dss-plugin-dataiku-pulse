@@ -5,28 +5,39 @@ from pulse_modules.helpers import dss_folder, dss_funcs, dss_silver
 from pulse_modules.flat_columns import audit_dataiku_usage
 
 
+def normalize_authvia(x):
+    if isinstance(x, list):
+        return ", ".join(map(str, x))
+    if isinstance(x, str):
+        return x
+    return ""
+
+
 def parse_authvia(s):
-    project_key, webapp_id = None, None
-    if "scenario=" in s:
-        project_key, scenario_id = s[s.find("scenario="):].split(" ")[0].replace("scenario=", "").split(".", maxsplit=1)
-    elif "ticket:python_trigger:" in s:
-        project_key, scenario_id = s.replace("ticket:python_trigger:", "").split(".", maxsplit=1)
-    elif "ticket:Standard webapp backend:" in s:
-        project_key, d = s.replace("ticket:Standard webapp backend: ", "").split(".", maxsplit=1)
-        if "," in d:
-            webapp_id, login = d.split(",", maxsplit=1)
-        elif isinstance(d, str):
-            webapp_id = d
-        else:
-            print(s)
-    elif "ticket:jupyter:" in s:
-        project_key, jupyter_notebook = s.replace("ticket:jupyter:", "").split(".", maxsplit=1)
-    elif "ticket:job:" in s:
-        project_key, job_id = s.replace("ticket:job:", "").split(".", maxsplit=1)
-    elif "ticket:plugin_ui_setup:" in s:
-        pass
-    return pd.Series([project_key, webapp_id],
-                     index=["message_project_key_temp", "message_webapp_id"])
+    project_key = None
+    webapp_id = None
+    try:
+        if not isinstance(s, str) or not s.strip():
+            return (None, None)
+        if "scenario=" in s:
+            part = s.split("scenario=", 1)[1].split(" ")[0]
+            project_key = part.split(".", 1)[0]
+        elif "ticket:python_trigger:" in s:
+            part = s.replace("ticket:python_trigger:", "")
+            project_key = part.split(".", 1)[0]
+        elif "ticket:Standard webapp backend:" in s:
+            part = s.replace("ticket:Standard webapp backend: ", "")
+            project_key, remainder = part.split(".", 1)
+            webapp_id = remainder.split(",", 1)[0]
+        elif "ticket:jupyter:" in s:
+            part = s.replace("ticket:jupyter:", "")
+            project_key = part.split(".", 1)[0]
+        elif "ticket:job:" in s:
+            part = s.replace("ticket:job:", "")
+            project_key = part.split(".", 1)[0]
+    except Exception:
+        return (None, None)
+    return (project_key, webapp_id)
 
 
 def main(self, df):
