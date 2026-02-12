@@ -2,7 +2,7 @@
     "meta": {
         "label": "Data Gather Instance level",
         "description": "Data gather the instance level metadata",
-        "icon": "fas fa-puzzle-piece",
+        "icon": "fas fa-satellite-dish",
         "category": "Dataiku PULSE Insights: Data Gather"
     },
     "impersonate": false,
