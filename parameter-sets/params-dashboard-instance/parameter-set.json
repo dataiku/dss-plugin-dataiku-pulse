@@ -57,14 +57,7 @@
             "description": "API Key running as an ADMIN level user",
             "mandatory": true
         },
-        {
-            "name": "pulse_dashboard_debug",
-            "label": "Run Dashboard in DEBUG",
-            "type": "BOOLEAN",
-            "description": "Limit datasets and dataloads for testings",
-            "mandatory": true,
-            "defaultValue": false
-        },
+        // here for dashboard scenario
         {
             "name": "pulse_folder_connection",
             "label": "Dataiku Pulse Folder Connection",
@@ -177,6 +170,26 @@
             "description": "",
             "mandatory": true,
             "defaultValue": false
+        },
+        {
+            "name": "debug_separator",
+            "labe": "",
+            "description": "<hr color='#000000' size='3' noshade><h3>Debug</h3>",
+            "type": "SEPARATOR"
+        },
+        {
+            "name": "pulse_logger_level",
+            "label": "Logger Level",
+            "type": "SELECT",
+            "selectChoices" : [
+                { "value": "DEBUG",     "label": "Debug"},
+                { "value": "INFO",      "label": "Info"},
+                { "value": "WARNING",   "label": "Warning"},
+                { "value": "ERROR",     "label": "Error"},
+                { "value": "CRITICAL",  "label": "Critical"}
+            ],
+            "defaultValue": "INFO",
+            "mandatory": true
         },
         {
             "name": "end_separator",
