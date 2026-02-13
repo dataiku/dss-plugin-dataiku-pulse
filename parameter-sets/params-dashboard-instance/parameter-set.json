@@ -57,7 +57,6 @@
             "description": "API Key running as an ADMIN level user",
             "mandatory": true
         },
-        // here for dashboard scenario
         {
             "name": "pulse_folder_connection",
             "label": "Dataiku Pulse Folder Connection",
