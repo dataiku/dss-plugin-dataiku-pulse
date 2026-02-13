@@ -11,9 +11,8 @@ from pulse_duckdb.engine import (
     raw_views,
 )
 
-
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.warning)
-logger = logging.getLogger(__name__)
+LOG_LEVEL = logging.WARNING
+logging.getLogger("pulse_duckdb").setLevel(LOG_LEVEL)
 
 def build_gold_tables():
     # 1. Delete anything existing

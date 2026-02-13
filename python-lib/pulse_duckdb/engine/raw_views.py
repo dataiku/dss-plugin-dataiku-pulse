@@ -82,6 +82,7 @@ def register_raw_views(conn, *, show_ui: bool = False):
 
         total = len(raw_queries)
         for idx, q in enumerate(raw_queries, start=1):
+            logger.warning(f"Registering RAW view {idx}/{total}")
             if show_ui:
                 status_text.text(f"Registering RAW view {idx}/{total}")
                 progress_bar.progress(int(idx / total * 100), text=progress_text)
