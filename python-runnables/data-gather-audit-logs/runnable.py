@@ -1,13 +1,17 @@
-from dataiku.runnables import Runnable, ResultTable
-from dataikupulse.base_data.audit_log import event_mapping , user_login
-from dataikupulse.src import dss_funcs
-from datetime import timedelta, datetime
-from pathlib import Path
-import dataiku
-import os
-import pandas as pd
-import time
+from datetime import datetime, timedelta
 import logging
+import os
+import time
+from pathlib import Path
+
+import pandas as pd
+import dataiku
+
+from dataiku.runnables import ResultTable, Runnable
+
+from pulse_modules.domain.audit_log import event_mapping, user_login
+from pulse_modules.helpers import dss_funcs
+
 
 def find_recent_files(file_list, hours=100):
     recent_files = []

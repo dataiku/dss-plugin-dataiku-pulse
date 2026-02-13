@@ -1,6 +1,11 @@
 import streamlit as st
-from components.utils import panel_filters, usages_actors, usages_tab
-from backend.streamlit.registry import load_analytics
+
+from pulse_streamlit.registry import load_analytics
+from pulse_streamlit.utils import (
+    panel_filters,
+    usages_actors,
+    usages_tab,
+)
 
 def display(tab, data_category):
     with st.sidebar:

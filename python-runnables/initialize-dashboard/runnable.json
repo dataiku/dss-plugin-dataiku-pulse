@@ -2,7 +2,7 @@
     "meta": {
         "label": "Initialize Dashboard",
         "description": "Create Dashboard and components into the Dataiku PULSE project",
-        "icon": "fas fa-puzzle-piece",
+        "icon": "fas fa-digital-tachograph",
         "category": "Dataiku PULSE Insights: Initialize"
     },
     "impersonate": false,

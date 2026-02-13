@@ -2,7 +2,7 @@
     "meta" : {
         "label": "Worker Nodes",
         "description": "",
-        "icon": "fa fa-calendar"
+        "icon": "fas fa-sliders-h"
     },
     "defaultDefinableInline": false,
     "defaultDefinableAtProjectLevel": false,

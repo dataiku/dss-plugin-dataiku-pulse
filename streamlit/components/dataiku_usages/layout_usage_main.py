@@ -1,6 +1,10 @@
 import streamlit as st
-from components.dataiku_usages import layout_usage_instances, layout_usage_actors
-from components.utils import usage_kpis
+
+from components.dataiku_usages import (
+    layout_usage_instances,
+    layout_usage_actors,
+)
+from pulse_streamlit.utils import usage_kpis
 
 
 st.set_page_config(initial_sidebar_state="expanded")

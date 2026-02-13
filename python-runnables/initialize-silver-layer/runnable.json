@@ -2,7 +2,7 @@
     "meta": {
         "label": "Initialize Silver Layer",
         "description": "Initialize Silver Layer from RAW. This is auto-performed during data collection but can be ran separate as needed to fix datasets.",
-        "icon": "fas fa-puzzle-piece",
+        "icon": "fas fa-filter",
         "category": "Dataiku PULSE Insights: Initialize"
     },
     "impersonate": false,

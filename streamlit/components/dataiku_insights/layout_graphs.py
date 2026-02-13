@@ -1,7 +1,9 @@
-import streamlit as st
 from collections import defaultdict
-from backend.streamlit.engine.executor import execute_analytic
-from backend.streamlit.renderers.graphs import render_graph
+
+import streamlit as st
+
+from pulse_streamlit.engine.executor import execute_analytic
+from pulse_streamlit.renderers.graphs import render_graph
 
 PREFERRED_TAB_ORDER = [
     "Summary",

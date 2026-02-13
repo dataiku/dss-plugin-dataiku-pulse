@@ -1,23 +1,18 @@
-from dataiku.customrecipe import get_input_names_for_role
-from dataiku.customrecipe import get_output_names_for_role
-from dataiku.customrecipe import get_recipe_config
-from dataiku.customrecipe import get_plugin_config
-plugin_config = get_plugin_config()
-
-# -------------------------------------------------------------------------------------------
-from backend.duck_db import create_conn
-from backend.duck_db import expand_duckdb
-from backend.duck_db import dataiku_sources
-from backend.duck_db import raw_views
-from backend.duck_db import dataiku_usage
-from backend.duck_db import create_gold_tables
-from backend.duck_db import query
-from backend import settings
-
-
 import logging
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.warning)
-logger = logging.getLogger(__name__)
+
+from pulse_duckdb import settings
+from pulse_duckdb.engine import (
+    create_conn,
+    create_gold_tables,
+    dataiku_sources,
+    dataiku_usage,
+    expand_duckdb,
+    query,
+    raw_views,
+)
+
+LOG_LEVEL = logging.WARNING
+logging.getLogger("pulse_duckdb").setLevel(LOG_LEVEL)
 
 def build_gold_tables():
     # 1. Delete anything existing
