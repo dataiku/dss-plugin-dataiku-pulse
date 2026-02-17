@@ -30,6 +30,17 @@
             "label": "",
             "description": "<hr color='#000000' size='3' noshade><h3>Custom Configurations</h3>",
             "type": "SEPARATOR"
+        },
+        {
+            "name": "unload_behavior",
+            "label": "Select Option",
+            "type": "SELECT",
+            "choices": [
+                { "value": "duckdb", "label": "DuckDB Unload" },
+                { "value": "dataiku", "label": "Dataiku API" }
+            ],
+            "defaultValue": "duckdb",
+            "description": "Unload the gold tables to Blob via DuckDB or by Dataiku API."
         }
     ],
     "resourceKeys": []
