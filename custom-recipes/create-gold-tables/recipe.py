@@ -39,23 +39,30 @@ def build_gold_tables():
     
     # 4. Custom edits
     recipe_config = get_recipe_config()
+    unload_behavior = recipe_config.get('unload_behavior', "duckdb")
     
     # 5. Unload the gold tables
-    base_path = f"{settings.blob_header}://{settings.blob_bket}/{settings.dss_gold_tables_folder_root}/gold"
-    for table_name in base_tables:
-        destination = f"{base_path}/{table_name}.parquet"
-        logger.warning(f"Unloading {table_name} to {destination}...")
-        query = (
-            f"COPY {table_name} "
-            f"TO '{destination}' "
-            f"(FORMAT 'PARQUET', OVERWRITE TRUE);"
-        )
-        logger.debug(query)
-        try:
-            
-            conn.execute(query)
-        except Exception as e:
-            logger.warning(f"Failed to unload {table_name}: {e}")
+    if unload_behavior == "duckdb":
+        base_path = f"{settings.blob_header}://{settings.blob_bket}/{settings.dss_gold_tables_folder_root}/gold"
+        for table_name in base_tables:
+            destination = f"{base_path}/{table_name}.parquet"
+            logger.warning(f"Unloading {table_name} to {destination}...")
+            query = (
+                f"COPY {table_name} "
+                f"TO '{destination}' "
+                f"(FORMAT 'PARQUET', OVERWRITE TRUE);"
+            )
+            logger.debug(query)
+            try:
+
+                conn.execute(query)
+            except Exception as e:
+                logger.warning(f"Failed to unload {table_name}: {e}")
+    elif unload_behavior == "dataiku":
+        logger.warning("tbd")
+    else:
+        logger.error("Unknown unload behavior")
+        raise
     
     # End
     logger.warning("Export process complete.")
