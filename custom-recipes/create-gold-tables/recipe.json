@@ -26,9 +26,9 @@
             "type": "SEPARATOR"
         },
         {
-            "name": "custom_configs",
-            "label": "Custom Settings",
-            "description": "",
+            "name": "customer_separator",
+            "labe": "",
+            "description": "<hr color='#000000' size='3' noshade><h3>Custom Configurations</h3>",
             "type": "SEPARATOR"
         }
     ],
