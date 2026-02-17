@@ -60,7 +60,7 @@ def aws_credentials() -> tuple[str, str]:
         )
         return blob_module, blob_credentials
 
-    logger.error("Unsupported AWS credentials mode: %s", credentials_mode)
+    logger.error(f"Unsupported AWS credentials mode: {credentials_mode}")
     raise RuntimeError(f"Unsupported AWS credentials mode: {credentials_mode}")
     return
 
