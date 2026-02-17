@@ -64,6 +64,7 @@ def aws_credentials() -> tuple[str, str]:
     raise RuntimeError(f"Unsupported AWS credentials mode: {credentials_mode}")
     return
 
+
 # -------------------------------------------------------------------
 # Azure Credentials
 # -------------------------------------------------------------------
