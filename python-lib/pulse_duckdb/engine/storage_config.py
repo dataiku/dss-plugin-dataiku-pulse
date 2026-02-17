@@ -172,7 +172,7 @@ def gcp_credentials():
     logger.info("GCS HMAC credentials successfully loaded")
     return blob_module, blob_credentials
 
-# ------------------------------------------------------------------- ""
+# -------------------------------------------------------------------
 # Blob Storage Main
 # -------------------------------------------------------------------
 def configure_storage(conn) -> None:
