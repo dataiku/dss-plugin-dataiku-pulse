@@ -27,7 +27,7 @@
         },
         {
             "name": "customer_separator",
-            "label": false,
+            "label": "",
             "description": "<hr color='#000000' size='3' noshade><h3>Custom Configurations</h3>",
             "type": "SEPARATOR"
         }
