@@ -176,18 +176,41 @@ def gcp_credentials():
 # -------------------------------------------------------------------
 # Blob Storage Main
 # -------------------------------------------------------------------
-def added_encryption(conn):
+def apply_blob_encryption(conn):
     params = settings.connection_handle.get_info().get("params", {})
-    encryption_mode = params.get("encryptionMode", "NONE")
-    
+    encryption_mode = params.get("encryptionMode", "NONE").upper()
+
+    logger.debug(f"Blob encryption mode: {encryption_mode}")
+
     if encryption_mode == "NONE":
         return conn
+
     elif encryption_mode == "SSE_S3":
-        logger.info("Enabling S3 server-side encryption (AES256) for unloads.")
+        logger.info("Enabling S3 server-side encryption (AES256).")
         conn.execute("SET s3_server_side_encryption='AES256';")
+
+    elif encryption_mode == "SSE_KMS":
+        kms_key = params.get("kmsKeyId")
+        if not kms_key:
+            raise ValueError("SSE_KMS selected but kmsKeyId not provided.")
+
+        logger.info("Enabling S3 server-side encryption (aws:kms).")
+        conn.execute("SET s3_server_side_encryption='aws:kms';")
+        conn.execute(f"SET s3_sse_kms_key_id='{kms_key}';")
+
+    elif encryption_mode == "AZURE":
+        logger.info("Azure encryption handled at storage account level.")
+        # Placeholder for future Azure logic
+
+    elif encryption_mode == "GCS":
+        logger.info("GCS encryption handled via bucket configuration.")
+        # Placeholder for future GCS logic
+
     else:
-        logger.info(f"Unknown encryption {encryption_mode}")
+        logger.warning(f"Unknown encryption mode: {encryption_mode}")
+
     return conn
+
 
 
 # -------------------------------------------------------------------
