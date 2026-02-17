@@ -47,7 +47,7 @@ def build_gold_tables():
         logger.warning(f"Unloading {table_name} to {destination}...")
         
         if unload_behavior == "duckdb":
-            base_path = (
+            path = (
                 f"{settings.blob_header}://"
                 f"{settings.blob_bket}/"
                 f"{settings.dss_gold_tables_folder_root}/"
