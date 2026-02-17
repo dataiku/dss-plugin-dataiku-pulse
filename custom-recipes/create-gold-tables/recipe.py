@@ -34,6 +34,7 @@ def build_gold_tables():
     """
     df = conn.execute(query).df()
     base_tables = df['table_name'].tolist()
+    #SET s3_server_side_encryption='AES256';
     
     # 4. Unload the gold tables
     base_path = f"{settings.blob_header}://{settings.blob_bket}/{settings.dss_gold_tables_folder_root}/gold"
