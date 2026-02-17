@@ -49,19 +49,19 @@ def build_gold_tables():
         logger.warning(f"Unloading {table_name} to {destination}...")
         
         if unload_behavior == "duckdb":
-            path = (
-                f"{settings.blob_header}://"
-                f"{settings.blob_bket}/"
-                f"{settings.dss_gold_tables_folder_root}/"
-                f"{destination}"
-            )
-            query = (
-                f"COPY {table_name} "
-                f"TO '{path}' "
-                f"(FORMAT 'PARQUET', OVERWRITE TRUE);"
-            )
-            logger.debug(query)
             try:
+                path = (
+                    f"{settings.blob_header}://"
+                    f"{settings.blob_bket}/"
+                    f"{settings.dss_gold_tables_folder_root}/"
+                    f"{destination}"
+                )
+                query = (
+                    f"COPY {table_name} "
+                    f"TO '{path}' "
+                    f"(FORMAT 'PARQUET', OVERWRITE TRUE);"
+                )
+                logger.debug(query)
                 conn.execute(query)
             except Exception as e:
                 logger.warning(f"Failed to unload {table_name}: {e}")
