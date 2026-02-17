@@ -20,15 +20,15 @@
     ],
     "params": [
         {
-            "name": "sep1",
+            "name": "warning",
             "label": "⚠️ DO NOT ATTEMPT TO EDIT THIS RECIPE!",
             "description": "This recipe is self-managed by the Dataiku Pulse Dashboard plugin. Only adjust the below settings as needed.",
             "type": "SEPARATOR"
         },
         {
-            "name": "sep2",
-            "label": "⚠️ DO NOT ATTEMPT TO EDIT THIS RECIPE!",
-            "description": "This recipe is self-managed by the Dataiku Pulse Dashboard plugin. Only adjust the below settings as needed.",
+            "name": "params",
+            "label": "Custom Blob Storage Requirements",
+            "description": "Adjust the follow parameters as needed based on your environment",
             "type": "SEPARATOR"
         },
         {
