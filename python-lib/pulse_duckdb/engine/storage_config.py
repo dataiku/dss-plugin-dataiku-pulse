@@ -179,6 +179,7 @@ def gcp_credentials():
 def added_encryption(conn):
     params = settings.connection_handle.get_info().get("params", {})
     encryption_mode = params.get("encryptionMode", "NONE")
+    
     if params["encryptionMode"] == "NONE":
         return conn
     elif params["encryptionMode"] == "SSE_S3":
