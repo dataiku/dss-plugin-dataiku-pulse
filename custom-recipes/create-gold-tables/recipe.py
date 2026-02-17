@@ -64,6 +64,7 @@ def build_gold_tables():
                 conn.execute(query)
             except Exception as e:
                 logger.warning(f"Failed to unload {table_name}: {e}")
+                
         elif unload_behavior == "dataiku":
             logger.warning("tbd")
         else:
