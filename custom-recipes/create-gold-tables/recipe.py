@@ -67,13 +67,16 @@ def build_gold_tables():
                 logger.warning(f"Failed to unload {table_name}: {e}")
                 
         elif unload_behavior == "dataiku":
-            unload_df = conn.execute(f"SELECT * FROM {table_name};").df()
-            f = io.BytesIO()
-            unload_df.to_parquet(f, compression="gzip", engine='pyarrow', index=False)
-            f.seek(0)
-            content = f.read()
-            settings.dss_gold_tables_folder.upload_stream(destination, content)
-            
+            try:
+                unload_df = conn.execute(f"SELECT * FROM {table_name};").df()
+                f = io.BytesIO()
+                unload_df.to_parquet(f, compression="gzip", engine='pyarrow', index=False)
+                f.seek(0)
+                content = f.read()
+                settings.dss_gold_tables_folder.upload_stream(destination, content)
+            except Exception as e:
+                logger.error(f"Dataiku unload failed for {table_name}: {e}")
+                
         else:
             logger.error("Unknown unload behavior")
             raise
