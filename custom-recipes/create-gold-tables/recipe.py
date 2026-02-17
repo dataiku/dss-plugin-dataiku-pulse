@@ -16,7 +16,7 @@ from pulse_duckdb.engine import (
 )
 
 LOG_LEVEL = logging.WARNING
-logging.getLogger("pulse_duckdb").setLevel(LOG_LEVEL)
+logger = logging.getLogger("pulse_duckdb").setLevel(LOG_LEVEL)
 
 def build_gold_tables():
     # 1. Delete anything existing
