@@ -218,7 +218,7 @@ def apply_blob_encryption(conn):
 # -------------------------------------------------------------------
 def configure_storage(conn) -> None:
     connection_type = settings.connection_type
-    logger.info("Loading %s storage configuration", connection_type)
+    logger.info(f"Loading {connection_type} storage configuration")
 
     blob_module = None
     blob_credentials = None
