@@ -190,7 +190,7 @@ def apply_blob_encryption(conn):
         conn.execute("SET s3_server_side_encryption='AES256';")
 
     elif encryption_mode == "SSE_KMS":
-        kms_key = params.get("kmsKeyId")
+        kms_key = params.get("encryptionKeyId", None)
         if not kms_key:
             raise ValueError("SSE_KMS selected but kmsKeyId not provided.")
 
