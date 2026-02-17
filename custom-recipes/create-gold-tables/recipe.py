@@ -34,9 +34,14 @@ def build_gold_tables():
     """
     df = conn.execute(query).df()
     base_tables = df['table_name'].tolist()
-    #SET s3_server_side_encryption='AES256';
     
-    # 4. Unload the gold tables
+    # 4. Custom edits
+    recipe_config = get_recipe_config()
+    enable_s3_sse_aes256 = recipe_config.get('enable_s3_sse_aes256', False)
+    if enable_s3_sse_aes256:
+    conn.execute("SET s3_server_side_encryption='AES256';")
+    
+    # 5. Unload the gold tables
     base_path = f"{settings.blob_header}://{settings.blob_bket}/{settings.dss_gold_tables_folder_root}/gold"
     for table_name in base_tables:
         destination = f"{base_path}/{table_name}.parquet"
