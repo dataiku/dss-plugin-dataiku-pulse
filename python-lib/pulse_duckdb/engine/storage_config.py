@@ -101,7 +101,7 @@ def azure_credentials() -> tuple[str, str]:
 
         return blob_module, blob_credentials
 
-    logger.error("Unsupported Azure authentication type: %s", credentials_mode)
+    logger.error(f"Unsupported Azure authentication type: {credentials_mode}" )
     raise RuntimeError(f"Unsupported Azure authentication type: {credentials_mode}")
 
 # -------------------------------------------------------------------
