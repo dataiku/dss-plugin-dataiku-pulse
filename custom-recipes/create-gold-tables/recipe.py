@@ -67,8 +67,15 @@ def build_gold_tables():
                 
         elif unload_behavior == "dataiku":
             unload_df = conn.execute(f"SELECT * FROM {table_name};")
+            
+            folder = dataiku.Folder(
+                lookup = folder_name,
+                project_key = dataiku.default_project_key(),
+                ignore_flow = True
+            )
+
             f = io.BytesIO()
-            df.to_parquet(f, compression="gzip", engine='pyarrow', index=False)
+            unload_df.to_parquet(f, compression="gzip", engine='pyarrow', index=False)
             f.seek(0)
             content = f.read()
             folder.upload_stream(path, content)
