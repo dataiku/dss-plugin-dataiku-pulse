@@ -1,3 +1,4 @@
+import io
 import logging
 
 from dataiku.customrecipe import get_recipe_config
