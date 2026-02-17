@@ -178,12 +178,14 @@ def gcp_credentials():
 # -------------------------------------------------------------------
 def added_encryption(conn):
     params = settings.connection_handle.get_info().get("params", {})
-    if connection_handle.get_info()["params"]["encryptionMode"] == "NONE":
+    if params["encryptionMode"] == "NONE":
         print("return")
-    elif connection_handle.get_info()["params"]["encryptionMode"] == "SSE_S3":
+    elif params["encryptionMode"] == "SSE_S3":
         logger.info("Enabling S3 server-side encryption (AES256) for unloads.")
         conn.execute("SET s3_server_side_encryption='AES256';")
-    return
+    else:
+        logger.info(f"Unknown encryption {params['encryptionMode']}")
+    return 
 
 
 # -------------------------------------------------------------------
