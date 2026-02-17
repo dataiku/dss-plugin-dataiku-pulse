@@ -192,7 +192,7 @@ def apply_blob_encryption(conn):
     elif encryption_mode == "SSE_KMS":
         kms_key = params.get("encryptionKeyId", None)
         if not kms_key:
-            raise ValueError("SSE_KMS selected but kmsKeyId not provided.")
+            raise ValueError("SSE_KMS selected but encryptionKeyId not provided.")
 
         logger.info("Enabling S3 server-side encryption (aws:kms).")
         conn.execute("SET s3_server_side_encryption='aws:kms';")
