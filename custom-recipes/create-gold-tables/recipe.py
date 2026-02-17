@@ -73,6 +73,7 @@ def build_gold_tables():
             f.seek(0)
             content = f.read()
             settings.dss_gold_tables_folder.upload_stream(path, content)
+            
         else:
             logger.error("Unknown unload behavior")
             raise
