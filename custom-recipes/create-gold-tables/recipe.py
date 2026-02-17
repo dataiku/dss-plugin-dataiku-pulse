@@ -72,7 +72,7 @@ def build_gold_tables():
             unload_df.to_parquet(f, compression="gzip", engine='pyarrow', index=False)
             f.seek(0)
             content = f.read()
-            settings.dss_gold_tables_folder.upload_stream(path, content)
+            settings.dss_gold_tables_folder.upload_stream(destination, content)
             
         else:
             logger.error("Unknown unload behavior")
