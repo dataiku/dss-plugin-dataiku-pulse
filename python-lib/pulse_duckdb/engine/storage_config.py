@@ -248,7 +248,7 @@ def configure_storage(conn) -> None:
             f"Failed to configure blob storage for {connection_type}"
         )
 
-    logger.info("Configuring %s BLOB storage", connection_type)
+    logger.info(f"Configuring {connection_type} BLOB storage")
     try:
         conn.execute(blob_module)
         conn.execute(blob_credentials)
