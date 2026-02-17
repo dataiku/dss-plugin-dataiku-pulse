@@ -36,8 +36,8 @@ def build_gold_tables():
     base_tables = df['table_name'].tolist()
     
     # 4. Custom edits
+    #from dataiku.customrecipe import get_recipe_config
     #recipe_config = get_recipe_config()
-
     
     # 5. Unload the gold tables
     base_path = f"{settings.blob_header}://{settings.blob_bket}/{settings.dss_gold_tables_folder_root}/gold"
