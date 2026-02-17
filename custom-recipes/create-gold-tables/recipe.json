@@ -40,7 +40,7 @@
                 { "value": "dataiku", "label": "Dataiku API" }
             ],
             "defaultValue": "duckdb",
-            "description": "Unload the gold tables to Blob via DuckDB or by Dataiku API."
+            "description": "Unload the gold tables to Blob via DuckDB or by Dataiku API"
         }
     ],
     "resourceKeys": []
