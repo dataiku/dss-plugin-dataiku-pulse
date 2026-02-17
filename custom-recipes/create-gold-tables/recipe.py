@@ -67,7 +67,7 @@ def build_gold_tables():
                 logger.warning(f"Failed to unload {table_name}: {e}")
                 
         elif unload_behavior == "dataiku":
-            unload_df = conn.execute(f"SELECT * FROM {table_name};")
+            unload_df = conn.execute(f"SELECT * FROM {table_name};").df()
             f = io.BytesIO()
             unload_df.to_parquet(f, compression="gzip", engine='pyarrow', index=False)
             f.seek(0)
