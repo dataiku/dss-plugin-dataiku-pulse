@@ -252,6 +252,7 @@ def configure_storage(conn) -> None:
     try:
         conn.execute(blob_module)
         conn.execute(blob_credentials)
+        apply_blob_encryption(conn)
     except Exception as exc:
         logger.exception("DuckDB storage configuration failed")
         raise RuntimeError(
