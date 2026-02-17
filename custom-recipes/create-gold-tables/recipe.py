@@ -61,13 +61,17 @@ def build_gold_tables():
             )
             logger.debug(query)
             try:
-
                 conn.execute(query)
             except Exception as e:
                 logger.warning(f"Failed to unload {table_name}: {e}")
                 
         elif unload_behavior == "dataiku":
-            logger.warning("tbd")
+            unload_df = conn.execute(f"SELECT * FROM {table_name};")
+            f = io.BytesIO()
+            df.to_parquet(f, compression="gzip", engine='pyarrow', index=False)
+            f.seek(0)
+            content = f.read()
+            folder.upload_stream(path, content)
         else:
             logger.error("Unknown unload behavior")
             raise
