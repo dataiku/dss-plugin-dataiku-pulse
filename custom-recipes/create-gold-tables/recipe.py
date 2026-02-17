@@ -1,11 +1,5 @@
 import logging
 
-from dataiku.customrecipe import (
-    get_input_names_for_role, 
-    get_output_names_for_role, 
-    get_recipe_config,
-)
-
 from pulse_duckdb import settings
 from pulse_duckdb.engine import (
     create_conn,
