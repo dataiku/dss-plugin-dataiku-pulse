@@ -1,6 +1,7 @@
 import io
 import logging
 
+import dataiku
 from dataiku.customrecipe import get_recipe_config
 
 from pulse_duckdb import settings
