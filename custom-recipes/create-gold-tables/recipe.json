@@ -40,7 +40,7 @@
                 { "value": "duckdb", "label": "DuckDB Unload" },
                 { "value": "dataiku", "label": "Dataiku API" }
             ],
-            "defaultValue": "duckdb",
+            "defaultValue": "duckdb"
         }
     ],
     "resourceKeys": []
