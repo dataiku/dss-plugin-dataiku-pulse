@@ -24,20 +24,6 @@
             "label": "⚠️ DO NOT ATTEMPT TO EDIT THIS RECIPE!",
             "description": "This recipe is self-managed by the Dataiku Pulse Dashboard plugin. Only adjust the below settings as needed.",
             "type": "SEPARATOR"
-        },
-        {
-            "name": "params",
-            "label": "Custom Blob Storage Requirements",
-            "description": "Adjust the follow parameters as needed based on your environment",
-            "type": "SEPARATOR"
-        },
-        {
-            "name": "enable_s3_sse_aes256",
-            "label": "Enable S3 SSE AES256",
-            "type": "BOOLEAN",
-            "description": "Toggle to enabled Server-Side Encryption for AWS S3",
-            "mandatory": false,
-            "required": false
         }
     ],
     "resourceKeys": []
