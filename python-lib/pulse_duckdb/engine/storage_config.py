@@ -180,14 +180,14 @@ def added_encryption(conn):
     params = settings.connection_handle.get_info().get("params", {})
     encryption_mode = params.get("encryptionMode", "NONE")
     
-    if params["encryptionMode"] == "NONE":
+    if encryption_mode == "NONE":
         return conn
-    elif params["encryptionMode"] == "SSE_S3":
+    elif encryption_mode == "SSE_S3":
         logger.info("Enabling S3 server-side encryption (AES256) for unloads.")
         conn.execute("SET s3_server_side_encryption='AES256';")
     else:
-        logger.info(f"Unknown encryption {params['encryptionMode']}")
-    return 
+        logger.info(f"Unknown encryption {encryption_mode}")
+    return conn
 
 
 # -------------------------------------------------------------------
