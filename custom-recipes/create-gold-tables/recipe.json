@@ -34,8 +34,8 @@
         {
             "name": "unload_behavior",
             "label": "Select Option",
-            "type": "SELECT",
             "description": "Unload the gold tables to Blob via DuckDB or by Dataiku API",
+            "type": "SELECT",
             "selectChoices": [
                 { "value": "duckdb", "label": "DuckDB Unload" },
                 { "value": "dataiku", "label": "Dataiku API" }
