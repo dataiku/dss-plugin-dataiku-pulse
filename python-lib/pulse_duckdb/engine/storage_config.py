@@ -60,9 +60,10 @@ def aws_credentials() -> tuple[str, str]:
         )
         return blob_module, blob_credentials
 
-    logger.error("Unsupported AWS credentials mode: %s", credentials_mode)
+    logger.error(f"Unsupported AWS credentials mode: {credentials_mode}")
     raise RuntimeError(f"Unsupported AWS credentials mode: {credentials_mode}")
     return
+
 
 # -------------------------------------------------------------------
 # Azure Credentials
@@ -100,7 +101,7 @@ def azure_credentials() -> tuple[str, str]:
 
         return blob_module, blob_credentials
 
-    logger.error("Unsupported Azure authentication type: %s", credentials_mode)
+    logger.error(f"Unsupported Azure authentication type: {credentials_mode}" )
     raise RuntimeError(f"Unsupported Azure authentication type: {credentials_mode}")
 
 # -------------------------------------------------------------------
@@ -172,12 +173,52 @@ def gcp_credentials():
     logger.info("GCS HMAC credentials successfully loaded")
     return blob_module, blob_credentials
 
-# ------------------------------------------------------------------- ""
+# -------------------------------------------------------------------
+# Blob Storage Main
+# -------------------------------------------------------------------
+def apply_blob_encryption(conn):
+    params = settings.connection_handle.get_info().get("params", {})
+    encryption_mode = params.get("encryptionMode", "NONE").upper()
+
+    logger.debug(f"Blob encryption mode: {encryption_mode}")
+
+    if encryption_mode == "NONE":
+        return conn
+
+    elif encryption_mode == "SSE_S3":
+        logger.info("Enabling S3 server-side encryption (AES256).")
+        conn.execute("SET s3_server_side_encryption='AES256';")
+
+    elif encryption_mode == "SSE_KMS":
+        kms_key = params.get("encryptionKeyId", None)
+        if not kms_key:
+            raise ValueError("SSE_KMS selected but encryptionKeyId not provided.")
+
+        logger.info("Enabling S3 server-side encryption (aws:kms).")
+        conn.execute("SET s3_server_side_encryption='aws:kms';")
+        conn.execute(f"SET s3_sse_kms_key_id='{kms_key}';")
+
+    elif encryption_mode == "AZURE":
+        logger.info("Azure encryption handled at storage account level.")
+        # Placeholder for future Azure logic
+
+    elif encryption_mode == "GCS":
+        logger.info("GCS encryption handled via bucket configuration.")
+        # Placeholder for future GCS logic
+
+    else:
+        logger.warning(f"Unknown encryption mode: {encryption_mode}")
+
+    return conn
+
+
+
+# -------------------------------------------------------------------
 # Blob Storage Main
 # -------------------------------------------------------------------
 def configure_storage(conn) -> None:
     connection_type = settings.connection_type
-    logger.info("Loading %s storage configuration", connection_type)
+    logger.info(f"Loading {connection_type} storage configuration")
 
     blob_module = None
     blob_credentials = None
@@ -207,10 +248,11 @@ def configure_storage(conn) -> None:
             f"Failed to configure blob storage for {connection_type}"
         )
 
-    logger.info("Configuring %s BLOB storage", connection_type)
+    logger.info(f"Configuring {connection_type} BLOB storage")
     try:
         conn.execute(blob_module)
         conn.execute(blob_credentials)
+        apply_blob_encryption(conn)
     except Exception as exc:
         logger.exception("DuckDB storage configuration failed")
         raise RuntimeError(

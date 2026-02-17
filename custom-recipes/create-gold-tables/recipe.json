@@ -20,9 +20,9 @@
     ],
     "params": [
         {
-            "name": "sep",
-            "label": "⚠️ DO NOT EDIT THIS RECIPE",
-            "description": "This recipe is self-managed.",
+            "name": "warning",
+            "label": "⚠️ DO NOT ATTEMPT TO EDIT THIS RECIPE!",
+            "description": "This recipe is self-managed by the Dataiku Pulse Dashboard plugin. Only adjust the below settings as needed.",
             "type": "SEPARATOR"
         }
     ],
