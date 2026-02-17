@@ -24,6 +24,12 @@
             "label": "⚠️ DO NOT ATTEMPT TO EDIT THIS RECIPE!",
             "description": "This recipe is self-managed by the Dataiku Pulse Dashboard plugin. Only adjust the below settings as needed.",
             "type": "SEPARATOR"
+        },
+        {
+            "name": "custom_configs",
+            "label": "Custom Settings",
+            "description": "",
+            "type": "SEPARATOR"
         }
     ],
     "resourceKeys": []
