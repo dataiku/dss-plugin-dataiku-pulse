@@ -55,7 +55,7 @@ def build_gold_tables():
             )
             query = (
                 f"COPY {table_name} "
-                f"TO '{destination}' "
+                f"TO '{path}' "
                 f"(FORMAT 'PARQUET', OVERWRITE TRUE);"
             )
             logger.debug(query)
