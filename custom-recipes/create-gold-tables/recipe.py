@@ -41,7 +41,6 @@ def build_gold_tables():
     if enable_s3_sse_aes256:
         logger.info("Enabling S3 server-side encryption (AES256) for unloads.")
         conn.execute("SET s3_server_side_encryption='AES256';")
-        
     
     # 5. Unload the gold tables
     base_path = f"{settings.blob_header}://{settings.blob_bket}/{settings.dss_gold_tables_folder_root}/gold"
