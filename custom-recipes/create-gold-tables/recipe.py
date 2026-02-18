@@ -16,7 +16,7 @@ from pulse_duckdb.engine import (
 )
 
 
-LOG_LEVEL = logging.WARNING
+LOG_LEVEL = logging.INFO
 logger = logging.getLogger("pulse_duckdb")
 logger.setLevel(LOG_LEVEL)
 
