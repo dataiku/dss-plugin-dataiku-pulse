@@ -30,7 +30,7 @@ class MyRunnable(Runnable):
 
     def run(self, progress_callback):
         # Get local client and name
-        instance_name = dss_funcs.get_dss_name(self)
+        instance_name = dss_funcs.get_instance_id(self)
         
         # Get the output of the DF command
         results = []
