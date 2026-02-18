@@ -24,6 +24,23 @@
             "label": "⚠️ DO NOT ATTEMPT TO EDIT THIS RECIPE!",
             "description": "This recipe is self-managed by the Dataiku Pulse Dashboard plugin. Only adjust the below settings as needed.",
             "type": "SEPARATOR"
+        },
+        {
+            "name": "customer_separator",
+            "label": "",
+            "description": "<hr color='#000000' size='3' noshade><h3>Custom Configurations</h3>",
+            "type": "SEPARATOR"
+        },
+        {
+            "name": "unload_behavior",
+            "label": "Select Option",
+            "description": "Unload the gold tables to Blob via DuckDB or by Dataiku API",
+            "type": "SELECT",
+            "selectChoices": [
+                { "value": "duckdb", "label": "DuckDB Unload" },
+                { "value": "dataiku", "label": "Dataiku API" }
+            ],
+            "defaultValue": "duckdb"
         }
     ],
     "resourceKeys": []

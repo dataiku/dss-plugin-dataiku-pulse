@@ -1,6 +1,8 @@
+import pandas as pd
+
 from pulse_duckdb.engine import query
 
-
+#############################################################
 def _sql_quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
@@ -33,6 +35,7 @@ def gather_data():
         "avg_per_builder": float(row["avg_events_per_builder"] or 0),
     }
 
+
 def get_total_build_events_last_30_days(tab_scope=None):
     where_clauses = ["login NOT LIKE 'api:%'"]
     if tab_scope:
@@ -49,13 +52,17 @@ def get_total_build_events_last_30_days(tab_scope=None):
     where_sql = " AND ".join(where_clauses)
     sql = f"""
         SELECT
-            SUM(build_events) AS total_events
+            COALESCE(SUM(build_events), 0) AS total_events
         FROM actor_usage_last_30_days_base
-        WHERE {where_sql}
-    ;
+        WHERE {where_sql};
     """
     df = query.query_df(sql)
-    return int(df.iloc[0]["total_events"] or 0)
+    if df.empty:
+        return 0
+    value = df.iloc[0]["total_events"]
+    if pd.isna(value):
+        return 0
+    return int(value)
 
 
 def get_subcategory_counts_last_30_days(capability, instance_name=None):

@@ -45,6 +45,10 @@ actor_usage_last_30_days_table:
             WHERE canonical_capability = 'APIS_INTEGRATION'
         ) AS apis_integration_events,
 
+        COUNT(*) FILTER (
+            WHERE canonical_capability = 'PROJECT_MAINTENANCE'
+        ) AS project_maintenance_events,
+
         -- total build events (explicit, authoritative denominator)
         (
             COUNT(*) FILTER (WHERE canonical_capability = 'DATA_ENGINEERING')
@@ -53,6 +57,7 @@ actor_usage_last_30_days_table:
           + COUNT(*) FILTER (WHERE canonical_capability = 'AUTOMATION_ORCHESTRATION')
           + COUNT(*) FILTER (WHERE canonical_capability = 'APPLICATIONS_DELIVERY')
           + COUNT(*) FILTER (WHERE canonical_capability = 'APIS_INTEGRATION')
+          + COUNT(*) FILTER (WHERE canonical_capability = 'PROJECT_MAINTENANCE')
         ) AS build_events,
 
         -- development-only ratios (sum to 1.0)
@@ -68,6 +73,7 @@ actor_usage_last_30_days_table:
             + COUNT(*) FILTER (WHERE canonical_capability = 'AUTOMATION_ORCHESTRATION')
             + COUNT(*) FILTER (WHERE canonical_capability = 'APPLICATIONS_DELIVERY')
             + COUNT(*) FILTER (WHERE canonical_capability = 'APIS_INTEGRATION')
+            + COUNT(*) FILTER (WHERE canonical_capability = 'PROJECT_MAINTENANCE')
             ), 0
         ) AS data_engineering_ratio,
 
@@ -90,6 +96,10 @@ actor_usage_last_30_days_table:
         COUNT(*) FILTER (
             WHERE canonical_capability = 'APIS_INTEGRATION'
         )::DOUBLE / NULLIF(build_events, 0) AS apis_integration_ratio
+
+        COUNT(*) FILTER (
+            WHERE canonical_capability = 'PROJECT_MAINTENANCE'
+        )::DOUBLE / NULLIF(build_events, 0) AS project_maintenance_ratio
 
     FROM usage_events_view
     WHERE
