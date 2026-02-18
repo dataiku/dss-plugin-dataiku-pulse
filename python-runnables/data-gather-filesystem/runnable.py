@@ -29,9 +29,6 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
-        # Get local client and name
-        instance_name = dss_funcs.get_instance_id(self)
-        
         # Get the output of the DF command
         results = []
         cmd = "df"
@@ -53,7 +50,7 @@ class MyRunnable(Runnable):
         dt_year  = str(self.dt.year)
         dt_month = str(f'{self.dt.month:02d}')
         dt_day   = str(f'{self.dt.day:02d}')
-        df["instance_name"] = instance_name
+        df["instance_name"] = self.instance_name
         df["timestamp"] = self.dt
         
         # RAW
