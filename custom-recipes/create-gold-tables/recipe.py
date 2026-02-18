@@ -67,7 +67,7 @@ def build_gold_tables():
                 logger.debug(query)
                 conn.execute(query)
             except Exception as e:
-                logger.warning(f"Failed to unload {table_name}: {e}")
+                logger.error(f"Failed to unload {table_name}: {e}")
                 
         elif unload_behavior == "dataiku":
             try:
@@ -85,7 +85,7 @@ def build_gold_tables():
             raise
     
     # End
-    logger.warning("Export process complete.")
+    logger.info("Export process complete.")
     return
 
 # -------------------------------------------------------------------------------------------
