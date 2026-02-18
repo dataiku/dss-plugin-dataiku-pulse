@@ -95,7 +95,7 @@ actor_usage_last_30_days_table:
 
         COUNT(*) FILTER (
             WHERE canonical_capability = 'APIS_INTEGRATION'
-        )::DOUBLE / NULLIF(build_events, 0) AS apis_integration_ratio
+        )::DOUBLE / NULLIF(build_events, 0) AS apis_integration_ratio,
 
         COUNT(*) FILTER (
             WHERE canonical_capability = 'PROJECT_MAINTENANCE'
