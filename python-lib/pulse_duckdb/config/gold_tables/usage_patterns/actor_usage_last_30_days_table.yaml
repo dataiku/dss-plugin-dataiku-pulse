@@ -11,104 +11,72 @@ actor_usage_last_30_days_table:
 
   sql: |
     CREATE OR REPLACE TABLE actor_usage_last_30_days_base AS
+    WITH base AS (
+        SELECT
+            instance_name,
+            login,
+
+            -- activity window
+            MIN(timestamp) AS first_seen_ts,
+            MAX(timestamp) AS last_seen_ts,
+            COUNT(DISTINCT DATE(timestamp)) AS active_days,
+
+            -- build capability event counts
+            COUNT(*) FILTER (WHERE canonical_capability = 'DATA_ENGINEERING') AS data_engineering_events,
+            COUNT(*) FILTER (WHERE canonical_capability = 'ADVANCED_ANALYTICS_ML') AS advanced_analytics_ml_events,
+            COUNT(*) FILTER (WHERE canonical_capability = 'GENAI_LLM') AS genai_llm_events,
+            COUNT(*) FILTER (WHERE canonical_capability = 'AUTOMATION_ORCHESTRATION') AS automation_orchestration_events,
+            COUNT(*) FILTER (WHERE canonical_capability = 'APPLICATIONS_DELIVERY') AS applications_delivery_events,
+            COUNT(*) FILTER (WHERE canonical_capability = 'APIS_INTEGRATION') AS apis_integration_events,
+            COUNT(*) FILTER (WHERE canonical_capability = 'PROJECT_MAINTENANCE') AS project_maintenance_events
+
+        FROM usage_events_view
+        WHERE
+            timestamp >= CURRENT_TIMESTAMP - INTERVAL 30 DAY
+            AND canonical_capability <> 'NON_CORE'
+            AND canonical_capability IS NOT NULL
+        GROUP BY
+            instance_name,
+            login
+    )
+
     SELECT
-        instance_name,
-        login,
-
-        -- activity window
-        MIN(timestamp) AS first_seen_ts,
-        MAX(timestamp) AS last_seen_ts,
-        COUNT(DISTINCT DATE(timestamp)) AS active_days,
-
-        -- build capability event counts
-        COUNT(*) FILTER (
-            WHERE canonical_capability = 'DATA_ENGINEERING'
-        ) AS data_engineering_events,
-
-        COUNT(*) FILTER (
-            WHERE canonical_capability = 'ADVANCED_ANALYTICS_ML'
-        ) AS advanced_analytics_ml_events,
-
-        COUNT(*) FILTER (
-            WHERE canonical_capability = 'GENAI_LLM'
-        ) AS genai_llm_events,
-
-        COUNT(*) FILTER (
-            WHERE canonical_capability = 'AUTOMATION_ORCHESTRATION'
-        ) AS automation_orchestration_events,
-
-        COUNT(*) FILTER (
-            WHERE canonical_capability = 'APPLICATIONS_DELIVERY'
-        ) AS applications_delivery_events,
-
-        COUNT(*) FILTER (
-            WHERE canonical_capability = 'APIS_INTEGRATION'
-        ) AS apis_integration_events,
-
-        COUNT(*) FILTER (
-            WHERE canonical_capability = 'PROJECT_MAINTENANCE'
-        ) AS project_maintenance_events,
-
-        -- total build events (explicit, authoritative denominator)
+        *,
+        
+        -- total build events
         (
-            COUNT(*) FILTER (WHERE canonical_capability = 'DATA_ENGINEERING')
-          + COUNT(*) FILTER (WHERE canonical_capability = 'ADVANCED_ANALYTICS_ML')
-          + COUNT(*) FILTER (WHERE canonical_capability = 'GENAI_LLM')
-          + COUNT(*) FILTER (WHERE canonical_capability = 'AUTOMATION_ORCHESTRATION')
-          + COUNT(*) FILTER (WHERE canonical_capability = 'APPLICATIONS_DELIVERY')
-          + COUNT(*) FILTER (WHERE canonical_capability = 'APIS_INTEGRATION')
-          + COUNT(*) FILTER (WHERE canonical_capability = 'PROJECT_MAINTENANCE')
+            data_engineering_events
+          + advanced_analytics_ml_events
+          + genai_llm_events
+          + automation_orchestration_events
+          + applications_delivery_events
+          + apis_integration_events
+          + project_maintenance_events
         ) AS build_events,
 
-        -- development-only ratios (sum to 1.0)
-        COUNT(*) FILTER (
-            WHERE canonical_capability = 'DATA_ENGINEERING'
-        )::DOUBLE
-        /
-        NULLIF(
-            (
-              COUNT(*) FILTER (WHERE canonical_capability = 'DATA_ENGINEERING')
-            + COUNT(*) FILTER (WHERE canonical_capability = 'ADVANCED_ANALYTICS_ML')
-            + COUNT(*) FILTER (WHERE canonical_capability = 'GENAI_LLM')
-            + COUNT(*) FILTER (WHERE canonical_capability = 'AUTOMATION_ORCHESTRATION')
-            + COUNT(*) FILTER (WHERE canonical_capability = 'APPLICATIONS_DELIVERY')
-            + COUNT(*) FILTER (WHERE canonical_capability = 'APIS_INTEGRATION')
-            + COUNT(*) FILTER (WHERE canonical_capability = 'PROJECT_MAINTENANCE')
-            ), 0
-        ) AS data_engineering_ratio,
+        -- development-only ratios (sum to ~1.0)
+        data_engineering_events::DOUBLE
+            / NULLIF(build_events, 0) AS data_engineering_ratio,
 
-        COUNT(*) FILTER (
-            WHERE canonical_capability = 'ADVANCED_ANALYTICS_ML'
-        )::DOUBLE / NULLIF(build_events, 0) AS advanced_analytics_ml_ratio,
+        advanced_analytics_ml_events::DOUBLE
+            / NULLIF(build_events, 0) AS advanced_analytics_ml_ratio,
 
-        COUNT(*) FILTER (
-            WHERE canonical_capability = 'GENAI_LLM'
-        )::DOUBLE / NULLIF(build_events, 0) AS genai_llm_ratio,
+        genai_llm_events::DOUBLE
+            / NULLIF(build_events, 0) AS genai_llm_ratio,
 
-        COUNT(*) FILTER (
-            WHERE canonical_capability = 'AUTOMATION_ORCHESTRATION'
-        )::DOUBLE / NULLIF(build_events, 0) AS automation_orchestration_ratio,
+        automation_orchestration_events::DOUBLE
+            / NULLIF(build_events, 0) AS automation_orchestration_ratio,
 
-        COUNT(*) FILTER (
-            WHERE canonical_capability = 'APPLICATIONS_DELIVERY'
-        )::DOUBLE / NULLIF(build_events, 0) AS applications_delivery_ratio,
+        applications_delivery_events::DOUBLE
+            / NULLIF(build_events, 0) AS applications_delivery_ratio,
 
-        COUNT(*) FILTER (
-            WHERE canonical_capability = 'APIS_INTEGRATION'
-        )::DOUBLE / NULLIF(build_events, 0) AS apis_integration_ratio,
+        apis_integration_events::DOUBLE
+            / NULLIF(build_events, 0) AS apis_integration_ratio,
 
-        COUNT(*) FILTER (
-            WHERE canonical_capability = 'PROJECT_MAINTENANCE'
-        )::DOUBLE / NULLIF(build_events, 0) AS project_maintenance_ratio
+        project_maintenance_events::DOUBLE
+            / NULLIF(build_events, 0) AS project_maintenance_ratio
 
-    FROM usage_events_view
-    WHERE
-        timestamp >= CURRENT_TIMESTAMP - INTERVAL 30 DAY
-        AND canonical_capability <> 'NON_CORE'
-        AND canonical_capability IS NOT NULL
-    GROUP BY
-        instance_name,
-        login
+    FROM base
     ORDER BY
         instance_name,
         login;
