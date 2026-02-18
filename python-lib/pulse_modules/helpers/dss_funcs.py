@@ -55,8 +55,8 @@ def build_remote_client(self, remote_url=False, api_key=False):
 def get_dss_name(self):
     instance_info = self.local_client.get_instance_info()
     instance_name = (
-        getattr(instance_info, "node_name", None)
-        or getattr(instance_info, "node_id", None)
+        getattr(instance_info, "node_id", None)
+        or getattr(instance_info, "node_name", None)
         or "unknown_instance_name"
     )
     instance_name = re.sub(r'[^a-zA-Z0-9]', ' ', instance_name)
