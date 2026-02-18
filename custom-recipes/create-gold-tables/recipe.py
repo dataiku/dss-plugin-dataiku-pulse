@@ -90,6 +90,8 @@ def build_gold_tables():
             raise
     
     # End
+    if failed_tables:
+        logger.warning(f"Tables failed to unload: {failed_tables}")
     logger.info("Export process complete.")
     return
 
