@@ -52,7 +52,7 @@ def build_remote_client(self, remote_url=False, api_key=False):
     return client
 
 
-def get_dss_name(self):
+def get_instance_id(self):
     instance_info = self.local_client.get_instance_info()
     data = instance_info.raw
     instance_id = (
@@ -61,12 +61,12 @@ def get_dss_name(self):
     )
     instance_id = re.sub(r'[^a-zA-Z0-9]', ' ', instance_id)
     instance_id = re.sub(r'\s+', '_', instance_id)
-    return instance_name
+    return instance_id
 
 
 def get_dss_name_id_mapping(self):
     instance_info = self.local_client.get_instance_info()
-    instance_name = get_dss_name(self)
+    instance_id = get_instance_id(self)
     instance_name_base = (
         getattr(instance_info, "node_name", None)
         or getattr(instance_info, "node_id", None)
@@ -76,7 +76,7 @@ def get_dss_name_id_mapping(self):
         getattr(instance_info, "node_id", None)
         or "unknown_instance_id_base"
     )
-    mapping = [instance_name, instance_name_base, instance_id_base]
+    mapping = [instance_id, instance_name_base, instance_id_base]
     return mapping
 
 
