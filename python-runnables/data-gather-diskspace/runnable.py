@@ -26,7 +26,7 @@ class MyRunnable(Runnable):
         self.preset_pc = dss_funcs.get_preset_pc(self, "DATAIKU-PULSE")
         self.local_client = dss_funcs.build_local_client()
         self.remote_client = dss_funcs.build_remote_client(self)
-        self.instance_name = dss_funcs.get_dss_name(self)
+        self.instance_name = dss_funcs.get_instance_id(self)
         self.dt = datetime.utcnow()
         
         logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.ERROR)
@@ -36,9 +36,6 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
-        # Get local client and name
-        instance_name = dss_funcs.get_dss_name(self)
-        
         # change directory and get audit logs
         root_path = self.local_client.get_instance_info().raw["dataDirPath"]
         os.chdir(root_path)
@@ -100,7 +97,7 @@ class MyRunnable(Runnable):
         dt_year  = str(self.dt.year)
         dt_month = str(f'{self.dt.month:02d}')
         dt_day   = str(f'{self.dt.day:02d}')
-        df["instance_name"] = instance_name
+        df["instance_name"] = self.instance_name
         df["timestamp"] = self.dt
         
         # RAW

@@ -46,7 +46,7 @@ class MyRunnable(Runnable):
         self.preset_pc = dss_funcs.get_preset_pc(self, "DATAIKU-PULSE")
         self.local_client = dss_funcs.build_local_client()
         self.remote_client = dss_funcs.build_remote_client(self)
-        self.instance_name = dss_funcs.get_dss_name(self)
+        self.instance_name = dss_funcs.get_instance_id(self)
         self.dt = datetime.utcnow()
         
         logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.ERROR)
@@ -57,9 +57,7 @@ class MyRunnable(Runnable):
 
     def run(self, progress_callback):
         results = []
-        # Get local client and name
-        instance_name = dss_funcs.get_dss_name(self)
-        
+
         # change directory and get audit logs
         root_path = self.local_client.get_instance_info().raw["dataDirPath"]
         audit_path = f"{root_path}/run/audit"
@@ -97,7 +95,7 @@ class MyRunnable(Runnable):
         # Column Cleanse
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df["date"] = df["timestamp"].dt.date
-        df["instance_name"] = instance_name
+        df["instance_name"] = self.instance_name
         if "message_projectKey" in df.columns:
             df = df.rename(columns={"message_projectKey": "message_project_key"})
         if "message_login" in df.columns:
