@@ -48,7 +48,7 @@ def build_gold_tables():
     
     # 5. Unload the gold tables
     for table_name in base_tables:
-        destination = "gold/{table_name}.parquet"
+        destination = f"gold/{table_name}.parquet"
         logger.warning(f"Unloading {table_name} to {destination}...")
         
         if unload_behavior == "duckdb":
