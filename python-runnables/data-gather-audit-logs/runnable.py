@@ -95,7 +95,7 @@ class MyRunnable(Runnable):
         # Column Cleanse
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df["date"] = df["timestamp"].dt.date
-        df["instance_name"] = instance_name
+        df["instance_name"] = self.instance_name
         if "message_projectKey" in df.columns:
             df = df.rename(columns={"message_projectKey": "message_project_key"})
         if "message_login" in df.columns:
