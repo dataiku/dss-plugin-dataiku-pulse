@@ -57,9 +57,7 @@ class MyRunnable(Runnable):
 
     def run(self, progress_callback):
         results = []
-        # Get local client and name
-        instance_name = dss_funcs.get_dss_name(self)
-        
+
         # change directory and get audit logs
         root_path = self.local_client.get_instance_info().raw["dataDirPath"]
         audit_path = f"{root_path}/run/audit"
