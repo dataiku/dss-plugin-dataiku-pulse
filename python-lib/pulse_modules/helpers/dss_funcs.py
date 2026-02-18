@@ -54,13 +54,13 @@ def build_remote_client(self, remote_url=False, api_key=False):
 
 def get_dss_name(self):
     instance_info = self.local_client.get_instance_info()
-    instance_name = (
-        getattr(instance_info, "node_id", None)
-        or getattr(instance_info, "node_name", None)
-        or "unknown_instance_name"
+    data = instance_info.raw
+    instance_id = (
+        data.get("nodeId", None)
+        or data.get("installId", None)
     )
-    instance_name = re.sub(r'[^a-zA-Z0-9]', ' ', instance_name)
-    instance_name = re.sub(r'\s+', '_', instance_name)
+    instance_id = re.sub(r'[^a-zA-Z0-9]', ' ', instance_id)
+    instance_id = re.sub(r'\s+', '_', instance_id)
     return instance_name
 
 
