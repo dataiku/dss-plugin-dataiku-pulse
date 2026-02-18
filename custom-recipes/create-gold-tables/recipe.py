@@ -47,6 +47,7 @@ def build_gold_tables():
     unload_behavior = recipe_config.get('unload_behavior', "duckdb")
     
     # 5. Unload the gold tables
+    failed_tables = []
     for table_name in base_tables:
         destination = f"gold/{table_name}.parquet"
         logger.info(f"Unloading {table_name} to {destination}...")
@@ -68,6 +69,8 @@ def build_gold_tables():
                 conn.execute(query)
             except Exception as e:
                 logger.error(f"Failed to unload {table_name}: {e}")
+                failed_tables.append(table_name)
+
                 
         elif unload_behavior == "dataiku":
             try:
@@ -79,6 +82,8 @@ def build_gold_tables():
                 settings.dss_gold_tables_folder.upload_stream(destination, content)
             except Exception as e:
                 logger.error(f"Dataiku unload failed for {table_name}: {e}")
+                failed_tables.append(table_name)
+
                 
         else:
             logger.error("Unknown unload behavior")
