@@ -13,7 +13,7 @@ def get_actors(analytics, actor_filters, filters=None):
         with st.container(border=True):
             actor_login = st.selectbox(
                 label = "## Select Actor",
-                options = df["login"].dropna().tolist(),
+                options = df["login"].dropna().unique().tolist(),
                 index = 0
             )
     scope = {

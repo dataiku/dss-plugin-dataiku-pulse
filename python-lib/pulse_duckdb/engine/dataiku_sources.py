@@ -30,9 +30,7 @@ def build_partitioned_data_df() -> pd.DataFrame:
     # Normalize partition values
     df["category"] = df["category"].str.replace("category=", "", regex=False)
     df["module"] = df["module"].str.replace("module=", "", regex=False)
-    df["instance_name"] = df["instance_name"].str.replace(
-        "instance_name=", "", regex=False
-    )
+    df["instance_name"] = df["instance_name"].str.replace("instance_name=", "", regex=False)
     return df
 
 

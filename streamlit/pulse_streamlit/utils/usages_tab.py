@@ -39,6 +39,8 @@ def render(analytics, scope, filters=None):
             if capability == "Overview":
                 total_events = usage_kpis.get_total_build_events_last_30_days(tab_scope)
                 st.markdown(f"**Total development events (last 30 days): {total_events:,}**")
+                if total_events == 0:
+                    break
             else:
                 tab_scope["capability"] = capability
                 subcats = helper.get_subcategories_for_capability(capability)

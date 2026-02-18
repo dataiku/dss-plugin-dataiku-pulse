@@ -1,4 +1,8 @@
+import io
 import logging
+
+import dataiku
+from dataiku.customrecipe import get_recipe_config
 
 from pulse_duckdb import settings
 from pulse_duckdb.engine import (
@@ -11,8 +15,11 @@ from pulse_duckdb.engine import (
     raw_views,
 )
 
-LOG_LEVEL = logging.WARNING
-logging.getLogger("pulse_duckdb").setLevel(LOG_LEVEL)
+
+LOG_LEVEL = logging.INFO
+logger = logging.getLogger("pulse_duckdb")
+logger.setLevel(LOG_LEVEL)
+
 
 def build_gold_tables():
     # 1. Delete anything existing
@@ -36,28 +43,56 @@ def build_gold_tables():
     base_tables = df['table_name'].tolist()
     
     # 4. Custom edits
-    #from dataiku.customrecipe import get_recipe_config
-    #recipe_config = get_recipe_config()
+    recipe_config = get_recipe_config()
+    unload_behavior = recipe_config.get('unload_behavior', "duckdb")
     
     # 5. Unload the gold tables
-    base_path = f"{settings.blob_header}://{settings.blob_bket}/{settings.dss_gold_tables_folder_root}/gold"
+    failed_tables = []
     for table_name in base_tables:
-        destination = f"{base_path}/{table_name}.parquet"
-        logger.warning(f"Unloading {table_name} to {destination}...")
-        query = (
-            f"COPY {table_name} "
-            f"TO '{destination}' "
-            f"(FORMAT 'PARQUET', OVERWRITE TRUE);"
-        )
-        logger.debug(query)
-        try:
-            
-            conn.execute(query)
-        except Exception as e:
-            logger.warning(f"Failed to unload {table_name}: {e}")
+        destination = f"gold/{table_name}.parquet"
+        logger.info(f"Unloading {table_name} to {destination}...")
+        
+        if unload_behavior == "duckdb":
+            try:
+                path = (
+                    f"{settings.blob_header}://"
+                    f"{settings.blob_bket}/"
+                    f"{settings.dss_gold_tables_folder_root}/"
+                    f"{destination}"
+                )
+                query = (
+                    f"COPY {table_name} "
+                    f"TO '{path}' "
+                    f"(FORMAT 'PARQUET', OVERWRITE TRUE);"
+                )
+                logger.debug(query)
+                conn.execute(query)
+            except Exception as e:
+                logger.error(f"Failed to unload {table_name}: {e}")
+                failed_tables.append(table_name)
+
+                
+        elif unload_behavior == "dataiku":
+            try:
+                unload_df = conn.execute(f"SELECT * FROM {table_name};").df()
+                f = io.BytesIO()
+                unload_df.to_parquet(f, compression="gzip", engine='pyarrow', index=False)
+                f.seek(0)
+                content = f.read()
+                settings.dss_gold_tables_folder.upload_stream(destination, content)
+            except Exception as e:
+                logger.error(f"Dataiku unload failed for {table_name}: {e}")
+                failed_tables.append(table_name)
+
+                
+        else:
+            logger.error("Unknown unload behavior")
+            raise
     
     # End
-    logger.warning("Export process complete.")
+    if failed_tables:
+        logger.warning(f"Tables failed to unload: {failed_tables}")
+    logger.info("Export process complete.")
     return
 
 # -------------------------------------------------------------------------------------------
