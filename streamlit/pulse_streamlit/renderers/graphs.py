@@ -1,11 +1,12 @@
 import plotly.express as px
 import streamlit as st
 
+
 def render_graph(result, key=None):
     df = result["df"]
     meta = result["meta"]
 
-    if key == None:
+    if key is None:
         key = meta.get("id")
 
     graph = meta.get("graph", {})
@@ -35,24 +36,53 @@ def render_graph(result, key=None):
             color=graph.get("color"),
         )
 
+    # -------------------------------
+    # NEW: Treemap Support
+    # -------------------------------
+    elif kind == "treemap":
+        fig = px.treemap(
+            df,
+            path=graph.get("path"),         # hierarchy
+            values=graph.get("values"),     # numeric size
+            color=graph.get("color"),       # optional
+            color_discrete_sequence=px.colors.qualitative.Set2,
+        )
+
+        fig.update_traces(
+            texttemplate="%{label}<br>%{percentEntry:.1%}",
+            textfont_size=14
+        )
+
     else:
         return
 
-    # Global styling (applied everywhere)
-    fig.update_layout(
+    # --------------------------------
+    # Global styling
+    # --------------------------------
+    layout_updates = dict(
         title=meta.get("label", "Label missing from META"),
         legend_title=graph.get("legend_title", graph.get("color", None)),
-        xaxis_title=graph.get("x_title", graph["x"]),
-        yaxis_title=graph.get("y_title", graph["y"]),
         template="plotly",
         font=dict(size=14),
+        margin=dict(t=120),
     )
 
-    # Annotations
+    # Only apply axis titles for charts that use axes
+    if kind in ("bar", "line"):
+        layout_updates.update(
+            xaxis_title=graph.get("x_title", graph.get("x")),
+            yaxis_title=graph.get("y_title", graph.get("y")),
+        )
+
+    fig.update_layout(**layout_updates)
+
+    # --------------------------------
+    # Description Annotation
+    # --------------------------------
     fig.add_annotation(
         text=meta.get("description", "Description missing from META"),
         x=0.5,
-        y=1.02,
+        y=1.08,
         xref="paper",
         yref="paper",
         showarrow=False,
@@ -60,7 +90,9 @@ def render_graph(result, key=None):
         align="center",
     )
 
-    # Display
+    # --------------------------------
+    # Render
+    # --------------------------------
     st.plotly_chart(
         figure_or_data=fig,
         use_container_width=True,
