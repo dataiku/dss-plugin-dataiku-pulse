@@ -26,10 +26,32 @@ def main(self):
     except:
         return pd.DataFrame()
     
-
+    #####################################################
+    # Quick totals
+    totals_cols = ["size", "nbFiles", "nbFolders", "nbErrors"]
+    totals_df = (
+        df[totals_cols]
+        .drop_duplicates()
+        .reset_index(drop=True)
+    )
+    # Save output
     
+    #####################################################
+    # Transpose (drop totals first)
+    transpose_df = (
+        df
+        .drop(columns=totals_cols)
+        .T
+    )
     
-    
+    #####################################################
+    # Summary table
+    summary_df = (
+        transpose_df
+        .drop(columns=["items", "locations"], errors="ignore")
+        .reset_index()
+    )
+    # Save output
     
     
     
