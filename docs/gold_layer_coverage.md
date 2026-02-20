@@ -40,7 +40,6 @@
 | instance_connections | ❌ |
 | instance_instance_info | ❌ |
 | instance_license | ❌ |
-| name_mapping | ❌ |
 
 ---
 
