@@ -88,7 +88,6 @@ def get_dss_name_id_mapping(self):
 # Preset Handling
 # ----------------------------------------------------------
 def get_preset_pc(self, preset_name):
-    # Connect to the plugin
     local_client = build_local_client()
     plugin_handle = local_client.get_plugin(plugin_id="dataiku-pulse")
     plugin_settings = plugin_handle.get_settings()
@@ -99,7 +98,6 @@ def get_preset_pc(self, preset_name):
         "cores": self.params["cores"],
         "macro_configs": [],
     }
-    # Get the respective param_set if available
     if preset_name:
         param_set = plugin_settings.get_parameter_set(parameter_set_name="params-worker-instances")
         preset = param_set.get_preset(preset_name=preset_name)
@@ -108,29 +106,6 @@ def get_preset_pc(self, preset_name):
         except:
             pass
     return preset_pc
-
-
-def rename_and_move_first(df, old, new):
-    if old in df.columns:
-        df = df.rename(columns={old: new})
-    if new in df.columns:
-        cols = [new] + [c for c in df.columns if c != new]
-        df = df[cols]
-    return df
-
-
-def get_nested_value(data, keys, dt=False):
-    current = data
-    for key in keys:
-        if isinstance(current, dict) and key in current:
-            current = current[key]
-        else:
-            if dt:
-                return pd.to_datetime(0, unit="ms")
-            else:
-                return False
-    return current
-
 
 
 # ----------------------------------------------------------
