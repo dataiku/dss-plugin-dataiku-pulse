@@ -4,7 +4,7 @@ import pandas as pd
 def main(self):
     if self.dss_footprint.empty:
         return pd.DataFrame()
-    df = self.dss_footprint.empty
+    df = self.dss_footprint
     
     # Transpose (drop totals first)
     totals_cols = ["size", "nbFiles", "nbFolders", "nbErrors"]
