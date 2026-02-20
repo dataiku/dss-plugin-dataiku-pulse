@@ -1,4 +1,4 @@
 FLAT_COLUMNS = [
     "profile",
-    "licensedlimit"
+    "licensed_limit"
 ]
