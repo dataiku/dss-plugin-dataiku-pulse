@@ -6,10 +6,9 @@ def main(self):
         df = pd.DataFrame(data)
     except:
         return pd.DataFrame()
-    
+
     # Long Summary
     totals_cols = ["size", "nbFiles", "nbFolders", "nbErrors"]
-    # transpose df and remove quick totals
     transpose_df = (
         df
         .drop(columns=totals_cols)
