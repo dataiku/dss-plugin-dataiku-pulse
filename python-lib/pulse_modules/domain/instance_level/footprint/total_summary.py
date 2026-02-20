@@ -6,7 +6,7 @@ def main(self):
         return pd.DataFrame()
     df = self.dss_footprint.empty
     
-    # Total Summary
+    # Total DSS Summary
     totals_cols = ["size", "nbFiles", "nbFolders", "nbErrors"]
     totals_df = (
         df[totals_cols]
