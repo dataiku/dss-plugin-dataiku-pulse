@@ -339,29 +339,6 @@ def _write_quality_outputs(self, layer, category, module_name, file_name, df, df
     return
 
 
-# ----------------------------------------------------------
-# Run Modules
-# ----------------------------------------------------------
-def run_modules(self, mode="instance", project_handle=None, client_d={}, project_key=None):
-    dss_objs = _resolve_module_namespace(mode)
-    results = []
-    for category, module_name, module_path in _discover_modules(dss_objs):
-        df, results = _execute_module(
-            self,
-            module_name,
-            module_path,
-            project_handle,
-            client_d,
-            project_key,
-            category,
-            results
-        )
-        if not _is_valid_df(df):
-            continue
-        results = _persist_raw(self, df, category, module_name, project_key, None, results)
-        results = _process_quality_and_persist(self, df, category, module_name, project_key, "client", None, results)
-    return results
-
 # EOF
 
 
