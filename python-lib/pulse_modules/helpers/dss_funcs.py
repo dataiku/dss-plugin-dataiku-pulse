@@ -26,8 +26,9 @@ def load_yaml(path: str) -> dict:
         return {}
     return
 
-
-# ---------- DATAIKU CLIENT HANDLES -----------------------------
+# ----------------------------------------------------------
+# Dataiku Client Handles
+# ----------------------------------------------------------
 def build_local_client():
     client = dataiku.api_client()
     return client
@@ -52,6 +53,9 @@ def build_remote_client(self, remote_url=False, api_key=False):
     return client
 
 
+# ----------------------------------------------------------
+# Instance ID and Naming
+# ----------------------------------------------------------
 def get_instance_id(self):
     instance_info = self.local_client.get_instance_info()
     data = instance_info.raw
@@ -80,6 +84,9 @@ def get_dss_name_id_mapping(self):
     return mapping
 
 
+# ----------------------------------------------------------
+# Preset Handling
+# ----------------------------------------------------------
 def get_preset_pc(self, preset_name):
     # Connect to the plugin
     local_client = build_local_client()
