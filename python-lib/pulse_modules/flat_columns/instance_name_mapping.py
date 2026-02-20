@@ -1,1 +1,2 @@
-FLAT_COLUMNS = []
+FLAT_COLUMNS = [
+]
