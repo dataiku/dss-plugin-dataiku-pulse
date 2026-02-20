@@ -53,7 +53,14 @@ def main(self):
     )
     # Save output
     
-    
-    
-    
+    #####################################################
+    # Object-level expansion
+    for name, row in transpose_df.iterrows():
+        if not isinstance(row.get("items"), list):
+            continue
+        tmp_df = pd.DataFrame(row["items"])
+        tmp_df.insert(loc=0, column='object', value=name)
+
+    #####################################################
+    # END
     return pd.DataFrame()
