@@ -177,6 +177,27 @@ def run_modules(self, mode="instance", project_handle=None, client_d={}, project
 # ----------------------------------------------------------
 # Validate and Save RAW
 # ----------------------------------------------------------
+def rename_and_move_first(df, old, new):
+    if old in df.columns:
+        df = df.rename(columns={old: new})
+    if new in df.columns:
+        cols = [new] + [c for c in df.columns if c != new]
+        df = df[cols]
+    return df
+
+
+def get_nested_value(data, keys, dt=False):
+    current = data
+    for key in keys:
+        if isinstance(current, dict) and key in current:
+            current = current[key]
+        else:
+            if dt:
+                return pd.to_datetime(0, unit="ms")
+            else:
+                return False
+    return current
+
 def _trim_raw_df_by_last_modified(df, *, last_modified_col, last_update):
     tmp = df.copy(deep=False)
     tmp[last_modified_col] = pd.to_datetime(
