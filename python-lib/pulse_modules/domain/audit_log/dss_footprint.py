@@ -24,8 +24,8 @@ def main(self):
         # call API and create DF
         data = client.get_data_directories_footprint().compute_all_dss_footprint()
         df = pd.DataFrame(data)
-    except:
-        return results
+    except Exception as e:
+        return [DSS Footprint, f"Loading API Module", False, e]
     
     #####################################################
     # Quick totals
