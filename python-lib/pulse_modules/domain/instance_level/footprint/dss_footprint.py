@@ -34,7 +34,7 @@ def main(self):
         .drop_duplicates()
         .reset_index(drop=True)
     )
-    # Save output
+    resultssave_df(self, df, category, module_name, file_name, results)
     
     #####################################################
     # Transpose (drop totals first)
