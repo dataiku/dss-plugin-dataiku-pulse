@@ -19,17 +19,28 @@ def main(self):
     for name, row in transpose_df.iterrows():
         if not isinstance(row.get("items"), list):
             continue
+            
         tmp_df = pd.DataFrame(row["items"])
         tmp_df.insert(loc=0, column='object', value=name)
-        cols = ["object"]
-        if name in ["projects" , "orphanProjects"]:
-            cols += ["projectKey"]
+        
+        # Determine name column source
+        if name in ["projects", "orphanProjects"]:
+            name_col = "projectKey"
         elif name in ["codeEnvs", "plugins"]:
-            cols += ["name"]
+            name_col = "name"
         else:
             self.logger.error(f"Unknown DSS Footprint name: {name}")
-        cols += totals_cols
-        tmp_df = tmp_df[cols]
+            continue
+            
+        # Ensure required columns exist
+        required = ["object", name_col] + totals_cols
+        missing = set(required) - set(tmp_df.columns)
+        if missing:
+            self.logger.error(f"Missing expected columns {missing} for {name}")
+            continue
+        tmp_df = tmp_df[required]
+
+        # Standardize schema
         tmp_df.columns = ["object", "name"] + totals_cols
         dfs.append(tmp_df)
 
