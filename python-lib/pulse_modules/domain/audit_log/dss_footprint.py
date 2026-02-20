@@ -24,7 +24,7 @@ def main(self):
         data = client.get_data_directories_footprint().compute_all_dss_footprint()
         df = pd.DataFrame(data)
     except:
-        return pd.DataFrame()
+        return results
     
     #####################################################
     # Quick totals
