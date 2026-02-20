@@ -18,6 +18,6 @@ def main(self):
     summary_df = (
         transpose_df
         .drop(columns=["items", "locations"], errors="ignore")
-        .reset_index()
+        .reset_index(names="object")
     )
     return summary_df
