@@ -150,6 +150,7 @@ def _discover_modules(dss_objs):
 
 
 def _execute_module(self, module_name, module_path, project_handle, client_d, project_key, category, results):
+    _expansion_self_data(self, module_path)
     try:
         spec = importlib.util.spec_from_file_location(module_name, module_path)
         module = importlib.util.module_from_spec(spec)
