@@ -115,8 +115,12 @@ def _dss_footprint(self):
         self.dss_footprint = self.local_client.get_data_directories_footprint().compute_all_dss_footprint()
     except:
         self.dss_footprint = pd.DataFrame()
-    return self
-    
+    return
+
+def _expansion_self_data(self, module_path):
+    if "footprint" in module_path:
+        _dss_footprint(self)
+    return
 
 
 # ----------------------------------------------------------
