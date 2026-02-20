@@ -363,13 +363,3 @@ def _write_quality_outputs(self, layer, category, module_name, file_name, df, df
 
 
 # EOF
-
-
-
-
-
-
-
-
-
-
