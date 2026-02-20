@@ -2,9 +2,9 @@ import pandas as pd
 
         
 def main(self):
-    if self.dss_footprint.empty:
-        return pd.DataFrame()
     df = self.dss_footprint
+    if df is None or df.empty:
+        return pd.DataFrame()
     
     # Total DSS Summary
     totals_cols = ["size", "nbFiles", "nbFolders", "nbErrors"]

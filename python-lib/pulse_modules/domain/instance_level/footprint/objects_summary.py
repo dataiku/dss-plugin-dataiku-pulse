@@ -2,9 +2,9 @@ import pandas as pd
 
         
 def main(self):
-    if self.dss_footprint.empty:
-        return pd.DataFrame()
     df = self.dss_footprint
+    if df is None or df.empty:
+        return pd.DataFrame()
 
     # Transpose (drop totals first)
     totals_cols = ["size", "nbFiles", "nbFolders", "nbErrors"]
@@ -31,7 +31,8 @@ def main(self):
         cols += totals_cols
         tmp_df = tmp_df[cols]
         tmp_df.columns = ["object", "name"] + totals_cols
+        dfs.append(tmp_df)
 
     #####################################################
     # END
-    return dfs.append(tmp_df)
+    return pd.concat(dfs, ignore_index=True)
