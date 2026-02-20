@@ -170,9 +170,7 @@ def _execute_module(self, module_name, module_path, project_handle, client_d, pr
         return pd.DataFrame(), results
     return
 
-# ----------------------------------------------------------
-# Run Modules
-# ----------------------------------------------------------
+
 def run_modules(self, mode="instance", project_handle=None, client_d={}, project_key=None):
     dss_objs = _resolve_module_namespace(mode)
     results = []
