@@ -6,33 +6,18 @@ def main(self):
         return pd.DataFrame()
     df = self.dss_footprint.empty
     
-    # Quick totals
-    totals_cols = ["size", "nbFiles", "nbFolders", "nbErrors"]
     # Transpose (drop totals first)
+    totals_cols = ["size", "nbFiles", "nbFolders", "nbErrors"]
     transpose_df = (
         df
         .drop(columns=totals_cols)
         .T
     )
     
-    #####################################################
     # Summary table
     summary_df = (
         transpose_df
         .drop(columns=["items", "locations"], errors="ignore")
         .reset_index()
     )
-    # Save output
-    
-    #####################################################
-    # Object-level expansion
-    for name, row in transpose_df.iterrows():
-        if not isinstance(row.get("items"), list):
-            continue
-        tmp_df = pd.DataFrame(row["items"])
-        tmp_df.insert(loc=0, column='object', value=name)
-        # Save output
-
-    #####################################################
-    # END
-    return results
+    return summary_df
