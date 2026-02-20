@@ -1,17 +1,17 @@
 import pandas as pd
 
 
-def save_df(df):
+def save_df(self, df, category, module_name, file_name, results):
     # RAW 
     try:
-        long_results = dss_funcs._persist_raw(self, mn_df, category, module_name, None, file_name, [])
+        long_results = dss_funcs._persist_raw(self, df, category, module_name, None, file_name, [])
         results.append([category, f"write/save - {module_name} -- raw", True, None])
     except Exception as e:
         results.append([category, f"write/save - {module_name} -- raw", False, e])
         continue
     # SILVER
     try:
-        long_results = dss_funcs._process_quality_and_persist(self, mn_df, category, module_name, None, category, file_name, [])
+        long_results = dss_funcs._process_quality_and_persist(self, df, category, module_name, None, category, file_name, [])
         results.append([category, f"write/save - {module_name} -- silver", True, None])
     except Exception as e:
         results.append([category, f"write/save - {module_name} -- silver", False, e])
