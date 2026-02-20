@@ -64,4 +64,4 @@ def main(self):
 
     #####################################################
     # END
-    return pd.DataFrame()
+    return results
