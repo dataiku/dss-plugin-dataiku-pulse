@@ -7,13 +7,17 @@ def main(self):
     except:
         return pd.DataFrame()
     
-    # Quick totals
+    # Long Summary
     totals_cols = ["size", "nbFiles", "nbFolders", "nbErrors"]
-    totals_df = (
-        df[totals_cols]
-        .drop_duplicates()
-        .reset_index(drop=True)
+    # transpose df and remove quick totals
+    transpose_df = (
+        df
+        .drop(columns=totals_cols)
+        .T
     )
-    if len(totals_df) != 1:
-        return pd.DataFrame()
-    return totals_df
+    summary_df = (
+        transpose_df
+        .drop(columns=["items", "locations"], errors="ignore")
+        .reset_index(names="object")
+    )
+    return summary_df
