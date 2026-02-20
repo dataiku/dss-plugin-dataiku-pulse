@@ -19,6 +19,7 @@ def save_df(self, df, category, module_name, file_name, results):
 
         
 def main(self):
+    results = []
     try:
         # call API and create DF
         data = client.get_data_directories_footprint().compute_all_dss_footprint()
