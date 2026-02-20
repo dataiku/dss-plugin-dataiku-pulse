@@ -13,4 +13,6 @@ def main(self):
         .drop_duplicates()
         .reset_index(drop=True)
     )
+    if len(totals_df) != 1:
+        raise ValueError("Unexpected multiple totals rows detected.")
     return totals_df
