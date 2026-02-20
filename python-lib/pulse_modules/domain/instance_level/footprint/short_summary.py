@@ -60,6 +60,7 @@ def main(self):
             continue
         tmp_df = pd.DataFrame(row["items"])
         tmp_df.insert(loc=0, column='object', value=name)
+        # Save output
 
     #####################################################
     # END
