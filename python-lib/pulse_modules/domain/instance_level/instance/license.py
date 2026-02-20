@@ -3,5 +3,7 @@ from pulse_modules.helpers import dss_funcs
 
 
 def main(self):
-    df = pd.json_normalize(self.local_client.get_instance_info().raw)
+    data =  client.get_licensing_status()
+    df = pd.DataFrame(data["limits"]["licensedProfiles"])
+    df = df.T[["licensedLimit"]].reset_index(drop=False, names="profile")
     return df
