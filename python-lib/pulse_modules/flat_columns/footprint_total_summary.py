@@ -1,3 +1,3 @@
 FLAT_COLUMNS = [
-    "object", "size", "nbFiles", "nvFolders", "nbErrors"
+    "object", "size", "nbFiles", "nbFolders", "nbErrors"
 ]
