@@ -31,8 +31,7 @@ def main(self):
         cols += totals_cols
         tmp_df = tmp_df[cols]
         tmp_df.columns = ["object", "name"] + totals_cols
-        dfs.append(tmp_df)
 
     #####################################################
     # END
-    return results
+    return dfs.append(tmp_df)
