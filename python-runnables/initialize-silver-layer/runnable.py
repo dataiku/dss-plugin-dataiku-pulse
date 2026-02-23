@@ -50,6 +50,8 @@ class MyRunnable(Runnable):
             ]
         if not paths:
             raise Exception(f"No Hive-partitioned paths found for category '{limit}'")
+            
+        raise Exception(paths)
         
         # Re-Run Silver Quality Guard
         if self.preset_pc["do_parallel"]:
