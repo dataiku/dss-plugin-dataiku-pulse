@@ -64,6 +64,12 @@ users_metadata_table:
         last_session_activity,
         first_commit_date,
         last_commit_date,
-        last_activity_ts
+        last_activity_ts,
+        trial_exists,
+        trial_valid,
+        trial_expired,
+        trial_illegal,
+        trial_granted_on,
+        trial_expires_on
     FROM ranked
     WHERE rn = 1;
