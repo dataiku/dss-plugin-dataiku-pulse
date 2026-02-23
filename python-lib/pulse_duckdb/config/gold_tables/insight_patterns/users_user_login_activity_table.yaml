@@ -4,10 +4,9 @@ users_user_login_activity_table:
     Keeps exactly one activity record per user per day and activity type,
     selecting the latest timestamp when multiple ingestion runs exist.
     Optimized to avoid full-history window scans.
-
   depends_on:
     - users_user_login_activity_view
-
+  build_order: 20
   full_sql: |
     CREATE OR REPLACE TABLE users_user_login_activity_base AS
     WITH activity AS (
