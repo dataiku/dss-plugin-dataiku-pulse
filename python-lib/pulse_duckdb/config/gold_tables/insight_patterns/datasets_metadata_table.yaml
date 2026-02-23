@@ -4,10 +4,9 @@ datasets_metadata_table:
     Keeps exactly one row per dataset based on the most recent
     dataset_versionTag_lastModifiedOn, with deterministic tie-breaking.
     Optimized to avoid full-history window scans.
-
   depends_on:
     - datasets_metadata_view
-
+  build_order: 20
   full_sql: |
     CREATE OR REPLACE TABLE datasets_metadata_base AS
     WITH latest_ts AS (
