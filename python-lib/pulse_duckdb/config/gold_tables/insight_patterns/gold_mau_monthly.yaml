@@ -10,7 +10,7 @@ gold_mau_monthly:
     - users_metadata_base
   build_order: 90
   full_sql: |
-    CREATE OR REPLACE TABLE gold_mau_monthly AS
+    CREATE OR REPLACE TABLE gold_mau_monthly_base AS
     SELECT
         DATE_TRUNC('month', a.timestamp) AS month,
         a.instance_name,
