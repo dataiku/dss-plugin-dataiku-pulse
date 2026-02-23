@@ -39,18 +39,17 @@ class MyRunnable(Runnable):
         # Gather Paths
         all_paths = self.folder.list_paths_in_partition()
         limit = self.config.get("pulse_limit_category", "all")
-        if limit == "all":
+        paths = [
+            path for path in all_paths
+            if "/raw/category=" in path
+        ]
+        if limit != "all":
             paths = [
-                path for path in all_paths
-                if "/raw/category=" in path
-            ]
-        else:
-            paths = [
-                path for path in all_paths
-                if f"/raw/category={limit}" in path
+                path for path in paths
+                if f"/raw/category={limit}/" in path
             ]
         if not paths:
-            raise Exception("No Hive-partitioned paths found")
+            raise Exception(f"No Hive-partitioned paths found for category '{limit}'")
         
         # Re-Run Silver Quality Guard
         if self.preset_pc["do_parallel"]:
