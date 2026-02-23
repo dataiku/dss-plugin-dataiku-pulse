@@ -22,7 +22,8 @@ users_mau_monthly:
     WHERE
         a.activity_type IN ('VIEWER', 'DEVELOPMENT')
         AND m.enabled = TRUE
-        AND m.resultingUserProfile NOT IN ('READER', 'AI_CONSUMER')
+        AND COALESCE(m.resultingUserProfile, '')
+            NOT IN ('READER', 'AI_CONSUMER')
         AND COALESCE(m.trial_exists, FALSE) = FALSE
     GROUP BY
         DATE_TRUNC('month', a.timestamp),
