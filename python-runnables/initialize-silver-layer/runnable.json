@@ -28,7 +28,7 @@
             "defaultValue": true
         },
         {
-            "name": "pulse_category",
+            "name": "pulse_limit_category",
             "type": "SELECT",
             "label": "Pulse Category",
             "selectChoices": [
