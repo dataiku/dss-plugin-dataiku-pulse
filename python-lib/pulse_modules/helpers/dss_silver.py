@@ -39,6 +39,8 @@ TIMESTAMP_COLS = [
     "scenarios_nextRun",
     "scenarios_createdOn",
     "scenarios_lastModifiedOn",
+    "trial_granted_on",
+    "trial_expires_on",
 ]
 NUMERIC_COLS = [
     "level_1_size",
@@ -74,6 +76,10 @@ BOOL_COLS = [
     "scenarios_markedAsTest",
     "scenarios_running",
     "enabled",
+    "trial_exists",
+    "trial_valid",
+    "trial_expired",
+    "trial_illegal",
 ]
 TRUE_SET = {"true", "True", True, 1, "1"}
 FALSE_SET = {"false", "False", False, 0, "0"}
