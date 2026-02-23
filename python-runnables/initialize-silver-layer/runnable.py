@@ -36,8 +36,6 @@ class MyRunnable(Runnable):
         self.folder_name = "partitioned_data"
         self.folder = dss_folder.get_local_folder(self, self.project_handle, self.folder_name)
         
-        
-        
         # Gather Paths
         all_paths = self.folder.list_paths_in_partition()
         paths = [
