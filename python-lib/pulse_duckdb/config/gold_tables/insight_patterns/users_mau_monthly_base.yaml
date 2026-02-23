@@ -1,4 +1,4 @@
-gold_mau_monthly:
+users_mau_monthly:
   description: >
     Monthly Active Users (MAU) aggregated by calendar month and instance.
     Counts distinct licensed, enabled, non-trial users who performed
@@ -23,7 +23,7 @@ gold_mau_monthly:
         a.activity_type IN ('VIEWER', 'DEVELOPMENT')
         AND m.enabled = TRUE
         AND m.resultingUserProfile NOT IN ('READER', 'AI_CONSUMER')
-        AND m.trial_exists = FALSE
+        AND COALESCE(m.trial_exists, FALSE) = FALSE
     GROUP BY
         DATE_TRUNC('month', a.timestamp),
         a.instance_name
