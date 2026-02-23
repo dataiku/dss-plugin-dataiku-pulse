@@ -38,7 +38,7 @@ class MyRunnable(Runnable):
         
         # Gather Paths
         all_paths = self.folder.list_paths_in_partition()
-        limit = self.config["pulse_limit_category"]
+        limit = self.config.get("pulse_limit_category", "all")
         if limit == "all":
             paths = [
                 path for path in all_paths
