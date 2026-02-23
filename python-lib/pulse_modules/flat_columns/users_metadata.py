@@ -18,7 +18,7 @@ FLAT_COLUMNS = [
     "last_commit_date",
     
     # trial licenses
-    "trial_exist",
+    "trial_exists",
     "trial_valid",
     "trial_expired",
     "trial_illegal",
