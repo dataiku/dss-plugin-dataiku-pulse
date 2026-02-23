@@ -38,6 +38,7 @@ class MyRunnable(Runnable):
         
         # Gather Paths
         all_paths = self.folder.list_paths_in_partition()
+        if self.config["pulse_limit_category"] == "all"
         paths = [
             path for path in all_paths
             if "/raw/category=" in path
