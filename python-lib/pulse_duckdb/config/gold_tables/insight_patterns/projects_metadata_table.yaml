@@ -4,10 +4,9 @@ projects_metadata_table:
     Keeps exactly one row per project based on the most recent
     project_versionTag_lastModifiedOn, with deterministic tie-breaking.
     Optimized to avoid full-history window scans.
-
   depends_on:
     - projects_metadata_view
-
+  build_order: 20
   full_sql: |
     CREATE OR REPLACE TABLE projects_metadata_base AS
     WITH latest_ts AS (
