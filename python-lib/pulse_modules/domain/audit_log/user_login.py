@@ -230,13 +230,6 @@ def main(self, df):
         classification = classify_users_by_activity(grp)
         users_login_df = classification_to_df(classification, instance_name, self.dt)
         
-        # RAW 
-        try:
-            long_results = dss_funcs._persist_raw(self, users_login_df, "users", "user_login_activity", None, f"data-{dt_epoch}.parquet", [])
-            results.append(["User Login Classification", "write/save - RAW", True, None])
-        except Exception as e:
-            results.append(["User Login Classification", "write/save - RAW", False, e])    
-            
         # MAU add on
         merged_df = apply_mau_rules(
             users_login_df,
@@ -245,7 +238,14 @@ def main(self, df):
             profile_map,
             rules,version
         )
-
+        
+        # RAW 
+        try:
+            long_results = dss_funcs._persist_raw(self, merged_df, "users", "user_login_activity", None, f"data-{dt_epoch}.parquet", [])
+            results.append(["User Login Classification", "write/save - RAW", True, None])
+        except Exception as e:
+            results.append(["User Login Classification", "write/save - RAW", False, e])    
+            
         # SILVER
         try:
             long_results = dss_funcs._process_quality_and_persist(self, merged_df, "users", "user_login_activity", None, "SKIP", f"data-{dt_epoch}.parquet", [])
