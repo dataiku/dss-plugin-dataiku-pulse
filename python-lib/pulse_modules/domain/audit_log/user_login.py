@@ -166,8 +166,31 @@ def load_mau_config():
     CONFIG_PATH = Path(__file__).parent / "mau_definition.yaml"
     with open(CONFIG_PATH) as f:
         return yaml.safe_load(f)
-    
-    
+    return
+
+
+def apply_mau_rules(df, rules, version):
+    eligible = pd.Series(True, index=df.index)
+
+    # 1️⃣ Require enabled
+    if rules.get("require_enabled"):
+        eligible &= df["enabled"] == True
+
+    # 2️⃣ Exclude trial
+    if rules.get("exclude_trial"):
+        eligible &= df["is_trial"] == False
+
+    # 3️⃣ Exclude certain license types
+    excluded_licenses = rules.get("exclude_license_types", [])
+    if excluded_licenses:
+        eligible &= ~df["license_type"].isin(excluded_licenses)
+
+    df["is_mau_eligible"] = eligible
+    df["mau_definition_version"] = version
+
+    return df
+
+
 # ------------------------------------------------
 # MAIN
 # ------------------------------------------------
