@@ -217,6 +217,15 @@ def main(self, df):
         # Classify, dataframe
         classification = classify_users_by_activity(grp)
         users_login_df = classification_to_df(classification, instance_name, self.dt)
+        
+        # MAU add on
+        user_meta_df = build_dss_users(self)
+        merged_df = users_login_df.merge(
+            user_meta_df,
+            on="login",
+            how="left"
+        )
+        merged_df = apply_mau_rules(merged_df, rules, version)
 
         # RAW 
         try:
