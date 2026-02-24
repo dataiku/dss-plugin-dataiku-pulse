@@ -197,12 +197,6 @@ def apply_mau_rules(df, rules, version):
 def main(self, df):
     results = []
     
-    # Load MAU config
-    user_meta_df = build_dss_users(self)
-    mau_config = load_mau_config()
-    version = mau_config["current_version"]
-    rules = mau_config["definitions"][version]["rules"]
-    
     # Get cleaned DF
     df, results = clean_audit_log_base(df, results)
     if df is None or not isinstance(df, pd.DataFrame):
@@ -210,6 +204,13 @@ def main(self, df):
 
     # Loop over any partitions of dates for data
     instance_name = df["instance_name"].iloc[0]
+    
+    # Load MAU config
+    user_meta_df = build_dss_users(self)
+    mau_config = load_mau_config()
+    version = mau_config["current_version"]
+    rules = mau_config["definitions"][version]["rules"]
+    
     for date,grp in df.groupby("date"):
         # datetime for saving
         self.dt = grp["timestamp"].max()
@@ -219,6 +220,13 @@ def main(self, df):
         classification = classify_users_by_activity(grp)
         users_login_df = classification_to_df(classification, instance_name, self.dt)
         
+        # RAW 
+        try:
+            long_results = dss_funcs._persist_raw(self, users_login_df, "users", "user_login_activity", None, f"data-{dt_epoch}.parquet", [])
+            results.append(["User Login Classification", "write/save - RAW", True, None])
+        except Exception as e:
+            results.append(["User Login Classification", "write/save - RAW", False, e])    
+            
         # MAU add on
         merged_df = users_login_df.merge(
             user_meta_df,
@@ -227,12 +235,7 @@ def main(self, df):
         )
         merged_df = apply_mau_rules(merged_df, rules, version)
 
-        # RAW 
-        try:
-            long_results = dss_funcs._persist_raw(self, merged_df, "users", "user_login_activity", None, f"data-{dt_epoch}.parquet", [])
-            results.append(["User Login Classification", "write/save - RAW", True, None])
-        except Exception as e:
-            results.append(["User Login Classification", "write/save - RAW", False, e])
+
         # SILVER
         try:
             long_results = dss_funcs._process_quality_and_persist(self, merged_df, "users", "user_login_activity", None, "SKIP", f"data-{dt_epoch}.parquet", [])
