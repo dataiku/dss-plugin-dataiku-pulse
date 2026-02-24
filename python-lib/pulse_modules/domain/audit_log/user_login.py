@@ -106,9 +106,9 @@ def classification_to_df(classification, instance_name=None, timestamp=None):
     return pd.DataFrame(rows)
 
 
+# ------------------------------------------------
 #
-#
-#
+# ------------------------------------------------
 def build_dss_users(self):
     data = self.local_client.list_users(
         as_objects=False,
