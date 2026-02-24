@@ -215,7 +215,6 @@ def main(self, df):
     
     # Loop and save
     for date,grp in df.groupby("date"):
-        # datetime for saving
         self.dt = grp["timestamp"].max()
         dt_epoch = self.dt.value
         
