@@ -169,21 +169,26 @@ def load_mau_config():
     return
 
 
-def apply_mau_rules(users_login_df, user_meta_df, rules, version):
+def apply_mau_rules(users_login_df, enabled_map, trial_map, profile_map, rules, version):
     eligible = pd.Series(True, index=users_login_df.index)
+
+    # Lookup metadata safely
+    enabled = users_login_df["login"].map(enabled_map).fillna(False)
+    is_trial = users_login_df["login"].map(trial_map).fillna(False)
+    profile = users_login_df["login"].map(profile_map)
 
     # Require enabled
     if rules.get("require_enabled"):
-        eligible &= user_meta_df["enabled"] == True
+        eligible &= enabled
 
     # Exclude trial
     if rules.get("exclude_trial"):
-        eligible &= user_meta_df["is_trial"] == False
+        eligible &= ~is_trial
 
     # Exclude certain license types
     excluded_licenses = rules.get("exclude_license_types", [])
     if excluded_licenses:
-        eligible &= ~user_meta_df["userProfile"].isin(excluded_licenses)
+        eligible &= ~profile.isin(excluded_licenses)
 
     users_login_df["is_mau_eligible"] = eligible
     users_login_df["mau_definition_version"] = version
@@ -212,6 +217,9 @@ def main(self, df):
     
     # Build user metadata
     user_meta_df = build_dss_users(self)
+    enabled_map = dict(zip(user_meta_df["login"], user_meta_df["enabled"]))
+    trial_map = dict(zip(user_meta_df["login"], user_meta_df["is_trial"]))
+    profile_map = dict(zip(user_meta_df["login"], user_meta_df["userProfile"]))
     
     # Loop and save
     for date,grp in df.groupby("date"):
@@ -235,7 +243,13 @@ def main(self, df):
         #    on="login",
         #    how="left"
         #)
-        merged_df = apply_mau_rules(users_login_df, user_meta_df, rules, version)
+        merged_df = apply_mau_rules(
+            users_login_df,
+            enabled_map,
+            trial_map,
+            profile_map,
+            rules,version
+        )
 
         # SILVER
         try:
