@@ -1,4 +1,6 @@
 import pandas as pd
+import yaml
+
 from pulse_modules.helpers import dss_funcs
 
 
@@ -29,6 +31,12 @@ REMOVE_WORDS = [
 
 ACTION_PATTERN = "|".join(ACTION_WORDS)
 REMOVE_PATTERN = "|".join(REMOVE_WORDS)
+
+with open("./mau_definition.yaml") as f:
+    mau_config = yaml.safe_load(f)
+
+version = mau_config["current_version"]
+rules = mau_config["definitions"][version]["rules"]
 
 # ------------------------------------------------
 # Clean the Audit Log DF
