@@ -106,8 +106,60 @@ def classification_to_df(classification, instance_name=None, timestamp=None):
     return pd.DataFrame(rows)
 
 
+#
+#
+#
+def build_dss_users(self):
+    data = self.local_client.list_users(
+        as_objects=False,
+        include_settings=False
+    )
+    dss_users_df = pd.DataFrame(data)
+    
+    # Normalize trial status
+    if "trialStatus" in dss_users_df.columns:
+        jdf = (
+            pd.json_normalize(dss_users_df["trialStatus"])
+            .add_prefix("trialStatus_")
+        )
+        dss_users_df = pd.concat([dss_users_df, jdf], axis=1)
+        # Ensure booleans exist safely
+        for col in [
+            "trialStatus_exists",
+            "trialStatus_valid",
+            "trialStatus_expired",
+            "trialStatus_illegal",
+        ]:
+            if col not in dss_users_df.columns:
+                dss_users_df[col] = False
+            dss_users_df[col] = (
+                dss_users_df[col]
+                .fillna(False)
+                .astype(bool)
+            )
+        # Canonical trial flag
+        dss_users_df["is_trial"] = (
+            dss_users_df["trialStatus_exists"]
+            & dss_users_df["trialStatus_valid"]
+            & ~dss_users_df["trialStatus_expired"]
+            & ~dss_users_df["trialStatus_illegal"]
+        )
+    else:
+        dss_users_df["is_trial"] = False
+        
+    # Normalize enabled
+    if "enabled" in dss_users_df.columns:
+        dss_users_df["enabled"] = (
+            dss_users_df["enabled"]
+            .fillna(False)
+            .astype(bool)
+        )
+    else:
+        dss_users_df["enabled"] = False
+    return dss_users_df
+
 # ------------------------------------------------
-# Calculate who is who / Actions
+# MAIN
 # ------------------------------------------------
 def main(self, df):
     results = []
