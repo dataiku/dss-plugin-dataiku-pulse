@@ -174,6 +174,11 @@ def load_mau_config():
 def main(self, df):
     results = []
     
+    # Load MAU config
+    mau_config = load_mau_config()
+    version = mau_config["current_version"]
+    rules = mau_config["definitions"][version]["rules"]
+    
     # Get cleaned DF
     df, results = clean_audit_log_base(df, results)
     if df is None or not isinstance(df, pd.DataFrame):
