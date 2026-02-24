@@ -213,7 +213,7 @@ def main(self, df):
     # Build user metadata
     user_meta_df = build_dss_users(self)
     
-    
+    # Loop and save
     for date,grp in df.groupby("date"):
         # datetime for saving
         self.dt = grp["timestamp"].max()
