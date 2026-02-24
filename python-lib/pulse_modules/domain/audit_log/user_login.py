@@ -5,12 +5,6 @@ import yaml
 from pulse_modules.helpers import dss_funcs
 
 
-CONFIG_PATH = Path(__file__).parent / "mau_definition.yaml"
-with open(CONFIG_PATH) as f:
-    mau_config = yaml.safe_load(f)
-version = mau_config["current_version"]
-rules = mau_config["definitions"][version]["rules"]
-
 REQUIRED_COLUMNS = [
     "timestamp",
     "date",
