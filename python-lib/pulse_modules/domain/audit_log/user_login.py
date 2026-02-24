@@ -110,7 +110,7 @@ def classification_to_df(classification, instance_name=None, timestamp=None):
 
 
 # ------------------------------------------------
-#
+# MAU
 # ------------------------------------------------
 def build_dss_users(self):
     data = self.local_client.list_users(
@@ -161,6 +161,13 @@ def build_dss_users(self):
         dss_users_df["enabled"] = False
     return dss_users_df
 
+
+def load_mau_config():
+    CONFIG_PATH = Path(__file__).parent / "mau_definition.yaml"
+    with open(CONFIG_PATH) as f:
+        return yaml.safe_load(f)
+    
+    
 # ------------------------------------------------
 # MAIN
 # ------------------------------------------------
