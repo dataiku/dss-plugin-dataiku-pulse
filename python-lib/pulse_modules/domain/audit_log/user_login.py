@@ -229,13 +229,13 @@ def main(self, df):
 
         # RAW 
         try:
-            long_results = dss_funcs._persist_raw(self, users_login_df, "users", "user_login_activity", None, f"data-{dt_epoch}.parquet", [])
+            long_results = dss_funcs._persist_raw(self, merged_df, "users", "user_login_activity", None, f"data-{dt_epoch}.parquet", [])
             results.append(["User Login Classification", "write/save - RAW", True, None])
         except Exception as e:
             results.append(["User Login Classification", "write/save - RAW", False, e])
         # SILVER
         try:
-            long_results = dss_funcs._process_quality_and_persist(self, users_login_df, "users", "user_login_activity", None, "SKIP", f"data-{dt_epoch}.parquet", [])
+            long_results = dss_funcs._process_quality_and_persist(self, merged_df, "users", "user_login_activity", None, "SKIP", f"data-{dt_epoch}.parquet", [])
             results.append(["User Login Classification", "write/save - SILVER", True, None])
         except Exception as e:
             results.append(["User Login Classification", "write/save - SILVER", False, e])
