@@ -10,7 +10,6 @@ definitions:
     rules:
       require_enabled: true
       exclude_trial: true
-
       exclude_license_types:
         - READER
         - AI_CONSUMER
