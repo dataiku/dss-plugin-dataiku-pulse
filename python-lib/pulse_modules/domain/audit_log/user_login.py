@@ -237,7 +237,6 @@ def main(self, df):
         )
         merged_df = apply_mau_rules(merged_df, rules, version)
 
-
         # SILVER
         try:
             long_results = dss_funcs._process_quality_and_persist(self, merged_df, "users", "user_login_activity", None, "SKIP", f"data-{dt_epoch}.parquet", [])
