@@ -183,7 +183,7 @@ def apply_mau_rules(df, rules, version):
     # 3️⃣ Exclude certain license types
     excluded_licenses = rules.get("exclude_license_types", [])
     if excluded_licenses:
-        eligible &= ~df["license_type"].isin(excluded_licenses)
+        eligible &= ~df["userProfile"].isin(excluded_licenses)
 
     df["is_mau_eligible"] = eligible
     df["mau_definition_version"] = version
