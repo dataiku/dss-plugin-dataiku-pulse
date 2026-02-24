@@ -230,12 +230,12 @@ def main(self, df):
             results.append(["User Login Classification", "write/save - RAW", False, e])    
             
         # MAU add on
-        merged_df = users_login_df.merge(
-            user_meta_df,
-            on="login",
-            how="left"
-        )
-        merged_df = apply_mau_rules(merged_df, rules, version)
+        #merged_df = users_login_df.merge(
+        #    user_meta_df,
+        #    on="login",
+        #    how="left"
+        #)
+        merged_df = apply_mau_rules(users_login_df, user_meta_df, rules, version)
 
         # SILVER
         try:
