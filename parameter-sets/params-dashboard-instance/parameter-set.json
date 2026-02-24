@@ -129,7 +129,7 @@
                         { "value": "prod", "label": "Production"},
                         { "value": "dev",  "label": "Development"}
                     ],
-                    "defaultValue": "INFO",
+                    "defaultValue": "prod",
                     "mandatory": true
                 },
                 {
