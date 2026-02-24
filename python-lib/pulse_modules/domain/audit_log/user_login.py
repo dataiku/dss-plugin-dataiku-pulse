@@ -199,7 +199,6 @@ def main(self, df):
     
     # Load MAU config
     user_meta_df = build_dss_users(self)
-    
     mau_config = load_mau_config()
     version = mau_config["current_version"]
     rules = mau_config["definitions"][version]["rules"]
