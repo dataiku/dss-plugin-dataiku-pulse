@@ -80,6 +80,7 @@ BOOL_COLS = [
     "trial_valid",
     "trial_expired",
     "trial_illegal",
+    "is_mau_eligible",
 ]
 TRUE_SET = {"true", "True", True, 1, "1"}
 FALSE_SET = {"false", "False", False, 0, "0"}
