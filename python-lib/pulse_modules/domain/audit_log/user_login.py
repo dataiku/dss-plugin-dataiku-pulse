@@ -206,10 +206,13 @@ def main(self, df):
     instance_name = df["instance_name"].iloc[0]
     
     # Load MAU config
-    user_meta_df = build_dss_users(self)
     mau_config = load_mau_config()
     version = mau_config["current_version"]
     rules = mau_config["definitions"][version]["rules"]
+    
+    # Build user metadata
+    user_meta_df = build_dss_users(self)
+    
     
     for date,grp in df.groupby("date"):
         # datetime for saving
