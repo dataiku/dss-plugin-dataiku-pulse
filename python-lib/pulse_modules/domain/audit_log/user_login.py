@@ -172,23 +172,23 @@ def load_mau_config():
 def apply_mau_rules(users_login_df, user_meta_df, rules, version):
     eligible = pd.Series(True, index=df.index)
 
-    # 1️⃣ Require enabled
+    # Require enabled
     if rules.get("require_enabled"):
-        eligible &= df["enabled"] == True
+        eligible &= user_meta_df["enabled"] == True
 
-    # 2️⃣ Exclude trial
+    # Exclude trial
     if rules.get("exclude_trial"):
-        eligible &= df["is_trial"] == False
+        eligible &= user_meta_df["is_trial"] == False
 
-    # 3️⃣ Exclude certain license types
+    # Exclude certain license types
     excluded_licenses = rules.get("exclude_license_types", [])
     if excluded_licenses:
-        eligible &= ~df["userProfile"].isin(excluded_licenses)
+        eligible &= ~user_meta_df["userProfile"].isin(excluded_licenses)
 
-    df["is_mau_eligible"] = eligible
-    df["mau_definition_version"] = version
+    users_login_df["is_mau_eligible"] = eligible
+    users_login_df["mau_definition_version"] = version
 
-    return df
+    return users_login_df
 
 
 # ------------------------------------------------
