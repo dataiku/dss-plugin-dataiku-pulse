@@ -169,7 +169,7 @@ def load_mau_config():
     return
 
 
-def apply_mau_rules(df, rules, version):
+def apply_mau_rules(users_login_df, user_meta_df, rules, version):
     eligible = pd.Series(True, index=df.index)
 
     # 1️⃣ Require enabled
