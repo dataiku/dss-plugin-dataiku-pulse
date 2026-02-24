@@ -198,6 +198,8 @@ def main(self, df):
     results = []
     
     # Load MAU config
+    user_meta_df = build_dss_users(self)
+    
     mau_config = load_mau_config()
     version = mau_config["current_version"]
     rules = mau_config["definitions"][version]["rules"]
@@ -219,7 +221,6 @@ def main(self, df):
         users_login_df = classification_to_df(classification, instance_name, self.dt)
         
         # MAU add on
-        user_meta_df = build_dss_users(self)
         merged_df = users_login_df.merge(
             user_meta_df,
             on="login",
