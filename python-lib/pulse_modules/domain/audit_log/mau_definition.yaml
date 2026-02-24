@@ -1,0 +1,16 @@
+current_version: v1_2026
+
+definitions:
+
+  v1_2026:
+    description: >
+      Active enabled users performing viewer or developer activity,
+      excluding READER and AI_CONSUMER licenses and trial users.
+
+    rules:
+      require_enabled: true
+      exclude_trial: true
+
+      exclude_license_types:
+        - READER
+        - AI_CONSUMER
