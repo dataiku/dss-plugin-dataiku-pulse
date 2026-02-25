@@ -13,3 +13,4 @@ definitions:
       exclude_license_types:
         - READER
         - AI_CONSUMER
+        - EXPLORER
