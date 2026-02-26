@@ -231,13 +231,7 @@ def main(self, df):
         users_login_df = classification_to_df(classification, instance_name, self.dt)
         
         # MAU add on
-        #users_login_df = apply_mau_rules(
-        #    users_login_df,
-        #    enabled_map,
-        #    trial_map,
-        #    profile_map,
-        #    rules,version
-        #)
+        # users_login_df = apply_mau_rules(users_login_df, enabled_map, trial_map, profile_map, rules,version)
         
         # RAW 
         try:
