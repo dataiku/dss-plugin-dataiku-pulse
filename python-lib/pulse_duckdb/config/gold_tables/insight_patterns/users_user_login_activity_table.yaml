@@ -16,9 +16,9 @@ users_user_login_activity_table:
             login,
             activity_type,
             timestamp,
-            DATE(timestamp) AS activity_date,
-            is_mau_eligible,
-            mau_definition_version
+            DATE(timestamp) AS activity_date
+            --is_mau_eligible,
+            --mau_definition_version
         FROM users_user_login_activity_view
     ),
     latest_ts AS (
@@ -63,8 +63,8 @@ users_user_login_activity_table:
         instance_name,
         login,
         activity_type,
-        timestamp,
-        is_mau_eligible,
-        mau_definition_version
+        timestamp
+        --is_mau_eligible,
+        --mau_definition_version
     FROM ranked
     WHERE rn = 1;
