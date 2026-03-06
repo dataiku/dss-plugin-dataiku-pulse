@@ -2,9 +2,11 @@
 
 ## Overview
 
-The following notes capture suggested enhancements and potential metrics for **Pulse**. These are based on customer conversations, internal experience, and common best practices observed in the SSDE program.
+The following notes capture suggested enhancements and potential metrics for **Pulse**. These are based on customer
+conversations, internal experience, and common best practices observed in the SSDE program.
 
-The goal is to improve Pulse's ability to communicate **platform value, adoption, and operational impact** to customers and stakeholders.
+The goal is to improve Pulse's ability to communicate **platform value, adoption, and operational impact** to customers
+and stakeholders.
 
 ---
 
@@ -20,7 +22,8 @@ Examples include:
 - Number of times a **dashboard** is accessed
 - Number of **agent or prompt calls** executed
 
-These types of metrics are frequently requested by customers. Based on the level of interest seen in the **SSDE program**, many organizations want visibility into how their assets are being consumed.
+These types of metrics are frequently requested by customers. Based on the level of interest seen in the **SSDE
+program**, many organizations want visibility into how their assets are being consumed.
 
 Tracking these metrics would allow Pulse to better represent **actual usage and business value** of deployed assets.
 
@@ -28,7 +31,8 @@ Tracking these metrics would allow Pulse to better represent **actual usage and 
 
 ## 2. External Data Artifact Utilization
 
-Pulse could potentially be expanded to capture **utilization data outside of Dataiku** for Dataiku-generated data artifacts.
+Pulse could potentially be expanded to capture **utilization data outside of Dataiku** for Dataiku-generated data
+artifacts.
 
 Example scenario:
 
@@ -40,10 +44,11 @@ Possible integrations could include:
 - Lakehouse access metrics
 - Downstream analytics platform usage
 
-This would help customers see the **full lifecycle utilization of their data products**, even after they leave the Dataiku environment.
+This would help customers see the **full lifecycle utilization of their data products**, even after they leave the
+Dataiku environment.
 
-Note:  
-This may require alignment with leadership regarding scope, but it could significantly strengthen the **Dataiku value proposition** for enterprise customers.
+Note: This may require alignment with leadership regarding scope, but it could significantly strengthen the **Dataiku
+value proposition** for enterprise customers.
 
 ---
 
@@ -105,12 +110,14 @@ Formatting guide:
 
 ## Enablement & Adoption Metrics
 
-- *Number of users trained*  
+- *Number of users trained*
+
   Could integrate with:
   - Dataiku in-product training
   - Customer internal training programs
 
-- *Net Promoter Score (NPS)*  
+- *Net Promoter Score (NPS)*
+
   Could integrate with survey systems.
 
 ---
@@ -119,14 +126,14 @@ Formatting guide:
 
 - **Data product maturity**
 - **Number of reusable datasets**
-- **Metadata completeness**  
-  (Especially relevant if the customer uses the **Dataiku Data Catalog**)
+- **Metadata completeness** (especially relevant if the customer uses the **Dataiku Data Catalog**)
 
 ---
 
 ## Operational & Business Metrics
 
-- *Business process adoption*  
+- *Business process adoption*
+
   Could be measured through integrations with:
   - Data warehouse query logs
   - External systems consuming Dataiku outputs
@@ -137,7 +144,8 @@ Formatting guide:
 
 # Summary
 
-While it may not be realistic for Pulse to include all of these metrics, the above list represents a **wishlist of capabilities** that could significantly improve Pulse’s ability to:
+While it may not be realistic for Pulse to include all of these metrics, the above list represents a **wishlist of
+capabilities** that could significantly improve Pulse’s ability to:
 
 - Demonstrate platform value
 - Measure adoption
