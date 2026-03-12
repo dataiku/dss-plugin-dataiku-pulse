@@ -46,5 +46,11 @@ cryptography
 filelock
 fsspec
 joblib
-nbformat
 scipy
+tqdm
+
+# =========================
+# Debugging
+# =========================
+rich
+nbformat
