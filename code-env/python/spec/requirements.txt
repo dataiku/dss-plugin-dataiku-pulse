@@ -6,12 +6,14 @@ streamlit-option-menu
 streamlit-aggrid
 streamlit-echarts
 streamlit-elements
+streamlit-code-editor
 extra-streamlit-components
 
 # =========================
 # DuckDB
 # =========================
 duckdb
+pyarrow
 
 # =========================
 # Visualization
