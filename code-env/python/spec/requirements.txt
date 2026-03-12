@@ -2,11 +2,12 @@
 # Streamlit
 # =========================
 streamlit
-streamlit-option-menu
 streamlit-aggrid
+streamlit-code-editor
 streamlit-echarts
 streamlit-elements
-streamlit-code-editor
+streamlit-extras
+streamlit-option-menu
 extra-streamlit-components
 
 # =========================
