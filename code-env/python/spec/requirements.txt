@@ -2,7 +2,11 @@
 # Streamlit
 # =========================
 streamlit
+streamlit-option-menu
 streamlit-aggrid
+streamlit-echarts
+streamlit-elements
+extra-streamlit-components
 
 # =========================
 # DuckDB
