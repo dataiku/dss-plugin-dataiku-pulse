@@ -3,11 +3,11 @@ users_user_login_activity_table:
     Daily deduplicated user login activity per instance and login.
     Keeps exactly one activity record per user per day and activity type,
     selecting the latest timestamp when multiple ingestion runs exist.
+    Includes MAU eligibility flags computed during audit processing.
     Optimized to avoid full-history window scans.
-
   depends_on:
     - users_user_login_activity_view
-
+  build_order: 20
   full_sql: |
     CREATE OR REPLACE TABLE users_user_login_activity_base AS
     WITH activity AS (
@@ -17,6 +17,8 @@ users_user_login_activity_table:
             activity_type,
             timestamp,
             DATE(timestamp) AS activity_date
+            --is_mau_eligible,
+            --mau_definition_version
         FROM users_user_login_activity_view
     ),
     latest_ts AS (
@@ -62,5 +64,7 @@ users_user_login_activity_table:
         login,
         activity_type,
         timestamp
+        --is_mau_eligible,
+        --mau_definition_version
     FROM ranked
     WHERE rn = 1;

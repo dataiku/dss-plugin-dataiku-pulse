@@ -1,0 +1,23 @@
+users_mau_monthly:
+  description: >
+    Monthly Active Users (MAU) aggregated by calendar month and instance.
+    Counts distinct users flagged as MAU-eligible during audit processing.
+    Built directly from the daily deduplicated activity base table.
+  depends_on:
+    - users_user_login_activity_base
+  build_order: 90
+  full_sql: |
+    CREATE OR REPLACE TABLE users_mau_monthly_base AS
+    SELECT
+        a.instance_name,
+        DATE_TRUNC('month', DATE(a.timestamp)) AS month,
+        COUNT(DISTINCT a.login) AS mau_count
+    FROM users_user_login_activity_base a
+    WHERE
+        a.is_mau_eligible = TRUE
+    GROUP BY
+        a.instance_name,
+        DATE_TRUNC('month', DATE(a.timestamp))
+    ORDER BY
+        a.instance_name,
+        month;

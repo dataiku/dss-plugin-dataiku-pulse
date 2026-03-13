@@ -122,6 +122,17 @@
                     "mandatory": true
                 },
                 {
+                    "name": "worker_classification",
+                    "label": "Node Classification",
+                    "type": "SELECT",
+                    "selectChoices" : [
+                        { "value": "prod", "label": "Production"},
+                        { "value": "dev",  "label": "Development"}
+                    ],
+                    "defaultValue": "prod",
+                    "mandatory": true
+                },
+                {
                     "name": "preset_name",
                     "label": "Parameter Set",
                     "type": "STRING",

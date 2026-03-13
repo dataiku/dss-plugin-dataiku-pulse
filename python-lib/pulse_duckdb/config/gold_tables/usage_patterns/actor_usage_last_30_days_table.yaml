@@ -5,10 +5,9 @@ actor_usage_last_30_days_table:
     is distributed across core Dataiku build capabilities.
     Consumption events are excluded from totals to ensure capability
     ratios represent development activity only.
-
   depends_on:
     - usage_events_view
-
+  build_order: 20
   sql: |
     CREATE OR REPLACE TABLE actor_usage_last_30_days_base AS
     WITH base AS (

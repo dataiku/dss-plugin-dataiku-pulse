@@ -5,10 +5,9 @@ users_metadata_table:
     activity (last session activity or last commit date),
     with deterministic tie-breaking.
     Optimized to avoid full-history window scans.
-
   depends_on:
     - users_metadata_view
-
+  build_order: 20
   full_sql: |
     CREATE OR REPLACE TABLE users_metadata_base AS
     WITH activity AS (
@@ -64,6 +63,12 @@ users_metadata_table:
         last_session_activity,
         first_commit_date,
         last_commit_date,
-        last_activity_ts
+        last_activity_ts,
+        trial_exists,
+        trial_valid,
+        trial_expired,
+        trial_illegal,
+        trial_granted_on,
+        trial_expires_on
     FROM ranked
     WHERE rn = 1;

@@ -26,6 +26,28 @@
             "name": "force_update",
             "label": "Check to force rebuild of silver layer.",
             "defaultValue": true
+        },
+        {
+            "name": "pulse_limit_category",
+            "type": "SELECT",
+            "label": "Pulse Category",
+            "selectChoices": [
+                { "value": "all", "label": "All categories" },
+                { "value": "agent_tools", "label": "Agent Tools" },
+                { "value": "agents", "label": "Agents" },
+                { "value": "dataiku_usage", "label": "Dataiku Usage" },
+                { "value": "datasets", "label": "Datasets" },
+                { "value": "footprint", "label": "Footprint" },
+                { "value": "instance", "label": "Instance" },
+                { "value": "knowledge_banks", "label": "Knowledge Banks" },
+                { "value": "llms", "label": "LLMs" },
+                { "value": "operating_system", "label": "Operating System" },
+                { "value": "projects", "label": "Projects" },
+                { "value": "recipes", "label": "Recipes" },
+                { "value": "scenarios", "label": "Scenarios" },
+                { "value": "users", "label": "Users" }
+            ]
         }
+        
     ]
 }

@@ -35,15 +35,20 @@ def register_gold_tables(conn, *, show_ui: bool = False):
 
         logger.warning("Registering GOLD tables (full rebuild only)...")
 
-        total = len(queries)
+        sorted_queries = sorted(
+            queries.items(),
+            key=lambda item: item[1].get("build_order", 50)
+        )
+        
+        total = len(sorted_queries)
         if total == 0:
             logger.warning("No GOLD tables defined.")
             if show_ui:
                 status_text.text("No GOLD tables to register")
                 progress_bar.progress(100, text=progress_text)
             return False
-
-        for idx, (table_name, cfg) in enumerate(queries.items(), start=1):
+        
+        for idx, (table_name, cfg) in enumerate(sorted_queries, start=1):
             current_table = table_name
 
             full_sql = cfg.get("full_sql")

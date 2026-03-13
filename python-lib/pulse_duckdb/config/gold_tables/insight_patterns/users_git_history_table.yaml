@@ -5,7 +5,7 @@ users_git_history_table:
     commit events while removing duplicate rows.
   depends_on:
     - users_git_history_view
-
+  build_order: 20
   full_sql: |
     CREATE OR REPLACE TABLE users_git_history_base AS
     SELECT DISTINCT
