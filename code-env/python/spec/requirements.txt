@@ -3,11 +3,18 @@
 # =========================
 streamlit
 streamlit-aggrid
+streamlit-code-editor
+streamlit-echarts
+streamlit-elements
+streamlit-extras
+streamlit-option-menu
+extra-streamlit-components
 
 # =========================
 # DuckDB
 # =========================
 duckdb
+pyarrow
 
 # =========================
 # Visualization
@@ -40,5 +47,11 @@ cryptography
 filelock
 fsspec
 joblib
-nbformat
 scipy
+tqdm
+
+# =========================
+# Debugging
+# =========================
+rich
+nbformat

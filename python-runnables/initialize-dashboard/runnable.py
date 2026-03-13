@@ -131,7 +131,7 @@ class MyRunnable(Runnable):
         
         # Get Code Studio directory
         if cont:
-            code_studio_path = f"{root_path}/config/projects/{self.params['pulse_project_key']}/code_studios/{cs_id}"
+            code_studio_path = f"{root_path}/lib/code_studio/{self.params['pulse_project_key']}/Dataiku_Pulse_Dashboard"
             if os.path.isdir(code_studio_path):
                 results.append(["Project Library Confirmed", True, None])
             else:

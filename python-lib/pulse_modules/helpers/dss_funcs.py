@@ -26,8 +26,9 @@ def load_yaml(path: str) -> dict:
         return {}
     return
 
-
-# ---------- DATAIKU CLIENT HANDLES -----------------------------
+# ----------------------------------------------------------
+# Dataiku Client Handles
+# ----------------------------------------------------------
 def build_local_client():
     client = dataiku.api_client()
     return client
@@ -52,6 +53,9 @@ def build_remote_client(self, remote_url=False, api_key=False):
     return client
 
 
+# ----------------------------------------------------------
+# Instance ID and Naming
+# ----------------------------------------------------------
 def get_instance_id(self):
     instance_info = self.local_client.get_instance_info()
     data = instance_info.raw
@@ -80,8 +84,10 @@ def get_dss_name_id_mapping(self):
     return mapping
 
 
+# ----------------------------------------------------------
+# Preset Handling
+# ----------------------------------------------------------
 def get_preset_pc(self, preset_name):
-    # Connect to the plugin
     local_client = build_local_client()
     plugin_handle = local_client.get_plugin(plugin_id="dataiku-pulse")
     plugin_settings = plugin_handle.get_settings()
@@ -92,7 +98,6 @@ def get_preset_pc(self, preset_name):
         "cores": self.params["cores"],
         "macro_configs": [],
     }
-    # Get the respective param_set if available
     if preset_name:
         param_set = plugin_settings.get_parameter_set(parameter_set_name="params-worker-instances")
         preset = param_set.get_preset(preset_name=preset_name)
@@ -101,29 +106,6 @@ def get_preset_pc(self, preset_name):
         except:
             pass
     return preset_pc
-
-
-def rename_and_move_first(df, old, new):
-    if old in df.columns:
-        df = df.rename(columns={old: new})
-    if new in df.columns:
-        cols = [new] + [c for c in df.columns if c != new]
-        df = df[cols]
-    return df
-
-
-def get_nested_value(data, keys, dt=False):
-    current = data
-    for key in keys:
-        if isinstance(current, dict) and key in current:
-            current = current[key]
-        else:
-            if dt:
-                return pd.to_datetime(0, unit="ms")
-            else:
-                return False
-    return current
-
 
 
 # ----------------------------------------------------------
@@ -171,9 +153,51 @@ def _execute_module(self, module_name, module_path, project_handle, client_d, pr
     return
 
 
+def run_modules(self, mode="instance", project_handle=None, client_d={}, project_key=None):
+    dss_objs = _resolve_module_namespace(mode)
+    results = []
+    for category, module_name, module_path in _discover_modules(dss_objs):
+        df, results = _execute_module(
+            self,
+            module_name,
+            module_path,
+            project_handle,
+            client_d,
+            project_key,
+            category,
+            results
+        )
+        if not _is_valid_df(df):
+            continue
+        results = _persist_raw(self, df, category, module_name, project_key, None, results)
+        results = _process_quality_and_persist(self, df, category, module_name, project_key, "client", None, results)
+    return results
+
+
 # ----------------------------------------------------------
 # Validate and Save RAW
 # ----------------------------------------------------------
+def rename_and_move_first(df, old, new):
+    if old in df.columns:
+        df = df.rename(columns={old: new})
+    if new in df.columns:
+        cols = [new] + [c for c in df.columns if c != new]
+        df = df[cols]
+    return df
+
+
+def get_nested_value(data, keys, dt=False):
+    current = data
+    for key in keys:
+        if isinstance(current, dict) and key in current:
+            current = current[key]
+        else:
+            if dt:
+                return pd.to_datetime(0, unit="ms")
+            else:
+                return False
+    return current
+
 def _trim_raw_df_by_last_modified(df, *, last_modified_col, last_update):
     tmp = df.copy(deep=False)
     tmp[last_modified_col] = pd.to_datetime(
@@ -339,37 +363,4 @@ def _write_quality_outputs(self, layer, category, module_name, file_name, df, df
     return
 
 
-# ----------------------------------------------------------
-# Run Modules
-# ----------------------------------------------------------
-def run_modules(self, mode="instance", project_handle=None, client_d={}, project_key=None):
-    dss_objs = _resolve_module_namespace(mode)
-    results = []
-    for category, module_name, module_path in _discover_modules(dss_objs):
-        df, results = _execute_module(
-            self,
-            module_name,
-            module_path,
-            project_handle,
-            client_d,
-            project_key,
-            category,
-            results
-        )
-        if not _is_valid_df(df):
-            continue
-        results = _persist_raw(self, df, category, module_name, project_key, None, results)
-        results = _process_quality_and_persist(self, df, category, module_name, project_key, "client", None, results)
-    return results
-
 # EOF
-
-
-
-
-
-
-
-
-
-

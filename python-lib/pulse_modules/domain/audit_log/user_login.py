@@ -1,4 +1,7 @@
+from pathlib import Path
 import pandas as pd
+import yaml
+
 from pulse_modules.helpers import dss_funcs
 
 
@@ -107,7 +110,94 @@ def classification_to_df(classification, instance_name=None, timestamp=None):
 
 
 # ------------------------------------------------
-# Calculate who is who / Actions
+# MAU
+# ------------------------------------------------
+def build_dss_users(self):
+    data = self.local_client.list_users(
+        as_objects=False,
+        include_settings=False
+    )
+    dss_users_df = pd.DataFrame(data)
+    
+    # Normalize trial status
+    if "trialStatus" in dss_users_df.columns:
+        jdf = (
+            pd.json_normalize(dss_users_df["trialStatus"])
+            .add_prefix("trialStatus_")
+        )
+        dss_users_df = pd.concat([dss_users_df, jdf], axis=1)
+        # Ensure booleans exist safely
+        for col in [
+            "trialStatus_exists",
+            "trialStatus_valid",
+            "trialStatus_expired",
+            "trialStatus_illegal",
+        ]:
+            if col not in dss_users_df.columns:
+                dss_users_df[col] = False
+            dss_users_df[col] = (
+                dss_users_df[col]
+                .fillna(False)
+                .astype(bool)
+            )
+        # Canonical trial flag
+        dss_users_df["is_trial"] = (
+            dss_users_df["trialStatus_exists"]
+            & dss_users_df["trialStatus_valid"]
+            & ~dss_users_df["trialStatus_expired"]
+            & ~dss_users_df["trialStatus_illegal"]
+        )
+    else:
+        dss_users_df["is_trial"] = False
+        
+    # Normalize enabled
+    if "enabled" in dss_users_df.columns:
+        dss_users_df["enabled"] = (
+            dss_users_df["enabled"]
+            .fillna(False)
+            .astype(bool)
+        )
+    else:
+        dss_users_df["enabled"] = False
+    return dss_users_df
+
+
+def load_mau_config():
+    CONFIG_PATH = Path(__file__).parent / "mau_definition.yaml"
+    with open(CONFIG_PATH) as f:
+        return yaml.safe_load(f)
+    return
+
+
+def apply_mau_rules(users_login_df, enabled_map, trial_map, profile_map, rules, version):
+    eligible = pd.Series(True, index=users_login_df.index)
+
+    # Lookup metadata safely
+    enabled = users_login_df["login"].map(enabled_map).fillna(False)
+    is_trial = users_login_df["login"].map(trial_map).fillna(False)
+    profile = users_login_df["login"].map(profile_map)
+
+    # Require enabled
+    if rules.get("require_enabled"):
+        eligible &= enabled
+
+    # Exclude trial
+    if rules.get("exclude_trial"):
+        eligible &= ~is_trial
+
+    # Exclude certain license types
+    excluded_licenses = rules.get("exclude_license_types", [])
+    if excluded_licenses:
+        eligible &= ~profile.isin(excluded_licenses)
+
+    users_login_df["is_mau_eligible"] = eligible
+    users_login_df["mau_definition_version"] = version
+
+    return users_login_df
+
+
+# ------------------------------------------------
+# MAIN
 # ------------------------------------------------
 def main(self, df):
     results = []
@@ -119,21 +209,37 @@ def main(self, df):
 
     # Loop over any partitions of dates for data
     instance_name = df["instance_name"].iloc[0]
+    
+    # Load MAU config
+    mau_config = load_mau_config()
+    version = mau_config["current_version"]
+    rules = mau_config["definitions"][version]["rules"]
+    
+    # Build user metadata
+    user_meta_df = build_dss_users(self)
+    enabled_map = dict(zip(user_meta_df["login"], user_meta_df["enabled"]))
+    trial_map = dict(zip(user_meta_df["login"], user_meta_df["is_trial"]))
+    profile_map = dict(zip(user_meta_df["login"], user_meta_df["userProfile"]))
+    
+    # Loop and save
     for date,grp in df.groupby("date"):
-        # datetime for saving
         self.dt = grp["timestamp"].max()
         dt_epoch = self.dt.value
         
         # Classify, dataframe
         classification = classify_users_by_activity(grp)
         users_login_df = classification_to_df(classification, instance_name, self.dt)
-
+        
+        # MAU add on
+        # users_login_df = apply_mau_rules(users_login_df, enabled_map, trial_map, profile_map, rules,version)
+        
         # RAW 
         try:
             long_results = dss_funcs._persist_raw(self, users_login_df, "users", "user_login_activity", None, f"data-{dt_epoch}.parquet", [])
             results.append(["User Login Classification", "write/save - RAW", True, None])
         except Exception as e:
-            results.append(["User Login Classification", "write/save - RAW", False, e])
+            results.append(["User Login Classification", "write/save - RAW", False, e])    
+            
         # SILVER
         try:
             long_results = dss_funcs._process_quality_and_persist(self, users_login_df, "users", "user_login_activity", None, "SKIP", f"data-{dt_epoch}.parquet", [])

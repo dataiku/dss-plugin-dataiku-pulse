@@ -6,6 +6,7 @@ capability_subcategory_usage_last_30_days_table:
     analysis and avoids scanning raw usage events at query time.
   depends_on:
     - usage_events_view
+  build_order: 20
   sql: |
     CREATE OR REPLACE TABLE capability_subcategory_usage_last_30_days_base AS
     SELECT

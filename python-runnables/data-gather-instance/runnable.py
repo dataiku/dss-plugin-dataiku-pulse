@@ -48,6 +48,13 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
+        # Additional SELF data, we only want the apis ran once but want multiple outputs from.
+        try:
+            data = self.local_client.get_data_directories_footprint().compute_all_dss_footprint()
+            self.dss_footprint = pd.DataFrame(data)
+        except:
+            self.dss_footprint = pd.DataFrame()
+
         # Collect the modules && Run the modules
         results = dss_funcs.run_modules(self)
     

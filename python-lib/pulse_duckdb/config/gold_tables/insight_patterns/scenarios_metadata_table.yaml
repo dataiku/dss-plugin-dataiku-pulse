@@ -4,10 +4,9 @@ scenarios_metadata_table:
     Keeps exactly one row per scenario based on the most recent
     scenarios_lastModifiedOn, with deterministic tie-breaking.
     Optimized to avoid full-history window scans.
-
   depends_on:
     - scenarios_metadata_view
-
+  build_order: 20
   full_sql: |
     CREATE OR REPLACE TABLE scenarios_metadata_base AS
     WITH latest_ts AS (
