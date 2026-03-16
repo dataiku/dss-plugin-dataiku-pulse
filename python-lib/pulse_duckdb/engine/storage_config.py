@@ -77,8 +77,20 @@ def azure_credentials() -> tuple[str, str]:
     blob_module = queries["blob_setup"]["azure_modules"]
 
     if credentials_mode == "SHARED_KEY":
-        logger.error("Azure SHARED_KEY authentication is not supported yet")
-        raise RuntimeError("Azure SHARED_KEY authentication is not supported")
+        try:
+            account_name = params["storageAccount"]
+            access_key = params["accessKey"]
+        except KeyError as exc:
+            logger.exception("Missing Azure Shared Access Key parameters")
+            raise RuntimeError(
+                "Failed to resolve Azure Shared Access Key credentials from Dataiku connection"
+            ) from exc
+
+        blob_credentials = yaml_loader.render_query(
+            queries["blob_setup"]["azure_access_key_headers"],
+            account_name=account_name,
+            access_key=access_key,
+        )
 
     if credentials_mode == "OAUTH2_APP":
         try:
