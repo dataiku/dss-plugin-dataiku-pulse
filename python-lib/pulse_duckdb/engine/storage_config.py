@@ -92,6 +92,8 @@ def azure_credentials() -> tuple[str, str]:
             access_key=access_key,
         )
 
+        return blob_module, blob_credentials
+    
     if credentials_mode == "OAUTH2_APP":
         try:
             tenant_id = params["tenantId"]
