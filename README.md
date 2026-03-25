@@ -1,6 +1,6 @@
 # Dataiku Pulse Dashboard
 
-**Version:** 2.8.51
+**Version:** 2.8.6
 
 Pulse is an administrative dashboard for **Dataiku DSS** that provides
 centralized visibility into platform metadata and usage across one or more
