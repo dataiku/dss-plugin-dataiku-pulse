@@ -4,5 +4,7 @@ FLAT_COLUMNS = [
     "dashboard_id",
     "dashboard_name",
     "dashboard_owner",
-    "dashboard_lastModifiedOn",
+    "dashboard_lastModifiedBy_login",
+    "dashboard_createdOn",
+    "",
 ]
