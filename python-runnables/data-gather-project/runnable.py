@@ -46,7 +46,7 @@ class MyRunnable(Runnable):
     
     
     def run(self, progress_callback):
-        raise Exception(self.config)
+        raise Exception(self.plugin_config)
         # Grab some exra details
         client_d = {}
         try:
