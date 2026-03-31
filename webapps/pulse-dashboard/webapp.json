@@ -8,6 +8,6 @@
     "hasBackend": "true",
     "enableJavascriptModules": "true",
     "noJSSecurity": "true",
-    "standardWebAppLibraries": ["dataiku"],
+    "standardWebAppLibraries": ["jquery","dataiku"],
     "params": []
 }
