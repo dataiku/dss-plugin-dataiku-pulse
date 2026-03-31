@@ -6,7 +6,7 @@
     },
     "baseType": "STANDARD", // WARNING: do not change
     "hasBackend": "false",
-    "noJSSecurity": "true",
+    "noJSSecurity": "false",
     "standardWebAppLibraries": ["jquery","dataiku"],
     "hideWebAppConfig": "true",
     "params": [
