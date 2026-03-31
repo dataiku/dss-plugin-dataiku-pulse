@@ -7,7 +7,7 @@
     "baseType": "STANDARD",
     "hasBackend": "true",
     "enableJavascriptModules": "true",
-    "noJSSecurity": "true",
+    "noJSSecurity": "false",
     "standardWebAppLibraries": ["jquery","dataiku"],
     "hideWebAppConfig": "true",
     "params": [],
