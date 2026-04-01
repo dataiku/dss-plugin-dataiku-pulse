@@ -10,7 +10,15 @@ import pandas as pd
 from dataiku.runnables import ResultTable, Runnable
 
 from data_collection.data_collection.collect_all_projects import collect_all_projects
-from data_collection.helper import DSSFolderTarget, PulseMacroContext, build_context, ensure_output_folder
+from data_collection.helper import (
+    CursorSpec,
+    DSSFolderTarget,
+    PulseMacroContext,
+    build_context,
+    ensure_output_folder,
+    resolve_cursor_ts,
+    update_cursor_ts,
+)
 
 
 class MyRunnable(Runnable):
@@ -53,52 +61,34 @@ class MyRunnable(Runnable):
     def get_progress_target(self):
         return None
 
-    def _read_projects_delta(self, client: Any) -> pd.Timestamp:
-        """Return the timestamp cursor used to filter projects.
-
-        - Reads `projects_delta` from local project variables if present
-        - Falls back to plugin_config `pulse_default_projects_delta`
-        - If plugin_config `pulse_projects_delta_debug` is true, always use default
-        """
-
+    def _resolve_projects_default_ts(self) -> pd.Timestamp:
         default_raw = self.param_set.get(
             "pulse_default_projects_delta",
             "2026-01-01 00:00:00.000000",
         )
         default_dt = pd.to_datetime(default_raw, utc=True, errors="coerce")
         if pd.isna(default_dt):
-            default_dt = pd.Timestamp("2026-01-01", tz="UTC")
-
-        if bool(self.param_set.get("pulse_projects_delta_debug", False)):
-            return default_dt
-
-        try:
-            project = client.get_project(self.project_key)
-            variables = project.get_variables()
-            raw = variables.get("local", {}).get("projects_delta")
-            if raw:
-                dt = pd.to_datetime(raw, utc=True, errors="coerce")
-                if not pd.isna(dt):
-                    return dt
-        except Exception:
-            # Best-effort; fall back to default.
-            pass
-
+            return pd.Timestamp("2026-01-01", tz="UTC")
         return default_dt
 
-    def _update_projects_delta(self, client: Any, value: str) -> None:
-        """Best-effort update of local project variable `projects_delta`."""
+    def _read_projects_delta(self, client: Any) -> pd.Timestamp:
+        return resolve_cursor_ts(
+            client=client,
+            project_key=self.project_key,
+            param_set=self.param_set,
+            spec=CursorSpec(variable_name="projects_delta", debug_key="pulse_projects_delta_debug"),
+            default_ts=self._resolve_projects_default_ts(),
+            local_mode=False,
+        )
 
-        try:
-            project = client.get_project(self.project_key)
-            variables = project.get_variables()
-            local = variables.get("local") or {}
-            local["projects_delta"] = value
-            variables["local"] = local
-            project.set_variables(variables)
-        except Exception:
-            # Best-effort; do not fail the macro.
-            pass
+    def _update_projects_delta(self, client: Any, value: str) -> None:
+        update_cursor_ts(
+            client=client,
+            project_key=self.project_key,
+            spec=CursorSpec(variable_name="projects_delta"),
+            value=value,
+            enabled=True,
+        )
 
     @staticmethod
     def _extract_last_modified_on(project: Dict[str, Any]) -> Any:

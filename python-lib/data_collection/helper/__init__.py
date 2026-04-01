@@ -8,6 +8,7 @@ from .dss_folder_writer import (
     upload_json_gzip,
     upload_parquet,
 )
+from .cursors import CursorSpec, resolve_cursor_ts, update_cursor_ts
 from .json_writer import write_json, write_json_gzip
 from .macro_context import PulseMacroContext, build_context, get_param_set
 from .output_target import PulseOutputTarget, ensure_output_folder, resolve_output_target
@@ -29,6 +30,9 @@ __all__ = [
     "ensure_pyarrow",
     "write_json",
     "write_json_gzip",
+    "CursorSpec",
+    "resolve_cursor_ts",
+    "update_cursor_ts",
     "PulseMacroContext",
     "get_param_set",
     "build_context",

@@ -17,10 +17,13 @@ from data_collection.audit_logs_modules.audit_paths import chdir_audit_logs
 from data_collection.data_collection.instance import get_instance_name
 from data_collection.data_normalizer import check_silver_dq, normalize_silver
 from data_collection.helper import (
+    CursorSpec,
     OutputLayout,
     PulseMacroContext,
     build_context,
     ensure_output_folder,
+    resolve_cursor_ts,
+    update_cursor_ts,
     upload_json_gzip,
     upload_parquet,
 )
@@ -111,42 +114,24 @@ class MyRunnable(Runnable):
         return default_dt
 
     def _read_audit_delta(self, client: Any) -> pd.Timestamp:
-        """Return the delta cursor for incremental macro runs.
-
-        Local/debug runs should not use the project variable cursor. They only use
-        the configured starting timestamp (`pulse_audit_logs_delta`).
-        """
-
         start_dt = self._resolve_audit_start_ts()
-
-        # Debug behavior: ignore project variable and always use configured start.
-        # When developing locally, we don't want to persist or advance cursors.
-        if self._is_local_debug() or bool(self.param_set.get("pulse_audit_logs_delta_debug", False)):
-            return start_dt
-
-        try:
-            project = client.get_project(self.project_key)
-            variables = project.get_variables()
-            raw = variables.get("local", {}).get("audit_log_delta")
-            if raw:
-                dt = pd.to_datetime(raw, utc=True, errors="coerce")
-                if not pd.isna(dt):
-                    return dt
-        except Exception:
-            pass
-
-        return start_dt
+        return resolve_cursor_ts(
+            client=client,
+            project_key=self.project_key,
+            param_set=self.param_set,
+            spec=CursorSpec(variable_name="audit_log_delta", debug_key="pulse_audit_logs_delta_debug"),
+            default_ts=start_dt,
+            local_mode=self._is_local_debug(),
+        )
 
     def _update_audit_delta(self, client: Any, value: str) -> None:
-        try:
-            project = client.get_project(self.project_key)
-            variables = project.get_variables()
-            local = variables.get("local") or {}
-            local["audit_log_delta"] = value
-            variables["local"] = local
-            project.set_variables(variables)
-        except Exception:
-            pass
+        update_cursor_ts(
+            client=client,
+            project_key=self.project_key,
+            spec=CursorSpec(variable_name="audit_log_delta"),
+            value=value,
+            enabled=not self._is_local_debug(),
+        )
 
     def run(self, progress_callback):
         ctx: PulseMacroContext = build_context(plugin_config=self.plugin_config)
@@ -351,11 +336,9 @@ class MyRunnable(Runnable):
             processor_results.append(ProcessorResult(proc_name, df_audit.shape[0], out_df.shape[0], wrote_groups))
 
         # Update cursor on success (best-effort).
-        # Local/debug runs should not persist or advance cursors.
-        if not self._is_local_debug():
-            max_ts = df_audit["timestamp"].max()
-            if pd.notna(max_ts):
-                self._update_audit_delta(ctx.local_client, pd.Timestamp(max_ts).isoformat())
+        max_ts = df_audit["timestamp"].max()
+        if pd.notna(max_ts):
+            self._update_audit_delta(ctx.local_client, pd.Timestamp(max_ts).isoformat())
 
         # ResultTable
         rt = ResultTable()
