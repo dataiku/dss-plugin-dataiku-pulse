@@ -1,4 +1,4 @@
-# Agent notes: pulse-dashboard webapp a
+# Agent notes: pulse-dashboard webapp
 
 Scope: `webapps/pulse-dashboard/` and `resource/pulse-dashboard/`
 
