@@ -9,7 +9,7 @@ from .dss_folder_writer import (
     upload_parquet,
 )
 from .cursors import CursorSpec, resolve_cursor_ts, update_cursor_ts
-from .delta_filter import filter_payload_by_delta
+from .delta_filter import filter_payload_by_delta, find_timestamp_column
 from .worker_project import resolve_worker_project_key
 from .json_writer import write_json, write_json_gzip
 from .macro_context import PulseMacroContext, build_context, get_param_set
@@ -35,6 +35,7 @@ __all__ = [
     "CursorSpec",
     "resolve_cursor_ts",
     "update_cursor_ts",
+    "find_timestamp_column",
     "filter_payload_by_delta",
     "resolve_worker_project_key",
     "PulseMacroContext",

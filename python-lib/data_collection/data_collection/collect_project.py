@@ -18,6 +18,7 @@ from data_collection.helper import (
     DSSFolderTarget,
     OutputLayout,
     build_error_row,
+    find_timestamp_column,
     raw_to_dataframe,
     upload_json,
     upload_json_gzip,
@@ -126,6 +127,28 @@ def collect_project_list_methods(
                     if isinstance(maybe_filtered, list) and len(maybe_filtered) == 0:
                         continue
                     filtered_payload = maybe_filtered
+                else:
+                    # No timestamp columns detected: capture a small sample so we can
+                    # review and potentially improve the heuristic.
+                    sample_path = layout.project_data_path(
+                        "raw",
+                        "missing_timestamps",
+                        instance_name,
+                        run_date,
+                        project_key,
+                        f"{method_name}.json",
+                    )
+                    upload_json(
+                        target=output_folder_target,
+                        output_path=sample_path,
+                        output_base_dir=output_base_dir,
+                        payload={
+                            "method_name": method_name,
+                            "columns": list(raw_df.columns),
+                            "rows": int(raw_df.shape[0]),
+                            "sample": raw_df.head(50).to_dict("records"),
+                        },
+                    )
 
             # RAW: dump the API payload as compressed JSON.
             upload_json_gzip(

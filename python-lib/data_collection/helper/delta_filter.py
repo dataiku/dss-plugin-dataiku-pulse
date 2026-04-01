@@ -12,6 +12,9 @@ def find_timestamp_column(columns: Iterable[str]) -> str | None:
     """Find a best-effort timestamp column.
 
     Uses substring matching so it works with prefixed columns like `scenario_lastModifiedOn`.
+
+    Note: this is intentionally heuristic-based to avoid maintaining per-method
+    mappings as DSS evolves.
     """
 
     # Prefer lastModified over created.
@@ -24,6 +27,7 @@ def find_timestamp_column(columns: Iterable[str]) -> str | None:
             return name
 
     return None
+
 
 
 def filter_payload_by_delta(
