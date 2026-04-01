@@ -49,6 +49,22 @@ def _load_yaml_list(path: Path) -> List[str]:
     raise ValueError(f"Expected YAML list in {path}, got {type(raw)!r}")
 
 
+def _load_processor_names() -> List[str]:
+    """Load `modules.yaml` from the installed plugin resources.
+
+    In DSS macro runs, runnables are executed from a temporary `dku_code.py` file,
+    so relative filesystem paths like `Path(__file__).parents[...]` are not
+    reliable. Reading the YAML from the `data_collection.audit_logs_modules`
+    package ensures this works both locally and in DSS.
+    """
+
+    from importlib.resources import as_file, files
+
+    modules_res = files("data_collection.audit_logs_modules").joinpath("modules.yaml")
+    with as_file(modules_res) as p:
+        return _load_yaml_list(Path(p))
+
+
 @dataclass(frozen=True)
 class ProcessorResult:
     name: str
@@ -255,14 +271,7 @@ class MyRunnable(Runnable):
         df_audit["instance_name"] = instance_name
 
         # Load processors
-        modules_file = (
-            Path(__file__).resolve().parents[2]
-            / "python-lib"
-            / "data_collection"
-            / "audit_logs_modules"
-            / "modules.yaml"
-        )
-        processor_names = _load_yaml_list(modules_file)
+        processor_names = _load_processor_names()
 
         processor_results: List[ProcessorResult] = []
 
