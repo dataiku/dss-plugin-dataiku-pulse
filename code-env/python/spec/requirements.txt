@@ -1,19 +1,16 @@
 # =========================
-# Streamlit
+# Flask
 # =========================
-streamlit
-streamlit-aggrid
-streamlit-code-editor
-streamlit-echarts
-streamlit-elements
-streamlit-extras
-streamlit-option-menu
-extra-streamlit-components
+Flask
+flask-cors
+flask-compress
+gunicorn
 
 # =========================
 # DuckDB
 # =========================
 duckdb
+duckdb-engine
 pyarrow
 
 # =========================
@@ -40,18 +37,31 @@ boto3
 gcsfs
 google-cloud-storage
 
-# =========================
-# Misc / Core Utilities
+# # =========================
+# # Misc / Core Utilities
 # =========================
 cryptography
 filelock
 fsspec
 joblib
-scipy
 tqdm
+python-dotenv
+gunicorn
+pydantic
+pydantic-settings
+requests
+scipy
 
 # =========================
-# Debugging
+# Optional ORM
+# =========================
+SQLAlchemy
+
+# =========================
+# Dev / Debugging
 # =========================
 rich
+ruff
+pytest
+black
 nbformat
