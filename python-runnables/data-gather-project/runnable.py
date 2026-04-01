@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 import dataiku
 import pandas as pd
 from dataiku.runnables import ResultTable, Runnable
+from dataikuapi.dssclient import DSSClient
 
 from data_collection.data_collection.collect_all_projects import collect_all_projects
 from data_collection.helper import DSSFolderTarget, ensure_managed_folder
@@ -28,25 +29,25 @@ class MyRunnable(Runnable):
         self.config = config or {}
         self.plugin_config = plugin_config or {}
 
+        # DSS macros expose a single parameter set; we use `pulse_primary` as the
+        # canonical container for all plugin settings.
+        self.param_set = self.plugin_config.get("pulse_primary", {}) or {}
+
         # Output target (managed folder) is controlled by plugin settings.
-        self.output_project_key = self.plugin_config.get("pulse_project_key", "DATA_COLLECTION")
-        self.output_folder_lookup = self.plugin_config.get(
+        self.output_project_key = self.param_set.get("pulse_project_key", "DATA_COLLECTION")
+        self.output_folder_lookup = self.param_set.get(
             "pulse_partitioned_data",
             "partitioned_data",
         )
-        self.output_connection_name = self.plugin_config.get("pulse_folder_connection")
-
-        # Hub/spoke: optionally upload to a remote DSS instance.
-        self.output_project_url = self.plugin_config.get("pulse_project_url")
-        self.output_project_api = self.plugin_config.get("pulse_project_api")
+        self.output_connection_name = self.param_set.get("pulse_folder_connection")
 
         # Parallelism is controlled by plugin settings.
         # If `cores` is not set, default to local CPUs - 1.
-        self.do_parallel = bool(self.plugin_config.get("do_parallel", True))
+        self.do_parallel = bool(self.param_set.get("do_parallel", True))
 
         default_cores = max((os.cpu_count() or 2) - 1, 1)
-        self.n_jobs = int(self.plugin_config.get("cores", default_cores))
-        self.batch_size = int(self.plugin_config.get("batch_size", 25))
+        self.n_jobs = int(self.param_set.get("cores", default_cores))
+        self.batch_size = int(self.param_set.get("batch_size", 25))
 
 
 
@@ -61,7 +62,7 @@ class MyRunnable(Runnable):
         - If plugin_config `pulse_projects_delta_debug` is true, always use default
         """
 
-        default_raw = self.plugin_config.get(
+        default_raw = self.param_set.get(
             "pulse_default_projects_delta",
             "2026-01-01 00:00:00.000000",
         )
@@ -69,7 +70,7 @@ class MyRunnable(Runnable):
         if pd.isna(default_dt):
             default_dt = pd.Timestamp("2026-01-01", tz="UTC")
 
-        if bool(self.plugin_config.get("pulse_projects_delta_debug", False)):
+        if bool(self.param_set.get("pulse_projects_delta_debug", False)):
             return default_dt
 
         try:
@@ -172,12 +173,25 @@ class MyRunnable(Runnable):
     def run(self, progress_callback):
         """Execute the macro."""
 
-        client = dataiku.api_client()
+        local_client = dataiku.api_client()
+
+        remote_host = self.param_set.get("pulse_project_url")
+        remote_api_key = self.param_set.get("pulse_project_api")
+        if not remote_host or not remote_api_key:
+            raise ValueError(
+                "Missing remote target configuration in pulse_primary: expected pulse_project_url and pulse_project_api"
+            )
+
+        remote_client = DSSClient(
+            remote_host,
+            api_key=remote_api_key,
+            no_check_certificate=bool(self.param_set.get("ignore_certs", False)),
+        )
 
         run_start_ts = pd.Timestamp.now(tz="UTC").isoformat()
 
-        since = self._read_projects_delta(client)
-        keys = self._resolve_project_keys(client, since=since)
+        since = self._read_projects_delta(local_client)
+        keys = self._resolve_project_keys(local_client, since=since)
 
         # Used for path layout prefix only.
         output_base_dir = Path("partitioned_data")
@@ -186,8 +200,7 @@ class MyRunnable(Runnable):
             project_key=self.output_project_key,
             folder_lookup=self.output_folder_lookup,
             connection_name=self.output_connection_name,
-            host=self.output_project_url,
-            api_key=self.output_project_api,
+            client=remote_client,
         )
 
         # Ensure output folder exists before writing.
@@ -195,8 +208,7 @@ class MyRunnable(Runnable):
             project_key=target.project_key,
             folder_lookup=target.folder_lookup,
             connection_name=target.connection_name,
-            host=target.host,
-            api_key=target.api_key,
+            client=remote_client,
         )
 
         # progress_callback is per-runnable, not per-project, so we provide coarse reporting.
@@ -206,7 +218,7 @@ class MyRunnable(Runnable):
         n_jobs = self.n_jobs if self.do_parallel else 1
 
         result = collect_all_projects(
-            client=client,
+            client=remote_client,
             output_base_dir=output_base_dir,
             project_keys=keys,
             n_jobs=n_jobs,
@@ -220,7 +232,7 @@ class MyRunnable(Runnable):
         # Best-effort: update the cursor for next run unless the macro imploded.
         # Use the run start timestamp to avoid skipping changes during the run.
         run_ts = run_start_ts
-        self._update_projects_delta(client, run_ts)
+        self._update_projects_delta(local_client, run_ts)
 
         total_errors = sum(len(r.errors) for r in result.per_project.values())
 

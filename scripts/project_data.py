@@ -63,9 +63,7 @@ def main() -> None:
     config = _load_json(config_path)
     plugin_config = _load_json(plugin_config_path)
 
-    # Force local DSS mode (disable hub/spoke remote uploads).
-    plugin_config["pulse_project_url"] = None
-    plugin_config["pulse_project_api"] = None
+    # No overrides: local test uses whatever is in plugin_config.json.
 
     runnable = MyRunnable(project_key="DATA_COLLECTION", config=config, plugin_config=plugin_config)
 
