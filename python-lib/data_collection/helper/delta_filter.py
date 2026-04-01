@@ -8,6 +8,13 @@ import pandas as pd
 from data_collection.data_normalizer.casting import cast_datetime_columns
 
 
+def _to_utc_timestamp(dt: datetime) -> pd.Timestamp:
+    ts = pd.Timestamp(dt)
+    if ts.tz is None:
+        return ts.tz_localize("UTC")
+    return ts.tz_convert("UTC")
+
+
 def find_timestamp_column(columns: Iterable[str]) -> str | None:
     """Find a best-effort timestamp column.
 
@@ -51,7 +58,7 @@ def filter_payload_by_delta(
 
     df = cast_datetime_columns(raw_df, [ts_col])
 
-    since_ts = pd.Timestamp(since, tz="UTC")
+    since_ts = _to_utc_timestamp(since)
     df_delta = df[df[ts_col] >= since_ts]
 
     if df_delta.shape[0] == 0:
