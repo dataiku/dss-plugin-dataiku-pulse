@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 import dataiku
 import pandas as pd
 from dataiku.runnables import ResultTable, Runnable
+from dataikuapi.dssclient import DSSClient
 
 from data_collection.data_collection.instance import get_instance_name
 from data_collection.data_collection.introspection import get_noarg_list_methods
@@ -40,21 +41,34 @@ class MyRunnable(Runnable):
         self.config = config or {}
         self.plugin_config = plugin_config or {}
 
-        self.output_project_key = self.plugin_config.get("pulse_project_key", "DATA_COLLECTION")
-        self.output_folder_lookup = self.plugin_config.get("pulse_partitioned_data", "partitioned_data")
-        self.output_connection_name = self.plugin_config.get("pulse_folder_connection")
+        # DSS macros expose a single parameter set; we use `pulse_primary` as the
+        # canonical container for all plugin settings.
+        self.param_set = self.plugin_config.get("pulse_primary", {}) or {}
 
-        # Hub/spoke: optionally upload to a remote DSS instance.
-        self.output_project_url = self.plugin_config.get("pulse_project_url")
-        self.output_project_api = self.plugin_config.get("pulse_project_api")
+        # Remote output target (can be same DSS instance).
+        self.output_project_key = self.param_set.get("pulse_project_key", "DATA_COLLECTION")
+        self.output_folder_lookup = self.param_set.get("pulse_partitioned_data", "partitioned_data")
+        self.output_connection_name = self.param_set.get("pulse_folder_connection")
 
     def get_progress_target(self):
         return None
 
     def run(self, progress_callback):
-        client = dataiku.api_client()
+        local_client = dataiku.api_client()
 
-        instance_name = get_instance_name(client)
+        remote_host = self.param_set.get("pulse_project_url")
+        remote_api_key = self.param_set.get("pulse_project_api")
+
+        # Local-only runs (no remote client) are allowed by leaving host/api unset.
+        remote_client = None
+        if remote_host and remote_api_key:
+            remote_client = DSSClient(
+                remote_host,
+                api_key=remote_api_key,
+                no_check_certificate=bool(self.param_set.get("ignore_certs", False)),
+            )
+
+        instance_name = get_instance_name(local_client)
         if not instance_name:
             raise ValueError("Could not determine instance_name (nodeId/installId)")
 
@@ -63,20 +77,19 @@ class MyRunnable(Runnable):
         run_date = run_dt.date()
 
         layout = OutputLayout(base_dir=Path("partitioned_data"), module="instance_metadata")
-        methods = get_noarg_list_methods(client)
+        methods = get_noarg_list_methods(local_client)
         excluded = set(load_exclusions("instance_data").excluded_methods)
 
         # Project-level methods that are known to be project-invariant and only
         # need to be collected once.
         project_inclusions = load_inclusions("instance_project_inclusion.yaml")
-        worker_project_key = self.plugin_config.get("pulse_worker_key")
+        worker_project_key = self.param_set.get("pulse_worker_key")
 
         target = DSSFolderTarget(
             project_key=self.output_project_key,
             folder_lookup=self.output_folder_lookup,
             connection_name=self.output_connection_name,
-            host=self.output_project_url,
-            api_key=self.output_project_api,
+            client=remote_client,
         )
 
         # Ensure output folder exists before writing.
@@ -84,8 +97,7 @@ class MyRunnable(Runnable):
             project_key=target.project_key,
             folder_lookup=target.folder_lookup,
             connection_name=target.connection_name,
-            host=target.host,
-            api_key=target.api_key,
+            client=remote_client,
         )
 
         collected: List[str] = []
@@ -223,7 +235,7 @@ class MyRunnable(Runnable):
         included_errors: Dict[str, str] = {}
         if worker_project_key and project_inclusions:
             try:
-                worker_project = client.get_project(worker_project_key)
+                worker_project = local_client.get_project(worker_project_key)
                 project_methods = get_noarg_list_methods(worker_project)
 
                 for method_name in project_inclusions:
