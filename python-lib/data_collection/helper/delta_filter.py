@@ -25,12 +25,13 @@ def find_timestamp_column(columns: Iterable[str]) -> str | None:
     """
 
     # Prefer lastModified over created.
+    # Use `str(name)` so this works even if column labels are tuples/MultiIndex.
     for name in columns:
-        if "lastModifiedOn" in name:
+        if "lastModifiedOn" in str(name):
             return name
 
     for name in columns:
-        if "createdOn" in name:
+        if "createdOn" in str(name):
             return name
 
     return None
