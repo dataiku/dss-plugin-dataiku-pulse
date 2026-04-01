@@ -131,12 +131,12 @@ def collect_project_list_methods(
                     # No timestamp columns detected: capture a small sample so we can
                     # review and potentially improve the heuristic.
                     sample_path = layout.project_data_path(
-                        "raw",
-                        "missing_timestamps",
+                        "raw_errors",
+                        method_name,
                         instance_name,
                         run_date,
                         project_key,
-                        f"{method_name}.json",
+                        "missing_timestamps.json",
                     )
                     upload_json(
                         target=output_folder_target,
