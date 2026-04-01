@@ -35,8 +35,9 @@ flowchart TD
         C1[Run Data Collection<br/>Scenarios]
         C2[Collect Dataiku<br/>Metadata]
         C3[Store Results<br/>Blob Storage]
+        C4[Store Delta Cursors<br/>in Worker Project]
 
-        C1 --> C2 --> C3
+        C1 --> C2 --> C3 --> C4
     end
 
     %% =========================
