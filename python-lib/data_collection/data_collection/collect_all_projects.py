@@ -36,6 +36,7 @@ def collect_all_projects(
     output_base_dir: Path,
     project_keys: Optional[List[str]] = None,
     since: "datetime | None" = None,
+    debug_dir: Path | None = None,
     n_jobs: int = 1,
     batch_size: int = 25,
     output_folder_target: DSSFolderTarget = DSSFolderTarget(project_key="DATA_COLLECTION"),
@@ -64,6 +65,7 @@ def collect_all_projects(
             run_ts=run_ts,
             run_date=run_date,
             since=since,
+            debug_dir=debug_dir,
             output_folder_target=output_folder_target,
         )
         return key, result

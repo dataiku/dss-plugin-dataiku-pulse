@@ -186,11 +186,16 @@ class MyRunnable(Runnable):
 
         n_jobs = self.n_jobs if self.do_parallel else 1
 
+        debug_dir = None
+        if bool(self.param_set.get("pulse_projects_delta_debug", False)):
+            debug_dir = Path("/tmp/pulse_project_debug")
+
         result = collect_all_projects(
             client=ctx.remote_client,
             output_base_dir=output_base_dir,
             project_keys=keys,
             since=since.to_pydatetime(),
+            debug_dir=debug_dir,
             n_jobs=n_jobs,
             batch_size=self.batch_size,
             output_folder_target=target,

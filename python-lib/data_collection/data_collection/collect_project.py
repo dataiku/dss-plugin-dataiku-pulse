@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
+import json
 import os
 
 import pandas as pd
@@ -18,7 +19,6 @@ from data_collection.helper import (
     DSSFolderTarget,
     OutputLayout,
     build_error_row,
-    find_timestamp_column,
     raw_to_dataframe,
     upload_json,
     upload_json_gzip,
@@ -43,6 +43,7 @@ def collect_project_list_methods(
     run_date: date,
     since: datetime | None = None,
     output_folder_target: DSSFolderTarget = DSSFolderTarget(project_key="DATA_COLLECTION"),
+    debug_dir: Path | None = None,
 ) -> CollectResult:
     """Collect all no-arg list_* outputs for a project handle."""
 
@@ -128,27 +129,32 @@ def collect_project_list_methods(
                         continue
                     filtered_payload = maybe_filtered
                 else:
-                    # No timestamp columns detected: capture a small sample so we can
-                    # review and potentially improve the heuristic.
-                    sample_path = layout.project_data_path(
-                        "raw_errors",
-                        method_name,
-                        instance_name,
-                        run_date,
-                        project_key,
-                        "missing_timestamps.json",
-                    )
-                    upload_json(
-                        target=output_folder_target,
-                        output_path=sample_path,
-                        output_base_dir=output_base_dir,
-                        payload={
-                            "method_name": method_name,
-                            "columns": list(raw_df.columns),
-                            "rows": int(raw_df.shape[0]),
-                            "sample": raw_df.head(50).to_dict("records"),
-                        },
-                    )
+                    # No timestamp columns detected.
+                    #
+                    # For end users we don't want to emit "errors" for this, because
+                    # many list_* endpoints simply don't expose timestamps.
+                    #
+                    # For local debugging, we optionally write a sample payload to a
+                    # workspace directory so we can review schemas and decide whether
+                    # to improve the heuristic.
+                    if debug_dir is not None:
+                        debug_dir.mkdir(parents=True, exist_ok=True)
+                        out_path = debug_dir / f"{project_key}__{method_name}__missing_timestamps.json"
+                        out_path.write_text(
+                            json.dumps(
+                                {
+                                    "project_key": project_key,
+                                    "method_name": method_name,
+                                    "columns": [str(c) for c in raw_df.columns],
+                                    "rows": int(raw_df.shape[0]),
+                                    "sample": raw_df.head(50).to_dict("records"),
+                                },
+                                ensure_ascii=False,
+                                indent=2,
+                                default=str,
+                            ),
+                            encoding="utf-8",
+                        )
 
             # RAW: dump the API payload as compressed JSON.
             upload_json_gzip(
