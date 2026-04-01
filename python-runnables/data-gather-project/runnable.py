@@ -12,6 +12,7 @@ from dataiku.runnables import ResultTable, Runnable
 from data_collection.data_collection.collect_all_projects import collect_all_projects
 from data_collection.helper import (
     CursorSpec,
+    resolve_worker_project_key,
     DSSFolderTarget,
     PulseMacroContext,
     build_context,
@@ -72,9 +73,11 @@ class MyRunnable(Runnable):
         return default_dt
 
     def _read_projects_delta(self, client: Any) -> pd.Timestamp:
+        worker_project_key = resolve_worker_project_key(client, fallback_project_key=self.project_key)
+
         return resolve_cursor_ts(
             client=client,
-            project_key=self.project_key,
+            project_key=worker_project_key,
             param_set=self.param_set,
             spec=CursorSpec(variable_name="projects_delta", debug_key="pulse_projects_delta_debug"),
             default_ts=self._resolve_projects_default_ts(),
@@ -82,9 +85,11 @@ class MyRunnable(Runnable):
         )
 
     def _update_projects_delta(self, client: Any, value: str) -> None:
+        worker_project_key = resolve_worker_project_key(client, fallback_project_key=self.project_key)
+
         update_cursor_ts(
             client=client,
-            project_key=self.project_key,
+            project_key=worker_project_key,
             spec=CursorSpec(variable_name="projects_delta"),
             value=value,
             enabled=True,

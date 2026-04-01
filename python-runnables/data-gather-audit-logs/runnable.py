@@ -18,6 +18,7 @@ from data_collection.data_collection.instance import get_instance_name
 from data_collection.data_normalizer import check_silver_dq, normalize_silver
 from data_collection.helper import (
     CursorSpec,
+    resolve_worker_project_key,
     OutputLayout,
     PulseMacroContext,
     build_context,
@@ -115,9 +116,11 @@ class MyRunnable(Runnable):
 
     def _read_audit_delta(self, client: Any) -> pd.Timestamp:
         start_dt = self._resolve_audit_start_ts()
+        worker_project_key = resolve_worker_project_key(client, fallback_project_key=self.project_key)
+
         return resolve_cursor_ts(
             client=client,
-            project_key=self.project_key,
+            project_key=worker_project_key,
             param_set=self.param_set,
             spec=CursorSpec(variable_name="audit_log_delta", debug_key="pulse_audit_logs_delta_debug"),
             default_ts=start_dt,
@@ -125,9 +128,11 @@ class MyRunnable(Runnable):
         )
 
     def _update_audit_delta(self, client: Any, value: str) -> None:
+        worker_project_key = resolve_worker_project_key(client, fallback_project_key=self.project_key)
+
         update_cursor_ts(
             client=client,
-            project_key=self.project_key,
+            project_key=worker_project_key,
             spec=CursorSpec(variable_name="audit_log_delta"),
             value=value,
             enabled=not self._is_local_debug(),
