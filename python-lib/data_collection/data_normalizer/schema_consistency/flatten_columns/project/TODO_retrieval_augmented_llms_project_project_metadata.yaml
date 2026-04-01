@@ -1,0 +1,6 @@
+# TODO: define required flat columns for retrieval_augmented_llms (project-level)
+# File naming convention: {category}_{module}.yaml
+# Category: retrieval_augmented_llms
+# Module: metadata
+
+# Add column names here (lowercase, underscores)

@@ -1,0 +1,22 @@
+# Known numeric-like columns (lowercase)
+
+- level_1_size
+- level_2_size
+- level_3_size
+- size
+- used
+- available
+- used_pct
+- calltime
+- osversion
+- project_versiontag_versionnumber
+- project_creationtag_versionnumber
+- dataset_versiontag_versionnumber
+- dataset_creationtag_versionnumber
+- recipes_maxrunningactivities
+- recipes_versiontag_versionnumber
+- recipes_creationtag_versionnumber
+- knowledge_banks_versiontag_versionnumber
+- knowledge_banks_creationtag_versionnumber
+- agents_versions_versiontag_versionnumber
+- agents_versions_creationtag_versionnumber

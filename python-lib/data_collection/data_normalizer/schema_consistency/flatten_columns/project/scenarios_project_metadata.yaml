@@ -1,0 +1,21 @@
+# Scenario identity
+
+- project_key
+- scenarios_id
+- scenarios_name
+
+# Classification / state
+- scenarios_type
+- scenarios_active
+- scenarios_unavailable
+- scenarios_running
+- scenarios_markedastest
+
+# Lifecycle / scheduling
+- scenarios_createdon
+- scenarios_lastmodifiedon
+- scenarios_start
+- scenarios_nextrun
+
+# Execution context
+- scenarios_runasuser

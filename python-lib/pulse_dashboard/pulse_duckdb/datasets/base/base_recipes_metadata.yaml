@@ -1,0 +1,21 @@
+base_recipes_metadata:
+  description: >
+    Curated recipe inventory across DSS instances.
+  depends_on: []
+  build_order: 110
+  sql: |
+    CREATE OR REPLACE TABLE "base_recipes_metadata" AS
+    SELECT
+          CAST(NULL AS VARCHAR) AS instance_name,
+          CAST(NULL AS VARCHAR) AS project_key,
+          CAST(NULL AS VARCHAR) AS recipe_name,
+          CAST(NULL AS VARCHAR) AS recipe_type,
+          CAST(NULL AS VARCHAR) AS recipe_last_modified_by_login,
+          CAST(NULL AS TIMESTAMP) AS recipe_created_at,
+          CAST(NULL AS TIMESTAMP) AS recipe_updated_at,
+          CAST(NULL AS VARCHAR) AS engine_type,
+          CAST(NULL AS VARCHAR) AS engine_label,
+          CAST(NULL AS BOOLEAN) AS engine_recommended
+    WHERE 1=0;
+  example_data: |
+    INSERT INTO "base_recipes_metadata" (instance_name, project_key, recipe_name, recipe_type, recipe_last_modified_by_login, recipe_created_at, recipe_updated_at, engine_type, engine_label, engine_recommended) VALUES ('dss-prod', 'FIN', 'recipe_name_example', 'recipe_type_example', 'recipe_last_modified_by_login_example', TIMESTAMP '2026-03-23 12:00:00', TIMESTAMP '2026-03-23 12:00:00', 'engine_type_example', 'engine_label_example', true);

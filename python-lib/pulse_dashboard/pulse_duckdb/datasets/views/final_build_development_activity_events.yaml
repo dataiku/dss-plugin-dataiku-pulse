@@ -1,0 +1,24 @@
+final_build_development_activity_events:
+  description: >
+    UI-ready event stream for **Build → Development Activity**.
+  depends_on:
+    - fact_dev_activity_events
+    - dim_category_to_capability
+  build_order: 1110
+  sql: |
+    CREATE OR REPLACE VIEW "final_build_development_activity_events" AS
+    SELECT
+      e.timestamp,
+      e.instance_name,
+      e.login,
+      e.project_key,
+      e.msgtype,
+      e.msgtypebase AS base_tag,
+      e.dataiku_category,
+      COALESCE(m.capability, 'Uncategorized') AS capability
+    FROM fact_dev_activity_events e
+    LEFT JOIN dim_category_to_capability m
+      ON m.dataiku_category = e.dataiku_category;
+  example_data: |
+    -- This object is a VIEW.
+    -- Insert example rows into its upstream base tables.

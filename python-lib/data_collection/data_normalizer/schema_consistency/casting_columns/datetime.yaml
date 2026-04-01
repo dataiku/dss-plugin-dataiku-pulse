@@ -1,0 +1,27 @@
+# Known datetime-like columns (lowercase)
+
+- timestamp
+- date
+- run_timestamp
+- dssstartuptimestamp
+- creationdate
+- last_session_activity
+- first_commit_date
+- last_commit_date
+- creationtag_lastmodifiedon
+- project_versiontag_lastmodifiedon
+- project_creationtag_lastmodifiedon
+- dataset_versiontag_lastmodifiedon
+- dataset_creationtag_lastmodifiedon
+- recipes_versiontag_lastmodifiedon
+- recipes_creationtag_lastmodifiedon
+- agents_versions_versiontag_lastmodifiedon
+- agents_versions_creationtag_lastmodifiedon
+- knowledge_banks_versiontag_lastmodifiedon
+- knowledge_banks_creationtag_lastmodifiedon
+- scenarios_start
+- scenarios_nextrun
+- scenarios_createdon
+- scenarios_lastmodifiedon
+- trial_granted_on
+- trial_expires_on

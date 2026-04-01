@@ -1,0 +1,40 @@
+base_scenarios_metadata_history:
+  description: >
+    Scenario history table built from SILVER parquet (`category=scenarios/module=project_metadata`).
+    This is an append-style table (one row per observed scenario record per partition date).
+
+  depends_on: []
+  build_order: 10
+
+  sql: |
+    CREATE OR REPLACE TABLE base_scenarios_metadata_history AS
+    SELECT
+      instance_name,
+      COALESCE(project_key, json_extract_string(extras, '$.scenario_projectkey')) AS project_key,
+      json_extract_string(extras, '$.scenario_id') AS scenario_id,
+      json_extract_string(extras, '$.scenario_name') AS scenario_name,
+      json_extract_string(extras, '$.scenario_type') AS scenario_type,
+      try_cast(json_extract_string(extras, '$.scenario_active') AS BOOLEAN) AS scenario_active,
+      json_extract_string(extras, '$.scenario_runasuser') AS scenario_run_as_login,
+
+      -- These timestamp fields are often null in SILVER, while epoch-like values
+      -- exist in `extras`.
+      to_timestamp(nullif(try_cast(json_extract_string(extras, '$.scenario_createdon') AS BIGINT), 0) / 1000) AS scenario_created_at,
+      to_timestamp(nullif(try_cast(json_extract_string(extras, '$.scenario_lastmodifiedon') AS BIGINT), 0) / 1000) AS scenario_updated_at,
+      to_timestamp(nullif(try_cast(json_extract_string(extras, '$.scenario_nextrun') AS BIGINT), 0) / 1000) AS scenario_next_run,
+      to_timestamp(nullif(try_cast(json_extract_string(extras, '$.scenario_start') AS BIGINT), 0) / 1000) AS scenario_last_run_start,
+
+      scenarios_running AS scenario_running,
+      run_ts,
+      extras,
+      make_date(
+        CAST(year AS INTEGER),
+        CAST(month AS INTEGER),
+        CAST(day AS INTEGER)
+      ) AS partition_date,
+      category,
+      module,
+      year,
+      month,
+      day
+    FROM v_scenarios__project_metadata;

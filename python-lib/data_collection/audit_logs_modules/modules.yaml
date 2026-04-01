@@ -1,0 +1,9 @@
+# Audit log processors to execute
+#
+# Each entry corresponds to a python module under
+# `python-lib/data_collection/audit_logs_modules/`.
+#
+# Example:
+# - event_mapping
+
+- event_mapping

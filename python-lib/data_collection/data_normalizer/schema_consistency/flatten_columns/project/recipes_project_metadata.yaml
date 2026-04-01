@@ -1,0 +1,24 @@
+# Recipe identity
+
+- project_key
+- recipes_name
+- recipes_type
+
+# Core behavior
+- recipes_neverrecomputeexistingpartitions
+- recipes_redispatchpartitioning
+- recipes_maxrunningactivities
+- recipes_hashpropagationbehavior
+
+# Engine classification
+- recipes_params_enginetype
+- recipes_params_enginelabel
+- recipes_params_enginerecommended
+
+# Versioning / lifecycle
+- recipes_versiontag_versionnumber
+- recipes_versiontag_lastmodifiedon
+- recipes_versiontag_lastmodifiedby_login
+- recipes_creationtag_versionnumber
+- recipes_creationtag_lastmodifiedon
+- recipes_creationtag_lastmodifiedby_login

@@ -1,0 +1,18 @@
+# Required columns for SILVER flattening
+# Object: datasets / module: metadata
+
+- project_key
+- dataset_name
+- dataset_smartname
+
+- dataset_type
+- dataset_managed
+- dataset_featuregroup
+- dataset_typesystemversion
+
+- dataset_versiontag_versionnumber
+- dataset_versiontag_lastmodifiedon
+- dataset_versiontag_lastmodifiedby_login
+- dataset_creationtag_versionnumber
+- dataset_creationtag_lastmodifiedon
+- dataset_creationtag_lastmodifiedby_login

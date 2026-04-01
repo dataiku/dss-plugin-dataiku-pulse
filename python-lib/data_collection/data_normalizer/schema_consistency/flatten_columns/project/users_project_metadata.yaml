@@ -1,0 +1,26 @@
+# Identity
+
+- login
+- displayname
+- email
+
+# Account / profile
+- userprofile
+- resultinguserprofile
+- enabled
+- sourcetype
+- groups
+
+# Lifecycle / activity timestamps
+- creationdate
+- last_session_activity
+- first_commit_date
+- last_commit_date
+
+# Trial licenses
+- trial_exists
+- trial_valid
+- trial_expired
+- trial_illegal
+- trial_granted_on
+- trial_expires_on

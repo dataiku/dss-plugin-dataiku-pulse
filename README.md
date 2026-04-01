@@ -1,69 +1,53 @@
-# Dataiku Pulse Dashboard
+# dataiku-pulse
 
-**Version:** 2.8.4
+This library collects Dataiku DSS metadata into a partitioned managed folder (`partitioned_data`) and provides a DuckDB-based path to build curated GOLD tables for downstream apps.
 
-Pulse is an administrative dashboard for **Dataiku DSS** that provides
-centralized visibility into platform metadata and usage across one or more
-Dataiku instances.
+## Flow overview
 
-It is designed for **Dataiku Platform Admins, TAMs, and Solution Architects**
-who need operational insight into how DSS is being used at scale.
+1. **Collect & normalize (RAW/SILVER)**
+   - Instance metadata, project metadata, and audit logs are collected into `partitioned_data/{raw|silver}/...`.
+   - Entry points live under `python-runnables/`.
 
----
+2. **Build GOLD tables (DuckDB)**
+   - A custom recipe builds GOLD tables from the SILVER parquet using DuckDB.
+   - Entry point: `custom-recipes/create-gold-tables/recipe.py`
 
-## Overview
+3. **Consume GOLD tables (webapp / app layer)**
+   - Downstream apps (ex: a Flask/React webapp) can read from the GOLD managed folder.
 
-Pulse collects and presents:
+## Project layout
 
-- **Platform metadata** via the Dataiku API
-- **Usage and activity metrics** via audit logs
-- **Cross-instance insights** from one or more DSS environments
+This plugin contains two main components:
 
-The application is delivered as a **Streamlit dashboard** running in
-**Dataiku Code Studios**, backed by **DuckDB** and external blob storage.
+- **Data collection framework** (macros + library)
+  - Library code: `python-lib/data_collection/`
+  - Macro runnables: `python-runnables/data-gather-*`
 
----
+- **Pulse dashboard webapp** (React + backend helpers)
+  - Frontend build assets: `resource/pulse-dashboard/build/`
+  - Webapp wrapper: `webapps/pulse-dashboard/`
+  - Shared backend helpers: `python-lib/pulse_dashboard/`
 
-## Scope
+## Key docs
 
-Pulse provides insights into:
+- Project metadata macro: `python-runnables/data-gather-project/README.md`
+- Instance metadata macro: `python-runnables/data-gather-instance/README.md`
+- Audit logs macro: `python-runnables/data-gather-audit-logs/README.md`
 
-- Dataiku instance configuration and metadata
-- User activity and usage patterns
-- Projects, datasets, recipes, and platform objects
-- Multi-instance operational visibility
+## Local testing
 
-Pulse does **not** modify customer data or platform state.
-It is a read-only analytics and observability layer.
+Manual runnable wrappers (useful outside the DSS plugin runtime):
 
----
+- `unit_testing/project_data.py`
+- `unit_testing/instance_data.py`
+- `unit_testing/audit_logs.py`
 
-## Supported & Tested Versions
+Frontend build sync helper:
 
-| Pulse Version | Dataiku DSS Version |
-|--------------|---------------------|
-| v2.7 | v14.3 |
-| v2.6 | v14.3 |
-| v2.5 | v14.3 |
-| v2.1 | v14.2 |
-| v1.x | v14.0 – v14.1 |
+- `scripts/sync_pulse_dashboard_build.sh`
 
----
-
-## Installation
-
-Pulse installation requires **Dataiku platform admin access** and involves:
-
-- Plugin installation
-- Code environment creation
-- Code Studio template configuration
-- Project and macro initialization
-
-For more information:
-
-* **Pulse Process Flow:** [`docs/pulse_process_flow.md`](docs/pulse_process_flow.md)
-* **Prerequisites & permissions:** [`docs/installation_requirements.md`](docs/installation_requirements.md)
-* **Full installation guide:** [`docs/installation_process.md`](docs/installation_process.md)
-* **Pulse Usage Categories:** [`docs/pulse_usage_categories.md`](docs/pulse_usage_categories.md)
-
----
+- GOLD recipe: `custom-recipes/create-gold-tables/README.md`
+- Data collection DuckDB helpers: `python-lib/data_collection/pulse_duckdb/README.md`
+- Dashboard backend helpers: `python-lib/pulse_dashboard/`
+- Dashboard frontend build assets: `resource/pulse-dashboard/build/`
+- Dashboard webapp wrapper: `webapps/pulse-dashboard/`

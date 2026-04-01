@@ -1,0 +1,10 @@
+# Known string columns to uppercase (lowercase column names)
+
+- severity
+- msgtypebase
+- dataiku_category
+- authsource
+- sourcetype
+- dataset_type
+- nodetype
+- rawnodetype

@@ -1,0 +1,25 @@
+# Audit (dataiku usage)
+
+- severity
+- logger
+- topic
+- audittopic
+- msgtype
+- msgtypebase
+- dataiku_category
+
+- login
+- authsource
+- authvia
+- user
+
+- callpath
+- clientip
+- originalip
+- xforwardedfor
+
+- timestamp
+- date
+
+- instance_name
+- project_key

@@ -1,0 +1,18 @@
+# Known boolean-like columns (lowercase)
+
+- project_tutorialproject
+- dataset_managed
+- dataset_featuregroup
+- recipes_neverrecomputeexistingpartitions
+- recipes_redispatchpartitioning
+- recipes_params_enginerecommended
+- scenarios_active
+- scenarios_unavailable
+- scenarios_markedastest
+- scenarios_running
+- enabled
+- trial_exists
+- trial_valid
+- trial_expired
+- trial_illegal
+- is_mau_eligible

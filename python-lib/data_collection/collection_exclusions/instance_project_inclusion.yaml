@@ -1,0 +1,15 @@
+# Inclusion list for project-level `project_handle.list_*` methods
+#
+# These methods are project_handle list_* methods that are known to return
+# project-invariant results (or are only needed once per run).
+#
+# They will be executed by the data-gather-instance macro against the
+# `pulse_worker_key` project, and stored once.
+#
+# Example:
+# - list_llms
+# - list_macros
+
+- list_imported_bundles
+- list_llms
+- list_ml_tasks

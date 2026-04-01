@@ -1,0 +1,16 @@
+base_groups:
+  description: >
+    Curated groups directory across DSS instances.
+  depends_on: []
+  build_order: 60
+  sql: |
+    CREATE OR REPLACE TABLE "base_groups" AS
+    SELECT
+          CAST(NULL AS VARCHAR) AS instance_name,
+          CAST(NULL AS VARCHAR) AS group_name,
+          CAST(NULL AS VARCHAR) AS group_display_name,
+          CAST(NULL AS VARCHAR) AS group_type,
+          CAST(NULL AS TIMESTAMP) AS created_at
+    WHERE 1=0;
+  example_data: |
+    INSERT INTO "base_groups" (instance_name, group_name, group_display_name, group_type, created_at) VALUES ('dss-prod', 'group_name_example', 'group_display_name_example', 'group_type_example', TIMESTAMP '2026-03-23 12:00:00');

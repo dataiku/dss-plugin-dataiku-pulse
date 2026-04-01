@@ -1,0 +1,20 @@
+base_users:
+  description: >
+    Curated user directory across DSS instances.
+  depends_on: []
+  build_order: 140
+  sql: |
+    CREATE OR REPLACE TABLE "base_users" AS
+    SELECT
+          CAST(NULL AS VARCHAR) AS instance_name,
+          CAST(NULL AS VARCHAR) AS login,
+          CAST(NULL AS VARCHAR) AS display_name,
+          CAST(NULL AS VARCHAR) AS email,
+          CAST(NULL AS BOOLEAN) AS enabled,
+          CAST(NULL AS VARCHAR) AS user_profile,
+          CAST(NULL AS TIMESTAMP) AS last_activity_at,
+          CAST(NULL AS VARCHAR) AS group_names,
+          CAST(NULL AS VARCHAR) AS source_type
+    WHERE 1=0;
+  example_data: |
+    INSERT INTO "base_users" (instance_name, login, display_name, email, enabled, user_profile, last_activity_at, group_names, source_type) VALUES ('dss-prod', 'alice', 'display_name_example', 'email_example', true, 'user_profile_example', TIMESTAMP '2026-03-23 12:00:00', 'group_names_example', 'source_type_example');

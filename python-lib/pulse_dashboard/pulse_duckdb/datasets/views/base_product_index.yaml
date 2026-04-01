@@ -1,0 +1,96 @@
+base_product_index:
+  description: >
+    This view normalizes **product** inventory (deliverables/end-products) into a single unioned index, similar to `base_asset_index` but **products-only**.
+  depends_on:
+    - base_projects_metadata
+    - base_api_endpoints_metadata
+    - base_agents_metadata
+    - base_dashboards_metadata
+    - base_webapps_metadata
+    - base_dataiku_applications_metadata
+    - base_object_activity_events
+  build_order: 1030
+  sql: |
+    CREATE OR REPLACE VIEW "base_product_index" AS
+    
+    -- API endpoints
+    SELECT
+      instance_name,
+      project_key,
+      'api_endpoint' AS product_type,
+      api_endpoint_id AS product_key,
+      api_endpoint_name AS product_name,
+      api_endpoint_kind AS product_subtype,
+      owner_login,
+      last_modified_by_login,
+      created_at,
+      updated_at
+    FROM base_api_endpoints_metadata
+    
+    UNION ALL
+    
+    -- Agents
+    SELECT
+      instance_name,
+      project_key,
+      'agent' AS product_type,
+      agent_id AS product_key,
+      agent_name AS product_name,
+      agent_type AS product_subtype,
+      owner_login,
+      last_modified_by_login,
+      created_at,
+      updated_at
+    FROM base_agents_metadata
+    
+    UNION ALL
+    
+    -- Dashboards
+    SELECT
+      instance_name,
+      project_key,
+      'dashboard' AS product_type,
+      dashboard_id AS product_key,
+      dashboard_name AS product_name,
+      dashboard_kind AS product_subtype,
+      owner_login,
+      last_modified_by_login,
+      created_at,
+      updated_at
+    FROM base_dashboards_metadata
+    
+    UNION ALL
+    
+    -- Web applications (DSS webapps)
+    SELECT
+      instance_name,
+      project_key,
+      'web_application' AS product_type,
+      webapp_id AS product_key,
+      webapp_name AS product_name,
+      webapp_type AS product_subtype,
+      owner_login,
+      last_modified_by_login,
+      created_at,
+      updated_at
+    FROM base_webapps_metadata
+    
+    UNION ALL
+    
+    -- Dataiku applications
+    SELECT
+      instance_name,
+      project_key,
+      'dataiku_application' AS product_type,
+      application_id AS product_key,
+      application_name AS product_name,
+      application_kind AS product_subtype,
+      owner_login,
+      last_modified_by_login,
+      created_at,
+      updated_at
+    FROM base_dataiku_applications_metadata;
+  example_data: |
+    -- This object is a VIEW.
+    -- Minimal example: ensure upstream base table has at least one row.
+    INSERT INTO "base_projects_metadata" DEFAULT VALUES;

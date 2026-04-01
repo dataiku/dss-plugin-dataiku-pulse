@@ -1,0 +1,22 @@
+dev_activity_unmapped_categories_30d:
+  description: >
+    Diagnostic view that shows categories present in the events table but missing from `dim_category_to_capability`.
+  depends_on:
+    - fact_dev_activity_events
+    - dim_category_to_capability
+  build_order: 1090
+  sql: |
+    CREATE OR REPLACE VIEW "dev_activity_unmapped_categories_30d" AS
+    SELECT
+      e.dataiku_category,
+      COUNT(*) FILTER (WHERE e.timestamp >= now() - INTERVAL 30 DAY) AS event_count_30d,
+      COUNT(DISTINCT e.login) FILTER (WHERE e.timestamp >= now() - INTERVAL 30 DAY) AS active_users_30d
+    FROM fact_dev_activity_events e
+    LEFT JOIN dim_category_to_capability m
+      ON m.dataiku_category = e.dataiku_category
+    WHERE m.capability IS NULL
+    GROUP BY 1
+    ORDER BY event_count_30d DESC;
+  example_data: |
+    -- This object is a VIEW.
+    -- Insert example rows into its upstream base tables.

@@ -1,0 +1,6 @@
+# TODO: define required flat columns for saved_models (project-level)
+# File naming convention: {category}_{module}.yaml
+# Category: saved_models
+# Module: metadata
+
+# Add column names here (lowercase, underscores)

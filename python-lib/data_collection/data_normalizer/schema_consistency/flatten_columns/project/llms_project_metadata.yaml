@@ -1,0 +1,10 @@
+# LLM identity
+
+- llms_id
+- llms_friendlyname
+- llms_friendlynameshort
+
+# Provider / classification
+- llms_type
+- llms_connection
+- llms_model

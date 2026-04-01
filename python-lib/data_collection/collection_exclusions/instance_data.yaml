@@ -1,0 +1,5 @@
+# Exclusion list for instance-level collection
+#
+# List method names to skip when iterating `client.list_*`.
+
+[]

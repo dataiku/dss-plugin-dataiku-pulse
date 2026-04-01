@@ -1,0 +1,8 @@
+- project_key
+- webapps_id
+- webapps_name
+- webapps_type
+- webapps_createdby_login
+- webapps_lastmodifiedby_login
+- webapps_createdon
+- webapps_lastmodifiedon

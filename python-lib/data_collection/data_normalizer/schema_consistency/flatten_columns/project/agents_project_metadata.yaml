@@ -1,0 +1,18 @@
+# Agent identity
+
+- project_key
+- agents_id
+- agents_name
+- agents_type
+
+# Versioning / lifecycle
+- agents_activeversion
+- agents_versions_versionid
+
+# Version metadata
+- agents_versions_versiontag_versionnumber
+- agents_versions_versiontag_lastmodifiedon
+- agents_versions_versiontag_lastmodifiedby_login
+- agents_versions_creationtag_versionnumber
+- agents_versions_creationtag_lastmodifiedon
+- agents_versions_creationtag_lastmodifiedby_login

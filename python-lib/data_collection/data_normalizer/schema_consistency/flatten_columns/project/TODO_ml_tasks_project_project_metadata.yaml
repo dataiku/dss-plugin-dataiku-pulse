@@ -1,0 +1,6 @@
+# TODO: define required flat columns for ml_tasks (project-level)
+# File naming convention: {category}_{module}.yaml
+# Category: ml_tasks
+# Module: metadata
+
+# Add column names here (lowercase, underscores)

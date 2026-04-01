@@ -1,0 +1,22 @@
+base_mlmodels_metadata:
+  description: >
+    Machine learning model inventory across instances.
+  depends_on: []
+  build_order: 80
+  sql: |
+    CREATE OR REPLACE TABLE "base_mlmodels_metadata" AS
+    SELECT
+          CAST(NULL AS VARCHAR) AS instance_name,
+          CAST(NULL AS VARCHAR) AS project_key,
+          CAST(NULL AS VARCHAR) AS model_id,
+          CAST(NULL AS VARCHAR) AS model_name,
+          CAST(NULL AS VARCHAR) AS model_type,
+          CAST(NULL AS VARCHAR) AS algorithm,
+          CAST(NULL AS VARCHAR) AS owner_login,
+          CAST(NULL AS TIMESTAMP) AS created_at,
+          CAST(NULL AS TIMESTAMP) AS updated_at,
+          CAST(NULL AS VARCHAR) AS last_modified_by_login,
+          CAST(NULL AS VARCHAR) AS status
+    WHERE 1=0;
+  example_data: |
+    INSERT INTO "base_mlmodels_metadata" (instance_name, project_key, model_id, model_name, model_type, algorithm, owner_login, created_at, updated_at, last_modified_by_login, status) VALUES ('dss-prod', 'FIN', 'model_id_example', 'model_name_example', 'model_type_example', 'algorithm_example', 'alice', TIMESTAMP '2026-03-23 12:00:00', TIMESTAMP '2026-03-23 12:00:00', 'alice', 'status_example');

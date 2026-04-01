@@ -1,0 +1,24 @@
+# Knowledge bank identity
+
+- project_key
+- knowledge_banks_id
+- knowledge_banks_name
+
+# Core classification
+- knowledge_banks_retrievertype
+- knowledge_banks_vectorstoretype
+- knowledge_banks_embeddingllmid
+
+# Execution / environment
+- knowledge_banks_rebuildbehavior
+- knowledge_banks_envselection_envmode
+- knowledge_banks_envselection_envname
+- knowledge_banks_containerexecselection_containermode
+
+# Versioning / lifecycle
+- knowledge_banks_versiontag_versionnumber
+- knowledge_banks_versiontag_lastmodifiedon
+- knowledge_banks_versiontag_lastmodifiedby_login
+- knowledge_banks_creationtag_versionnumber
+- knowledge_banks_creationtag_lastmodifiedon
+- knowledge_banks_creationtag_lastmodifiedby_login

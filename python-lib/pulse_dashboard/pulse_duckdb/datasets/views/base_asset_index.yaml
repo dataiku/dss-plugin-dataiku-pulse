@@ -1,0 +1,69 @@
+base_asset_index:
+  description: >
+    This view normalizes “inventory” metadata into a single unioned asset index. It provides one row per asset, independent of activity.
+  depends_on:
+    - base_projects_metadata
+    - base_datasets_metadata
+    - base_recipes_metadata
+    - base_scenarios_metadata
+  build_order: 1020
+  sql: |
+    CREATE OR REPLACE VIEW "base_asset_index" AS
+    SELECT
+      instance_name,
+      project_key,
+      'project' AS object_type,
+      project_key AS object_key,
+      project_name AS object_name,
+      NULL AS object_subtype,
+      project_owner_login AS owner_login,
+      project_last_modified_by_login AS last_modified_by_login,
+      project_created_at AS created_at,
+      project_updated_at AS updated_at
+    FROM base_projects_metadata
+    
+    UNION ALL
+    SELECT
+      instance_name,
+      project_key,
+      'dataset' AS object_type,
+      dataset_name AS object_key,
+      COALESCE(dataset_display_name, dataset_name) AS object_name,
+      dataset_type AS object_subtype,
+      dataset_last_modified_by_login AS owner_login,
+      dataset_last_modified_by_login AS last_modified_by_login,
+      dataset_created_at AS created_at,
+      dataset_updated_at AS updated_at
+    FROM base_datasets_metadata
+    
+    UNION ALL
+    SELECT
+      instance_name,
+      project_key,
+      'recipe' AS object_type,
+      recipe_name AS object_key,
+      recipe_name AS object_name,
+      recipe_type AS object_subtype,
+      recipe_last_modified_by_login AS owner_login,
+      recipe_last_modified_by_login AS last_modified_by_login,
+      recipe_created_at AS created_at,
+      recipe_updated_at AS updated_at
+    FROM base_recipes_metadata
+    
+    UNION ALL
+    SELECT
+      instance_name,
+      project_key,
+      'scenario' AS object_type,
+      scenario_id AS object_key,
+      scenario_name AS object_name,
+      scenario_type AS object_subtype,
+      scenario_run_as_login AS owner_login,
+      scenario_run_as_login AS last_modified_by_login,
+      scenario_created_at AS created_at,
+      scenario_updated_at AS updated_at
+    FROM base_scenarios_metadata;
+  example_data: |
+    -- This object is a VIEW.
+    -- Minimal example: ensure upstream base table has at least one row.
+    INSERT INTO "base_projects_metadata" DEFAULT VALUES;

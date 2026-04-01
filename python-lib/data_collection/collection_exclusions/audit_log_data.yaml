@@ -1,0 +1,5 @@
+# Exclusion list for audit log collection
+#
+# List method names to skip when iterating audit collection methods.
+
+[]

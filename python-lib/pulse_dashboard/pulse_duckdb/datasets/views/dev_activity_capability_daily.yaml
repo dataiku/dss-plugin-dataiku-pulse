@@ -1,0 +1,19 @@
+dev_activity_capability_daily:
+  description: >
+    Daily rollup of development activity by capability.
+  depends_on:
+    - final_build_development_activity_events
+  build_order: 1050
+  sql: |
+    CREATE OR REPLACE VIEW "dev_activity_capability_daily" AS
+    SELECT
+      CAST(date_trunc('day', timestamp) AS DATE) AS day,
+      capability,
+      COUNT(*) AS event_count,
+      COUNT(DISTINCT login) AS active_users
+    FROM final_build_development_activity_events
+    GROUP BY 1,2
+    ORDER BY 1,2;
+  example_data: |
+    -- This object is a VIEW.
+    -- Insert example rows into its upstream base tables.

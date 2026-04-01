@@ -1,0 +1,20 @@
+# Instance info
+
+- nodeid
+- nodename
+- nodetype
+- rawnodetype
+- hostname
+
+- installid
+- dipinstanceid
+- licenseinstanceid
+- licenseid
+
+- dssversion
+- os
+- osversion
+- javavendor
+- javaversion
+
+- dssstartuptimestamp

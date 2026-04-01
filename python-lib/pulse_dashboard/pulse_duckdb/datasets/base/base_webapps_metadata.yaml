@@ -1,0 +1,20 @@
+base_webapps_metadata:
+  description: >
+    Webapp inventory (DSS webapps) across instances.
+  depends_on: []
+  build_order: 150
+  sql: |
+    CREATE OR REPLACE TABLE "base_webapps_metadata" AS
+    SELECT
+          CAST(NULL AS VARCHAR) AS instance_name,
+          CAST(NULL AS VARCHAR) AS project_key,
+          CAST(NULL AS VARCHAR) AS webapp_id,
+          CAST(NULL AS VARCHAR) AS webapp_name,
+          CAST(NULL AS VARCHAR) AS webapp_type,
+          CAST(NULL AS VARCHAR) AS owner_login,
+          CAST(NULL AS TIMESTAMP) AS created_at,
+          CAST(NULL AS TIMESTAMP) AS updated_at,
+          CAST(NULL AS VARCHAR) AS last_modified_by_login
+    WHERE 1=0;
+  example_data: |
+    INSERT INTO "base_webapps_metadata" (instance_name, project_key, webapp_id, webapp_name, webapp_type, owner_login, created_at, updated_at, last_modified_by_login) VALUES ('dss-prod', 'FIN', 'webapp_id_example', 'webapp_name_example', 'webapp_type_example', 'alice', TIMESTAMP '2026-03-23 12:00:00', TIMESTAMP '2026-03-23 12:00:00', 'alice');
