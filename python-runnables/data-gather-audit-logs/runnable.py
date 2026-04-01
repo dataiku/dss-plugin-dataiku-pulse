@@ -17,11 +17,10 @@ from data_collection.audit_logs_modules.audit_paths import chdir_audit_logs
 from data_collection.data_collection.instance import get_instance_name
 from data_collection.data_normalizer import check_silver_dq, normalize_silver
 from data_collection.helper import (
-    DSSFolderTarget,
     OutputLayout,
     PulseMacroContext,
     build_context,
-    ensure_managed_folder,
+    ensure_output_folder,
     upload_json_gzip,
     upload_parquet,
 )
@@ -165,20 +164,7 @@ class MyRunnable(Runnable):
         run_date = run_dt.date()
         run_epoch_ms = int(run_dt.timestamp() * 1000)
 
-        target = DSSFolderTarget(
-            project_key=self.output_project_key,
-            folder_lookup=self.output_folder_lookup,
-            connection_name=self.output_connection_name,
-            client=ctx.remote_client,
-        )
-
-        # Ensure output folder exists before writing.
-        ensure_managed_folder(
-            project_key=target.project_key,
-            folder_lookup=target.folder_lookup,
-            connection_name=target.connection_name,
-            client=ctx.remote_client,
-        )
+        target = ensure_output_folder(param_set=self.param_set, remote_client=ctx.remote_client)
 
         layout = OutputLayout(base_dir=Path("partitioned_data"), module="audit_metadata")
 

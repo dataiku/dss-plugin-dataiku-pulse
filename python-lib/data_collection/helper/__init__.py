@@ -10,6 +10,7 @@ from .dss_folder_writer import (
 )
 from .json_writer import write_json, write_json_gzip
 from .macro_context import PulseMacroContext, build_context, get_param_set
+from .output_target import PulseOutputTarget, ensure_output_folder, resolve_output_target
 from .output_layout import OutputLayout, as_posix_relative, ensure_parent_dir
 from .parquet_engine import ensure_pyarrow
 from .parquet_writer import write_parquet
@@ -31,6 +32,9 @@ __all__ = [
     "PulseMacroContext",
     "get_param_set",
     "build_context",
+    "PulseOutputTarget",
+    "resolve_output_target",
+    "ensure_output_folder",
     "write_parquet",
     "raw_to_dataframe",
     "build_error_row",

@@ -9,16 +9,17 @@ from typing import Any, Dict, List
 import dataiku
 import pandas as pd
 from dataiku.runnables import ResultTable, Runnable
-from data_collection.helper import PulseMacroContext, build_context
+
 
 from data_collection.data_collection.instance import get_instance_name
 from data_collection.data_collection.introspection import get_noarg_list_methods
 from data_collection.data_normalizer import check_silver_dq, normalize_silver
 from data_collection.exclusion_config import load_exclusions, load_inclusions
 from data_collection.helper import (
-    DSSFolderTarget,
     OutputLayout,
-    ensure_managed_folder,
+    PulseMacroContext,
+    build_context,
+    ensure_output_folder,
     raw_to_dataframe,
     upload_json,
     upload_json_gzip,
@@ -74,20 +75,7 @@ class MyRunnable(Runnable):
         project_inclusions = load_inclusions("instance_project_inclusion.yaml")
         worker_project_key = self.param_set.get("pulse_worker_key")
 
-        target = DSSFolderTarget(
-            project_key=self.output_project_key,
-            folder_lookup=self.output_folder_lookup,
-            connection_name=self.output_connection_name,
-            client=ctx.remote_client,
-        )
-
-        # Ensure output folder exists before writing.
-        ensure_managed_folder(
-            project_key=target.project_key,
-            folder_lookup=target.folder_lookup,
-            connection_name=target.connection_name,
-            client=ctx.remote_client,
-        )
+        target = ensure_output_folder(param_set=self.param_set, remote_client=ctx.remote_client)
 
         collected: List[str] = []
         errors: Dict[str, str] = {}

@@ -10,7 +10,7 @@ import pandas as pd
 from dataiku.runnables import ResultTable, Runnable
 
 from data_collection.data_collection.collect_all_projects import collect_all_projects
-from data_collection.helper import DSSFolderTarget, PulseMacroContext, build_context, ensure_managed_folder
+from data_collection.helper import DSSFolderTarget, PulseMacroContext, build_context, ensure_output_folder
 
 
 class MyRunnable(Runnable):
@@ -183,20 +183,7 @@ class MyRunnable(Runnable):
         # Used for path layout prefix only.
         output_base_dir = Path("partitioned_data")
 
-        target = DSSFolderTarget(
-            project_key=self.output_project_key,
-            folder_lookup=self.output_folder_lookup,
-            connection_name=self.output_connection_name,
-            client=ctx.remote_client,
-        )
-
-        # Ensure output folder exists before writing.
-        ensure_managed_folder(
-            project_key=target.project_key,
-            folder_lookup=target.folder_lookup,
-            connection_name=target.connection_name,
-            client=ctx.remote_client,
-        )
+        target = ensure_output_folder(param_set=self.param_set, remote_client=ctx.remote_client)
 
         # progress_callback is per-runnable, not per-project, so we provide coarse reporting.
         if progress_callback is not None:
