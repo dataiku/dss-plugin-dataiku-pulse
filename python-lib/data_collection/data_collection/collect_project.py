@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 import os
+
+import pandas as pd
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -112,34 +114,18 @@ def collect_project_list_methods(
                 # Nothing to persist.
                 continue
 
-            # Apply row-level delta filtering for scenarios only.
+            # Apply row-level delta filtering when a timestamp column is available.
             # If filtering produces no rows, treat it as "no change" and skip writing.
             filtered_payload = payload
-            if since is not None and method_name == "list_scenarios":
-                from data_collection.data_normalizer.casting import cast_datetime_columns
+            if since is not None:
+                from data_collection.helper import filter_payload_by_delta
 
-                df = raw_df
-
-                # DSS scenario payloads typically include one of these.
-                ts_col = None
-                for cand in [f"{prefix}lastModifiedOn", f"{prefix}createdOn"]:
-                    if cand in df.columns:
-                        ts_col = cand
-                        break
-
-                if ts_col is not None:
-                    df = cast_datetime_columns(df, [ts_col])
-                    df_delta = df[df[ts_col] >= pd.Timestamp(since, tz="UTC")]
-                    if df_delta.shape[0] == 0:
+                maybe_filtered = filter_payload_by_delta(payload=payload, raw_df=raw_df, since=since)
+                if maybe_filtered is not None:
+                    # Delta filtering was applied.
+                    if isinstance(maybe_filtered, list) and len(maybe_filtered) == 0:
                         continue
-
-                    # Prefer filtering the original payload if it's list-like.
-                    if isinstance(payload, list) and len(payload) == raw_df.shape[0]:
-                        keep_idx = set(df_delta.index.tolist())
-                        filtered_payload = [row for i, row in enumerate(payload) if i in keep_idx]
-                    else:
-                        # Fallback: persist the filtered dataframe as records.
-                        filtered_payload = df_delta.to_dict("records")
+                    filtered_payload = maybe_filtered
 
             # RAW: dump the API payload as compressed JSON.
             upload_json_gzip(
