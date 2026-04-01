@@ -190,6 +190,7 @@ class MyRunnable(Runnable):
             client=ctx.remote_client,
             output_base_dir=output_base_dir,
             project_keys=keys,
+            since=since.to_pydatetime(),
             n_jobs=n_jobs,
             batch_size=self.batch_size,
             output_folder_target=target,

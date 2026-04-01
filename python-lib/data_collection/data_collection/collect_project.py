@@ -38,6 +38,7 @@ def collect_project_list_methods(
     instance_name: str,
     run_ts: str,
     run_date: date,
+    since: datetime | None = None,
     output_folder_target: DSSFolderTarget = DSSFolderTarget(project_key="DATA_COLLECTION"),
 ) -> CollectResult:
     """Collect all no-arg list_* outputs for a project handle."""
@@ -111,12 +112,41 @@ def collect_project_list_methods(
                 # Nothing to persist.
                 continue
 
+            # Apply row-level delta filtering for scenarios only.
+            # If filtering produces no rows, treat it as "no change" and skip writing.
+            filtered_payload = payload
+            if since is not None and method_name == "list_scenarios":
+                from data_collection.data_normalizer.casting import cast_datetime_columns
+
+                df = raw_df
+
+                # DSS scenario payloads typically include one of these.
+                ts_col = None
+                for cand in [f"{prefix}lastModifiedOn", f"{prefix}createdOn"]:
+                    if cand in df.columns:
+                        ts_col = cand
+                        break
+
+                if ts_col is not None:
+                    df = cast_datetime_columns(df, [ts_col])
+                    df_delta = df[df[ts_col] >= pd.Timestamp(since, tz="UTC")]
+                    if df_delta.shape[0] == 0:
+                        continue
+
+                    # Prefer filtering the original payload if it's list-like.
+                    if isinstance(payload, list) and len(payload) == raw_df.shape[0]:
+                        keep_idx = set(df_delta.index.tolist())
+                        filtered_payload = [row for i, row in enumerate(payload) if i in keep_idx]
+                    else:
+                        # Fallback: persist the filtered dataframe as records.
+                        filtered_payload = df_delta.to_dict("records")
+
             # RAW: dump the API payload as compressed JSON.
             upload_json_gzip(
                 target=output_folder_target,
                 output_path=raw_path,
                 output_base_dir=output_base_dir,
-                payload=payload,
+                payload=filtered_payload,
             )
 
             # SILVER: normalize + write typed parquet.
