@@ -12,7 +12,6 @@ from typing import Any, Dict, Iterable, List, Tuple
 import dataiku
 import pandas as pd
 from dataiku.runnables import ResultTable, Runnable
-from dataikuapi.dssclient import DSSClient
 
 from data_collection.audit_logs_modules.audit_paths import chdir_audit_logs
 from data_collection.data_collection.instance import get_instance_name
@@ -20,6 +19,8 @@ from data_collection.data_normalizer import check_silver_dq, normalize_silver
 from data_collection.helper import (
     DSSFolderTarget,
     OutputLayout,
+    PulseMacroContext,
+    build_context,
     ensure_managed_folder,
     upload_json_gzip,
     upload_parquet,
@@ -149,25 +150,13 @@ class MyRunnable(Runnable):
             pass
 
     def run(self, progress_callback):
-        local_client = dataiku.api_client()
-
-        remote_host = self.param_set.get("pulse_project_url")
-        remote_api_key = self.param_set.get("pulse_project_api")
-        if not remote_host or not remote_api_key:
-            raise ValueError(
-                "Missing remote target configuration in pulse_primary: expected pulse_project_url and pulse_project_api"
-            )
-
-        remote_client = DSSClient(
-            remote_host,
-            api_key=remote_api_key,
-            no_check_certificate=bool(self.param_set.get("ignore_certs", False)),
-        )
+        ctx: PulseMacroContext = build_context(plugin_config=self.plugin_config)
+        self.param_set = ctx.param_set
 
         repo_root = Path(__file__).resolve().parents[2]
-        chdir_audit_logs(client=local_client, plugin_config=self.param_set, repo_root=repo_root)
+        chdir_audit_logs(client=ctx.local_client, plugin_config=self.param_set, repo_root=repo_root)
 
-        instance_name = get_instance_name(local_client)
+        instance_name = get_instance_name(ctx.local_client)
         if not instance_name:
             raise ValueError("Could not determine instance_name")
 
@@ -180,7 +169,7 @@ class MyRunnable(Runnable):
             project_key=self.output_project_key,
             folder_lookup=self.output_folder_lookup,
             connection_name=self.output_connection_name,
-            client=remote_client,
+            client=ctx.remote_client,
         )
 
         # Ensure output folder exists before writing.
@@ -188,13 +177,13 @@ class MyRunnable(Runnable):
             project_key=target.project_key,
             folder_lookup=target.folder_lookup,
             connection_name=target.connection_name,
-            client=remote_client,
+            client=ctx.remote_client,
         )
 
         layout = OutputLayout(base_dir=Path("partitioned_data"), module="audit_metadata")
 
         # Determine delta and which files to read
-        last_update = self._read_audit_delta(local_client)
+        last_update = self._read_audit_delta(ctx.local_client)
         time_diff = pd.Timestamp.now(tz="UTC") - last_update
         hours = float((time_diff.total_seconds() / 3600) + 1)
 
@@ -380,7 +369,7 @@ class MyRunnable(Runnable):
         if not self._is_local_debug():
             max_ts = df_audit["timestamp"].max()
             if pd.notna(max_ts):
-                self._update_audit_delta(local_client, pd.Timestamp(max_ts).isoformat())
+                self._update_audit_delta(ctx.local_client, pd.Timestamp(max_ts).isoformat())
 
         # ResultTable
         rt = ResultTable()

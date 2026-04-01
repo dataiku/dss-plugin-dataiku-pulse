@@ -9,7 +9,7 @@ from typing import Any, Dict, List
 import dataiku
 import pandas as pd
 from dataiku.runnables import ResultTable, Runnable
-from dataikuapi.dssclient import DSSClient
+from data_collection.helper import PulseMacroContext, build_context
 
 from data_collection.data_collection.instance import get_instance_name
 from data_collection.data_collection.introspection import get_noarg_list_methods
@@ -54,21 +54,10 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
-        local_client = dataiku.api_client()
+        ctx: PulseMacroContext = build_context(plugin_config=self.plugin_config)
+        self.param_set = ctx.param_set
 
-        remote_host = self.param_set.get("pulse_project_url")
-        remote_api_key = self.param_set.get("pulse_project_api")
-
-        # Local-only runs (no remote client) are allowed by leaving host/api unset.
-        remote_client = None
-        if remote_host and remote_api_key:
-            remote_client = DSSClient(
-                remote_host,
-                api_key=remote_api_key,
-                no_check_certificate=bool(self.param_set.get("ignore_certs", False)),
-            )
-
-        instance_name = get_instance_name(local_client)
+        instance_name = get_instance_name(ctx.local_client)
         if not instance_name:
             raise ValueError("Could not determine instance_name (nodeId/installId)")
 
@@ -77,7 +66,7 @@ class MyRunnable(Runnable):
         run_date = run_dt.date()
 
         layout = OutputLayout(base_dir=Path("partitioned_data"), module="instance_metadata")
-        methods = get_noarg_list_methods(local_client)
+        methods = get_noarg_list_methods(ctx.local_client)
         excluded = set(load_exclusions("instance_data").excluded_methods)
 
         # Project-level methods that are known to be project-invariant and only
@@ -89,7 +78,7 @@ class MyRunnable(Runnable):
             project_key=self.output_project_key,
             folder_lookup=self.output_folder_lookup,
             connection_name=self.output_connection_name,
-            client=remote_client,
+            client=ctx.remote_client,
         )
 
         # Ensure output folder exists before writing.
@@ -97,7 +86,7 @@ class MyRunnable(Runnable):
             project_key=target.project_key,
             folder_lookup=target.folder_lookup,
             connection_name=target.connection_name,
-            client=remote_client,
+            client=ctx.remote_client,
         )
 
         collected: List[str] = []
@@ -235,7 +224,7 @@ class MyRunnable(Runnable):
         included_errors: Dict[str, str] = {}
         if worker_project_key and project_inclusions:
             try:
-                worker_project = local_client.get_project(worker_project_key)
+                worker_project = ctx.local_client.get_project(worker_project_key)
                 project_methods = get_noarg_list_methods(worker_project)
 
                 for method_name in project_inclusions:

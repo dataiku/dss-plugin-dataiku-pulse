@@ -8,10 +8,9 @@ from typing import Any, Dict, List
 import dataiku
 import pandas as pd
 from dataiku.runnables import ResultTable, Runnable
-from dataikuapi.dssclient import DSSClient
 
 from data_collection.data_collection.collect_all_projects import collect_all_projects
-from data_collection.helper import DSSFolderTarget, ensure_managed_folder
+from data_collection.helper import DSSFolderTarget, PulseMacroContext, build_context, ensure_managed_folder
 
 
 class MyRunnable(Runnable):
@@ -173,25 +172,13 @@ class MyRunnable(Runnable):
     def run(self, progress_callback):
         """Execute the macro."""
 
-        local_client = dataiku.api_client()
-
-        remote_host = self.param_set.get("pulse_project_url")
-        remote_api_key = self.param_set.get("pulse_project_api")
-        if not remote_host or not remote_api_key:
-            raise ValueError(
-                "Missing remote target configuration in pulse_primary: expected pulse_project_url and pulse_project_api"
-            )
-
-        remote_client = DSSClient(
-            remote_host,
-            api_key=remote_api_key,
-            no_check_certificate=bool(self.param_set.get("ignore_certs", False)),
-        )
+        ctx: PulseMacroContext = build_context(plugin_config=self.plugin_config)
+        self.param_set = ctx.param_set
 
         run_start_ts = pd.Timestamp.now(tz="UTC").isoformat()
 
-        since = self._read_projects_delta(local_client)
-        keys = self._resolve_project_keys(local_client, since=since)
+        since = self._read_projects_delta(ctx.local_client)
+        keys = self._resolve_project_keys(ctx.local_client, since=since)
 
         # Used for path layout prefix only.
         output_base_dir = Path("partitioned_data")
@@ -200,7 +187,7 @@ class MyRunnable(Runnable):
             project_key=self.output_project_key,
             folder_lookup=self.output_folder_lookup,
             connection_name=self.output_connection_name,
-            client=remote_client,
+            client=ctx.remote_client,
         )
 
         # Ensure output folder exists before writing.
@@ -208,7 +195,7 @@ class MyRunnable(Runnable):
             project_key=target.project_key,
             folder_lookup=target.folder_lookup,
             connection_name=target.connection_name,
-            client=remote_client,
+            client=ctx.remote_client,
         )
 
         # progress_callback is per-runnable, not per-project, so we provide coarse reporting.
@@ -218,7 +205,7 @@ class MyRunnable(Runnable):
         n_jobs = self.n_jobs if self.do_parallel else 1
 
         result = collect_all_projects(
-            client=remote_client,
+            client=ctx.remote_client,
             output_base_dir=output_base_dir,
             project_keys=keys,
             n_jobs=n_jobs,
@@ -232,7 +219,7 @@ class MyRunnable(Runnable):
         # Best-effort: update the cursor for next run unless the macro imploded.
         # Use the run start timestamp to avoid skipping changes during the run.
         run_ts = run_start_ts
-        self._update_projects_delta(local_client, run_ts)
+        self._update_projects_delta(ctx.local_client, run_ts)
 
         total_errors = sum(len(r.errors) for r in result.per_project.values())
 

@@ -60,13 +60,7 @@ def main() -> None:
     config = _load_json(config_path)
     plugin_config = _load_json(plugin_config_path)
 
-    # Force local DSS mode (disable hub/spoke remote uploads).
-    if "pulse_primary" in plugin_config and isinstance(plugin_config["pulse_primary"], dict):
-        plugin_config["pulse_primary"]["pulse_project_url"] = None
-        plugin_config["pulse_primary"]["pulse_project_api"] = None
-    else:
-        plugin_config["pulse_project_url"] = None
-        plugin_config["pulse_project_api"] = None
+    # Local test: keep using the remote target from runnable_inputs.
 
     runnable = MyRunnable(project_key="DATA_COLLECTION", config=config, plugin_config=plugin_config)
 
