@@ -1,8 +1,36 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import sys
+
+def _maybe_reexec_with_pulse_env() -> None:
+    """Re-exec this script with the Pulse plugin env if configured."""
+
+    env_path_file = os.getenv(
+        "PULSE_ENV_PATH_FILE",
+        "/home/dataiku/workspace/project-lib-versioned/python/future_items/pulse_env_path.txt",
+    )
+
+    try:
+        venv_dir = Path(env_path_file).read_text(encoding="utf-8").strip()
+    except OSError:
+        return
+
+    if not venv_dir:
+        return
+
+    venv_python = str(Path(venv_dir) / "bin" / "python")
+
+    if os.path.realpath(sys.executable) == os.path.realpath(venv_python):
+        return
+
+    os.execv(venv_python, [venv_python, *sys.argv])
+
+
+_maybe_reexec_with_pulse_env()
+
 
 # Make this repo importable for local testing.
 # In DSS plugins, this is handled by the plugin runtime.

@@ -3,17 +3,42 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-
 import sys
 
-# Make `python-lib/` and `python-runnables/` importable for local testing.
+def _maybe_reexec_with_pulse_env() -> None:
+    """Re-exec this script with the Pulse plugin env if configured."""
+
+    env_path_file = os.getenv(
+        "PULSE_ENV_PATH_FILE",
+        "/home/dataiku/workspace/project-lib-versioned/python/future_items/pulse_env_path.txt",
+    )
+
+    try:
+        venv_dir = Path(env_path_file).read_text(encoding="utf-8").strip()
+    except OSError:
+        return
+
+    if not venv_dir:
+        return
+
+    venv_python = str(Path(venv_dir) / "bin" / "python")
+
+    if os.path.realpath(sys.executable) == os.path.realpath(venv_python):
+        return
+
+    os.execv(venv_python, [venv_python, *sys.argv])
+
+
+_maybe_reexec_with_pulse_env()
+
+
+# Make this repo importable for local testing.
 # In DSS plugins, this is handled by the plugin runtime.
 _BASE_DIR = Path(__file__).resolve().parents[1]
 
 _PYTHON_LIB_DIR = _BASE_DIR / "python-lib"
-for _p in [_PYTHON_LIB_DIR, _PYTHON_LIB_DIR / "data_collection"]:
-    if _p.exists() and str(_p) not in sys.path:
-        sys.path.insert(0, str(_p))
+if _PYTHON_LIB_DIR.exists() and str(_PYTHON_LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(_PYTHON_LIB_DIR))
 
 _PROJECT_DATA_DIR = _BASE_DIR / "python-runnables" / "data-gather-project"
 if str(_PROJECT_DATA_DIR) not in sys.path:
@@ -38,6 +63,9 @@ def main() -> None:
     config = _load_json(config_path)
     plugin_config = _load_json(plugin_config_path)
 
+    # Force local DSS mode (disable hub/spoke remote uploads).
+    plugin_config["pulse_project_url"] = None
+    plugin_config["pulse_project_api"] = None
 
     runnable = MyRunnable(project_key="DATA_COLLECTION", config=config, plugin_config=plugin_config)
 
