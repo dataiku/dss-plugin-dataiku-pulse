@@ -68,12 +68,12 @@ def main() -> None:
     config = _load_json(config_path)
     plugin_config = _load_json(plugin_config_path)
 
-    # Force local DSS mode (disable hub/spoke remote uploads).
-    plugin_config["pulse_project_url"] = None
-    plugin_config["pulse_project_api"] = None
-
     # Force audit debug mode so we read from `python/audit_data/`.
-    plugin_config["pulse_audit_logs_debug"] = True
+    if "pulse_primary" in plugin_config and isinstance(plugin_config["pulse_primary"], dict):
+        plugin_config["pulse_primary"]["pulse_audit_logs_debug"] = True
+    else:
+        # Backward-compatible fallback
+        plugin_config["pulse_audit_logs_debug"] = True
 
     runnable = MyRunnable(project_key="DATA_COLLECTION", config=config, plugin_config=plugin_config)
 

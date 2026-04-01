@@ -3,6 +3,7 @@ from __future__ import annotations
 import gzip
 import io
 import json
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -15,6 +16,8 @@ import pandas as pd
 import dataiku
 from dataikuapi.dssclient import DSSClient
 
+logger = logging.getLogger(__name__)
+
 from .output_layout import as_posix_relative
 
 
@@ -26,6 +29,8 @@ class DSSFolderTarget:
     # Optional hub/spoke remote upload target.
     host: Optional[str] = None
     api_key: Optional[str] = None
+    # Optional pre-initialized DSSClient to reuse.
+    client: Any | None = None
 
 
 def _json_default(o: Any) -> Any:
@@ -116,10 +121,15 @@ def _get_or_create_local_folder(target: DSSFolderTarget) -> dataiku.Folder:
 def _get_or_create_remote_folder(target: DSSFolderTarget):
     """Return a remote managed folder handle, creating it if missing."""
 
-    if not target.host:
-        raise ValueError("Remote folder requested but target.host is missing")
+    remote_client = target.client
 
-    remote_client = DSSClient(target.host, api_key=target.api_key)
+    if remote_client is None:
+        if not target.host:
+            raise ValueError("Remote folder requested but target.host is missing")
+        if not target.api_key:
+            raise ValueError("Remote folder requested but target.api_key is missing")
+        remote_client = DSSClient(target.host, api_key=target.api_key)
+
     project = remote_client.get_project(target.project_key)
 
     def _resolve_folder_id() -> Optional[str]:
@@ -150,10 +160,29 @@ def _get_or_create_remote_folder(target: DSSFolderTarget):
 
 
 def _get_or_create_folder(target: DSSFolderTarget):
-    """Return the managed folder handle, local or remote."""
+    """Return the managed folder handle, local or remote.
 
-    if target.host:
+    Remote mode is enabled when:
+    - an explicit `target.client` is provided, OR
+    - BOTH `target.host` and `target.api_key` are set
+
+    This prevents accidental 401s in DSS-native macro runs when hub/spoke settings
+    are partially configured.
+    """
+
+    if target.client is not None:
         return _get_or_create_remote_folder(target)
+
+    if target.host and target.api_key:
+        return _get_or_create_remote_folder(target)
+
+    if target.host and not target.api_key:
+        logger.warning(
+            "Ignoring remote host because api_key is missing (host=%s project=%s folder=%s)",
+            target.host,
+            target.project_key,
+            target.folder_lookup,
+        )
 
     return _get_or_create_local_folder(target)
 
@@ -166,6 +195,7 @@ def ensure_managed_folder(
     connection_name: Optional[str] = None,
     host: Optional[str] = None,
     api_key: Optional[str] = None,
+    client: Any | None = None,
 ):
     """Ensure a managed folder exists and return its handle.
 
@@ -184,6 +214,7 @@ def ensure_managed_folder(
             connection_name=connection_name,
             host=host,
             api_key=api_key,
+            client=client,
         )
     )
 

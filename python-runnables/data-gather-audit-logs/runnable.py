@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterable, List, Tuple
 import dataiku
 import pandas as pd
 from dataiku.runnables import ResultTable, Runnable
+from dataikuapi.dssclient import DSSClient
 
 from data_collection.audit_logs_modules.audit_paths import chdir_audit_logs
 from data_collection.data_collection.instance import get_instance_name
@@ -65,35 +66,47 @@ class MyRunnable(Runnable):
         self.config = config or {}
         self.plugin_config = plugin_config or {}
 
-        self.output_project_key = self.plugin_config.get("pulse_project_key", "DATA_COLLECTION")
-        self.output_folder_lookup = self.plugin_config.get("pulse_partitioned_data", "partitioned_data")
-        self.output_connection_name = self.plugin_config.get("pulse_folder_connection")
+        # DSS macros expose a single parameter set; we use `pulse_primary` as the
+        # canonical container for all plugin settings.
+        self.param_set = self.plugin_config.get("pulse_primary", {}) or {}
 
-        # Hub/spoke: optionally upload to a remote DSS instance.
-        self.output_project_url = self.plugin_config.get("pulse_project_url")
-        self.output_project_api = self.plugin_config.get("pulse_project_api")
+        # Remote output target (can be same DSS instance).
+        self.output_project_key = self.param_set.get("pulse_project_key", "DATA_COLLECTION")
+        self.output_folder_lookup = self.param_set.get("pulse_partitioned_data", "partitioned_data")
+        self.output_connection_name = self.param_set.get("pulse_folder_connection")
 
     def get_progress_target(self):
         return None
 
-    def _read_audit_delta(self, client: Any) -> pd.Timestamp:
-        # Default: 1 day back
+    def _is_local_debug(self) -> bool:
+        return bool(self.param_set.get("pulse_audit_logs_debug", False))
+
+    def _resolve_audit_start_ts(self) -> pd.Timestamp:
+        """Resolve the configured starting timestamp for reading audit logs."""
+
         default_dt = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=1)
 
-        plugin_default_raw = self.plugin_config.get("pulse_audit_logs_delta")
-        plugin_default_dt = None
-        if plugin_default_raw:
-            dt = pd.to_datetime(plugin_default_raw, utc=True, errors="coerce")
+        raw = self.param_set.get("pulse_audit_logs_delta")
+        if raw:
+            dt = pd.to_datetime(raw, utc=True, errors="coerce")
             if not pd.isna(dt):
-                plugin_default_dt = dt
+                return dt
 
-        # Debug behavior: ignore project variable and always use plugin default.
-        # When developing locally, `pulse_audit_logs_debug=true` should also force
-        # using `pulse_audit_logs_delta` as the starting point.
-        if bool(self.plugin_config.get("pulse_audit_logs_debug", False)) or bool(
-            self.plugin_config.get("pulse_audit_logs_delta_debug", False)
-        ):
-            return plugin_default_dt or default_dt
+        return default_dt
+
+    def _read_audit_delta(self, client: Any) -> pd.Timestamp:
+        """Return the delta cursor for incremental macro runs.
+
+        Local/debug runs should not use the project variable cursor. They only use
+        the configured starting timestamp (`pulse_audit_logs_delta`).
+        """
+
+        start_dt = self._resolve_audit_start_ts()
+
+        # Debug behavior: ignore project variable and always use configured start.
+        # When developing locally, we don't want to persist or advance cursors.
+        if self._is_local_debug() or bool(self.param_set.get("pulse_audit_logs_delta_debug", False)):
+            return start_dt
 
         try:
             project = client.get_project(self.project_key)
@@ -106,7 +119,7 @@ class MyRunnable(Runnable):
         except Exception:
             pass
 
-        return plugin_default_dt or default_dt
+        return start_dt
 
     def _update_audit_delta(self, client: Any, value: str) -> None:
         try:
@@ -120,12 +133,25 @@ class MyRunnable(Runnable):
             pass
 
     def run(self, progress_callback):
-        client = dataiku.api_client()
+        local_client = dataiku.api_client()
+
+        remote_host = self.param_set.get("pulse_project_url")
+        remote_api_key = self.param_set.get("pulse_project_api")
+        if not remote_host or not remote_api_key:
+            raise ValueError(
+                "Missing remote target configuration in pulse_primary: expected pulse_project_url and pulse_project_api"
+            )
+
+        remote_client = DSSClient(
+            remote_host,
+            api_key=remote_api_key,
+            no_check_certificate=bool(self.param_set.get("ignore_certs", False)),
+        )
 
         repo_root = Path(__file__).resolve().parents[2]
-        chdir_audit_logs(client=client, plugin_config=self.plugin_config, repo_root=repo_root)
+        chdir_audit_logs(client=local_client, plugin_config=self.param_set, repo_root=repo_root)
 
-        instance_name = get_instance_name(client)
+        instance_name = get_instance_name(local_client)
         if not instance_name:
             raise ValueError("Could not determine instance_name")
 
@@ -138,8 +164,7 @@ class MyRunnable(Runnable):
             project_key=self.output_project_key,
             folder_lookup=self.output_folder_lookup,
             connection_name=self.output_connection_name,
-            host=self.output_project_url,
-            api_key=self.output_project_api,
+            client=remote_client,
         )
 
         # Ensure output folder exists before writing.
@@ -147,14 +172,13 @@ class MyRunnable(Runnable):
             project_key=target.project_key,
             folder_lookup=target.folder_lookup,
             connection_name=target.connection_name,
-            host=target.host,
-            api_key=target.api_key,
+            client=remote_client,
         )
 
         layout = OutputLayout(base_dir=Path("partitioned_data"), module="audit_metadata")
 
         # Determine delta and which files to read
-        last_update = self._read_audit_delta(client)
+        last_update = self._read_audit_delta(local_client)
         time_diff = pd.Timestamp.now(tz="UTC") - last_update
         hours = float((time_diff.total_seconds() / 3600) + 1)
 
@@ -164,7 +188,7 @@ class MyRunnable(Runnable):
 
         # Load logs (delta by timestamp)
         dfs: List[pd.DataFrame] = []
-        max_files = int(self.plugin_config.get("pulse_audit_logs_max_files", 5))
+        max_files = int(self.param_set.get("pulse_audit_logs_max_files", 5))
         for p in files[:max_files]:
             df = pd.read_json(p, lines=True)
             dfs.append(df)
@@ -200,7 +224,7 @@ class MyRunnable(Runnable):
             return "No new audit rows"
 
         # Optional RAW backup (before cleansing)
-        if bool(self.plugin_config.get("pulse_backup_audit_logs", False)):
+        if bool(self.param_set.get("pulse_backup_audit_logs", False)):
             raw_backup_path = (
                 layout.base_dir
                 / "raw"
@@ -342,10 +366,12 @@ class MyRunnable(Runnable):
 
             processor_results.append(ProcessorResult(proc_name, df_audit.shape[0], out_df.shape[0], wrote_groups))
 
-        # Update cursor on success (best-effort)
-        max_ts = df_audit["timestamp"].max()
-        if pd.notna(max_ts):
-            self._update_audit_delta(client, pd.Timestamp(max_ts).isoformat())
+        # Update cursor on success (best-effort).
+        # Local/debug runs should not persist or advance cursors.
+        if not self._is_local_debug():
+            max_ts = df_audit["timestamp"].max()
+            if pd.notna(max_ts):
+                self._update_audit_delta(local_client, pd.Timestamp(max_ts).isoformat())
 
         # ResultTable
         rt = ResultTable()
