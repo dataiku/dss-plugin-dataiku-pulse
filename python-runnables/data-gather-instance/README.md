@@ -4,7 +4,9 @@ This runnable is intended to be packaged as a Dataiku plugin macro.
 
 ## What it does
 
-- Discovers all no-arg `client.list_*` methods on the current DSS instance
+- Loads plugin settings from the single macro parameter set: `plugin_config["pulse_primary"]`
+- Uses a local client (`dataiku.api_client()`) to discover all no-arg `client.list_*` methods on the current DSS instance
+- Uses a remote client (`dataikuapi.DSSClient`) to upload results to the hub/dashboard project managed folder
 - For each `list_*` method:
   - Uses `{category} = <method_name without the list_ prefix>`
   - Uses `{module} = metadata`

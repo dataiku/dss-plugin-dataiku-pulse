@@ -22,9 +22,16 @@ Pulse is a read-only analytics and observability layer: it does **not** modify c
 
 ## How It Works (1000ft view)
 
+Pulse is designed for a hub/worker deployment:
+
+- **Hub project (dashboard)**: contains the managed folder (typically `partitioned_data`) and the GOLD-building recipe.
+- **Worker projects (per instance)**: run the macros and upload outputs back to the hub.
+
 1. **Collect & normalize (RAW/SILVER)**
    - Instance metadata, project metadata, and audit logs are collected into a partitioned managed folder (typically `partitioned_data/{raw|silver}/...`).
    - Entry points live under `python-runnables/`.
+   - All macro settings are read from `plugin_config["pulse_primary"]`.
+   - Delta cursors are stored in the *worker project* variables (resolved with `client.get_default_project()`).
 
 2. **Build curated tables (GOLD, DuckDB)**
    - A custom recipe builds curated GOLD tables from SILVER parquet using DuckDB.

@@ -4,9 +4,10 @@ This runnable is intended to be packaged as a Dataiku plugin macro.
 
 ## What it does
 
+- Loads plugin settings from the single macro parameter set: `plugin_config["pulse_primary"]`
 - Locates DSS audit logs (`DATA_DIR/run/audit/audit.log*`) using `client.get_instance_info()`
   - If `pulse_audit_logs_debug` is true, uses the static test folder `python/audit_data/`
-- Uses a delta cursor `local.audit_log_delta` to only read recent files and new rows
+- Uses a delta cursor `local.audit_log_delta` stored in the *worker project* variables (the project where the macro runs)
 - Expands the audit `message` JSON into `message_*` columns
 - Runs a configurable list of processors from:
   - `python-lib/data_collection/audit_logs_modules/modules.yaml`
@@ -43,15 +44,18 @@ Note: processor outputs are SILVER-only by design.
 
 ## Configuration
 
-Plugin settings used:
-- `pulse_project_key`: project that contains the output managed folder
+Plugin settings used (under `pulse_primary`):
+- `pulse_project_key`: hub project that contains the output managed folder
 - `pulse_partitioned_data`: managed folder lookup (default: `partitioned_data`)
 - `pulse_folder_connection`: connection used to create the folder if missing
+- `pulse_project_url` / `pulse_project_api`: remote target used to upload to the hub (can be the same DSS)
 - `pulse_audit_logs_debug`: use static logs for development (default false)
 - `pulse_backup_audit_logs`: write raw audit backup (default false)
 - `pulse_audit_logs_delta`: default delta cursor if variable missing
 
 ## Delta cursor
 
+- Worker project resolution: `client.get_default_project().project_key`
 - Cursor variable: `local.audit_log_delta`
 - Updated to the max `timestamp` processed when the macro succeeds.
+

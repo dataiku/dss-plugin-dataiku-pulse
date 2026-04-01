@@ -4,10 +4,13 @@ This runnable is intended to be packaged as a Dataiku plugin macro.
 
 ## What it does
 
-- Lists all projects using `client.list_projects()`
-- Applies a `projects_delta` cursor to only collect projects with recent changes
-- For each selected project key, gets a `project_handle` and runs all no-arg `project_handle.list_*` methods
-- Persists results to a managed folder (default: `partitioned_data`) in the target project
+- Loads plugin settings from the single macro parameter set: `plugin_config["pulse_primary"]`
+- Uses a local client (`dataiku.api_client()`) to:
+  - list projects
+  - read/update the `projects_delta` cursor in *worker project* variables
+- Uses a remote client (`dataikuapi.DSSClient`) to upload results to the hub/dashboard project managed folder
+- Applies a project-level `projects_delta` cursor to only collect projects with recent changes
+- For each selected project key, runs all no-arg `project_handle.list_*` methods and persists results
 
 ## Outputs
 
@@ -56,8 +59,9 @@ This is an exclusion list to keep capturing new DSS methods by default.
 
 ## Project delta (incremental collection)
 
-The macro supports incremental collection of projects using a cursor stored in the *macro execution project* variables:
+The macro supports incremental collection of projects using a cursor stored in the *worker project* variables (the project where the macro runs):
 
+- Worker project resolution: `client.get_default_project().project_key`
 - Variable name: `local.projects_delta`
 - If the variable does not exist, the macro uses plugin setting `pulse_default_projects_delta`
 - If `pulse_projects_delta_debug` is true, the macro always uses `pulse_default_projects_delta` (ignores the variable)
@@ -69,3 +73,21 @@ Timestamp used for filtering:
 - Very old/null/epoch-like timestamps are floored to `2015-01-01` to keep filtering deterministic
 
 After a best-effort run, the macro updates `local.projects_delta` to the current UTC run timestamp.
+
+## Row-level delta filtering (list_* payloads)
+
+For projects that pass the project-level delta gate, the macro attempts to further reduce output size by applying a row-level delta filter per `list_*` payload:
+
+- If the normalized RAW dataframe contains a column whose name includes `lastModifiedOn` or `createdOn`, rows are filtered to `>= projects_delta`.
+- If filtering results in 0 rows, the macro skips writing outputs for that method.
+- If no timestamp columns are detected, the macro writes the full payload for that method (better safe than sorry).
+
+### Debug-only diagnostics
+
+When `pulse_projects_delta_debug` is enabled, methods that lack any detectable timestamp columns are written locally for review:
+
+- Directory: `/tmp/pulse_project_debug/`
+- Filename pattern: `{PROJECT_KEY}__{method_name}__missing_timestamps.json`
+
+These diagnostics are not written to the managed folder during normal macro runs.
+
