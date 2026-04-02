@@ -4,6 +4,9 @@ import io
 import logging
 import os
 from pathlib import Path
+import uuid
+from datetime import datetime, timezone
+import getpass
 
 import dataiku
 from dataiku.customrecipe import get_output_names_for_role, get_recipe_config
@@ -46,6 +49,44 @@ from data_collection.pulse_duckdb.views import create_silver_view
 logger = logging.getLogger(__name__)
 
 
+def _cleanup_stale_duckdb_files(*, base_dir: Path, max_age_hours: float = 24.0) -> None:
+    """Remove old per-run DuckDB files (best-effort)."""
+
+    try:
+        if not base_dir.exists():
+            return
+        cutoff = datetime.now(timezone.utc).timestamp() - (max_age_hours * 3600)
+        for p in base_dir.glob("pulse_*.duckdb"):
+            try:
+                if p.stat().st_mtime < cutoff:
+                    p.unlink()
+            except Exception:
+                continue
+    except Exception:
+        return
+
+
+def _unique_duckdb_path(*, project_key: str) -> Path:
+    """Build a unique DuckDB path per run/user.
+
+    Uses `PULSE_DUCKDB_DIR` as the parent directory if set, otherwise defaults to
+    `/tmp/duckdb`.
+    """
+
+    base_dir = Path(os.environ.get("PULSE_DUCKDB_DIR", "/tmp/duckdb"))
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    # Cleanup old runs so /tmp doesn't accumulate forever.
+    _cleanup_stale_duckdb_files(base_dir=base_dir)
+
+    user = os.environ.get("DKU_CURRENT_USER") or getpass.getuser()
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    token = uuid.uuid4().hex[:8]
+    filename = f"pulse_{project_key}_{user}_{ts}_{token}.duckdb"
+    filename = filename.replace("/", "_")
+    return base_dir / filename
+
+
 def run() -> dict:
     # Recipe output folder is used as the GOLD destination.
     # (Later steps will unload parquet here.)
@@ -73,7 +114,13 @@ def run() -> dict:
     gold_ctx = build_storage_context(project_key=dataiku.default_project_key(), folder_lookup=gold_folder_lookup)
 
     # For now: always reset before build (keeps it deterministic).
-    setup = prepare_duckdb(ctx=ctx, read_only=False, reset=True)
+    # Use a unique per-run DuckDB file to avoid cross-user permission issues.
+    setup = prepare_duckdb(
+        ctx=ctx,
+        read_only=False,
+        reset=True,
+        db_path=_unique_duckdb_path(project_key=ctx.project_key),
+    )
 
     failed_tables: list[str] = []
     base_tables: list[str] = []
