@@ -1,0 +1,13 @@
+base_scenarios_project_metadata_history:
+  description: >
+    Scenario history table built from SILVER parquet (`category=scenarios/module=project_metadata`).
+    This is an append-style table (one row per observed scenario record per partition date).
+
+  depends_on: []
+  build_order: 10
+
+  sql: |
+    CREATE OR REPLACE TABLE base_scenarios_project_metadata_history AS
+    SELECT
+      *
+    FROM v_scenarios__project_metadata;
