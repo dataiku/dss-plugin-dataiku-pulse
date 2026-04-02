@@ -218,6 +218,22 @@
             "defaultValue": "2015-01-01 00:00:00"
         },
         {
+            "name": "pulse_audit_logs_debug",
+            "label": "Force Audit Logs Delta Timestamp",
+            "type": "BOOLEAN",
+            "description": "Ignore project variables and always force starting audit log delta timestamp",
+            "mandatory": true,
+            "defaultValue": false
+        },
+        {
+            "name": "pulse_audit_logs_delta",
+            "label": "Starting Audit Logs Delta Timestamp",
+            "type": "STRING",
+            "description": "Starting timestamp to run audit logs time delta against",
+            "mandatory": true,
+            "defaultValue": "2015-01-01 00:00:00"
+        },
+        {
             "name": "end_separator",
             "labe": "",
             "description": "<hr color='#000000' size='3' noshade><h3></h3>",
