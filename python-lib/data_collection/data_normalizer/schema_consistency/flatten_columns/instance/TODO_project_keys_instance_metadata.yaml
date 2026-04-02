@@ -1,0 +1,7 @@
+# TODO: define required flat columns for project_keys (instance-level)
+# File naming convention: {category}_{module}.yaml
+# Category: project_keys
+# Module: instance_metadata
+# Section: instance
+
+# Add column names here (lowercase, underscores)

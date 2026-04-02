@@ -29,6 +29,9 @@ def normalize_silver(
     run_ts: str | None = None,
     category: str | None = None,
     module: str = "metadata",
+    todo_section: str | None = None,
+    flatten_base: tuple[str, str] | None = None,
+    flatten_variant: str | None = None,
     include_instance_column: bool = True,
 ) -> pd.DataFrame:
     """Apply silver-layer normalization rules.
@@ -45,6 +48,23 @@ def normalize_silver(
 
     # Rule 1: sanitize + lower-case column names
     out.columns = [c.lower() for c in sanitize_columns(out.columns)]
+
+    # Canonicalize project key: drop any prefix for `*_projectkey`.
+    # Example: dataset_projectKey -> dataset_projectkey -> project_key
+    if "project_key" not in out.columns and "projectkey" in out.columns:
+        out = out.rename(columns={"projectkey": "project_key"})
+
+    if "project_key" not in out.columns:
+        project_key_cols = [c for c in out.columns if c.endswith("_projectkey")]
+        if len(project_key_cols) == 1:
+            out = out.rename(columns={project_key_cols[0]: "project_key"})
+        elif len(project_key_cols) > 1:
+            # Prefer the one derived from `project_*` payloads if present.
+            preferred = "project_projectkey"
+            if preferred in project_key_cols:
+                out = out.rename(columns={preferred: "project_key"})
+            else:
+                out = out.rename(columns={project_key_cols[0]: "project_key"})
 
     # Rule 2: ensure instance_name first
     if include_instance_column:
@@ -70,7 +90,13 @@ def normalize_silver(
         # (Casting rules are applied after flattening.)
         return out
 
-    cfg = load_flatten_config(category=category, module=module)
+    cfg = load_flatten_config(
+        category=category,
+        module=module,
+        todo_section=todo_section,
+        base=flatten_base,
+        variant=flatten_variant,
+    )
     if cfg is None or not cfg.required_columns:
         # No flattening config, but still apply casting + string stripping.
         datetime_cols = load_casting_columns(name="datetime").columns

@@ -1,0 +1,12 @@
+# Audit Log Event Mapping - Overlay Extender
+# Add column names here (lowercase, underscores)
+
+- llmconnection
+- estimatedcostusd
+- llmid
+- llmmodel
+- totaltokens
+- llmtype
+- storeimages
+- prompttokens
+- completiontokens

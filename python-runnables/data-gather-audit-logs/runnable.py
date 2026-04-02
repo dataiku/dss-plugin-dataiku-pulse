@@ -262,12 +262,27 @@ class MyRunnable(Runnable):
             wrote_groups = 0
             for module_name, grp in out_df.groupby("dataiku_category"):
                 # SILVER only
+                # Flatten config lookup key can differ from storage partitions.
+                # For event_mapping, all categories share a common base schema.
+                flatten_category = proc_name
+                flatten_module = str(module_name)
+                flatten_variant = None
+                flatten_base = None
+                if proc_name == "event_mapping":
+                    flatten_category = "audit_dataiku_usage"
+                    flatten_module = "audit_metadata"
+                    flatten_variant = str(module_name)
+                    flatten_base = ("audit_dataiku_usage", "audit_metadata")
+
                 silver_df = normalize_silver(
                     df=grp,
                     instance_name=instance_name,
                     run_ts=run_ts,
-                    category=proc_name,
-                    module=str(module_name),
+                    category=flatten_category,
+                    module=flatten_module,
+                    todo_section="audit",
+                    flatten_base=flatten_base,
+                    flatten_variant=flatten_variant,
                 )
 
                 # Write SILVER grouped by dataiku_category

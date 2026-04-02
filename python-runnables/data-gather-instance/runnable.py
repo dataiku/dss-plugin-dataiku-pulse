@@ -160,6 +160,7 @@ class MyRunnable(Runnable):
                     run_ts=run_ts,
                     category=category,
                     module=layout.module,
+                    todo_section="instance",
                 )
                 dq = check_silver_dq(silver_df)
                 if dq.ok:
@@ -291,6 +292,7 @@ class MyRunnable(Runnable):
                             run_ts=run_ts,
                             category=category,
                             module=layout.module,
+                            todo_section="instance",
                         )
                         dq = check_silver_dq(silver_df)
                         if dq.ok:

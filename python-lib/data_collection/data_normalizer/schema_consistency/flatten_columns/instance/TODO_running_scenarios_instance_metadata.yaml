@@ -1,0 +1,7 @@
+# TODO: define required flat columns for running_scenarios (instance-level)
+# File naming convention: {category}_{module}.yaml
+# Category: running_scenarios
+# Module: instance_metadata
+# Section: instance
+
+# Add column names here (lowercase, underscores)

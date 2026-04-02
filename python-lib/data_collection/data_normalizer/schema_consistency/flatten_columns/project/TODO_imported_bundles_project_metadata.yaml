@@ -1,0 +1,6 @@
+# TODO: define required flat columns for imported_bundles (project-level)
+# File naming convention: {category}_{module}.yaml
+# Category: imported_bundles
+# Module: metadata
+
+# Add column names here (lowercase, underscores)

@@ -1,0 +1,6 @@
+# TODO: define required flat columns for model_evaluation_stores (project-level)
+# File naming convention: {category}_{module}.yaml
+# Category: model_evaluation_stores
+# Module: metadata
+
+# Add column names here (lowercase, underscores)

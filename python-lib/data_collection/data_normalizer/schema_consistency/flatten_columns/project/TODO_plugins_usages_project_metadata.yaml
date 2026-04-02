@@ -1,0 +1,6 @@
+# TODO: define required flat columns for plugins_usages (project-level)
+# File naming convention: {category}_{module}.yaml
+# Category: plugins_usages
+# Module: metadata
+
+# Add column names here (lowercase, underscores)

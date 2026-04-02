@@ -1,0 +1,6 @@
+# TODO: define required flat columns for jupyter_notebooks (project-level)
+# File naming convention: {category}_{module}.yaml
+# Category: jupyter_notebooks
+# Module: metadata
+
+# Add column names here (lowercase, underscores)

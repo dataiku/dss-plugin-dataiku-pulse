@@ -1,0 +1,7 @@
+# TODO: define required flat columns for users_activity (instance-level)
+# File naming convention: {category}_{module}.yaml
+# Category: users_activity
+# Module: instance_metadata
+# Section: instance
+
+# Add column names here (lowercase, underscores)

@@ -1,0 +1,7 @@
+# TODO: define required flat columns for code_studio_templates (instance-level)
+# File naming convention: {category}_{module}.yaml
+# Category: code_studio_templates
+# Module: instance_metadata
+# Section: instance
+
+# Add column names here (lowercase, underscores)

@@ -1,0 +1,29 @@
+# Required columns for SILVER flattening
+# Object: projects / module: instance_metadata
+#
+# Keep these columns flat; roll all other fields into `extras`.
+
+# Project identity
+- project_key
+- project_name
+- project_projecttype
+- project_projectapptype
+
+# User / access context
+- project_ownerlogin
+
+# Governance / ownership
+- project_ownerdisplayname
+
+# Core status / classification
+- project_permissionsversion
+- project_commitmode
+- project_tutorialproject
+
+# Versioning
+- project_versiontag_versionnumber
+- project_versiontag_lastmodifiedon
+- project_versiontag_lastmodifiedby_login
+- project_creationtag_versionnumber
+- project_creationtag_lastmodifiedon
+- project_creationtag_lastmodifiedby_login

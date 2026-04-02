@@ -1,0 +1,7 @@
+# TODO: define required flat columns for code_env_usages (instance-level)
+# File naming convention: {category}_{module}.yaml
+# Category: code_env_usages
+# Module: instance_metadata
+# Section: instance
+
+# Add column names here (lowercase, underscores)

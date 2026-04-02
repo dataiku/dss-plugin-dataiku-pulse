@@ -1,5 +1,13 @@
 # Audit (dataiku usage)
 
+- instance_name
+- project_key
+
+- user
+- authuser
+- authsource
+- authvia
+
 - severity
 - logger
 - topic
@@ -8,11 +16,6 @@
 - msgtypebase
 - dataiku_category
 
-- login
-- authsource
-- authvia
-- user
-
 - callpath
 - clientip
 - originalip
@@ -20,6 +23,3 @@
 
 - timestamp
 - date
-
-- instance_name
-- project_key
