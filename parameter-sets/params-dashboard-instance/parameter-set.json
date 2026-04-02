@@ -203,11 +203,19 @@
         },
         {
             "name": "pulse_projects_delta_debug",
-            "label": "Starting Projects Delta Timestamp",
+            "label": "Force Projects Delta Timestamp",
             "type": "BOOLEAN",
-            "description": "Starting timestamp to run projects time delta against",
+            "description": "Ignore project variables and always force starting projects delta timestamp",
             "mandatory": true,
             "defaultValue": false
+        },
+        {
+            "name": "pulse_default_projects_delta",
+            "label": "Starting Projects Delta Timestamp",
+            "type": "STRING",
+            "description": "Starting timestamp to run projects time delta against",
+            "mandatory": true,
+            "defaultValue": "2015-01-01 00:00:00"
         },
         {
             "name": "end_separator",
