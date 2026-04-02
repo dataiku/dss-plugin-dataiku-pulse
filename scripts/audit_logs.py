@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import sys
 
+
 def _maybe_reexec_with_pulse_env() -> None:
     """Re-exec this script with the Pulse plugin env if configured.
 
@@ -68,12 +69,10 @@ def main() -> None:
     config = _load_json(config_path)
     plugin_config = _load_json(plugin_config_path)
 
-    # Force audit debug mode so we read from `python/audit_data/`.
-    if "pulse_primary" in plugin_config and isinstance(plugin_config["pulse_primary"], dict):
-        plugin_config["pulse_primary"]["pulse_audit_logs_debug"] = True
-    else:
-        # Backward-compatible fallback
-        plugin_config["pulse_audit_logs_debug"] = True
+    # Use cached audit logs for local simulation.
+    # Do not overload plugin_config flags for this, since in DSS those
+    # should control delta behavior, not the input source.
+    os.environ["PULSE_AUDIT_LOGS_USE_CACHED"] = "1"
 
     runnable = MyRunnable(project_key="DATA_COLLECTION", config=config, plugin_config=plugin_config)
 

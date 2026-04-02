@@ -13,7 +13,7 @@ def chdir_audit_logs(
 ) -> Path:
     """Change working directory to where audit logs are located.
 
-    - If `plugin_config.get("pulse_audit_logs_debug", False)` is True, uses the
+    - If `PULSE_AUDIT_LOGS_USE_CACHED` env var is truthy, uses the
       static test logs under `{repo_root.parent}/audit_data/`.
     - Otherwise, uses the DSS install data dir path from the API and navigates
       to `<DATA_DIR>/run/audit/`.
@@ -21,7 +21,15 @@ def chdir_audit_logs(
     Returns the resolved audit log directory path.
     """
 
-    if bool(plugin_config.get("pulse_audit_logs_debug", False)):
+    use_cached = os.environ.get("PULSE_AUDIT_LOGS_USE_CACHED", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "y",
+        "on",
+    }
+
+    if use_cached:
         audit_dir = (repo_root.parent / "audit_data").resolve()
         os.chdir(audit_dir)
         return audit_dir
