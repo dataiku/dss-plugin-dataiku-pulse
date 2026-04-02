@@ -1,6 +1,0 @@
-# TODO: define required flat columns for mltask_queues (project-level)
-# File naming convention: {category}_{module}.yaml
-# Category: mltask_queues
-# Module: metadata
-
-# Add column names here (lowercase, underscores)

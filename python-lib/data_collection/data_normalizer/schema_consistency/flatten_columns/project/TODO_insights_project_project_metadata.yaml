@@ -1,6 +1,0 @@
-# TODO: define required flat columns for insights (project-level)
-# File naming convention: {category}_{module}.yaml
-# Category: insights
-# Module: metadata
-
-# Add column names here (lowercase, underscores)

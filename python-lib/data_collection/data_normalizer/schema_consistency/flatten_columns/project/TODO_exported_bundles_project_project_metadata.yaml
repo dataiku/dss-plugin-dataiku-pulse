@@ -1,6 +1,0 @@
-# TODO: define required flat columns for exported_bundles (project-level)
-# File naming convention: {category}_{module}.yaml
-# Category: exported_bundles
-# Module: metadata
-
-# Add column names here (lowercase, underscores)

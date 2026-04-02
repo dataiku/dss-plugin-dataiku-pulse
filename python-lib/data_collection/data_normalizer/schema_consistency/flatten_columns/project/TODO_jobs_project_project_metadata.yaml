@@ -1,6 +1,0 @@
-# TODO: define required flat columns for jobs (project-level)
-# File naming convention: {category}_{module}.yaml
-# Category: jobs
-# Module: metadata
-
-# Add column names here (lowercase, underscores)

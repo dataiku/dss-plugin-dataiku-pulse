@@ -1,6 +1,0 @@
-# TODO: define required flat columns for managed_folders (project-level)
-# File naming convention: {category}_{module}.yaml
-# Category: managed_folders
-# Module: metadata
-
-# Add column names here (lowercase, underscores)
