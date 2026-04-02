@@ -166,7 +166,6 @@ def run() -> dict:
 
         for spec_path in [
             spec_dir / "base_scenarios_project_metadata_history.yaml",
-            spec_dir / "base_scenarios_project_metadata_latest.yaml",
         ]:
             spec = load_gold_spec(spec_path)
             apply_gold_spec(setup.conn, spec)
