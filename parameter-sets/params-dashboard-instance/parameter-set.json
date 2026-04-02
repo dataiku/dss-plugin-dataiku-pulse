@@ -202,6 +202,14 @@
             "mandatory": true
         },
         {
+            "name": "pulse_projects_delta_debug",
+            "label": "Starting Projects Delta Timestamp",
+            "type": "BOOLEAN",
+            "description": "Starting timestamp to run projects time delta against",
+            "mandatory": true,
+            "defaultValue": false
+        },
+        {
             "name": "end_separator",
             "labe": "",
             "description": "<hr color='#000000' size='3' noshade><h3></h3>",
