@@ -1,6 +1,6 @@
-- object
-- name
-- size
-- nbfiles
-- nbfolders
-- nberrors
+- footprint_objects_summary_object
+- footprint_objects_summary_name
+- footprint_objects_summary_size
+- footprint_objects_summary_nbfiles
+- footprint_objects_summary_nbfolders
+- footprint_objects_summary_nberrors

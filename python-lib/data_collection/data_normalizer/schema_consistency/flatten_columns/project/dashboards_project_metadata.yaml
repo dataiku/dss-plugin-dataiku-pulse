@@ -1,7 +1,7 @@
 - project_key
-- dashboard_id
-- dashboard_name
-- dashboard_owner
-- dashboard_lastmodifiedby_login
-- dashboard_createdon
-- dashboard_lastmodifiedon
+- dashboards_id
+- dashboards_name
+- dashboards_owner
+- dashboards_lastmodifiedby_login
+- dashboards_createdon
+- dashboards_lastmodifiedon

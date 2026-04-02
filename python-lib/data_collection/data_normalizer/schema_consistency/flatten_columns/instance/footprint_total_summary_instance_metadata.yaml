@@ -1,4 +1,4 @@
-- size
-- nbfiles
-- nbfolders
-- nberrors
+- footprint_total_summary_size
+- footprint_total_summary_nbfiles
+- footprint_total_summary_nbfolders
+- footprint_total_summary_nberrors

@@ -1,5 +1,5 @@
-- name
-- type
-- connection_category
-- creationtag_lastmodifiedby_login
-- creationtag_lastmodifiedon
+- connections_name
+- connections_type
+- connections_category
+- connections_creationtag_lastmodifiedby_login
+- connections_creationtag_lastmodifiedon

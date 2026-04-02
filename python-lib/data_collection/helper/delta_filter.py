@@ -59,6 +59,16 @@ def filter_payload_by_delta(
 
     df = cast_datetime_columns(raw_df, [ts_col])
 
+    # Some DSS endpoints (notably `list_scenarios`) may return 0/epoch-like
+    # timestamps even when the records are valid. Treat "unreasonably old"
+    # timestamps as missing so we don't suppress collection entirely.
+    min_reasonable = pd.Timestamp("2000-01-01", tz="UTC")
+    ts = df[ts_col]
+    ts = ts.mask(ts < min_reasonable, pd.NaT)
+    if ts.notna().sum() == 0:
+        return None
+    df[ts_col] = ts
+
     since_ts = _to_utc_timestamp(since)
     df_delta = df[df[ts_col] >= since_ts]
 

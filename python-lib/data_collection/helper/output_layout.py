@@ -27,15 +27,14 @@ class OutputLayout:
 
     @staticmethod
     def prefix_base(list_method_name: str) -> str:
-        """Column prefix base (often singular).
+        """Column prefix base.
 
-        Example: list_datasets -> dataset
+        Convention: use the `list_*` method name with `list_` removed.
+
+        Example: list_datasets -> datasets
         """
 
-        name = OutputLayout.category_name(list_method_name)
-        if name.endswith("s") and len(name) > 1:
-            name = name[:-1]
-        return name
+        return OutputLayout.category_name(list_method_name)
 
     def category_dir(self, layer: str, list_method_name: str) -> Path:
         return self.base_dir / layer / f"category={self.category_name(list_method_name)}"

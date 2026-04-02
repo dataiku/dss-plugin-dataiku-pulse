@@ -2,17 +2,17 @@
 # Object: datasets / module: metadata
 
 - project_key
-- dataset_name
-- dataset_smartname
+- datasets_name
+- datasets_smartname
 
-- dataset_type
-- dataset_managed
-- dataset_featuregroup
-- dataset_typesystemversion
+- datasets_type
+- datasets_managed
+- datasets_featuregroup
+- datasets_typesystemversion
 
-- dataset_versiontag_versionnumber
-- dataset_versiontag_lastmodifiedon
-- dataset_versiontag_lastmodifiedby_login
-- dataset_creationtag_versionnumber
-- dataset_creationtag_lastmodifiedon
-- dataset_creationtag_lastmodifiedby_login
+- datasets_versiontag_versionnumber
+- datasets_versiontag_lastmodifiedon
+- datasets_versiontag_lastmodifiedby_login
+- datasets_creationtag_versionnumber
+- datasets_creationtag_lastmodifiedon
+- datasets_creationtag_lastmodifiedby_login

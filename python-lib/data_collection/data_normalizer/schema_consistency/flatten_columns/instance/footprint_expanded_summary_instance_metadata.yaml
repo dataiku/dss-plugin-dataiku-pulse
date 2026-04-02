@@ -1,5 +1,5 @@
-- object
-- size
-- nbfiles
-- nbfolders
-- nberrors
+- footprint_expanded_summary_object
+- footprint_expanded_summary_size
+- footprint_expanded_summary_nbfiles
+- footprint_expanded_summary_nbfolders
+- footprint_expanded_summary_nberrors
