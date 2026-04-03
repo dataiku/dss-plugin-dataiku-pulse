@@ -154,7 +154,14 @@ def run() -> dict:
         #
         # Current scope: project/instance metadata specs.
         # (Audit tables follow a different pattern and will be handled separately.)
-        base_dir = Path(__file__).resolve().parents[2] / "python-lib/data_collection/pulse_duckdb/gold_specs"
+        # Locate gold specs from the installed python-lib package.
+        #
+        # In DSS, custom recipe code is executed from a job folder (as an inlined script),
+        # so `__file__` does not point to the plugin checkout. Deriving paths from the
+        # imported package is stable.
+        import data_collection.pulse_duckdb.gold_builder as gold_builder_module
+
+        base_dir = Path(gold_builder_module.__file__).resolve().parent / "gold_specs"
         spec_paths = sorted(
             list((base_dir / "project").glob("base_*_history.yaml"))
             + list((base_dir / "instance").glob("base_*_history.yaml"))
@@ -165,12 +172,13 @@ def run() -> dict:
 
             # Ensure the upstream SILVER view exists.
             if spec.category and spec.module:
+                view_name = spec.view_table_name or f"v_{spec.category}__{spec.module}"
                 create_silver_view(
                     conn=setup.conn,
                     ctx=ctx,
                     category=spec.category,
                     module=spec.module,
-                    view_name=spec.view_table_name,
+                    view_name=view_name,
                 )
 
             apply_gold_spec(setup.conn, spec)

@@ -8,6 +8,9 @@ base_scenarios_project_metadata_history:
   depends_on: []
   build_order: 10
 
+  category: scenarios
+  module: project_metadata
+
   template: latest_by_partition
   base_table_name: base_scenarios_project_metadata_history
   view_table_name: v_scenarios__project_metadata
