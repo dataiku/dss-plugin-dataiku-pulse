@@ -1,29 +1,31 @@
 # Required columns for SILVER flattening
 # Object: projects / module: instance_metadata
 #
-# Keep these columns flat; roll all other fields into `extras`.
+# Note: `client.list_projects()` is collected with prefix base `projects_`
+# (method name `list_projects` -> category `projects`).
+# `project_key` is canonicalized by SILVER normalization.
 
 # Project identity
 - project_key
-- project_name
-- project_projecttype
-- project_projectapptype
+- projects_name
+- projects_projecttype
+- projects_projectapptype
 
 # User / access context
-- project_ownerlogin
+- projects_ownerlogin
 
 # Governance / ownership
-- project_ownerdisplayname
+- projects_ownerdisplayname
 
 # Core status / classification
-- project_permissionsversion
-- project_commitmode
-- project_tutorialproject
+- projects_permissionsversion
+- projects_commitmode
+- projects_tutorialproject
 
 # Versioning
-- project_versiontag_versionnumber
-- project_versiontag_lastmodifiedon
-- project_versiontag_lastmodifiedby_login
-- project_creationtag_versionnumber
-- project_creationtag_lastmodifiedon
-- project_creationtag_lastmodifiedby_login
+- projects_versiontag_versionnumber
+- projects_versiontag_lastmodifiedon
+- projects_versiontag_lastmodifiedby_login
+- projects_creationtag_versionnumber
+- projects_creationtag_lastmodifiedon
+- projects_creationtag_lastmodifiedby_login
