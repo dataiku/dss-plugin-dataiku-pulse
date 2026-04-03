@@ -60,5 +60,12 @@ def create_silver_view(
     """.strip()
 
     logger.info("Creating view %s for %s/%s", view_name, category, module)
-    conn.execute(sql)
+    try:
+        conn.execute(sql)
+    except duckdb.IOException as exc:
+        # When there is no SILVER parquet yet for a given (category,module),
+        # DuckDB raises an IO error. For batch builds we want to skip these
+        # specs rather than fail the whole recipe.
+        logger.warning("Skipping view %s (no parquet found): %s", view_name, exc)
+        return ""
     return view_name

@@ -173,13 +173,16 @@ def run() -> dict:
             # Ensure the upstream SILVER view exists.
             if spec.category and spec.module:
                 view_name = spec.view_table_name or f"v_{spec.category}__{spec.module}"
-                create_silver_view(
+                created_view = create_silver_view(
                     conn=setup.conn,
                     ctx=ctx,
                     category=spec.category,
                     module=spec.module,
                     view_name=view_name,
                 )
+                if not created_view:
+                    # No data available yet for this spec.
+                    continue
 
             apply_gold_spec(setup.conn, spec)
 
