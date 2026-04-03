@@ -1,0 +1,8 @@
+# Required columns for SILVER flattening
+# Object: code / module: envs_instance_metadata
+
+- code_envs_envname
+- code_envs_envlang
+- code_envs_deploymentmode
+- code_envs_owner
+- code_envs_pythoninterpreter

@@ -1,0 +1,20 @@
+base_code_env_usages_instance_metadata_history:
+  description: >
+    Latest snapshot of code (env_usages_instance_metadata) per key.
+
+    This table is materialized by ranking all observations by run_ts
+    and keeping the newest row for each (instance_name, code_env_usages_envname, code_env_usages_envlang).
+
+  depends_on: []
+  build_order: 10
+
+  category: code
+  module: env_usages_instance_metadata
+
+  template: latest_by_partition
+  base_table_name: base_code_env_usages_instance_metadata_history
+  view_table_name: v_code__env_usages_instance_metadata
+  partition_keys:
+    - instance_name
+    - code_env_usages_envname
+    - code_env_usages_envlang

@@ -1,0 +1,18 @@
+# Required columns for SILVER flattening
+# Object: users / module: instance_metadata
+
+- users_login
+- users_sourcetype
+- users_displayname
+- users_groups
+- users_userprofile
+- users_creationdate
+- users_enabled
+- users_resultinguserprofile
+- users_trialstatus_exists
+- users_trialstatus_expired
+- users_trialstatus_illegal
+- users_trialstatus_valid
+- users_trialstatus_grantedon
+- users_trialstatus_expireson
+- users_email

@@ -1,26 +1,27 @@
 # Identity
 
-- login
-- displayname
-- email
+- project_key
+- users_login
+- users_displayname
+- users_email
 
 # Account / profile
-- userprofile
-- resultinguserprofile
-- enabled
-- sourcetype
-- groups
+- users_userprofile
+- users_resultinguserprofile
+- users_enabled
+- users_sourcetype
+- users_groups
 
 # Lifecycle / activity timestamps
-- creationdate
-- last_session_activity
-- first_commit_date
-- last_commit_date
+- users_creationdate
+- users_last_session_activity
+- users_first_commit_date
+- users_last_commit_date
 
 # Trial licenses
-- trial_exists
-- trial_valid
-- trial_expired
-- trial_illegal
-- trial_granted_on
-- trial_expires_on
+- users_trial_exists
+- users_trial_valid
+- users_trial_expired
+- users_trial_illegal
+- users_trial_granted_on
+- users_trial_expires_on

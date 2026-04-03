@@ -1,0 +1,5 @@
+# Required columns for SILVER flattening
+# Object: workspaces / module: instance_metadata
+
+- workspaces_workspacekey
+- workspaces_displayname

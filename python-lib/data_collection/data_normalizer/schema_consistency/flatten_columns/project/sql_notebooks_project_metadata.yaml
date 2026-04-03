@@ -1,0 +1,11 @@
+# Required columns for SILVER flattening
+# Object: sql / module: notebooks_project_metadata
+
+- project_key
+- sql_notebooks_id
+- sql_notebooks_name
+- sql_notebooks_connection
+- sql_notebooks_language
+- sql_notebooks_connectiondisplayname
+- sql_notebooks_lastmodifiedon
+- sql_notebooks_createdon

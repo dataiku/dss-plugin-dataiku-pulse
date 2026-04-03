@@ -1,7 +1,0 @@
-# TODO: define required flat columns for llms (instance-level)
-# File naming convention: {category}_{module}.yaml
-# Category: llms
-# Module: instance_metadata
-# Section: instance
-
-# Add column names here (lowercase, underscores)

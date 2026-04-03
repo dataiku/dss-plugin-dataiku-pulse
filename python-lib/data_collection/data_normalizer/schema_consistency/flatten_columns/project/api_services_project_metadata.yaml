@@ -1,0 +1,9 @@
+# Required columns for SILVER flattening
+# Object: api / module: services_project_metadata
+
+- project_key
+- api_services_id
+- api_services_name
+- api_services_publicaccess
+- api_services_authmethod
+- api_services_endpoints

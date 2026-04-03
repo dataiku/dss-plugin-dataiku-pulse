@@ -1,0 +1,7 @@
+# Required columns for SILVER flattening
+# Object: retrieval / module: augmented_llms_project_metadata
+
+- project_key
+- retrieval_augmented_llms_id
+- retrieval_augmented_llms_activeversion
+- retrieval_augmented_llms_versions

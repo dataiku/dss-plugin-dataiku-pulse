@@ -1,6 +1,0 @@
-# TODO: define required flat columns for sql_notebooks (project-level)
-# File naming convention: {category}_{module}.yaml
-# Category: sql_notebooks
-# Module: metadata
-
-# Add column names here (lowercase, underscores)

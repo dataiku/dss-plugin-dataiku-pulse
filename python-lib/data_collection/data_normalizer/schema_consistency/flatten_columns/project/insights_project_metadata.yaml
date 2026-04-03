@@ -1,0 +1,12 @@
+# Required columns for SILVER flattening
+# Object: insights / module: project_metadata
+
+- project_key
+- insights_id
+- insights_name
+- insights_type
+- insights_owner
+- insights_createdon
+- insights_lastmodifiedon
+- insights_createdby_login
+- insights_lastmodifiedby_login

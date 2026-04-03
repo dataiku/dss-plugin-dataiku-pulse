@@ -150,24 +150,29 @@ def run() -> dict:
             "db_path": str(setup.db_path),
         }
 
-        # Create views needed for scenario build.
-        create_silver_view(
-            conn=setup.conn,
-            ctx=ctx,
-            category="scenarios",
-            module="project_metadata",
-            view_name="v_scenarios__project_metadata",
+        # Build GOLD tables from spec files.
+        #
+        # Current scope: project/instance metadata specs.
+        # (Audit tables follow a different pattern and will be handled separately.)
+        base_dir = Path(__file__).resolve().parents[2] / "python-lib/data_collection/pulse_duckdb/gold_specs"
+        spec_paths = sorted(
+            list((base_dir / "project").glob("base_*_history.yaml"))
+            + list((base_dir / "instance").glob("base_*_history.yaml"))
         )
 
-        # Build scenario tables from gold specs.
-        spec_dir = Path(
-            __file__
-        ).resolve().parents[2] / "python-lib/data_collection/pulse_duckdb/gold_specs/base"
-
-        for spec_path in [
-            spec_dir / "base_scenarios_project_metadata_history.yaml",
-        ]:
+        for spec_path in spec_paths:
             spec = load_gold_spec(spec_path)
+
+            # Ensure the upstream SILVER view exists.
+            if spec.category and spec.module:
+                create_silver_view(
+                    conn=setup.conn,
+                    ctx=ctx,
+                    category=spec.category,
+                    module=spec.module,
+                    view_name=spec.view_table_name,
+                )
+
             apply_gold_spec(setup.conn, spec)
 
         # Unload `base_*` tables.

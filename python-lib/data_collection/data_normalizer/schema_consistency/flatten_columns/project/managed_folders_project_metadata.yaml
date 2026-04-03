@@ -1,0 +1,8 @@
+# Required columns for SILVER flattening
+# Object: managed / module: folders_project_metadata
+
+- project_key
+- managed_folders_id
+- managed_folders_name
+- managed_folders_type
+- managed_folders_params_connection

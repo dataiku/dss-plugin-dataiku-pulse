@@ -1,5 +1,6 @@
 # LLM identity
 
+- project_key
 - llms_id
 - llms_friendlyname
 - llms_friendlynameshort

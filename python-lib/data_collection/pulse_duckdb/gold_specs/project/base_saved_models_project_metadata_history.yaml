@@ -1,0 +1,20 @@
+base_saved_models_project_metadata_history:
+  description: >
+    Latest snapshot of saved (models_project_metadata) per key.
+
+    This table is materialized by ranking all observations by run_ts
+    and keeping the newest row for each (instance_name, project_key, saved_models_id).
+
+  depends_on: []
+  build_order: 10
+
+  category: saved
+  module: models_project_metadata
+
+  template: latest_by_partition
+  base_table_name: base_saved_models_project_metadata_history
+  view_table_name: v_saved__models_project_metadata
+  partition_keys:
+    - instance_name
+    - project_key
+    - saved_models_id

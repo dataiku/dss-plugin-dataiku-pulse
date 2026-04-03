@@ -1,0 +1,11 @@
+# Required columns for SILVER flattening
+# Object: clusters / module: instance_metadata
+
+- clusters_id
+- clusters_name
+- clusters_owner
+- clusters_type
+- clusters_architecture
+- clusters_state
+- clusters_usedinscenarios
+- clusters_usedinprojects

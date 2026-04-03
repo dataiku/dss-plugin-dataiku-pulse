@@ -1,6 +1,0 @@
-# TODO: define required flat columns for api_services (project-level)
-# File naming convention: {category}_{module}.yaml
-# Category: api_services
-# Module: metadata
-
-# Add column names here (lowercase, underscores)

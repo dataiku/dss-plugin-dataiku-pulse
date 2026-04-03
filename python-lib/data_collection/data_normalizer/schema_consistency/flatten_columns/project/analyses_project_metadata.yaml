@@ -1,0 +1,7 @@
+# Required columns for SILVER flattening
+# Object: analyses / module: project_metadata
+
+- project_key
+- analyses_analysisid
+- analyses_analysisname
+- analyses_inputdataset

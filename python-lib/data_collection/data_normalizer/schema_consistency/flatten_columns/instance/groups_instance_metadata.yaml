@@ -1,0 +1,6 @@
+# Required columns for SILVER flattening
+# Object: groups / module: instance_metadata
+
+- groups_name
+- groups_description
+- groups_sourcetype

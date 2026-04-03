@@ -1,0 +1,12 @@
+# Required columns for SILVER flattening
+# Object: saved / module: models_project_metadata
+
+- project_key
+- saved_models_id
+- saved_models_name
+- saved_models_type
+- saved_models_backendtype
+- saved_models_predictiontype
+- saved_models_versionscount
+- saved_models_createdon
+- saved_models_lastmodifiedon

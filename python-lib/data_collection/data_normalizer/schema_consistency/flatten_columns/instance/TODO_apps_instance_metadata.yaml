@@ -1,7 +1,0 @@
-# TODO: define required flat columns for apps (instance-level)
-# File naming convention: {category}_{module}.yaml
-# Category: apps
-# Module: instance_metadata
-# Section: instance
-
-# Add column names here (lowercase, underscores)

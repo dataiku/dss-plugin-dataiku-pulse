@@ -1,0 +1,9 @@
+# Required columns for SILVER flattening
+# Object: apps / module: instance_metadata
+
+- apps_appid
+- apps_label
+- apps_origin
+- apps_originprojectkey
+- apps_instancecount
+- apps_useasrecipe

@@ -1,0 +1,9 @@
+# Required columns for SILVER flattening
+# Object: plugins / module: instance_metadata
+
+- plugins_id
+- plugins_isdev
+- plugins_version
+- plugins_meta_label
+- plugins_description
+- plugins_meta_author

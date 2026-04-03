@@ -1,0 +1,8 @@
+# Required columns for SILVER flattening
+# Object: llms / module: instance_metadata
+
+- llms_id
+- llms_type
+- llms_connection
+- llms_model
+- llms_friendlyname

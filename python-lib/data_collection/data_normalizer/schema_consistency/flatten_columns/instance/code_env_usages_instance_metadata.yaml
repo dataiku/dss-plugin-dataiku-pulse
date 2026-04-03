@@ -1,0 +1,6 @@
+# Required columns for SILVER flattening
+# Object: code / module: env_usages_instance_metadata
+
+- code_env_usages_envname
+- code_env_usages_envlang
+- code_env_usages_envusage
