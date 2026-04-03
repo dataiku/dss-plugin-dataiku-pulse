@@ -8,12 +8,12 @@ base_code_envs_instance_metadata_history:
   depends_on: []
   build_order: 10
 
-  category: code
-  module: envs_instance_metadata
+  category: code_envs
+  module: instance_metadata
 
   template: latest_by_partition
   base_table_name: base_code_envs_instance_metadata_history
-  view_table_name: v_code__envs_instance_metadata
+  view_table_name: v_code_envs__instance_metadata
   partition_keys:
     - instance_name
     - code_envs_envname

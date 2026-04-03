@@ -8,12 +8,12 @@ base_api_services_project_metadata_history:
   depends_on: []
   build_order: 10
 
-  category: api
-  module: services_project_metadata
+  category: api_services
+  module: project_metadata
 
   template: latest_by_partition
   base_table_name: base_api_services_project_metadata_history
-  view_table_name: v_api__services_project_metadata
+  view_table_name: v_api_services__project_metadata
   partition_keys:
     - instance_name
     - project_key

@@ -8,12 +8,12 @@ base_sql_notebooks_project_metadata_history:
   depends_on: []
   build_order: 10
 
-  category: sql
-  module: notebooks_project_metadata
+  category: sql_notebooks
+  module: project_metadata
 
   template: latest_by_partition
   base_table_name: base_sql_notebooks_project_metadata_history
-  view_table_name: v_sql__notebooks_project_metadata
+  view_table_name: v_sql_notebooks__project_metadata
   partition_keys:
     - instance_name
     - project_key

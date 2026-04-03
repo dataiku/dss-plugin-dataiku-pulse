@@ -8,12 +8,12 @@ base_agent_tools_project_metadata_history:
   depends_on: []
   build_order: 10
 
-  category: agent
-  module: tools_project_metadata
+  category: agent_tools
+  module: project_metadata
 
   template: latest_by_partition
   base_table_name: base_agent_tools_project_metadata_history
-  view_table_name: v_agent__tools_project_metadata
+  view_table_name: v_agent_tools__project_metadata
   partition_keys:
     - instance_name
     - project_key
