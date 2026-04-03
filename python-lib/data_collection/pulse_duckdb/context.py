@@ -37,21 +37,22 @@ def build_storage_context(*, project_key: str, folder_lookup: str = "partitioned
     client = dataiku.api_client()
     project = client.get_project(project_key)
 
-    folder_id = None
-    for f in project.list_managed_folders():
-        if f.get("name") == folder_lookup:
-            folder_id = f.get("id")
-            break
-
-    if not folder_id:
-        # Fallback: assume it is a folder id.
-        try:
-            project.get_managed_folder(folder_lookup)
-        except Exception as exc:
-            raise ValueError(
-                f"Managed folder {folder_lookup!r} not found in project {project_key!r} (by name or id)"
-            ) from exc
-        folder_id = folder_lookup
+    # Resolve the folder id using the high-level `dataiku.Folder` handle.
+    #
+    # `folder_lookup` can be either the managed folder *name* or *id*.
+    # Using `dataiku.Folder(...).get_id()` avoids differences in DSS versions
+    # (some return `id`, others `odbId`) and prevents stale-id issues.
+    try:
+        folder = dataiku.Folder(
+            lookup=folder_lookup,
+            project_key=project_key,
+            ignore_flow=True,
+        )
+        folder_id = folder.get_id()
+    except Exception as exc:
+        raise ValueError(
+            f"Managed folder {folder_lookup!r} not found in project {project_key!r} (by name or id)"
+        ) from exc
 
     folder_handle = project.get_managed_folder(folder_id)
     settings_raw = folder_handle.get_settings().get_raw()
