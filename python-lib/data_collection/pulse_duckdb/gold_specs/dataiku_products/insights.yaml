@@ -1,0 +1,17 @@
+# Defines how DSS insights map into the generic product index
+# Note: dashboards/insights share the same project-level inventory in DSS.
+product_type: insight
+source_table: base_insights_project_metadata_history
+
+instance_name_col: instance_name
+project_key_col: project_key
+key_col: insights_id
+name_col: insights_name
+subtype_col: insights_type
+
+owner_col: insights_owner
+last_modified_by_col: insights_lastmodifiedby_login
+created_at_col: insights_createdon
+updated_at_col: insights_lastmodifiedon
+
+where_sql: null

@@ -1,0 +1,16 @@
+# Defines how agent tools map into the generic product index
+product_type: agent_tool
+source_table: base_agent_tools_project_metadata_history
+
+instance_name_col: instance_name
+project_key_col: project_key
+key_col: agent_tools_id
+name_col: agent_tools_name
+subtype_col: agent_tools_type
+
+owner_col: null
+last_modified_by_col: null
+created_at_col: null
+updated_at_col: null
+
+where_sql: null

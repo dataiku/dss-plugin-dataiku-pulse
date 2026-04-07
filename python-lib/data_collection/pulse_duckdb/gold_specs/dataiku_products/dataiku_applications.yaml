@@ -1,0 +1,17 @@
+# Defines how Dataiku applications (Application Designer) map into the generic product index
+product_type: dataiku_application
+source_table: base_apps_instance_metadata_history
+
+instance_name_col: instance_name
+project_key_col: apps_originprojectkey
+key_col: apps_appid
+name_col: apps_label
+subtype_col: apps_origin
+
+owner_col: null
+last_modified_by_col: null
+created_at_col: null
+updated_at_col: null
+
+# Only include apps that are tied to a project
+where_sql: "apps_originprojectkey IS NOT NULL"

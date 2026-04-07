@@ -1,0 +1,18 @@
+# Defines how DSS webapps map into the generic product index
+product_type: web_application
+source_table: base_webapps_project_metadata_history
+
+# Standard mappings
+instance_name_col: instance_name
+project_key_col: project_key
+key_col: webapps_id
+name_col: webapps_name
+subtype_col: webapps_type
+
+owner_col: webapps_createdby_login
+last_modified_by_col: webapps_lastmodifiedby_login
+created_at_col: webapps_createdon
+updated_at_col: webapps_lastmodifiedon
+
+# Optional filter clause applied to the source table
+where_sql: null

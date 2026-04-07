@@ -52,12 +52,176 @@ def _load_view_specs() -> list[dict]:
     return specs
 
 
+def _table_exists(conn: duckdb.DuckDBPyConnection, *, name: str) -> bool:
+    row = conn.execute(
+        """
+        SELECT COUNT(*)
+        FROM information_schema.tables
+        WHERE table_schema='main' AND table_name=?
+        """.strip(),
+        [name],
+    ).fetchone()
+    return bool(row and int(row[0]) > 0)
+
+
+def _column_exists(conn: duckdb.DuckDBPyConnection, *, table: str, column: str) -> bool:
+    row = conn.execute(
+        """
+        SELECT COUNT(*)
+        FROM information_schema.columns
+        WHERE table_schema='main' AND table_name=? AND column_name=?
+        """.strip(),
+        [table, column],
+    ).fetchone()
+    return bool(row and int(row[0]) > 0)
+
+
+def _sql_ident(name: str) -> str:
+    # identifiers in our pipeline are controlled (table/column names), but keep it safe anyway
+    return '"' + str(name).replace('"', '""') + '"'
+
+
+def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
+    """Create/replace `base_product_index` from `base_dataiku_products_registry`.
+
+    If the registry doesn't exist, we do nothing and rely on the YAML view spec.
+    If a referenced source table/column doesn't exist, that product is skipped.
+    """
+
+    registry_table = "base_dataiku_products_registry"
+    if not _table_exists(conn, name=registry_table):
+        return {"ok": True, "enabled": False, "reason": "registry_missing"}
+
+    rows = conn.execute(
+        f"""
+        SELECT
+          product_type,
+          source_table,
+          instance_name_col,
+          project_key_col,
+          key_col,
+          name_col,
+          subtype_col,
+          owner_col,
+          last_modified_by_col,
+          created_at_col,
+          updated_at_col,
+          where_sql
+        FROM {_sql_ident(registry_table)}
+        ORDER BY product_type;
+        """.strip()
+    ).fetchall()
+
+    included: list[dict] = []
+    skipped: list[dict] = []
+    branches: list[str] = []
+
+    def _maybe_col(expr: str | None) -> str:
+        if not expr or not str(expr).strip() or str(expr).strip().lower() == "null":
+            return "NULL"
+        return _sql_ident(str(expr).strip())
+
+    for (
+        product_type,
+        source_table,
+        instance_name_col,
+        project_key_col,
+        key_col,
+        name_col,
+        subtype_col,
+        owner_col,
+        last_modified_by_col,
+        created_at_col,
+        updated_at_col,
+        where_sql,
+    ) in rows:
+        product_type = str(product_type or "").strip()
+        source_table = str(source_table or "").strip()
+
+        required_mapping = {
+            "instance_name_col": instance_name_col,
+            "project_key_col": project_key_col,
+            "key_col": key_col,
+            "name_col": name_col,
+        }
+        missing_mapping = [k for k, v in required_mapping.items() if not v or str(v).strip().lower() == "null"]
+        if not product_type or not source_table or missing_mapping:
+            skipped.append(
+                {
+                    "product_type": product_type or None,
+                    "source_table": source_table or None,
+                    "reason": "missing_mapping",
+                    "missing": missing_mapping,
+                }
+            )
+            continue
+
+        if not _table_exists(conn, name=source_table):
+            skipped.append({"product_type": product_type, "source_table": source_table, "reason": "missing_table"})
+            continue
+
+        required_cols = [instance_name_col, project_key_col, key_col, name_col]
+        missing_cols = [
+            c for c in required_cols if c and not _column_exists(conn, table=source_table, column=str(c))
+        ]
+        if missing_cols:
+            skipped.append(
+                {
+                    "product_type": product_type,
+                    "source_table": source_table,
+                    "reason": "missing_columns",
+                    "missing": [str(c) for c in missing_cols],
+                }
+            )
+            continue
+
+        where = str(where_sql).strip() if where_sql not in (None, "", "null") else "1=1"
+
+        branch = (
+            "SELECT\n"
+            f"  {_sql_ident(str(instance_name_col))} AS instance_name,\n"
+            f"  {_sql_ident(str(project_key_col))} AS project_key,\n"
+            f"  '{product_type}' AS product_type,\n"
+            f"  {_sql_ident(str(key_col))} AS product_key,\n"
+            f"  {_sql_ident(str(name_col))} AS product_name,\n"
+            f"  {_maybe_col(subtype_col)} AS product_subtype,\n"
+            f"  {_maybe_col(owner_col)} AS owner_login,\n"
+            f"  {_maybe_col(last_modified_by_col)} AS last_modified_by_login,\n"
+            f"  try_cast({_maybe_col(created_at_col)} AS TIMESTAMP) AS created_at,\n"
+            f"  try_cast({_maybe_col(updated_at_col)} AS TIMESTAMP) AS updated_at\n"
+            f"FROM {_sql_ident(source_table)}\n"
+            f"WHERE {where}"
+        )
+
+        branches.append(branch)
+        included.append({"product_type": product_type, "source_table": source_table})
+
+    if not branches:
+        logger.info("base_product_index: no registry branches included")
+        return {"ok": True, "enabled": True, "created": False, "included": included, "skipped": skipped}
+
+    sql = f"CREATE OR REPLACE VIEW base_product_index AS\n" + "\nUNION ALL\n".join(branches) + ";"
+    conn.execute(sql)
+
+    return {
+        "ok": True,
+        "enabled": True,
+        "created": True,
+        "included": included,
+        "skipped": skipped,
+        "branches": len(branches),
+    }
+
+
 def build_views_from_specs(conn: duckdb.DuckDBPyConnection) -> dict:
     """Execute all view SQL from `pulse_duckdb/datasets/views/*.yaml`.
 
     If an existing object has the same name but is a TABLE (eg. mistakenly loaded
     from CSV), we drop it before creating the view.
     """
+
+    # If present, prefer generating this view dynamically from the registry.
+    product_index_report = _build_base_product_index(conn)
 
     specs = _load_view_specs()
 
@@ -117,4 +281,5 @@ def build_views_from_specs(conn: duckdb.DuckDBPyConnection) -> dict:
         "spec_files": len(list(_VIEW_SPECS_DIR.glob("*.yaml"))),
         "statements": len(view_statements),
         "errors": errors,
+        "base_product_index": product_index_report,
     }

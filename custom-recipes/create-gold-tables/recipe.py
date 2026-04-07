@@ -186,6 +186,81 @@ def run() -> dict:
 
             apply_gold_spec(setup.conn, spec)
 
+        # Build the products registry mapping table.
+        #
+        # This is a static mapping (YAML -> table) shipped with the plugin. It does
+        # not depend on whether the customer has actually collected a given product
+        # type yet.
+        products_specs_dir = base_dir / "dataiku_products"
+        registry_columns = [
+            "product_type",
+            "source_table",
+            "instance_name_col",
+            "project_key_col",
+            "key_col",
+            "name_col",
+            "subtype_col",
+            "owner_col",
+            "last_modified_by_col",
+            "created_at_col",
+            "updated_at_col",
+            "where_sql",
+            "spec_file",
+        ]
+
+        setup.conn.execute(
+            """
+            CREATE OR REPLACE TABLE base_dataiku_products_registry AS
+            SELECT
+              CAST(NULL AS VARCHAR) AS product_type,
+              CAST(NULL AS VARCHAR) AS source_table,
+              CAST(NULL AS VARCHAR) AS instance_name_col,
+              CAST(NULL AS VARCHAR) AS project_key_col,
+              CAST(NULL AS VARCHAR) AS key_col,
+              CAST(NULL AS VARCHAR) AS name_col,
+              CAST(NULL AS VARCHAR) AS subtype_col,
+              CAST(NULL AS VARCHAR) AS owner_col,
+              CAST(NULL AS VARCHAR) AS last_modified_by_col,
+              CAST(NULL AS VARCHAR) AS created_at_col,
+              CAST(NULL AS VARCHAR) AS updated_at_col,
+              CAST(NULL AS VARCHAR) AS where_sql,
+              CAST(NULL AS VARCHAR) AS spec_file
+            WHERE 1=0;
+            """.strip()
+        )
+
+        if products_specs_dir.exists():
+            import yaml
+
+            seen_product_types: set[str] = set()
+            registry_rows: list[tuple] = []
+
+            for path in sorted(products_specs_dir.glob("*.yaml")):
+                payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+                if not isinstance(payload, dict):
+                    raise ValueError(f"Invalid product registry YAML (expected mapping): {path}")
+
+                product_type = str(payload.get("product_type") or "").strip()
+                if not product_type:
+                    raise ValueError(f"Missing product_type in {path}")
+
+                if product_type in seen_product_types:
+                    raise ValueError(f"Duplicate product_type={product_type!r} in registry YAMLs")
+                seen_product_types.add(product_type)
+
+                row = tuple(
+                    (payload.get(c) if c != "spec_file" else path.name)
+                    for c in registry_columns
+                )
+                registry_rows.append(row)
+
+            if registry_rows:
+                placeholders = ",".join(["?"] * len(registry_columns))
+                setup.conn.executemany(
+                    f"INSERT INTO base_dataiku_products_registry ({', '.join(registry_columns)}) VALUES ({placeholders});",
+                    registry_rows,
+                )
+
         # Unload `base_*` tables.
         base_tables = [
             name

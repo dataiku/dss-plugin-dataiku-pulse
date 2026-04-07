@@ -289,7 +289,6 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                                 PurePosixPath(p).stem
                                 for p in list_gold_paths(suffixes=(".csv", ".parquet"))
                                 if PurePosixPath(p.lstrip("/")).name.startswith("base_")
-                                and PurePosixPath(p.lstrip("/")).name.endswith(".csv")
                                 and PurePosixPath(p.lstrip("/")).stem not in view_like_names
                             }
 
@@ -314,7 +313,6 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                             PurePosixPath(p).stem
                             for p in list_gold_paths(suffixes=(".csv", ".parquet"))
                             if PurePosixPath(p.lstrip("/")).name.startswith("base_")
-                            and PurePosixPath(p.lstrip("/")).name.endswith(".csv")
                             and PurePosixPath(p.lstrip("/")).stem not in view_like_names
                         }
 
