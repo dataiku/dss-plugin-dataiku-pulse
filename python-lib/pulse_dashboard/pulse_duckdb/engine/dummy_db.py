@@ -445,7 +445,7 @@ def _seed_relational_consistency(conn: duckdb.DuckDBPyConnection):
     )
 
     # Object activity events (for catalog/product activity views)
-    conn.execute('DELETE FROM "base_object_activity_events";')
+    conn.execute('DELETE FROM "fact_object_activity_events";')
     act_rows = []
     object_refs = [
         ("dataset", "transactions", "FIN"),
@@ -481,7 +481,7 @@ def _seed_relational_consistency(conn: duckdb.DuckDBPyConnection):
 
     conn.executemany(
         """
-        INSERT INTO base_object_activity_events (
+        INSERT INTO fact_object_activity_events (
           instance_name, timestamp, login, event_name, event_category, canonical_capability,
           project_key, object_type, object_key, object_name, details_json
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
@@ -597,7 +597,7 @@ def rebuild_dummy_database() -> dict:
                 columns = [(c[0], c[1]) for c in cols]
 
                 n_rows = 10
-                if table_name in {"fact_dev_activity_events", "base_object_activity_events"}:
+                if table_name in {"fact_dev_activity_events", "fact_object_activity_events"}:
                     n_rows = 50
                 _insert_dummy_rows(conn, table_name, columns, n_rows=n_rows, ctx=ctx)
 
@@ -613,7 +613,7 @@ def rebuild_dummy_database() -> dict:
                     "base_scenarios_metadata",
                     "dim_category_to_capability",
                     "fact_dev_activity_events",
-                    "base_object_activity_events",
+                    "fact_object_activity_events",
                     "base_webapps_metadata",
                     "base_dashboards_metadata",
                     "base_api_endpoints_metadata",

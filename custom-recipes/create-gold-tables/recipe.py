@@ -357,7 +357,7 @@ def _object_activity_branch_sql(*, module: str, view_name: str) -> str:
     )
 
 
-def _build_base_object_activity_events(
+def _build_fact_object_activity_events(
     conn: duckdb.DuckDBPyConnection,
     *,
     ctx,
@@ -378,9 +378,16 @@ def _build_base_object_activity_events(
     if not branches:
         return ""
 
-    sql = "CREATE OR REPLACE TABLE base_object_activity_events AS\n" + "\nUNION ALL\n".join(branches) + ";"
+    sql = "CREATE OR REPLACE TABLE fact_object_activity_events AS\n" + "\nUNION ALL\n".join(branches) + ";"
     conn.execute(sql)
-    return "base_object_activity_events"
+
+    # Backward compatibility: some downstream objects still reference the old base name.
+    conn.execute(
+        "CREATE OR REPLACE VIEW \"base_object_activity_events\" AS SELECT * FROM fact_object_activity_events;"
+    )
+    return "fact_object_activity_events"
+    conn.execute(sql)
+    return "fact_object_activity_events"
 
 
 def _build_fact_dev_activity_events(
@@ -546,7 +553,7 @@ def run() -> dict:
         _build_fact_dev_activity_events(setup.conn, ctx=ctx, base_dir=base_dir)
 
         # Build object-level activity events (used for asset/product activity rollups).
-        _build_base_object_activity_events(setup.conn, ctx=ctx, base_dir=base_dir)
+        _build_fact_object_activity_events(setup.conn, ctx=ctx, base_dir=base_dir)
 
         # Build the products registry mapping table.
         #
@@ -653,7 +660,7 @@ def run() -> dict:
 
         for table_name in unloaded_tables:
             # Partition large event tables by instance+day to keep queries fast.
-            if table_name in {"fact_dev_activity_events", "base_object_activity_events"}:
+            if table_name in {"fact_dev_activity_events", "fact_object_activity_events"}:
                 destination = f"gold/{table_name}"
             else:
                 destination = f"gold/{table_name}.parquet"
@@ -702,7 +709,7 @@ def run() -> dict:
                             ");"
                         ).format(path=path)
 
-                    elif table_name == "base_object_activity_events":
+                    elif table_name == "fact_object_activity_events":
                         query = (
                             "COPY (\n"
                             "  SELECT\n"
@@ -726,8 +733,9 @@ def run() -> dict:
                             "    year,\n"
                             "    month,\n"
                             "    day\n"
-                            "  FROM base_object_activity_events\n"
+                            "  FROM fact_object_activity_events\n"
                             ") TO '{path}' (\n"
+
                             "  FORMAT 'PARQUET',\n"
                             "  OVERWRITE TRUE,\n"
                             "  PARTITION_BY (instance_name, year, month, day)\n"
@@ -752,7 +760,7 @@ def run() -> dict:
                     content = buf.read()
 
                     folder = dataiku.Folder(gold_folder_lookup)
-                    if table_name in {"fact_dev_activity_events", "base_object_activity_events"}:
+                    if table_name in {"fact_dev_activity_events", "fact_object_activity_events"}:
                         raise ValueError(
                             "unload_behavior='dataiku' is not supported for partitioned event tables; "
                             "use unload_behavior='duckdb'"

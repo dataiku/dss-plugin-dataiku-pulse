@@ -1,0 +1,18 @@
+v_object_activity_events:
+  description: >
+    Convenience view for object-level activity.
+
+    This keeps downstream metrics stable while the underlying persisted event
+    table follows the naming convention `fact_*`.
+
+  depends_on:
+    - fact_object_activity_events
+  build_order: 1005
+  sql: |
+    CREATE OR REPLACE VIEW "v_object_activity_events" AS
+    SELECT *
+    FROM fact_object_activity_events;
+  example_data: |
+    -- This object is a VIEW.
+    -- Insert example rows into its upstream fact table.
+    INSERT INTO "fact_object_activity_events" DEFAULT VALUES;

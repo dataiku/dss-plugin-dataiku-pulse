@@ -8,7 +8,7 @@ base_product_index:
     - base_dashboards_metadata
     - base_webapps_metadata
     - base_dataiku_applications_metadata
-    - base_object_activity_events
+    - v_object_activity_events
   build_order: 1030
   sql: |
     CREATE OR REPLACE VIEW "base_product_index" AS

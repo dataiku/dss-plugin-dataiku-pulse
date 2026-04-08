@@ -1,8 +1,8 @@
 product_activity_30d:
   description: >
-    Aggregates `base_object_activity_events` to **product-level** activity signals.
+    Aggregates `v_object_activity_events` to **product-level** activity signals.
   depends_on:
-    - base_object_activity_events
+    - v_object_activity_events
   build_order: 1140
   sql: |
     CREATE OR REPLACE VIEW "product_activity_30d" AS
@@ -14,11 +14,11 @@ product_activity_30d:
       COUNT(*) FILTER (WHERE timestamp >= now() - INTERVAL 30 DAY) AS activity_30d,
       COUNT(DISTINCT login) FILTER (WHERE timestamp >= now() - INTERVAL 30 DAY) AS active_users_30d,
       MAX(timestamp) AS last_activity_at
-    FROM base_object_activity_events
+    FROM v_object_activity_events
     WHERE object_type IN ('api_endpoint', 'agent', 'dashboard', 'web_application', 'dataiku_application')
       AND object_key IS NOT NULL
     GROUP BY 1,2,3,4;
   example_data: |
     -- This object is a VIEW.
     -- Minimal example: ensure upstream base table has at least one row.
-    INSERT INTO "base_object_activity_events" DEFAULT VALUES;
+    INSERT INTO "v_object_activity_events" DEFAULT VALUES;

@@ -1,10 +1,10 @@
-base_object_activity_events:
+fact_object_activity_events:
   description: >
     This base table captures **event-level activity** derived from DSS audit logs (and optionally other telemetry), normalized so we can compute object-level usage metrics.
   depends_on: []
   build_order: 90
   sql: |
-    CREATE OR REPLACE TABLE "base_object_activity_events" AS
+    CREATE OR REPLACE TABLE "fact_object_activity_events" AS
     SELECT
           CAST(NULL AS VARCHAR) AS instance_name,
           CAST(NULL AS TIMESTAMP) AS timestamp,
@@ -24,4 +24,4 @@ base_object_activity_events:
           CAST(NULL AS VARCHAR) AS details_json
     WHERE 1=0;
   example_data: |
-    INSERT INTO "base_object_activity_events" (instance_name, timestamp, login, event_name, event_category, canonical_capability, project_key, object_type, object_key, object_name, instance_url, group_names) VALUES ('dss-prod', TIMESTAMP '2026-03-23 12:00:00', 'alice', 'event_name_example', 'event_category_example', 'canonical_capability_example', 'FIN', 'object_type_example', 'object_key_example', 'object_name_example', 'instance_url_example', 'group_names_example');
+    INSERT INTO "fact_object_activity_events" (instance_name, timestamp, login, event_name, event_category, canonical_capability, project_key, object_type, object_key, object_name, instance_url, group_names) VALUES ('dss-prod', TIMESTAMP '2026-03-23 12:00:00', 'alice', 'event_name_example', 'event_category_example', 'canonical_capability_example', 'FIN', 'object_type_example', 'object_key_example', 'object_name_example', 'instance_url_example', 'group_names_example');
