@@ -29,13 +29,15 @@ Target nightly flow:
 
 ## Conventions
 
+Follow the naming contract in `python-lib/data_collection/pulse_duckdb/gold_specs/README.md`.
+
 - Unload candidates:
-  - DuckDB tables starting with `base_`, `dim_`, `fact_`.
-  - Large event tables are written as partitioned parquet directories.
+  - `base_*`, `dim_*`, `fact_*`, plus registry/config tables when introduced (`reg_*`).
+  - Large event tables are written as partitioned parquet directories (generally `fact_*`).
 
 - Output paths:
   - Default: `gold/{table_name}.parquet`
-  - Partitioned event tables: `gold/{table_name}/instance_name=*/year=*/month=*/day=*/*.parquet`
+  - Partitioned facts: `gold/{table_name}/instance_name=*/year=*/month=*/day=*/*.parquet`
 
 ## Local/debug runs
 

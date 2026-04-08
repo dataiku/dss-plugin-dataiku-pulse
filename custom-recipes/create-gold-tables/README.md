@@ -26,7 +26,9 @@ Implemented in `custom-recipes/create-gold-tables/recipe.py`:
 - Unloads curated DuckDB tables to the recipe output managed folder:
   - `base_*`, `dim_*`, `fact_*`
   - Default destination pattern: `gold/{table_name}.parquet`
-  - Partitioned event tables (written as directories): `gold/{table_name}/instance_name=*/year=*/month=*/day=*/*.parquet`
+  - Partitioned facts (written as directories): `gold/{table_name}/instance_name=*/year=*/month=*/day=*/*.parquet`
+
+Naming rules are documented at `python-lib/data_collection/pulse_duckdb/gold_specs/README.md`.
 
 Notes:
 - Scenario ids/names and timestamps are currently extracted from `extras` JSON in SILVER.
