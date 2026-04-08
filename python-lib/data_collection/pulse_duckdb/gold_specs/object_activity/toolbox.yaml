@@ -1,0 +1,13 @@
+# Object-level activity extraction configuration.
+#
+# Values correspond to the `module=` partition under:
+#   silver/category=event_mapping/module=<module>/...
+#
+# Keep this list curated: we do not want to scan every module.
+
+- datasets
+- visual_recipes
+- apis
+- webapps
+- charts_dashboard
+- application_designer

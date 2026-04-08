@@ -217,6 +217,35 @@ def _build_dim_category_to_capability(conn: duckdb.DuckDBPyConnection, *, base_d
     return "dim_category_to_capability"
 
 
+def _load_object_activity_modules(base_dir: Path) -> list[str]:
+    """Load object-activity modules from YAML.
+
+    Expected file: gold_specs/object_activity/toolbox.yaml
+    """
+
+    path = base_dir / "object_activity" / "toolbox.yaml"
+    if not path.exists():
+        return []
+
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError(f"Invalid object_activity toolbox.yaml (expected YAML list): {path}")
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for v in raw:
+        if v is None:
+            continue
+        s = _slug(str(v))
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+    return out
+
+
 def _create_event_mapping_module_view(
     conn: duckdb.DuckDBPyConnection,
     *,
@@ -265,6 +294,86 @@ def _create_event_mapping_module_view(
         return ""
 
     return view_name
+
+
+def _object_activity_branch_sql(*, module: str, view_name: str) -> str:
+    # Start simple: derive object ids from available columns.
+    # These regexes can be refined as we observe real callpaths.
+    if module in {"datasets", "dataset"}:
+        object_type = "dataset"
+        object_key_expr = "NULLIF(regexp_extract(callpath, '/datasets/([^/?]+)', 1), '')"
+    elif module in {"visual_recipes", "misc_recipes", "prepare"}:
+        object_type = "recipe"
+        object_key_expr = "NULLIF(regexp_extract(callpath, '/recipes/([^/?]+)', 1), '')"
+    elif module == "webapps":
+        object_type = "web_application"
+        object_key_expr = "COALESCE(NULLIF(webapp_id, ''), NULLIF(regexp_extract(callpath, '/webapps/([^/?]+)', 1), ''))"
+    elif module == "charts_dashboard":
+        object_type = "dashboard"
+        object_key_expr = "NULLIF(regexp_extract(callpath, '/dashboards/([^/?]+)', 1), '')"
+    elif module == "apis":
+        object_type = "api_endpoint"
+        object_key_expr = "NULLIF(regexp_extract(callpath, '/api[-_]?endpoints/([^/?]+)', 1), '')"
+    elif module == "application_designer":
+        object_type = "dataiku_application"
+        object_key_expr = "NULLIF(regexp_extract(callpath, '/applications/([^/?]+)', 1), '')"
+    else:
+        object_type = module
+        object_key_expr = "NULL"
+
+    return (
+        "SELECT\n"
+        "  try_cast(COALESCE(timestamp, date) AS TIMESTAMP) AS timestamp,\n"
+        "  instance_name,\n"
+        "  COALESCE(authuser, user) AS login,\n"
+        "  msgtype AS event_name,\n"
+        "  dataiku_category AS event_category,\n"
+        "  m.capability AS canonical_capability,\n"
+        "  project_key,\n"
+        f"  '{object_type}' AS object_type,\n"
+        f"  {object_key_expr} AS object_key,\n"
+        f"  {object_key_expr} AS object_name,\n"
+        "  NULL AS instance_url,\n"
+        "  NULL AS group_names,\n"
+        "  NULL AS session_id,\n"
+        "  COALESCE(clientip, originalip) AS ip_address,\n"
+        "  NULL AS user_agent,\n"
+        "  extras AS details_json,\n"
+        "  try_cast(run_ts AS TIMESTAMP) AS run_timestamp,\n"
+        "  CAST(year AS INTEGER) AS year,\n"
+        "  CAST(month AS INTEGER) AS month,\n"
+        "  CAST(day AS INTEGER) AS day\n"
+        f"FROM {view_name} e\n"
+        "LEFT JOIN dim_category_to_capability m\n"
+        "  ON m.dataiku_category = e.dataiku_category\n"
+        "WHERE COALESCE(authuser, user) IS NOT NULL"
+    )
+
+
+def _build_base_object_activity_events(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    ctx,
+    base_dir: Path,
+) -> str:
+    modules = _load_object_activity_modules(base_dir)
+    if not modules:
+        return ""
+
+    branches: list[str] = []
+    for mod in modules:
+        view_name = f"v_event_mapping__{_slug(mod)}"
+        created = _create_event_mapping_module_view(conn, ctx=ctx, module=mod, view_name=view_name)
+        if not created:
+            continue
+        branches.append(_object_activity_branch_sql(module=_slug(mod), view_name=view_name))
+
+    if not branches:
+        return ""
+
+    sql = "CREATE OR REPLACE TABLE base_object_activity_events AS\n" + "\nUNION ALL\n".join(branches) + ";"
+    conn.execute(sql)
+    return "base_object_activity_events"
 
 
 def _build_fact_dev_activity_events(
@@ -426,8 +535,11 @@ def run() -> dict:
         # Build development activity dimension + event fact table.
         #
         # Both are configured in `gold_specs/dataiku_dev_tools/*`.
-        dim_name = _build_dim_category_to_capability(setup.conn, base_dir=base_dir)
-        fact_name = _build_fact_dev_activity_events(setup.conn, ctx=ctx, base_dir=base_dir)
+        _build_dim_category_to_capability(setup.conn, base_dir=base_dir)
+        _build_fact_dev_activity_events(setup.conn, ctx=ctx, base_dir=base_dir)
+
+        # Build object-level activity events (used for asset/product activity rollups).
+        _build_base_object_activity_events(setup.conn, ctx=ctx, base_dir=base_dir)
 
         # Build the products registry mapping table.
         #
@@ -533,8 +645,8 @@ def run() -> dict:
         )
 
         for table_name in unloaded_tables:
-            # Partition large event facts by instance+day to keep queries fast.
-            if table_name == "fact_dev_activity_events":
+            # Partition large event tables by instance+day to keep queries fast.
+            if table_name in {"fact_dev_activity_events", "base_object_activity_events"}:
                 destination = f"gold/{table_name}"
             else:
                 destination = f"gold/{table_name}.parquet"
@@ -554,7 +666,7 @@ def run() -> dict:
 
                     path = f"{blob_header}://{gold_ctx.bucket_or_container}/{root}{destination}"
 
-                    if table_name == "fact_dev_activity_events":
+                    if table_name in {"fact_dev_activity_events", "base_object_activity_events"}:
                         # Write partitioned parquet for efficient downstream reads.
                         query = (
                             "COPY (\n"
@@ -575,7 +687,7 @@ def run() -> dict:
                             "    year,\n"
                             "    month,\n"
                             "    day\n"
-                            "  FROM fact_dev_activity_events\n"
+                            f"  FROM {table_name}\n"
                             ") TO '{path}' (\n"
                             "  FORMAT 'PARQUET',\n"
                             "  OVERWRITE TRUE,\n"
@@ -600,9 +712,9 @@ def run() -> dict:
                     content = buf.read()
 
                     folder = dataiku.Folder(gold_folder_lookup)
-                    if table_name == "fact_dev_activity_events":
+                    if table_name in {"fact_dev_activity_events", "base_object_activity_events"}:
                         raise ValueError(
-                            "unload_behavior='dataiku' is not supported for partitioned fact_dev_activity_events; "
+                            "unload_behavior='dataiku' is not supported for partitioned event tables; "
                             "use unload_behavior='duckdb'"
                         )
                     folder.upload_stream(destination, content)
