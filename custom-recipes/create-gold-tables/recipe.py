@@ -327,7 +327,7 @@ def _object_activity_branch_sql(*, module: str, view_name: str) -> str:
         "  instance_name,\n"
         "  COALESCE(authuser, user) AS login,\n"
         "  msgtype AS event_name,\n"
-        "  dataiku_category AS event_category,\n"
+        "  e.dataiku_category AS event_category,\n"
         "  m.capability AS canonical_capability,\n"
         "  project_key,\n"
         f"  '{object_type}' AS object_type,\n"
