@@ -19,15 +19,14 @@ Implemented in `custom-recipes/create-gold-tables/recipe.py`:
   - Deletes the DuckDB file if it exists (reset safeguard)
   - Recreates the parent folder
   - Configures DuckDB blob access using `python-lib/data_collection/pulse_duckdb/config/blob/blob_credentials.yaml`
-- Creates the initial SILVER view and builds the first GOLD tables (Scenarios):
-  - View: `v_scenarios__project_metadata`
-  - Tables:
-    - `base_scenarios_metadata_history`
-    - `base_scenarios_metadata_latest`
-  - GOLD SQL specs live under `python-lib/data_collection/pulse_duckdb/gold_specs/base/`
+- Creates SILVER external views as needed and materializes curated GOLD tables.
+  - Metadata tables are driven by YAML specs under `python-lib/data_collection/pulse_duckdb/gold_specs/`.
+  - Development activity + object activity are built from curated audit `event_mapping` modules.
 - Reads the recipe parameter `unload_behavior` (default: `duckdb`).
-- Unloads DuckDB tables starting with `base_` to the recipe output managed folder.
-  - Destination pattern: `gold/{table_name}.parquet`
+- Unloads curated DuckDB tables to the recipe output managed folder:
+  - `base_*`, `dim_*`, `fact_*`
+  - Default destination pattern: `gold/{table_name}.parquet`
+  - Partitioned event tables (written as directories): `gold/{table_name}/instance_name=*/year=*/month=*/day=*/*.parquet`
 
 Notes:
 - Scenario ids/names and timestamps are currently extracted from `extras` JSON in SILVER.

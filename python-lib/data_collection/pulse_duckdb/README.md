@@ -10,11 +10,14 @@ This package provides helpers to:
 
 ## GOLD specs
 
-YAML-driven table build specs live under:
+YAML-driven build specs live under:
 
-- `python-lib/data_collection/pulse_duckdb/gold_specs/base/`
+- `python-lib/data_collection/pulse_duckdb/gold_specs/project/` and `python-lib/data_collection/pulse_duckdb/gold_specs/instance/` (metadata base tables)
+- `python-lib/data_collection/pulse_duckdb/gold_specs/dataiku_products/` (product index registry)
+- `python-lib/data_collection/pulse_duckdb/gold_specs/dataiku_dev_tools/` (development activity: modules + category→capability)
+- `python-lib/data_collection/pulse_duckdb/gold_specs/object_activity/` (object activity: curated modules)
 
-The recipe loads these YAML files and executes the embedded SQL to create `base_*` tables.
+The nightly GOLD recipe executes these specs and produces `base_*`, `dim_*`, and `fact_*` outputs.
 
 Implemented first slice (Scenarios):
 

@@ -29,8 +29,13 @@ Target nightly flow:
 
 ## Conventions
 
-- Unload candidates: DuckDB tables starting with `base_`.
-- Output path: `gold/{table_name}.parquet` under the output folder.
+- Unload candidates:
+  - DuckDB tables starting with `base_`, `dim_`, `fact_`.
+  - Large event tables are written as partitioned parquet directories.
+
+- Output paths:
+  - Default: `gold/{table_name}.parquet`
+  - Partitioned event tables: `gold/{table_name}/instance_name=*/year=*/month=*/day=*/*.parquet`
 
 ## Local/debug runs
 
