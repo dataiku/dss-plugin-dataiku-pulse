@@ -3,12 +3,15 @@ from __future__ import annotations
 import io
 import logging
 import os
+import re
 from pathlib import Path
 import uuid
 from datetime import datetime, timezone
 import getpass
 
+import duckdb
 import dataiku
+import yaml
 from dataiku.customrecipe import get_output_names_for_role, get_recipe_config
 
 
@@ -87,6 +90,239 @@ def _unique_duckdb_path(*, project_key: str) -> Path:
     return base_dir / filename
 
 
+
+def _slug(value: str) -> str:
+    s = str(value or "").strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("_")
+    return s
+
+
+def _load_dev_toolbox_modules(base_dir: Path) -> list[str]:
+    """Load development-activity modules from YAML.
+
+    Expected file: gold_specs/dataiku_dev_tools/toolbox.yaml
+    """
+
+    path = base_dir / "dataiku_dev_tools" / "toolbox.yaml"
+    if not path.exists():
+        return []
+
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError(f"Invalid toolbox.yaml (expected YAML list): {path}")
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for v in raw:
+        if v is None:
+            continue
+        s = _slug(str(v))
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+    return out
+
+
+def _load_category_to_capability(base_dir: Path) -> list[dict]:
+    """Load mapping rows for `dim_category_to_capability`.
+
+    Expected file: gold_specs/dataiku_dev_tools/category_to_capability.yaml
+    """
+
+    path = base_dir / "dataiku_dev_tools" / "category_to_capability.yaml"
+    if not path.exists():
+        return []
+
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError(f"Invalid category_to_capability.yaml (expected YAML list): {path}")
+
+    rows: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        if not item.get("dataiku_category") or not item.get("capability"):
+            continue
+        row = dict(item)
+        row["dataiku_category"] = _slug(str(row["dataiku_category"]))
+        row["capability"] = _slug(str(row["capability"]))
+        # Defaults
+        row.setdefault("capability_order", 1)
+        row.setdefault("category_order", 1)
+        row.setdefault("capability_display_name", str(item.get("capability_display_name") or row["capability"]))
+        row.setdefault("category_display_name", str(item.get("category_display_name") or row["dataiku_category"]))
+        row.setdefault("is_dev_activity", True)
+        rows.append(row)
+
+    return rows
+
+
+def _build_dim_category_to_capability(conn: duckdb.DuckDBPyConnection, *, base_dir: Path) -> str:
+    """Build `dim_category_to_capability` from YAML mapping."""
+
+    rows = [r for r in _load_category_to_capability(base_dir) if _slug(str(r.get("capability") or "")) != "uncategorized"]
+
+    conn.execute(
+        """
+        CREATE OR REPLACE TABLE dim_category_to_capability AS
+        SELECT
+          CAST(NULL AS VARCHAR) AS dataiku_category,
+          CAST(NULL AS VARCHAR) AS capability,
+          CAST(NULL AS INTEGER) AS capability_order,
+          CAST(NULL AS INTEGER) AS category_order,
+          CAST(NULL AS VARCHAR) AS capability_display_name,
+          CAST(NULL AS VARCHAR) AS category_display_name,
+          CAST(NULL AS BOOLEAN) AS is_dev_activity
+        WHERE 1=0;
+        """.strip()
+    )
+
+    if not rows:
+        return "dim_category_to_capability"
+
+    insert_rows = [
+        (
+            r.get("dataiku_category"),
+            r.get("capability"),
+            int(r.get("capability_order") or 1),
+            int(r.get("category_order") or 1),
+            r.get("capability_display_name"),
+            r.get("category_display_name"),
+            bool(r.get("is_dev_activity")),
+        )
+        for r in rows
+    ]
+
+    conn.executemany(
+        """
+        INSERT INTO dim_category_to_capability (
+          dataiku_category,
+          capability,
+          capability_order,
+          category_order,
+          capability_display_name,
+          category_display_name,
+          is_dev_activity
+        ) VALUES (?, ?, ?, ?, ?, ?, ?);
+        """.strip(),
+        insert_rows,
+    )
+
+    return "dim_category_to_capability"
+
+
+def _create_event_mapping_module_view(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    ctx,
+    module: str,
+    view_name: str,
+) -> str:
+    """Create a DuckDB view over SILVER event_mapping parquet for one module.
+
+    Note: This intentionally does not rely on `create_silver_view()` because that
+    helper currently assumes S3-only paths.
+    """
+
+    if not ctx.bucket_or_container:
+        raise ValueError("Missing bucket/container")
+
+    root = ctx.folder_root.strip("/")
+    if root:
+        root = f"{root}/"
+
+    # Partitioned SILVER path:
+    # silver/category=event_mapping/module=<module>/instance_name=*/year=*/month=*/day=*/*.parquet
+    if ctx.connection_type == "EC2":
+        base = f"s3://{ctx.bucket_or_container}/{root}silver"
+    elif ctx.connection_type == "Azure":
+        base = f"az://{ctx.bucket_or_container}/{root}silver"
+    elif ctx.connection_type == "GCS":
+        base = f"gs://{ctx.bucket_or_container}/{root}silver"
+    else:
+        raise ValueError(f"Unsupported connection type: {ctx.connection_type}")
+
+    glob = f"{base}/category=event_mapping/module={module}/instance_name=*/year=*/month=*/day=*/*.parquet"
+
+    sql = f"""
+    CREATE OR REPLACE VIEW {view_name} AS
+    SELECT
+      *,
+      make_date(CAST(year AS INTEGER), CAST(month AS INTEGER), CAST(day AS INTEGER)) AS partition_date
+    FROM read_parquet('{glob}', hive_partitioning = true);
+    """.strip()
+
+    try:
+        conn.execute(sql)
+    except duckdb.IOException:
+        # No parquet yet for this module; skip.
+        return ""
+
+    return view_name
+
+
+def _build_fact_dev_activity_events(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    ctx,
+    base_dir: Path,
+) -> str:
+    """Build `fact_dev_activity_events` from selected event_mapping modules."""
+
+    modules = _load_dev_toolbox_modules(base_dir)
+    if not modules:
+        return ""
+
+    branches: list[str] = []
+
+    for mod in modules:
+        view_name = f"v_event_mapping__{_slug(mod)}"
+        created = _create_event_mapping_module_view(conn, ctx=ctx, module=mod, view_name=view_name)
+        if not created:
+            continue
+
+        branches.append(
+            f"""
+            SELECT
+              try_cast(COALESCE(timestamp, date) AS TIMESTAMP) AS timestamp,
+              instance_name,
+              COALESCE(authuser, user) AS login,
+              msgtype,
+              msgtypebase,
+              dataiku_category,
+              project_key,
+              severity,
+              topic,
+              audittopic,
+              callpath,
+              extras,
+              try_cast(run_ts AS TIMESTAMP) AS run_timestamp,
+              CAST(year AS INTEGER) AS year,
+              CAST(month AS INTEGER) AS month,
+              CAST(day AS INTEGER) AS day
+            FROM {view_name}
+            """.strip()
+        )
+
+    if not branches:
+        return ""
+
+    sql = (
+        "CREATE OR REPLACE TABLE fact_dev_activity_events AS\n"
+        + "\nUNION ALL\n".join(branches)
+        + ";"
+    )
+
+    conn.execute(sql)
+    return "fact_dev_activity_events"
+
+
 def run() -> dict:
     # Recipe output folder is used as the GOLD destination.
     # (Later steps will unload parquet here.)
@@ -161,7 +397,8 @@ def run() -> dict:
         # imported package is stable.
         import data_collection.pulse_duckdb.gold_builder as gold_builder_module
 
-        base_dir = Path(gold_builder_module.__file__).resolve().parent / "gold_specs"
+        gold_builder_path = Path(gold_builder_module.__file__).resolve()
+        base_dir = gold_builder_path.parent / "gold_specs"
         spec_paths = sorted(
             list((base_dir / "project").glob("base_*_history.yaml"))
             + list((base_dir / "instance").glob("base_*_history.yaml"))
@@ -185,6 +422,12 @@ def run() -> dict:
                     continue
 
             apply_gold_spec(setup.conn, spec)
+
+        # Build development activity dimension + event fact table.
+        #
+        # Both are configured in `gold_specs/dataiku_dev_tools/*`.
+        dim_name = _build_dim_category_to_capability(setup.conn, base_dir=base_dir)
+        fact_name = _build_fact_dev_activity_events(setup.conn, ctx=ctx, base_dir=base_dir)
 
         # Build the products registry mapping table.
         #
@@ -261,16 +504,41 @@ def run() -> dict:
                     registry_rows,
                 )
 
-        # Unload `base_*` tables.
+        # Unload curated GOLD tables.
+        #
+        # - `base_*`: existing contract
+        # - `fact_*`: event-level facts (may be partitioned)
         base_tables = [
             name
             for (name,) in setup.conn.sql("SHOW TABLES").fetchall()
             if name.startswith("base_")
         ]
 
+        dim_tables = [
+            name
+            for (name,) in setup.conn.sql("SHOW TABLES").fetchall()
+            if name.startswith("dim_")
+        ]
 
-        for table_name in base_tables:
-            destination = f"gold/{table_name}.parquet"
+        fact_tables = [
+            name
+            for (name,) in setup.conn.sql("SHOW TABLES").fetchall()
+            if name.startswith("fact_")
+        ]
+
+        unloaded_tables = (
+            base_tables
+            + [t for t in dim_tables if t not in base_tables]
+            + [t for t in fact_tables if t not in base_tables and t not in dim_tables]
+        )
+
+        for table_name in unloaded_tables:
+            # Partition large event facts by instance+day to keep queries fast.
+            if table_name == "fact_dev_activity_events":
+                destination = f"gold/{table_name}"
+            else:
+                destination = f"gold/{table_name}.parquet"
+
             logger.info("Unloading %s to %s...", table_name, destination)
 
             if unload_behavior == "duckdb":
@@ -285,7 +553,38 @@ def run() -> dict:
                         raise ValueError("Could not resolve GOLD bucket/container")
 
                     path = f"{blob_header}://{gold_ctx.bucket_or_container}/{root}{destination}"
-                    query = f"COPY {table_name} TO '{path}' (FORMAT 'PARQUET', OVERWRITE TRUE);"
+
+                    if table_name == "fact_dev_activity_events":
+                        # Write partitioned parquet for efficient downstream reads.
+                        query = (
+                            "COPY (\n"
+                            "  SELECT\n"
+                            "    timestamp,\n"
+                            "    instance_name,\n"
+                            "    login,\n"
+                            "    msgtype,\n"
+                            "    msgtypebase,\n"
+                            "    dataiku_category,\n"
+                            "    project_key,\n"
+                            "    severity,\n"
+                            "    topic,\n"
+                            "    audittopic,\n"
+                            "    callpath,\n"
+                            "    extras,\n"
+                            "    run_timestamp,\n"
+                            "    year,\n"
+                            "    month,\n"
+                            "    day\n"
+                            "  FROM fact_dev_activity_events\n"
+                            ") TO '{path}' (\n"
+                            "  FORMAT 'PARQUET',\n"
+                            "  OVERWRITE TRUE,\n"
+                            "  PARTITION_BY (instance_name, year, month, day)\n"
+                            ");"
+                        )
+                    else:
+                        query = f"COPY {table_name} TO '{path}' (FORMAT 'PARQUET', OVERWRITE TRUE);"
+
                     logger.debug(query)
                     setup.conn.execute(query)
                 except Exception as e:
@@ -301,7 +600,13 @@ def run() -> dict:
                     content = buf.read()
 
                     folder = dataiku.Folder(gold_folder_lookup)
+                    if table_name == "fact_dev_activity_events":
+                        raise ValueError(
+                            "unload_behavior='dataiku' is not supported for partitioned fact_dev_activity_events; "
+                            "use unload_behavior='duckdb'"
+                        )
                     folder.upload_stream(destination, content)
+
                 except Exception as e:
                     logger.error("Dataiku unload failed for %s: %s", table_name, e)
                     failed_tables.append(table_name)
@@ -321,7 +626,7 @@ def run() -> dict:
         **storage_info,
         "gold_output_folder": gold_folder_lookup,
         "unload_behavior": unload_behavior,
-        "unloaded_tables": base_tables,
+        "unloaded_tables": unloaded_tables,
     }
 
 

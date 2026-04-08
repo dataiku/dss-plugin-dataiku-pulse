@@ -1,0 +1,275 @@
+# Mapping from curated usage categories to high-level capabilities.
+#
+# Source taxonomy reference:
+# - docs/infrastructure/pulse_usage_categories.md
+#
+# Notes:
+# - `dataiku_category` must match the values produced by the `event_mapping` audit
+#   processor (lowercase, underscores).
+# - Some audit categories are not covered by the taxonomy doc yet; those are
+#   mapped to `uncategorized` for now.
+
+# -----------------------------------------------------------------------------
+# Advanced Analytics & ML
+# -----------------------------------------------------------------------------
+- dataiku_category: statistic_analytics
+  capability: advanced_analytics_ml
+  capability_order: 1
+  category_order: 1
+  capability_display_name: Advanced Analytics & ML
+  category_display_name: Statistics & Analytics
+  is_dev_activity: false
+
+- dataiku_category: mlops
+  capability: advanced_analytics_ml
+  capability_order: 1
+  category_order: 2
+  capability_display_name: Advanced Analytics & ML
+  category_display_name: Machine Learning & Operations
+  is_dev_activity: false
+
+# -----------------------------------------------------------------------------
+# APIs & Integration
+# -----------------------------------------------------------------------------
+- dataiku_category: apis
+  capability: apis_integration
+  capability_order: 2
+  category_order: 1
+  capability_display_name: APIs & Integration
+  category_display_name: APIs
+  is_dev_activity: false
+
+# -----------------------------------------------------------------------------
+# Applications & Delivery
+# -----------------------------------------------------------------------------
+- dataiku_category: application_designer
+  capability: applications_delivery
+  capability_order: 3
+  category_order: 1
+  capability_display_name: Applications & Delivery
+  category_display_name: Application Designer
+  is_dev_activity: false
+
+- dataiku_category: webapps
+  capability: applications_delivery
+  capability_order: 3
+  category_order: 2
+  capability_display_name: Applications & Delivery
+  category_display_name: Web Applications
+  is_dev_activity: false
+
+- dataiku_category: charts_dashboard
+  capability: applications_delivery
+  capability_order: 3
+  category_order: 3
+  capability_display_name: Applications & Delivery
+  category_display_name: Charts & Dashboards
+  is_dev_activity: false
+
+- dataiku_category: wiki_artical_discussions
+  capability: applications_delivery
+  capability_order: 3
+  category_order: 4
+  capability_display_name: Applications & Delivery
+  category_display_name: Wiki / Articles / Discussions
+  is_dev_activity: false
+
+- dataiku_category: workspaces
+  capability: applications_delivery
+  capability_order: 3
+  category_order: 5
+  capability_display_name: Applications & Delivery
+  category_display_name: Workspaces
+  is_dev_activity: false
+
+# -----------------------------------------------------------------------------
+# Automation & Orchestration
+# -----------------------------------------------------------------------------
+- dataiku_category: automation
+  capability: automation_orchestration
+  capability_order: 4
+  category_order: 1
+  capability_display_name: Automation & Orchestration
+  category_display_name: Automation
+  is_dev_activity: false
+
+- dataiku_category: deployer
+  capability: automation_orchestration
+  capability_order: 4
+  category_order: 2
+  capability_display_name: Automation & Orchestration
+  category_display_name: Deployer
+  is_dev_activity: false
+
+- dataiku_category: scenarios
+  capability: automation_orchestration
+  capability_order: 4
+  category_order: 3
+  capability_display_name: Automation & Orchestration
+  category_display_name: Scenarios
+  is_dev_activity: false
+
+# -----------------------------------------------------------------------------
+# Data Engineering
+# -----------------------------------------------------------------------------
+- dataiku_category: coding
+  capability: data_engineering
+  capability_order: 5
+  category_order: 1
+  capability_display_name: Data Engineering
+  category_display_name: Coding
+  is_dev_activity: true
+
+- dataiku_category: datasets
+  capability: data_engineering
+  capability_order: 5
+  category_order: 2
+  capability_display_name: Data Engineering
+  category_display_name: Datasets
+  is_dev_activity: true
+
+# Some audit mappings use the singular form.
+- dataiku_category: dataset
+  capability: data_engineering
+  capability_order: 5
+  category_order: 3
+  capability_display_name: Data Engineering
+  category_display_name: Datasets
+  is_dev_activity: true
+
+- dataiku_category: flow
+  capability: data_engineering
+  capability_order: 5
+  category_order: 4
+  capability_display_name: Data Engineering
+  category_display_name: Flow
+  is_dev_activity: true
+
+- dataiku_category: folders
+  capability: data_engineering
+  capability_order: 5
+  category_order: 5
+  capability_display_name: Data Engineering
+  category_display_name: Folders
+  is_dev_activity: true
+
+- dataiku_category: misc_recipes
+  capability: data_engineering
+  capability_order: 5
+  category_order: 6
+  capability_display_name: Data Engineering
+  category_display_name: Misc Recipes
+  is_dev_activity: true
+
+- dataiku_category: visual_recipes
+  capability: data_engineering
+  capability_order: 5
+  category_order: 7
+  capability_display_name: Data Engineering
+  category_display_name: Visual Recipes
+  is_dev_activity: true
+
+# Subcategory that appears as its own audit module.
+- dataiku_category: prepare
+  capability: data_engineering
+  capability_order: 5
+  category_order: 8
+  capability_display_name: Data Engineering
+  category_display_name: Prepare
+  is_dev_activity: true
+
+- dataiku_category: git
+  capability: data_engineering
+  capability_order: 5
+  category_order: 9
+  capability_display_name: Data Engineering
+  category_display_name: Git
+  is_dev_activity: true
+
+- dataiku_category: projects
+  capability: data_engineering
+  capability_order: 5
+  category_order: 10
+  capability_display_name: Data Engineering
+  category_display_name: Projects
+  is_dev_activity: true
+
+# -----------------------------------------------------------------------------
+# GenAI & LLM
+# -----------------------------------------------------------------------------
+- dataiku_category: genai_llm
+  capability: genai_llm
+  capability_order: 6
+  category_order: 1
+  capability_display_name: GenAI & LLM
+  category_display_name: Generative AI & LLM
+  is_dev_activity: false
+
+# -----------------------------------------------------------------------------
+# Uncategorized (not yet in taxonomy doc)
+# -----------------------------------------------------------------------------
+- dataiku_category: administration
+  capability: uncategorized
+  capability_order: 99
+  category_order: 1
+  capability_display_name: Uncategorized
+  category_display_name: Administration
+  is_dev_activity: false
+
+- dataiku_category: containers
+  capability: uncategorized
+  capability_order: 99
+  category_order: 2
+  capability_display_name: Uncategorized
+  category_display_name: Containers
+  is_dev_activity: false
+
+- dataiku_category: govern
+  capability: uncategorized
+  capability_order: 99
+  category_order: 3
+  capability_display_name: Uncategorized
+  category_display_name: Governance
+  is_dev_activity: false
+
+- dataiku_category: plugins
+  capability: uncategorized
+  capability_order: 99
+  category_order: 4
+  capability_display_name: Uncategorized
+  category_display_name: Plugins
+  is_dev_activity: false
+
+- dataiku_category: reading_listing
+  capability: uncategorized
+  capability_order: 99
+  category_order: 5
+  capability_display_name: Uncategorized
+  category_display_name: Reading & Listing
+  is_dev_activity: false
+
+- dataiku_category: user_maintenance
+  capability: uncategorized
+  capability_order: 99
+  category_order: 6
+  capability_display_name: Uncategorized
+  category_display_name: User Maintenance
+  is_dev_activity: false
+
+- dataiku_category: other
+  capability: uncategorized
+  capability_order: 99
+  category_order: 7
+  capability_display_name: Uncategorized
+  category_display_name: Other
+  is_dev_activity: false
+
+# This category appears in the mapping file itself; keep it mapped to avoid
+# NULL joins if it ever surfaces.
+- dataiku_category: dataiku_category
+  capability: uncategorized
+  capability_order: 99
+  category_order: 8
+  capability_display_name: Uncategorized
+  category_display_name: Dataiku Category
+  is_dev_activity: false

@@ -1,0 +1,8 @@
+# Development activity modules to include in GOLD builds.
+#
+# Values must match the `dataiku_category` (and the `module=` partition) produced
+# by the `event_mapping` audit-log processor.
+
+- datasets
+- visual_recipes
+- coding
