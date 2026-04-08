@@ -307,7 +307,14 @@ def _object_activity_branch_sql(*, module: str, view_name: str) -> str:
         object_key_expr = "NULLIF(regexp_extract(callpath, '/recipes/([^/?]+)', 1), '')"
     elif module == "webapps":
         object_type = "web_application"
-        object_key_expr = "COALESCE(NULLIF(webapp_id, ''), NULLIF(regexp_extract(callpath, '/webapps/([^/?]+)', 1), ''))"
+        # `webapp_id` is not guaranteed to be a top-level SILVER column (it may be packed into extras).
+        # Prefer extracting from authvia, with callpath as fallback.
+        object_key_expr = (
+            "COALESCE("
+            "NULLIF(regexp_extract(e.authvia, 'ticket:Standard webapp backend: [^.]+\\.([^, ]+)', 1), ''), "
+            "NULLIF(regexp_extract(e.callpath, '/webapps/([^/?]+)', 1), '')"
+            ")"
+        )
     elif module == "charts_dashboard":
         object_type = "dashboard"
         object_key_expr = "NULLIF(regexp_extract(callpath, '/dashboards/([^/?]+)', 1), '')"
