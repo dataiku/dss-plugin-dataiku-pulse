@@ -581,7 +581,7 @@ def run() -> dict:
                             "  OVERWRITE TRUE,\n"
                             "  PARTITION_BY (instance_name, year, month, day)\n"
                             ");"
-                        )
+                        ).format(path=path)
                     else:
                         query = f"COPY {table_name} TO '{path}' (FORMAT 'PARQUET', OVERWRITE TRUE);"
 
