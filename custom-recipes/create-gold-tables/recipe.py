@@ -673,7 +673,7 @@ def run() -> dict:
 
                     path = f"{blob_header}://{gold_ctx.bucket_or_container}/{root}{destination}"
 
-                    if table_name in {"fact_dev_activity_events", "base_object_activity_events"}:
+                    if table_name == "fact_dev_activity_events":
                         # Write partitioned parquet for efficient downstream reads.
                         query = (
                             "COPY (\n"
@@ -694,13 +694,46 @@ def run() -> dict:
                             "    year,\n"
                             "    month,\n"
                             "    day\n"
-                            f"  FROM {table_name}\n"
+                            "  FROM fact_dev_activity_events\n"
                             ") TO '{path}' (\n"
                             "  FORMAT 'PARQUET',\n"
                             "  OVERWRITE TRUE,\n"
                             "  PARTITION_BY (instance_name, year, month, day)\n"
                             ");"
                         ).format(path=path)
+
+                    elif table_name == "base_object_activity_events":
+                        query = (
+                            "COPY (\n"
+                            "  SELECT\n"
+                            "    instance_name,\n"
+                            "    timestamp,\n"
+                            "    login,\n"
+                            "    event_name,\n"
+                            "    event_category,\n"
+                            "    canonical_capability,\n"
+                            "    project_key,\n"
+                            "    object_type,\n"
+                            "    object_key,\n"
+                            "    object_name,\n"
+                            "    instance_url,\n"
+                            "    group_names,\n"
+                            "    session_id,\n"
+                            "    ip_address,\n"
+                            "    user_agent,\n"
+                            "    details_json,\n"
+                            "    run_timestamp,\n"
+                            "    year,\n"
+                            "    month,\n"
+                            "    day\n"
+                            "  FROM base_object_activity_events\n"
+                            ") TO '{path}' (\n"
+                            "  FORMAT 'PARQUET',\n"
+                            "  OVERWRITE TRUE,\n"
+                            "  PARTITION_BY (instance_name, year, month, day)\n"
+                            ");"
+                        ).format(path=path)
+
                     else:
                         query = f"COPY {table_name} TO '{path}' (FORMAT 'PARQUET', OVERWRITE TRUE);"
 
