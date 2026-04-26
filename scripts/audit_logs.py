@@ -13,12 +13,12 @@ def _maybe_reexec_with_pulse_env() -> None:
       python scripts/audit_logs.py
 
     Instead of requiring:
-      /opt/plugin_dataiku-pulse_managed/bin/python scripts/audit_logs.py
+      /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/plugin_dataiku-pulse_managed/bin/python scripts/audit_logs.py
     """
 
     env_path_file = os.getenv(
         "PULSE_ENV_PATH_FILE",
-        "/home/dataiku/workspace/project-lib-versioned/python/future_items/pulse_env_path.txt",
+        "/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/plugin_env_path.txt",
     )
 
     try:
@@ -62,7 +62,29 @@ def _load_json(path: Path) -> dict:
 
 def main() -> None:
     # Simulate a macro run using the same runnable entrypoint.
-    inputs_dir = Path("/home/dataiku/workspace/project-lib-versioned/python/runnable_inputs")
+    # Config inputs are stored in a workspace-managed location for easy swapping.
+    default_inputs_dirs = [
+        Path("/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/runnable-configs"),
+        # Backward-compat (older workspace layout)
+        Path("/home/dataiku/workspace/project-lib-versioned/python/runnable_inputs"),
+    ]
+
+    inputs_dir_env = os.getenv("PULSE_RUNNABLE_CONFIGS_DIR")
+    if inputs_dir_env:
+        default_inputs_dirs.insert(0, Path(inputs_dir_env))
+
+    inputs_dir: Path | None = None
+    for candidate_dir in default_inputs_dirs:
+        if (candidate_dir / "config.json").exists() and (candidate_dir / "plugin_config.json").exists():
+            inputs_dir = candidate_dir
+            break
+
+    if inputs_dir is None:
+        raise FileNotFoundError(
+            "Could not find runnable configs (config.json, plugin_config.json). Tried: "
+            + ", ".join(str(p) for p in default_inputs_dirs)
+        )
+
     config_path = inputs_dir / "config.json"
     plugin_config_path = inputs_dir / "plugin_config.json"
 

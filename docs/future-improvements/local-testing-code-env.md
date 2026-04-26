@@ -9,10 +9,10 @@ The plugin’s bundled code environment definition is under:
 - `code-env/python/spec/requirements.txt`
 
 In Code Studio, this workspace also supports a plugin-style, bootstrap-installed environment created by:
-- `project-lib-versioned/python/future_items/init_plugin.sh`
+- `project-lib-versioned/python/dataiku-pulse.extras/plugin_dataiku-pulse_managed`
 
-That bootstrap writes the environment location to:
-- `project-lib-versioned/python/future_items/pulse_env_path.txt`
+That environment location is written to:
+- `project-lib-versioned/python/dataiku-pulse.extras/plugin_env_path.txt`
 
 The local testing scripts (`scripts/audit_logs.py`, `scripts/instance_data.py`, `scripts/project_data.py`) will automatically re-exec themselves using the Python interpreter from that path when the file exists.
 
@@ -29,5 +29,6 @@ If you want to override the pointer file location, set:
 
 ## Common gotchas
 
-- Ensure `bash project-lib-versioned/python/future_items/init_plugin.sh` has been run at least once.
+- Ensure the pointer file exists and is populated:
+  - `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/plugin_env_path.txt`
 - If remote hub/spoke settings are configured in `runnable_inputs/plugin_config.json`, the local scripts may disable those to avoid authentication errors.

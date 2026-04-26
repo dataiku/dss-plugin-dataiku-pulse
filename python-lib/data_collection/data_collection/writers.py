@@ -13,10 +13,27 @@ def to_dataframe(payload: Any, prefix: str) -> pd.DataFrame:
 
     Uses `pd.json_normalize` for list/dict payloads and falls back to
     a single-row frame for scalars.
+
+    Notes on common API shapes:
+    - list[dict]: already row-oriented (ex: client.list_users())
+    - dict[str, dict]: key-oriented mapping that should be turned into rows
+      (ex: client.list_connections())
     """
 
     if payload is None:
         return pd.DataFrame()
+
+    # Some DSS client methods return a dict keyed by object name, where values are
+    # dict-like objects. Convert these to one row per key.
+    if isinstance(payload, dict) and payload:
+        values = list(payload.values())
+        if values and all(isinstance(v, dict) for v in values):
+            rows: list[dict[str, Any]] = []
+            for key, raw_row in payload.items():
+                row = dict(raw_row)
+                row.setdefault("name", key)
+                rows.append(row)
+            return pd.json_normalize(rows).add_prefix(prefix)
 
     if isinstance(payload, (list, dict)):
         return pd.json_normalize(payload).add_prefix(prefix)

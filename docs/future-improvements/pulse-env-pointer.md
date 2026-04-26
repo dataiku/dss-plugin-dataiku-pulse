@@ -6,13 +6,13 @@ To avoid hardcoding a particular code-environment name or installation path in e
 
 ## The pointer file
 
-- File: `project-lib-versioned/python/future_items/pulse_env_path.txt`
+- File: `project-lib-versioned/python/dataiku-pulse.extras/plugin_env_path.txt`
 - Format: a single line containing an absolute path to the venv root directory.
 
 Example contents:
 
 ```
-/opt/plugin_dataiku-pulse_managed
+/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/plugin_dataiku-pulse_managed
 ```
 
 This path is expected to contain:
@@ -21,14 +21,13 @@ This path is expected to contain:
 
 ## How it is created/updated
 
-- Bootstrap script: `project-lib-versioned/python/future_items/init_plugin.sh`
-  - Creates/updates the venv (currently at `/opt/dataiku/plugin_dataiku-pulse_managed`).
-  - Maintains a stable symlink: `/opt/plugin_dataiku-pulse_managed`.
-  - Writes the pointer file with the symlink path, so runner scripts remain stable.
+- Bootstrap: external to this repo in this workspace setup.
+  - Current location: `project-lib-versioned/python/dataiku-pulse.extras/plugin_dataiku-pulse_managed`
+  - Pointer file: `project-lib-versioned/python/dataiku-pulse.extras/plugin_env_path.txt`
 
 Run:
 
-- `bash project-lib-versioned/python/future_items/init_plugin.sh`
+- `bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/build_code_env.sh` (if available in your workspace)
 
 ## How runner scripts should use it
 
@@ -48,12 +47,12 @@ The “direct python” approach avoids relying on shell activation state and re
 
 If the pointer file is missing or empty, runner scripts should:
 - Print an actionable error
-- Point to the bootstrap command:
-  - `bash /home/dataiku/workspace/project-lib-versioned/python/future_items/init_plugin.sh`
+- Point to the pointer file location:
+  - `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/plugin_env_path.txt`
 
 ## Related files
 
-- Pointer file: `project-lib-versioned/python/future_items/pulse_env_path.txt`
-- Bootstrap: `project-lib-versioned/python/future_items/init_plugin.sh`
+- Pointer file: `project-lib-versioned/python/dataiku-pulse.extras/plugin_env_path.txt`
+- Venv: `project-lib-versioned/python/dataiku-pulse.extras/plugin_dataiku-pulse_managed`
 - Backend runner (webapp): `project-lib-versioned/python/webapps/entry_point/scripts/start_app.sh`
 - Backend runner (convenience): `/home/dataiku/run_backend.sh`
