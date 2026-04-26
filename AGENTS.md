@@ -11,7 +11,8 @@ Most runtime code executes **inside DSS** and relies on `dataiku` / `dataikuapi`
 - `python-lib/`: shared Python libraries
   - `python-lib/data_collection/`: collection + normalization + DuckDB GOLD builder helpers
   - `python-lib/pulse_dashboard/`: dashboard DuckDB init/load/query helpers
-- `python-runnables/`: plugin runnables (`data-gather-*`) used by macros
+  - `python-lib/pulse_init/`: initialization helpers for hub/worker bootstrap
+- `python-runnables/`: plugin runnables (`data-gather-*`, `initialize-*`) used by macros
 - `custom-recipes/`: plugin recipes (notably `create-gold-tables`)
 - `webapps/pulse-dashboard/`: DSS webapp wrapper + Flask backend
 - `resource/pulse-dashboard/build/`: committed **built** frontend assets (generated)

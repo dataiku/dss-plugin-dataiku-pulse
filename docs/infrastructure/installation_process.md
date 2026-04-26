@@ -4,7 +4,7 @@ This document describes the **full installation process** for deploying
 Pulse in a Dataiku environment.
 
 It assumes familiarity with Dataiku administration concepts such as
-plugins, code environments, Code Studios, and API keys.
+plugins, code environments, webapps, and API keys.
 
 ---
 
@@ -19,9 +19,9 @@ This is required because Pulse installation involves:
 
 - Installing a Dataiku plugin
 - Creating a Code Environment
-- Creating a Code Studio template
 - Creating and managing Dataiku projects
 - Running administrative macros
+- (Optional) Installing/updating the plugin on worker instances from the hub
 
 In practice, **full admin access** on the core instance is required.
 
@@ -116,44 +116,32 @@ You may create additional parameter sets for host-specific overrides:
 
 ---
 
-## 5. Code Studio Setup
+## 5. Webapp Setup
 
-1. Navigate to **Code Studios**
-2. Create a template named:
+Pulse ships as a **DSS Webapp** (React frontend + Flask backend) packaged inside the plugin.
 
-   ```
-   dataiku_pulse_dashboard
-   ```
-
-   ⚠️ This name is required
-
-3. Configure the template to:
-   - Run on Kubernetes
-   - Use the **Dataiku Pulse (Streamlit Custom)** block
-   - Disable user permissions
-4. Build the template
+1. Create the **Pulse Dashboard Project**
+2. In that project, create a new **Webapp**
+3. Select the plugin webapp:
+   - **Dataiku Pulse Dashboard**
 
 ---
 
 ## 6. Project Initialization
 
-1. Create the **Pulse Dashboard Project**
-2. Navigate to **Macros**
-3. Filter on:
+1. Navigate to **Macros** in the Pulse Dashboard Project
+2. Filter on:
 
    ```
-   Dataiku Pulse: Initialize
+   Dataiku PULSE Insights: Initialize
    ```
 
-4. Run:
-   - **Initialize Dashboard**
-   - **Initialize Workers**
-5. Navigate to **Code → Code Studios**
-6. Publish the application as a **Web Application**  
-   - Auto-start enabled
+3. Run:
+   - **Initialize Dashboard** (creates `partitioned_data`, `gold_data`, `create_gold_tables`, scenario `gold_data_refresh`)
+   - **Initialize Worker Host(s)** (installs/updates plugin on workers, creates worker project, dataset, variables, scenarios)
 
 ⚠️ The dashboard may initially appear empty while the first
-collection cycle runs.
+collection cycle runs and GOLD is built.
 
 ---
 

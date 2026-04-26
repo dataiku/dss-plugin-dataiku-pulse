@@ -115,7 +115,7 @@ mindmap
       Bokeh
       Dash
       HTML
-      Streamlit
+      Webapps
 ```
 
 ## Automation & Orchestration
@@ -173,7 +173,7 @@ mindmap
       SQL
       Spark
       Jupyter
-      Code Studios
+      Webapps
       Orange Recipes
     Datasets
       Datasets & Connections

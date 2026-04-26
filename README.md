@@ -38,7 +38,7 @@ Pulse is designed for a hub/worker deployment:
    - Entry point: `custom-recipes/create-gold-tables/recipe.py`
 
 3. **Consume in the dashboard webapp**
-   - The Pulse dashboard reads from the curated tables and presents operational insights.
+   - The Pulse dashboard is a DSS **plugin webapp** (`webapps/pulse-dashboard/`) backed by shared python-lib helpers.
    - Frontend build assets live under `resource/pulse-dashboard/build/`.
 
 ---
@@ -67,11 +67,17 @@ Pulse is designed for a hub/worker deployment:
 - Audit logs macro: `python-runnables/data-gather-audit-logs/README.md`
 - GOLD recipe: `custom-recipes/create-gold-tables/README.md`
 
+Initialization macros:
+
+- `python-runnables/initialize-dashboard/`
+- `python-runnables/initialize-worker/`
+
 Installation / process docs:
 
 - `docs/infrastructure/pulse_process_flow.md`
 - `docs/infrastructure/installation_requirements.md`
 - `docs/infrastructure/installation_process.md`
+- `docs/infrastructure/worker_cursor_storage.md`
 - `docs/infrastructure/pulse_usage_categories.md`
 
 ---

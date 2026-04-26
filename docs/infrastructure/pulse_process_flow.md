@@ -10,7 +10,7 @@ flowchart TD
     subgraph INSTALL[Installation]
         A[Install Dataiku Pulse Plugin]
         A1[Plugin Configuration<br/>Code Environment Setup]
-        A2[Code Studios Setup]
+        A2[Webapp Setup]
 
         A --> A1
         A --> A2
@@ -61,10 +61,10 @@ flowchart TD
     end
 
     %% =========================
-    %% Streamlit Dashboard
+    %% Dashboard Webapp
     %% =========================
-    subgraph STREAMLIT[Presentation]
-        F[Streamlit Dashboard<br/>Insights & Usages]
+    subgraph WEBAPP[Presentation]
+        F[Pulse Dashboard Webapp<br/>Insights & Usages]
     end
 
     %% =========================
@@ -74,6 +74,6 @@ flowchart TD
     DASH_INIT --> WORKER
     WORKER --> STORAGE
     STORAGE --> GOLD
-    GOLD --> STREAMLIT
+    GOLD --> WEBAPP
 
 ```

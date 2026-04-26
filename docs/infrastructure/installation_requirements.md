@@ -20,7 +20,7 @@ Pulse requires permissions to:
 
 - Install and configure a **Dataiku plugin**
 - Create and manage a **Code Environment**
-- Create a **Code Studio template** (Streamlit‑based)
+- Create a **Webapp** from the Pulse plugin
 - Create and manage **Dataiku projects** (Pulse Dashboard + Worker projects)
 - Configure plugin settings and global parameters
 
