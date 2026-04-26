@@ -1,4 +1,3 @@
-# This file is the actual code for the Python runnable initialize-dashboard
 from dataiku.runnables import Runnable
 
 class MyRunnable(Runnable):
