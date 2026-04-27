@@ -51,8 +51,8 @@ if app is None:  # pragma: no cover
 app = cast(Flask, app)
 
 
-@app.route("/__ping")
-def ping():
+@app.route("/__ping", endpoint="pulse_dashboard_ping")
+def pulse_dashboard_ping():
     return "OK"
 
 
