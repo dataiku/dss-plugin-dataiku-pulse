@@ -25,22 +25,61 @@
         document.head.appendChild(script);
       }
 
+      function buildManifestCandidates() {
+        // The exact URL that serves plugin `resource/` files can vary depending on DSS version
+        // and reverse-proxy setup. Try a few relative locations until we get valid JSON.
+        var urls = [];
+        for (var i = 0; i <= 6; i++) {
+          var prefix = i === 0 ? "" : "../".repeat(i);
+          urls.push(prefix + "resource/pulse-dashboard/build/asset-manifest.json");
+        }
+        return urls;
+      }
+
+      async function fetchManifest() {
+        var candidates = buildManifestCandidates();
+        var lastError = null;
+
+        for (var i = 0; i < candidates.length; i++) {
+          var url = candidates[i];
+          try {
+            var res = await fetch(url, { cache: "no-cache" });
+            if (!res.ok) {
+              lastError = new Error("HTTP " + res.status + " for " + url);
+              continue;
+            }
+
+            // If DSS returns an HTML error page, res.json() will throw.
+            var manifest = await res.json();
+            if (manifest && manifest.entrypoints) {
+              return { manifest: manifest, manifestUrl: url };
+            }
+
+            lastError = new Error("Invalid manifest JSON at " + url);
+          } catch (e) {
+            lastError = e;
+          }
+        }
+
+        if (lastError) {
+          throw lastError;
+        }
+        throw new Error("Failed to locate asset-manifest.json");
+      }
+
       async function loadPulseFrontend() {
         try {
-          // Relative to the webapp base URL; DSS serves plugin resources under `../resource/`.
-          var manifestUrl = "../resource/pulse-dashboard/build/asset-manifest.json";
-          var res = await fetch(manifestUrl, { cache: "no-cache" });
-          if (!res.ok) {
-            throw new Error("Failed to load asset manifest: " + res.status + " " + res.statusText);
-          }
+          var r = await fetchManifest();
+          var manifest = r.manifest;
+          var manifestUrl = r.manifestUrl;
 
-          var manifest = await res.json();
+          var baseUrl = manifestUrl.replace(/asset-manifest\.json$/, "");
           var entrypoints = manifest.entrypoints || [];
 
           // CRA `entrypoints` are like: ["static/css/main.<hash>.css", "static/js/main.<hash>.js"].
           for (var i = 0; i < entrypoints.length; i++) {
-            var relPath = entrypoints[i];
-            var url = "../resource/pulse-dashboard/build/" + relPath;
+            var relPath = entrypoints[i].replace(/^\.\//, "");
+            var url = baseUrl + relPath;
 
             if (relPath.endsWith(".css")) {
               injectCss(url);
