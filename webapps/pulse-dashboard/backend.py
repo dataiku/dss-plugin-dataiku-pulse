@@ -8,29 +8,52 @@ from __future__ import annotations
 # `index.html`.
 
 import json
-import os
 import logging
+import sys
 from pathlib import Path
 
+from typing import cast
+
 from flask import Flask, jsonify, request
+
+# In DSS, `app` is injected into the module globals by the webapp runner.
+# For local dev runs, this will be missing and we create an app below.
+app = cast(Flask | None, globals().get("app"))
 
 
 logger = logging.getLogger(__name__)
 
-# Resolve paths relative to the plugin root.
-BASE_DIR = Path(__file__).resolve().parents[2]
-BUILD_DIR = BASE_DIR / "resource" / "pulse-dashboard" / "build"
+# This backend runs in two contexts:
+# - In Dataiku DSS: the Standard webapp backend runner injects a Flask `app`.
+#   In that case, DO NOT create a new Flask app here, just register routes.
+# - In local development: you may run this module directly and we create a Flask app.
 
 # Shared dashboard backend logic lives under python-lib to keep the webapp folder small.
+# In DSS, python-lib is automatically available; in local dev we add it to sys.path.
 try:
-    from pulse_dashboard import settings  # type: ignore
     from pulse_dashboard.pulse_duckdb.engine.query import query_df  # type: ignore
-except Exception:  # pragma: no cover
-    settings = None
-    query_df = None
+except Exception:
+    try:
+        repo_root = Path(__file__).resolve().parents[2]
+        python_lib = repo_root / "python-lib"
+        if python_lib.is_dir():
+            sys.path.insert(0, str(python_lib))
+        from pulse_dashboard.pulse_duckdb.engine.query import query_df  # type: ignore
+    except Exception:
+        logger.exception("Failed to import Pulse dashboard libraries")
+        query_df = None
 
 
-app = Flask(__name__, static_folder=str(BUILD_DIR))
+if app is None:  # pragma: no cover
+    app = Flask(__name__)
+
+# From here on, `app` is always a Flask instance.
+app = cast(Flask, app)
+
+
+@app.route("/__ping")
+def ping():
+    return "OK"
 
 
 @app.route("/api/status")
