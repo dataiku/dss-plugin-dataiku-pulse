@@ -71,14 +71,17 @@ def list_gold_paths(*, suffixes: tuple[str, ...] = (".parquet", ".csv")) -> list
     return sorted(paths)
 
 
-def _load_df_from_parquet(folder, path: str) -> pd.DataFrame:
-    resp = folder.get_file(path)
-    resp.raise_for_status()
-    table = pq.read_table(io.BytesIO(resp.content))
+def _load_df_from_parquet(folder: dataiku.Folder, path: str) -> pd.DataFrame:
+    # `get_download_stream()` returns a non-seekable stream; pyarrow parquet needs seek.
+    with folder.get_download_stream(path) as stream:
+        buf = io.BytesIO(stream.read())
+    table = pq.read_table(buf)
     return table.to_pandas()
 
 
-def _load_csv_to_table(conn: duckdb.DuckDBPyConnection, folder, *, path: str, table_name: str) -> None:
+def _load_csv_to_table(
+    conn: duckdb.DuckDBPyConnection, folder: dataiku.Folder, *, path: str, table_name: str
+) -> None:
     """Load a CSV from a managed folder into DuckDB.
 
     DuckDB's best CSV type inference is available via `read_csv_auto`, but it
@@ -86,15 +89,13 @@ def _load_csv_to_table(conn: duckdb.DuckDBPyConnection, folder, *, path: str, ta
     file under `settings.DUCKDB_DIR` and load from there.
     """
 
-    resp = folder.get_file(path)
-    resp.raise_for_status()
-
     ingest_dir = Path(settings.DUCKDB_DIR) / "_ingest"
     ingest_dir.mkdir(parents=True, exist_ok=True)
 
     tmp_path = ingest_dir / f"{table_name}.{uuid.uuid4().hex}.csv"
     try:
-        tmp_path.write_bytes(resp.content)
+        with folder.get_download_stream(path) as stream:
+            tmp_path.write_bytes(stream.read())
 
         # `read_csv_auto` infers TIMESTAMP/BOOLEAN/etc better than pandas.
         conn.execute(
@@ -201,7 +202,8 @@ def load_gold_tables(
 
             elif suffix == ".csv":
                 # Fallback: pandas-based loader
-                df = pd.read_csv(io.BytesIO(folder.get_file(rel_path).content))
+                with folder.get_download_stream(rel_path) as stream:
+                    df = pd.read_csv(io.BytesIO(stream.read()))
                 conn.register("_tmp_df", df)
                 conn.execute(f'CREATE TABLE "{table_name}" AS SELECT * FROM _tmp_df;')
                 conn.unregister("_tmp_df")
