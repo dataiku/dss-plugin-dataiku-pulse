@@ -103,45 +103,77 @@
         });
       }
 
-      (function ensureDataikuBackendUrlShim() {
-        // Some DSS contexts (notably certain "Visual webapp" template instantiations)
-        // do not inject the Dataiku JS runtime (`require`, `window.dataiku`, ...).
-        // Our React build relies on `window.dataiku.getWebAppBackendUrl()` to route
-        // API calls to the webapp backend instead of the DSS root `/api/*`.
+      async function resolveBackendBaseUrl() {
+        // Best-effort backend base URL resolution.
         //
-        // Provide a best-effort shim based on the current view URL:
-        // `/dip/api/webapps/view?projectKey=...&webAppId=...`
+        // In the "normal" DSS webapp runtime, `window.dataiku.getWebAppBackendUrl()`
+        // exists and returns the backend mount point.
+        // In some contexts, the Dataiku JS runtime isn't injected, so we probe a
+        // few common URL patterns derived from the current view URL.
         try {
           if (window.dataiku && typeof window.dataiku.getWebAppBackendUrl === "function") {
-            return;
+            var existing = String(window.dataiku.getWebAppBackendUrl() || "").replace(/\/$/, "");
+            if (existing) return existing;
           }
 
           var params = new URLSearchParams(window.location.search || "");
           var projectKey = params.get("projectKey");
           var webAppId = params.get("webAppId");
           if (!projectKey || !webAppId) {
-            return;
+            return "";
           }
 
-          // Relative to `/dip/api/webapps/view` -> `/dip/api/webapps/backends/...`
-          var base = "../webapps/backends/" + encodeURIComponent(projectKey) + "/" + encodeURIComponent(webAppId);
+          function asUrl(path) {
+            // Ensure we build a URL relative to the current page.
+            return new URL(path, window.location.href).toString().replace(/\/$/, "");
+          }
 
-          window.dataiku = window.dataiku || {};
-          window.dataiku.getWebAppBackendUrl = function () {
-            return base;
-          };
+          var pk = encodeURIComponent(projectKey);
+          var wid = encodeURIComponent(webAppId);
+
+          var candidates = [
+            asUrl("../webapps/backends/" + pk + "/" + wid),
+            asUrl("../webapps/backend/" + pk + "/" + wid),
+            asUrl("../webapps/backends/" + wid),
+            asUrl("../webapps/backend/" + wid)
+          ];
+
+          for (var i = 0; i < candidates.length; i++) {
+            var base = candidates[i];
+            try {
+              var res = await fetch(base + "/api/status", { cache: "no-cache", credentials: "same-origin" });
+              if (!res.ok) continue;
+              var body = await res.json();
+              if (body && (body.ok || body.msg || body.status)) {
+                return base;
+              }
+            } catch (e) {
+              // try next
+            }
+          }
         } catch (e) {
           // best-effort only
         }
-      })();
+        return "";
+      }
+
 
       async function loadPulseFrontend() {
         try {
           setupHashLinkInterceptor();
 
+          var backendBaseUrl = await resolveBackendBaseUrl();
+          if (backendBaseUrl) {
+            window.dataiku = window.dataiku || {};
+            window.dataiku.getWebAppBackendUrl = function () {
+              return backendBaseUrl;
+            };
+          }
+
           var r = await fetchManifest();
           var manifest = r.manifest;
           var manifestUrl = r.manifestUrl;
+
 
           var baseUrl = manifestUrl.replace(/asset-manifest\.json$/, "");
           var entrypoints = manifest.entrypoints || [];
