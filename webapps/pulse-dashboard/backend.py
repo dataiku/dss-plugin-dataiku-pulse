@@ -208,13 +208,13 @@ def duckdb_query():
 def debug_duckdb_reload():
     try:
         _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
-        load_report = _ensure_ready_if_enabled()
 
-        if load_report is None:
-            load_report = cast(
-                dict[str, Any],
-                _ensure_database_ready(load_gold_tables=True, replace_gold_tables=True),
-            )
+        # Force a full reload (even if auto-init is enabled) so this endpoint is
+        # a reliable "refresh" button during development and troubleshooting.
+        load_report = cast(
+            dict[str, Any],
+            _ensure_database_ready(load_gold_tables=True, replace_gold_tables=True),
+        )
 
         return _ok({"load": load_report})
     except Exception as e:

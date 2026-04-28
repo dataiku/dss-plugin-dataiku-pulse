@@ -274,22 +274,28 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                     if not replace_gold_tables:
                         # If any base tables are already present, avoid hitting DSS APIs.
                         existing_tables = set(conn.execute("PRAGMA show_tables;").df()["name"].tolist())
-                        if {t for t in existing_tables if t.startswith("base_")}:
+                        if {t for t in existing_tables if t.startswith("base_")} and not replace_gold_tables:
                             reason = "base_tables_present"
                         else:
                             # No base tables yet: do a first-time load.
                             from .gold_loader import load_gold_tables as _load_gold_tables
+                            from .gold_loader import infer_table_name
                             from .gold_loader import list_gold_paths
 
                             view_like_names = {
                                 p.stem
                                 for p in (Path(__file__).resolve().parents[1] / "datasets" / "views").glob("*.yaml")
                             }
-                            allowed_base_names = {
-                                PurePosixPath(p).stem
+                            from .gold_loader import infer_table_name
+
+                            allowed_names = {
+                                infer_table_name(str(p).lstrip("/"))
                                 for p in list_gold_paths(suffixes=(".csv", ".parquet"))
-                                if PurePosixPath(p.lstrip("/")).name.startswith("base_")
-                                and PurePosixPath(p.lstrip("/")).stem not in view_like_names
+                                if PurePosixPath(str(p).lstrip("/")).parts
+                                and PurePosixPath(str(p).lstrip("/")).parts[0].lstrip("/") == "gold"
+                                and infer_table_name(str(p).lstrip("/"))
+                                and infer_table_name(str(p).lstrip("/")) not in view_like_names
+                                and infer_table_name(str(p).lstrip("/")).startswith(("base_", "dim_", "fact_", "reg_"))
                             }
 
                             report = _load_gold_tables(
@@ -298,10 +304,11 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                                 prefix=settings.PULSE_GOLD_LOAD_PREFIX,
                                 name_glob=settings.PULSE_GOLD_LOAD_NAME_GLOB,
                                 allowed_suffixes=(".csv", ".parquet"),
-                                allowed_table_names=allowed_base_names,
+                                allowed_table_names=allowed_names,
                             )
                             gold_tables_loaded = bool(report.get("loaded"))
                     else:
+                        from .gold_loader import infer_table_name
                         from .gold_loader import load_gold_tables as _load_gold_tables
                         from .gold_loader import list_gold_paths
 
@@ -309,11 +316,16 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                             p.stem
                             for p in (Path(__file__).resolve().parents[1] / "datasets" / "views").glob("*.yaml")
                         }
-                        allowed_base_names = {
-                            PurePosixPath(p).stem
+                        from .gold_loader import infer_table_name
+
+                        allowed_names = {
+                            infer_table_name(str(p).lstrip("/"))
                             for p in list_gold_paths(suffixes=(".csv", ".parquet"))
-                            if PurePosixPath(p.lstrip("/")).name.startswith("base_")
-                            and PurePosixPath(p.lstrip("/")).stem not in view_like_names
+                            if PurePosixPath(str(p).lstrip("/")).parts
+                            and PurePosixPath(str(p).lstrip("/")).parts[0].lstrip("/") == "gold"
+                            and infer_table_name(str(p).lstrip("/"))
+                            and infer_table_name(str(p).lstrip("/")) not in view_like_names
+                            and infer_table_name(str(p).lstrip("/")).startswith(("base_", "dim_", "fact_", "reg_"))
                         }
 
                         report = _load_gold_tables(
@@ -322,7 +334,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                             prefix=settings.PULSE_GOLD_LOAD_PREFIX,
                             name_glob=settings.PULSE_GOLD_LOAD_NAME_GLOB,
                             allowed_suffixes=(".csv", ".parquet"),
-                            allowed_table_names=allowed_base_names,
+                            allowed_table_names=allowed_names,
                         )
                         gold_tables_loaded = bool(report.get("loaded"))
 

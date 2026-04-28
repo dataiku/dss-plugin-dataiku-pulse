@@ -231,6 +231,17 @@ def build_views_from_specs(conn: duckdb.DuckDBPyConnection) -> dict:
         name = str(spec.get("name"))
         path = str(spec.get("_path"))
 
+        # If we successfully generated `base_product_index` from the registry,
+        # avoid overwriting it with the static YAML version (which may depend on
+        # tables not present in all deployments).
+        if (
+            name == "base_product_index"
+            and product_index_report.get("enabled")
+            and product_index_report.get("ok")
+            and product_index_report.get("created")
+        ):
+            continue
+
         if not sql:
             raise ValueError(f"Missing `sql` in view spec: {path}")
 

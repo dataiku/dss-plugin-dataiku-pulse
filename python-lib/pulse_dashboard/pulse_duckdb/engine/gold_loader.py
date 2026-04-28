@@ -12,7 +12,6 @@ from pathlib import Path, PurePosixPath
 import dataiku
 import duckdb
 import pandas as pd
-import pyarrow.parquet as pq
 
 from ... import settings
 
@@ -71,12 +70,37 @@ def list_gold_paths(*, suffixes: tuple[str, ...] = (".parquet", ".csv")) -> list
     return sorted(paths)
 
 
-def _load_df_from_parquet(folder: dataiku.Folder, path: str) -> pd.DataFrame:
-    # `get_download_stream()` returns a non-seekable stream; pyarrow parquet needs seek.
-    with folder.get_download_stream(path) as stream:
-        buf = io.BytesIO(stream.read())
-    table = pq.read_table(buf)
-    return table.to_pandas()
+def _load_parquet_to_table(
+    conn: duckdb.DuckDBPyConnection,
+    folder: dataiku.Folder,
+    *,
+    path: str,
+    table_name: str,
+    append: bool,
+) -> None:
+    """Download a parquet file and load into DuckDB.
+
+    We download to a temporary file and let DuckDB read it from disk.
+    This is more memory-friendly than loading the whole parquet into pandas.
+    """
+
+    ingest_dir = Path(settings.DUCKDB_DIR) / "_ingest"
+    ingest_dir.mkdir(parents=True, exist_ok=True)
+
+    tmp_path = ingest_dir / f"{table_name}.{uuid.uuid4().hex}.parquet"
+    try:
+        with folder.get_download_stream(path) as stream:
+            tmp_path.write_bytes(stream.read())
+
+        if append:
+            conn.execute(f'INSERT INTO "{table_name}" SELECT * FROM read_parquet(?);', [str(tmp_path)])
+        else:
+            conn.execute(f'CREATE TABLE "{table_name}" AS SELECT * FROM read_parquet(?);', [str(tmp_path)])
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
 
 
 def _load_csv_to_table(
@@ -107,6 +131,34 @@ def _load_csv_to_table(
             os.remove(tmp_path)
         except OSError:
             pass
+
+
+def infer_table_name(rel_path: str) -> str:
+    """Infer target table name from a managed-folder path.
+
+    Supports both:
+    - single-file tables: `gold/base_foo.parquet`
+    - partitioned tables: `gold/fact_bar/instance_name=.../year=.../data_0.parquet`
+
+    In the partitioned case, the table name is the first segment after `gold/`.
+    """
+
+    parts = [p for p in PurePosixPath(rel_path).parts if p]
+    if parts and parts[0] == "/":
+        parts = parts[1:]
+
+    # Drop leading 'gold' prefix if present.
+    if parts and parts[0] == "gold":
+        parts = parts[1:]
+
+    if not parts:
+        return PurePosixPath(rel_path).stem
+
+    first = parts[0]
+    if first.startswith(("base_", "dim_", "fact_", "reg_")):
+        return PurePosixPath(first).stem
+
+    return PurePosixPath(rel_path).stem
 
 
 def load_gold_tables(
@@ -146,6 +198,8 @@ def load_gold_tables(
 
     prefix_norm = prefix.lstrip("/")
 
+    created_tables: set[str] = set()
+
     for path in paths:
         rel_path = str(path).lstrip("/")
         base_name = PurePosixPath(rel_path).name
@@ -156,14 +210,14 @@ def load_gold_tables(
             continue
 
         suffix = PurePosixPath(base_name).suffix.lower()
-        table_name = PurePosixPath(base_name).stem
+        table_name = infer_table_name(rel_path)
 
         if allowed_table_names is not None and table_name not in allowed_table_names:
             skipped.append({"table": table_name, "path": rel_path, "reason": "not_allowed"})
             continue
 
         try:
-            if replace:
+            if replace and table_name not in created_tables:
                 # The existing object might be a VIEW or a TABLE (from previous runs).
                 # DuckDB errors if you drop the wrong type, so we ignore failures.
                 try:
@@ -174,7 +228,11 @@ def load_gold_tables(
                     conn.execute(f'DROP TABLE "{table_name}";')
                 except Exception:
                     pass
-            else:
+
+            if not replace and table_name in created_tables:
+                # We are appending multiple files into one table.
+                pass
+            elif not replace:
                 exists = (
                     (lambda row: int(row[0]) if row else 0)(
                         conn.execute(
@@ -189,14 +247,14 @@ def load_gold_tables(
                     continue
 
             if suffix == ".parquet":
-                df = _load_df_from_parquet(folder, rel_path)
-                conn.register("_tmp_df", df)
-                conn.execute(f'CREATE TABLE "{table_name}" AS SELECT * FROM _tmp_df;')
-                conn.unregister("_tmp_df")
-                rows = len(df)
+                append = table_name in created_tables
+                _load_parquet_to_table(conn, folder, path=rel_path, table_name=table_name, append=append)
+                created_tables.add(table_name)
+                rows = -1
 
             elif suffix == ".csv" and settings.PULSE_GOLD_LOAD_USE_DUCKDB_CSV_AUTO:
                 _load_csv_to_table(conn, folder, path=rel_path, table_name=table_name)
+                created_tables.add(table_name)
                 row = conn.execute(f'SELECT COUNT(*) FROM "{table_name}";').fetchone()
                 rows = int(row[0]) if row else 0
 
@@ -205,7 +263,11 @@ def load_gold_tables(
                 with folder.get_download_stream(rel_path) as stream:
                     df = pd.read_csv(io.BytesIO(stream.read()))
                 conn.register("_tmp_df", df)
-                conn.execute(f'CREATE TABLE "{table_name}" AS SELECT * FROM _tmp_df;')
+                if table_name in created_tables:
+                    conn.execute(f'INSERT INTO "{table_name}" SELECT * FROM _tmp_df;')
+                else:
+                    conn.execute(f'CREATE TABLE "{table_name}" AS SELECT * FROM _tmp_df;')
+                    created_tables.add(table_name)
                 conn.unregister("_tmp_df")
                 rows = len(df)
 
