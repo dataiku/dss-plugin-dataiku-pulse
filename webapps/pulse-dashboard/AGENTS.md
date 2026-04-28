@@ -21,4 +21,7 @@ This webapp is packaged inside the plugin and is split into:
 ## Notes
 
 - The React build currently uses relative asset paths (`./static/...`) which is compatible with DSS webapps.
-- The backend exposes `/api/status` and a simple `/api/duckdb/query` endpoint (DuckDB file must exist / be initialized).
+- The backend exposes `/api/status` and several JSON APIs used by the packaged React build:
+  - `/api/duckdb/query`
+  - `/api/debug/duckdb/*` (reload + table introspection)
+  - `/api/build/*` (catalog/products/dev-activity views)

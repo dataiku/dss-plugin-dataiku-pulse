@@ -1,11 +1,39 @@
 final_build_catalog:
   description: >
     This document describes the DuckDB *view(s)* needed to power the **Build → Catalog** “phone book” UI.
-  depends_on: []
+  depends_on:
+    - base_asset_index
+    - asset_activity_30d
   build_order: 1100
   sql: |
     CREATE OR REPLACE VIEW "final_build_catalog" AS
-    SELECT 1 AS dummy;
+    WITH idx AS (
+      SELECT * FROM base_asset_index
+    ),
+    act AS (
+      SELECT * FROM asset_activity_30d
+    )
+    SELECT
+      md5(concat_ws('|', idx.instance_name, idx.project_key, idx.object_type, idx.object_key)) AS asset_id,
+      idx.instance_name,
+      idx.project_key,
+      idx.object_type,
+      idx.object_key,
+      idx.object_name,
+      idx.object_subtype,
+      idx.owner_login,
+      idx.last_modified_by_login,
+      idx.created_at,
+      idx.updated_at,
+      COALESCE(act.activity_30d, 0) AS activity_30d,
+      COALESCE(act.active_users_30d, 0) AS active_users_30d,
+      act.last_activity_at
+    FROM idx
+    LEFT JOIN act
+      ON act.instance_name = idx.instance_name
+     AND act.project_key = idx.project_key
+     AND act.object_type = idx.object_type
+     AND act.object_key = idx.object_key;
   example_data: |
     -- This object is a VIEW.
     -- Insert example rows into its upstream base tables.
