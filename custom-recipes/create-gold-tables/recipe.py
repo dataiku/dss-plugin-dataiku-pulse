@@ -451,8 +451,9 @@ def run() -> dict:
     # (Later steps will unload parquet here.)
     gold_folder_lookup = _resolve_gold_folder_lookup()
 
-    # Resolve source storage from the DATA_COLLECTION partitioned_data managed folder.
-    project_key = os.environ.get("PULSE_SOURCE_PROJECT_KEY", "DATA_COLLECTION")
+    # Resolve source storage from the project running the recipe by default.
+    # Allow overrides (ex: cross-project hub/worker layouts) via env var.
+    project_key = os.environ.get("PULSE_SOURCE_PROJECT_KEY") or dataiku.default_project_key()
     ensure_managed_folder(
         project_key=project_key,
         folder_lookup="partitioned_data",

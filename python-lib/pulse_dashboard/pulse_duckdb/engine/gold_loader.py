@@ -37,39 +37,37 @@ def _extract_table_name(path: str) -> str | None:
     return p.stem
 
 
-def _resolve_gold_tables_folder(project) -> object:
-    """Return a DSSManagedFolder-like object."""
-    if settings.PULSE_GOLD_TABLES_FOLDER_ID:
-        return project.get_managed_folder(settings.PULSE_GOLD_TABLES_FOLDER_ID)
 
-    # Fall back to lookup by name
-    folders = project.list_managed_folders()
-    for folder in folders:
-        if folder.get("name") == settings.PULSE_GOLD_TABLES_FOLDER_NAME:
-            return project.get_managed_folder(folder["id"])
 
-    raise ValueError(
-        f"Managed folder '{settings.PULSE_GOLD_TABLES_FOLDER_NAME}' not found in project {settings.PULSE_SOURCE_PROJECT_KEY}"
-    )
+def _resolve_gold_folder_lookup() -> str:
+    """Return the managed-folder lookup used by `dataiku.Folder`.
+
+    Prefer an explicit folder id when provided; otherwise fall back to name.
+    """
+
+    return settings.PULSE_GOLD_TABLES_FOLDER_ID or settings.PULSE_GOLD_TABLES_FOLDER_NAME
 
 
 def list_gold_paths(*, suffixes: tuple[str, ...] = (".parquet", ".csv")) -> list[str]:
-    client = dataiku.api_client()
-    project = client.get_project(settings.PULSE_SOURCE_PROJECT_KEY)
-    folder = _resolve_gold_tables_folder(project)
+    """List gold table object paths.
 
-    contents = folder.list_contents()
-    items = contents.get("items", [])
+    We intentionally use the high-level `dataiku.Folder(...).list_paths_in_partition("NP")`
+    which returns paths recursively. The lower-level managed-folder handle
+    `list_contents()` is not reliably recursive across DSS versions.
+    """
+
+    folder = dataiku.Folder(
+        lookup=_resolve_gold_folder_lookup(),
+        project_key=settings.PULSE_SOURCE_PROJECT_KEY,
+        ignore_flow=True,
+    )
+
     paths: list[str] = []
-    for item in items:
-        path = item.get("path")
-        if not path:
-            continue
+    for path in folder.list_paths_in_partition("NP"):
         p = str(path)
         if any(p.lower().endswith(s) for s in suffixes):
             paths.append(p)
 
-    # Make stable for debugging
     return sorted(paths)
 
 
@@ -133,9 +131,11 @@ def load_gold_tables(
     Returns basic stats for UI/debug.
     """
 
-    client = dataiku.api_client()
-    project = client.get_project(settings.PULSE_SOURCE_PROJECT_KEY)
-    folder = _resolve_gold_tables_folder(project)
+    folder = dataiku.Folder(
+        lookup=_resolve_gold_folder_lookup(),
+        project_key=settings.PULSE_SOURCE_PROJECT_KEY,
+        ignore_flow=True,
+    )
 
     paths = list_gold_paths(suffixes=allowed_suffixes)
 
@@ -175,10 +175,12 @@ def load_gold_tables(
                     pass
             else:
                 exists = (
-                    conn.execute(
-                        "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = 'main' AND table_name = ?;",
-                        [table_name],
-                    ).fetchone()[0]
+                    (lambda row: int(row[0]) if row else 0)(
+                        conn.execute(
+                            "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = 'main' AND table_name = ?;",
+                            [table_name],
+                        ).fetchone()
+                    )
                     > 0
                 )
                 if exists:
@@ -194,7 +196,8 @@ def load_gold_tables(
 
             elif suffix == ".csv" and settings.PULSE_GOLD_LOAD_USE_DUCKDB_CSV_AUTO:
                 _load_csv_to_table(conn, folder, path=rel_path, table_name=table_name)
-                rows = conn.execute(f'SELECT COUNT(*) FROM "{table_name}";').fetchone()[0]
+                row = conn.execute(f'SELECT COUNT(*) FROM "{table_name}";').fetchone()
+                rows = int(row[0]) if row else 0
 
             elif suffix == ".csv":
                 # Fallback: pandas-based loader

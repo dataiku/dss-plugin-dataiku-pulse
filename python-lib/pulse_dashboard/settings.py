@@ -25,8 +25,49 @@ PULSE_AUTO_INIT_DUCKDB = os.getenv("PULSE_AUTO_INIT_DUCKDB", "1").lower() in ("1
 PULSE_AUTO_LOAD_GOLD_TABLES = os.getenv("PULSE_AUTO_LOAD_GOLD_TABLES", "1").lower() in ("1", "true", "yes")
 PULSE_AUTO_LOAD_REPLACE = os.getenv("PULSE_AUTO_LOAD_REPLACE", "0").lower() in ("1", "true", "yes")
 
+
+def _resolve_default_project_key() -> str | None:
+    """Best-effort lookup of the current DSS project key.
+
+    In DSS (including webapp backends), Dataiku exposes helpers for resolving the
+    current project context. For local dev runs (gunicorn/flask), these helpers
+    may be unavailable.
+    """
+
+    try:
+        import dataiku  # type: ignore
+
+        get_default_project = getattr(dataiku, "get_default_project", None)
+        if callable(get_default_project):
+            project = get_default_project()
+            if isinstance(project, str):
+                return project
+            key = getattr(project, "project_key", None) or getattr(project, "projectKey", None)
+            if key:
+                return str(key)
+
+        default_project_key = getattr(dataiku, "default_project_key", None)
+        if callable(default_project_key):
+            key = default_project_key()
+            if key:
+                return str(key)
+
+    except Exception:
+        return None
+
+    return None
+
+
 # GOLD folder lookup defaults.
-PULSE_SOURCE_PROJECT_KEY = os.getenv("PULSE_SOURCE_PROJECT_KEY", "DATA_COLLECTION")
+#
+# Resolution order for the source project:
+# 1) explicit env var `PULSE_SOURCE_PROJECT_KEY`
+# 2) DSS current project (when available)
+# 3) fallback for local dev
+PULSE_SOURCE_PROJECT_KEY = os.getenv(
+    "PULSE_SOURCE_PROJECT_KEY",
+    _resolve_default_project_key() or "DATAIKU_PULSE_DASHBOARD",
+)
 PULSE_GOLD_TABLES_FOLDER_ID = os.getenv("PULSE_GOLD_TABLES_FOLDER_ID", "")
 PULSE_GOLD_TABLES_FOLDER_NAME = os.getenv("PULSE_GOLD_TABLES_FOLDER_NAME", "gold_data")
 

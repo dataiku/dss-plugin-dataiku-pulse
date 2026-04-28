@@ -300,7 +300,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                                 allowed_suffixes=(".csv", ".parquet"),
                                 allowed_table_names=allowed_base_names,
                             )
-                            gold_tables_loaded = True
+                            gold_tables_loaded = bool(report.get("loaded"))
                     else:
                         from .gold_loader import load_gold_tables as _load_gold_tables
                         from .gold_loader import list_gold_paths
@@ -324,7 +324,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                             allowed_suffixes=(".csv", ".parquet"),
                             allowed_table_names=allowed_base_names,
                         )
-                        gold_tables_loaded = True
+                        gold_tables_loaded = bool(report.get("loaded"))
 
                     seed_report = _maybe_seed_demo_dev_activity(conn)
                     views_report = build_views_from_specs(conn)

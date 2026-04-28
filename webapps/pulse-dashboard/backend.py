@@ -14,7 +14,11 @@ import sys
 from pathlib import Path
 from typing import Any, cast
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file, send_from_directory
+
+# Resolve repo paths for local dev static serving.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_BUILD_DIR = _REPO_ROOT / "resource" / "pulse-dashboard" / "build"
 
 # In DSS, `app` is injected into the module globals by the webapp runner.
 # For local dev runs, this will be missing and we create an app below.
@@ -51,7 +55,13 @@ except Exception:
 
 
 if app is None:  # pragma: no cover
-    app = Flask(__name__)
+    # Local/dev run: serve the packaged React build assets.
+    # CRA builds reference assets under `/static/...`.
+    static_dir = _BUILD_DIR / "static"
+    if static_dir.is_dir():
+        app = Flask(__name__, static_folder=str(static_dir), static_url_path="/static")
+    else:
+        app = Flask(__name__)
 
 # From here on, `app` is always a Flask instance.
 app = cast(Flask, app)
@@ -65,6 +75,45 @@ def pulse_dashboard_ping():
 @app.route("/api/status")
 def status():
     return jsonify({"status": "Online", "msg": "Backend is running"})
+
+
+# ----------------------------------------------------------------------------
+# Static frontend (local dev convenience)
+# ----------------------------------------------------------------------------
+# In DSS, the HTML/JS are handled by `body.html` + `app.js`.
+# For local runs (gunicorn/flask), serve the packaged React build so `GET /`
+# shows the dashboard.
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_frontend(path: str):  # pragma: no cover
+    if not _BUILD_DIR.is_dir():
+        return (
+            "Pulse dashboard build not found. Expected: "
+            f"{_BUILD_DIR}. Run scripts/sync_pulse_dashboard_build.sh to populate it.",
+            404,
+        )
+
+    path = (path or "").lstrip("/")
+    candidate = (_BUILD_DIR / path).resolve()
+
+    # Avoid path traversal outside build dir.
+    try:
+        candidate.relative_to(_BUILD_DIR)
+    except ValueError:
+        return _err("Invalid path", status=400)
+
+    if path and candidate.exists() and candidate.is_file():
+        return send_from_directory(_BUILD_DIR, path)
+
+    index_path = _BUILD_DIR / "index.html"
+    if index_path.exists():
+        return send_file(index_path)
+
+    return (
+        "Pulse dashboard index.html not found. Build looks incomplete at: "
+        f"{_BUILD_DIR}",
+        404,
+    )
 
 
 def _df_records(df):
