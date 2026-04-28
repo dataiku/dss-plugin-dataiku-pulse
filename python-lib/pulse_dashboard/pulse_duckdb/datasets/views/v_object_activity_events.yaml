@@ -6,13 +6,13 @@ v_object_activity_events:
     table follows the naming convention `fact_*`.
 
   depends_on:
-    - fact_object_activity_events
+    - base_object_activity_events
   build_order: 1005
   sql: |
     CREATE OR REPLACE VIEW "v_object_activity_events" AS
     SELECT *
-    FROM fact_object_activity_events;
+    FROM base_object_activity_events;
   example_data: |
     -- This object is a VIEW.
-    -- Insert example rows into its upstream fact table.
-    INSERT INTO "fact_object_activity_events" DEFAULT VALUES;
+    -- Insert example rows into its upstream table.
+    INSERT INTO "base_object_activity_events" DEFAULT VALUES;

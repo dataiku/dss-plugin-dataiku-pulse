@@ -1,69 +1,81 @@
 base_asset_index:
   description: >
     This view normalizes “inventory” metadata into a single unioned asset index. It provides one row per asset, independent of activity.
+
+    Note: In the current GOLD outputs, inventory is materialized as `*_metadata_history`
+    tables, so this view is built from those tables directly.
   depends_on:
-    - base_projects_metadata
-    - base_datasets_metadata
-    - base_recipes_metadata
-    - base_scenarios_metadata
+    - base_projects_instance_metadata_history
+    - base_datasets_project_metadata_history
+    - base_recipes_project_metadata_history
+    - base_scenarios_project_metadata_history
   build_order: 1020
   sql: |
     CREATE OR REPLACE VIEW "base_asset_index" AS
+    
+    -- Projects
     SELECT
       instance_name,
       project_key,
       'project' AS object_type,
       project_key AS object_key,
-      project_name AS object_name,
+      projects_name AS object_name,
       NULL AS object_subtype,
-      project_owner_login AS owner_login,
-      project_last_modified_by_login AS last_modified_by_login,
-      project_created_at AS created_at,
-      project_updated_at AS updated_at
-    FROM base_projects_metadata
+      projects_ownerlogin AS owner_login,
+      projects_versiontag_lastmodifiedby_login AS last_modified_by_login,
+      try_cast(projects_creationtag_lastmodifiedon AS TIMESTAMP) AS created_at,
+      try_cast(projects_versiontag_lastmodifiedon AS TIMESTAMP) AS updated_at
+    FROM base_projects_instance_metadata_history
     
     UNION ALL
+    
+    -- Datasets
     SELECT
       instance_name,
       project_key,
       'dataset' AS object_type,
-      dataset_name AS object_key,
-      COALESCE(dataset_display_name, dataset_name) AS object_name,
-      dataset_type AS object_subtype,
-      dataset_last_modified_by_login AS owner_login,
-      dataset_last_modified_by_login AS last_modified_by_login,
-      dataset_created_at AS created_at,
-      dataset_updated_at AS updated_at
-    FROM base_datasets_metadata
+      datasets_name AS object_key,
+      COALESCE(datasets_smartname, datasets_name) AS object_name,
+      datasets_type AS object_subtype,
+      datasets_versiontag_lastmodifiedby_login AS owner_login,
+      datasets_versiontag_lastmodifiedby_login AS last_modified_by_login,
+      try_cast(datasets_creationtag_lastmodifiedon AS TIMESTAMP) AS created_at,
+      try_cast(datasets_versiontag_lastmodifiedon AS TIMESTAMP) AS updated_at
+    FROM base_datasets_project_metadata_history
     
     UNION ALL
+    
+    -- Recipes
     SELECT
       instance_name,
       project_key,
       'recipe' AS object_type,
-      recipe_name AS object_key,
-      recipe_name AS object_name,
-      recipe_type AS object_subtype,
-      recipe_last_modified_by_login AS owner_login,
-      recipe_last_modified_by_login AS last_modified_by_login,
-      recipe_created_at AS created_at,
-      recipe_updated_at AS updated_at
-    FROM base_recipes_metadata
+      recipes_name AS object_key,
+      recipes_name AS object_name,
+      recipes_type AS object_subtype,
+      recipes_versiontag_lastmodifiedby_login AS owner_login,
+      recipes_versiontag_lastmodifiedby_login AS last_modified_by_login,
+      try_cast(recipes_creationtag_lastmodifiedon AS TIMESTAMP) AS created_at,
+      try_cast(recipes_versiontag_lastmodifiedon AS TIMESTAMP) AS updated_at
+    FROM base_recipes_project_metadata_history
     
     UNION ALL
+    
+    -- Scenarios
     SELECT
       instance_name,
       project_key,
       'scenario' AS object_type,
-      scenario_id AS object_key,
-      scenario_name AS object_name,
-      scenario_type AS object_subtype,
-      scenario_run_as_login AS owner_login,
-      scenario_run_as_login AS last_modified_by_login,
-      scenario_created_at AS created_at,
-      scenario_updated_at AS updated_at
-    FROM base_scenarios_metadata;
+      scenarios_id AS object_key,
+      scenarios_name AS object_name,
+      scenarios_type AS object_subtype,
+      scenarios_runasuser AS owner_login,
+      scenarios_runasuser AS last_modified_by_login,
+      try_cast(scenarios_createdon AS TIMESTAMP) AS created_at,
+      try_cast(scenarios_lastmodifiedon AS TIMESTAMP) AS updated_at
+    FROM base_scenarios_project_metadata_history;
+
   example_data: |
     -- This object is a VIEW.
-    -- Minimal example: ensure upstream base table has at least one row.
-    INSERT INTO "base_projects_metadata" DEFAULT VALUES;
+    -- Minimal example: ensure upstream history tables have at least one row.
+    INSERT INTO "base_projects_instance_metadata_history" DEFAULT VALUES;

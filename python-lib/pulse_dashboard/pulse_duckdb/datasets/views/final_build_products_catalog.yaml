@@ -33,7 +33,13 @@ final_build_products_catalog:
      AND act.project_key = idx.project_key
      AND act.product_type = idx.product_type
      AND act.product_key = idx.product_key
-    LEFT JOIN base_projects_metadata p
+    LEFT JOIN (
+      SELECT
+        instance_name,
+        project_key,
+        projects_name AS project_name
+      FROM base_projects_instance_metadata_history
+    ) p
       ON p.instance_name = idx.instance_name
      AND p.project_key = idx.project_key;
   example_data: |

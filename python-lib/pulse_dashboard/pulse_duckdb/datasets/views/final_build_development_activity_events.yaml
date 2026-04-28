@@ -9,7 +9,7 @@ final_build_development_activity_events:
     CREATE OR REPLACE VIEW "final_build_development_activity_events" AS
     SELECT
       e.timestamp,
-      e.instance_name,
+      CAST(NULL AS VARCHAR) AS instance_name,
       e.login,
       e.project_key,
       e.msgtype,

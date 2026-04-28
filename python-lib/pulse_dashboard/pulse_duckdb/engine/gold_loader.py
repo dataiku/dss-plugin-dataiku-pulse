@@ -70,6 +70,17 @@ def list_gold_paths(*, suffixes: tuple[str, ...] = (".parquet", ".csv")) -> list
     return sorted(paths)
 
 
+def _parse_hive_partitions(rel_path: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for part in PurePosixPath(rel_path).parts:
+        if "=" not in part:
+            continue
+        k, v = part.split("=", 1)
+        if k in {"instance_name", "year", "month", "day", "project_key"} and v:
+            out[k] = v
+    return out
+
+
 def _load_parquet_to_table(
     conn: duckdb.DuckDBPyConnection,
     folder: dataiku.Folder,
@@ -92,10 +103,37 @@ def _load_parquet_to_table(
         with folder.get_download_stream(path) as stream:
             tmp_path.write_bytes(stream.read())
 
+        partitions = _parse_hive_partitions(path)
+
+        file_cols: set[str] = set()
+        if partitions and not append:
+            try:
+                file_cols = {str(r[0]) for r in conn.execute("DESCRIBE SELECT * FROM read_parquet(?);", [str(tmp_path)]).fetchall()}
+            except Exception:
+                file_cols = set()
+
+        select_cols = ["*"]
+        params: list[object] = []
+
+        # Re-inject hive partition keys as columns when parquet files omit them.
+        if partitions.get("instance_name") and "instance_name" not in file_cols:
+            select_cols.append("CAST(? AS VARCHAR) AS instance_name")
+            params.append(partitions["instance_name"])
+        if partitions.get("project_key") and "project_key" not in file_cols:
+            select_cols.append("CAST(? AS VARCHAR) AS project_key")
+            params.append(partitions["project_key"])
+        for k in ["year", "month", "day"]:
+            if partitions.get(k) and k not in file_cols:
+                select_cols.append(f"CAST(? AS INTEGER) AS {k}")
+                params.append(int(partitions[k]))
+
+        sql_select = f"SELECT {', '.join(select_cols)} FROM read_parquet(?)"
+        params.append(str(tmp_path))
+
         if append:
-            conn.execute(f'INSERT INTO "{table_name}" SELECT * FROM read_parquet(?);', [str(tmp_path)])
+            conn.execute(f'INSERT INTO "{table_name}" {sql_select};', params)
         else:
-            conn.execute(f'CREATE TABLE "{table_name}" AS SELECT * FROM read_parquet(?);', [str(tmp_path)])
+            conn.execute(f'CREATE TABLE "{table_name}" AS {sql_select};', params)
     finally:
         try:
             os.remove(tmp_path)
