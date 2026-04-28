@@ -119,23 +119,34 @@
           var params = new URLSearchParams(window.location.search || "");
           var projectKey = params.get("projectKey");
           var webAppId = params.get("webAppId");
+
+          // Fallback for vanity URLs like:
+          // `/projects/<PROJECT_KEY>/webapps/<WEBAPP_ID>_<LABEL>/view`
+          if (!projectKey || !webAppId) {
+            var m = (window.location.pathname || "").match(/^\/projects\/([^/]+)\/webapps\/([^/]+)\/view(?:\/|$)/);
+            if (m) {
+              projectKey = m[1];
+              webAppId = m[2];
+            }
+          }
+
           if (!projectKey || !webAppId) {
             return "";
           }
 
-          function asUrl(path) {
-            // Ensure we build a URL relative to the current page.
-            return new URL(path, window.location.href).toString().replace(/\/$/, "");
-          }
-
           var pk = encodeURIComponent(projectKey);
           var wid = encodeURIComponent(webAppId);
+          var origin = window.location.origin;
 
+          // DSS backend mount point differs depending on runtime and version.
+          // Probe a small set of known patterns and validate with `/api/status`.
           var candidates = [
-            asUrl("../webapps/backends/" + pk + "/" + wid),
-            asUrl("../webapps/backend/" + pk + "/" + wid),
-            asUrl("../webapps/backends/" + wid),
-            asUrl("../webapps/backend/" + wid)
+            origin + "/dip/api/webapps/backends/" + pk + "/" + wid,
+            origin + "/dip/api/webapps/backends/" + pk + "/" + wid + "/backend",
+            origin + "/dip/api/webapps/backend/" + pk + "/" + wid,
+            origin + "/dip/api/webapps/backend/" + pk + "/" + wid + "/backend",
+            origin + "/dip/api/projects/" + pk + "/webapps/" + wid + "/backend",
+            origin + "/projects/" + pk + "/webapps/" + wid + "/backend"
           ];
 
           for (var i = 0; i < candidates.length; i++) {
