@@ -5,9 +5,9 @@
     "icon": "icon-bar-chart"
   },
   "baseType": "STANDARD",
-  "hasBackend": "true",
-  "enableJavascriptModules": "true",
-  "noJSSecurity": "true",
+  "hasBackend": true,
+  "enableJavascriptModules": true,
+  "noJSSecurity": true,
   "standardWebAppLibraries": ["dataiku"],
   "params": []
 }
