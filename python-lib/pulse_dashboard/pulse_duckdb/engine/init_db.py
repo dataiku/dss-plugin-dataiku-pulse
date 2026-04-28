@@ -81,6 +81,100 @@ def _ensure_table_exists(conn, *, table_name: str) -> bool:
     return True
 
 
+def _maybe_create_inventory_views(conn) -> None:
+    """Create compatibility views for inventory tables.
+
+    The GOLD builder writes `*_metadata_history` tables. The dashboard view specs
+    expect `base_*_metadata` tables with stable column names.
+
+    We create `VIEW` aliases that project the history tables into the expected
+    schema so downstream YAML view specs keep working.
+    """
+
+    # Projects
+    conn.execute(
+        """
+        CREATE OR REPLACE VIEW base_projects_metadata AS
+        SELECT
+          instance_name,
+          project_key,
+          projects_name AS project_name,
+          projects_ownerlogin AS project_owner_login,
+          projects_ownerdisplayname AS project_owner_display_name,
+          projects_creationtag_lastmodifiedby_login AS project_creation_login,
+          projects_versiontag_lastmodifiedby_login AS project_last_modified_by_login,
+          try_cast(projects_creationtag_lastmodifiedon AS TIMESTAMP) AS project_created_at,
+          try_cast(projects_versiontag_lastmodifiedon AS TIMESTAMP) AS project_updated_at,
+          projects_projecttype AS project_type,
+          projects_projectapptype AS project_app_type,
+          projects_tutorialproject AS tutorial_project,
+          projects_commitmode AS commit_mode
+        FROM base_projects_instance_metadata_history;
+        """.strip()
+    )
+
+    # Datasets
+    conn.execute(
+        """
+        CREATE OR REPLACE VIEW base_datasets_metadata AS
+        SELECT
+          instance_name,
+          project_key,
+          datasets_name AS dataset_name,
+          datasets_smartname AS dataset_display_name,
+          datasets_type AS dataset_type,
+          datasets_managed AS dataset_managed,
+          datasets_versiontag_lastmodifiedby_login AS dataset_last_modified_by_login,
+          try_cast(datasets_creationtag_lastmodifiedon AS TIMESTAMP) AS dataset_created_at,
+          try_cast(datasets_versiontag_lastmodifiedon AS TIMESTAMP) AS dataset_updated_at,
+          datasets_smartname AS dataset_smart_name,
+          CAST(NULL AS VARCHAR) AS dataset_subtype,
+          datasets_featuregroup AS is_feature_group
+        FROM base_datasets_project_metadata_history;
+        """.strip()
+    )
+
+    # Recipes
+    conn.execute(
+        """
+        CREATE OR REPLACE VIEW base_recipes_metadata AS
+        SELECT
+          instance_name,
+          project_key,
+          recipes_name AS recipe_name,
+          recipes_type AS recipe_type,
+          recipes_versiontag_lastmodifiedby_login AS recipe_last_modified_by_login,
+          try_cast(recipes_creationtag_lastmodifiedon AS TIMESTAMP) AS recipe_created_at,
+          try_cast(recipes_versiontag_lastmodifiedon AS TIMESTAMP) AS recipe_updated_at,
+          recipes_params_enginetype AS engine_type,
+          recipes_params_enginelabel AS engine_label,
+          recipes_params_enginerecommended AS engine_recommended
+        FROM base_recipes_project_metadata_history;
+        """.strip()
+    )
+
+    # Scenarios
+    conn.execute(
+        """
+        CREATE OR REPLACE VIEW base_scenarios_metadata AS
+        SELECT
+          instance_name,
+          project_key,
+          scenarios_id AS scenario_id,
+          scenarios_name AS scenario_name,
+          scenarios_type AS scenario_type,
+          scenarios_active AS scenario_active,
+          scenarios_runasuser AS scenario_run_as_login,
+          try_cast(scenarios_createdon AS TIMESTAMP) AS scenario_created_at,
+          try_cast(scenarios_lastmodifiedon AS TIMESTAMP) AS scenario_updated_at,
+          try_cast(scenarios_nextrun AS TIMESTAMP) AS scenario_next_run,
+          try_cast(scenarios_start AS TIMESTAMP) AS scenario_last_run_start,
+          scenarios_running AS scenario_running
+        FROM base_scenarios_project_metadata_history;
+        """.strip()
+    )
+
+
 def _maybe_seed_demo_dev_activity(conn) -> dict:
     """Seed dev-activity tables for demo mode.
 
@@ -272,9 +366,14 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                     reason = None
 
                     if not replace_gold_tables:
-                        # If any base tables are already present, avoid hitting DSS APIs.
+                        # If gold tables are already present, avoid hitting DSS APIs.
+                        #
+                        # We require at least one `fact_`/`dim_` too, otherwise we might
+                        # be in a half-initialized state from an older loader.
                         existing_tables = set(conn.execute("PRAGMA show_tables;").df()["name"].tolist())
-                        if {t for t in existing_tables if t.startswith("base_")} and not replace_gold_tables:
+                        has_base = any(t.startswith("base_") for t in existing_tables)
+                        has_fact_or_dim = any(t.startswith(("fact_", "dim_")) for t in existing_tables)
+                        if has_base and has_fact_or_dim:
                             reason = "base_tables_present"
                         else:
                             # No base tables yet: do a first-time load.
@@ -337,6 +436,10 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                             allowed_table_names=allowed_names,
                         )
                         gold_tables_loaded = bool(report.get("loaded"))
+
+                    # Compatibility views: map GOLD `*_metadata_history` outputs to
+                    # the UI-facing `base_*_metadata` tables expected by view specs.
+                    _maybe_create_inventory_views(conn)
 
                     seed_report = _maybe_seed_demo_dev_activity(conn)
                     views_report = build_views_from_specs(conn)
