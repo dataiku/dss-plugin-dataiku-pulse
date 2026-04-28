@@ -103,6 +103,38 @@
         });
       }
 
+      (function ensureDataikuBackendUrlShim() {
+        // Some DSS contexts (notably certain "Visual webapp" template instantiations)
+        // do not inject the Dataiku JS runtime (`require`, `window.dataiku`, ...).
+        // Our React build relies on `window.dataiku.getWebAppBackendUrl()` to route
+        // API calls to the webapp backend instead of the DSS root `/api/*`.
+        //
+        // Provide a best-effort shim based on the current view URL:
+        // `/dip/api/webapps/view?projectKey=...&webAppId=...`
+        try {
+          if (window.dataiku && typeof window.dataiku.getWebAppBackendUrl === "function") {
+            return;
+          }
+
+          var params = new URLSearchParams(window.location.search || "");
+          var projectKey = params.get("projectKey");
+          var webAppId = params.get("webAppId");
+          if (!projectKey || !webAppId) {
+            return;
+          }
+
+          // Relative to `/dip/api/webapps/view` -> `/dip/api/webapps/backends/...`
+          var base = "../webapps/backends/" + encodeURIComponent(projectKey) + "/" + encodeURIComponent(webAppId);
+
+          window.dataiku = window.dataiku || {};
+          window.dataiku.getWebAppBackendUrl = function () {
+            return base;
+          };
+        } catch (e) {
+          // best-effort only
+        }
+      })();
+
       async function loadPulseFrontend() {
         try {
           setupHashLinkInterceptor();
