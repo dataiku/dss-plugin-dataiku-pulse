@@ -122,8 +122,9 @@
 
           // Fallback for vanity URLs like:
           // `/projects/<PROJECT_KEY>/webapps/<WEBAPP_ID>_<LABEL>/view`
+          // Note: DSS can be hosted under a path prefix (e.g. `/dataiku`), so don't anchor at `^/projects`.
           if (!projectKey || !webAppId) {
-            var m = (window.location.pathname || "").match(/^\/projects\/([^/]+)\/webapps\/([^/]+)\/view(?:\/|$)/);
+            var m = (window.location.pathname || "").match(/\/projects\/([^/]+)\/webapps\/([^/]+)\/view(?:\/|$)/);
             if (m) {
               projectKey = m[1];
               webAppId = m[2];
