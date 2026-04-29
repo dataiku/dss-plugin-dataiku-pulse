@@ -208,34 +208,45 @@
             window.dataiku.getWebAppBackendUrl = function () {
               return backendBaseUrl;
             };
+          }
 
-            // Some builds call APIs via absolute `/api/...` paths, which don't work in DSS
-            // because the backend is mounted under a project/webapp-specific prefix.
-            // Rewrite those requests to hit the resolved backend base URL.
-            (function patchFetch() {
+          // Some builds call APIs via absolute `/api/...` paths, which don't work in DSS
+          // because the backend is mounted under a project/webapp-specific prefix.
+          // Rewrite those requests to hit the webapp backend base URL.
+          (function patchApiCalls() {
+            function getBackendBaseUrl() {
               try {
-                if (!window.fetch) return;
-                var originalFetch = window.fetch.bind(window);
-
-                function rewriteUrl(url) {
-                  if (!url) return url;
-                  if (typeof url !== "string") return url;
-
-                  // Only rewrite the Pulse backend API calls.
-                  if (url.startsWith("/api/")) {
-                    return backendBaseUrl + url;
-                  }
-                  return url;
+                if (window.dataiku && typeof window.dataiku.getWebAppBackendUrl === "function") {
+                  var existing = String(window.dataiku.getWebAppBackendUrl() || "").replace(/\/$/, "");
+                  if (existing) return existing;
                 }
+              } catch (e) {
+                // best-effort only
+              }
+              return backendBaseUrl || "";
+            }
 
+            function rewriteUrl(url) {
+              if (!url) return url;
+              if (typeof url !== "string") return url;
+
+              if (url.startsWith("/api/")) {
+                var base = getBackendBaseUrl();
+                if (base) return base + url;
+              }
+              return url;
+            }
+
+            // Patch `fetch`.
+            try {
+              if (window.fetch) {
+                var originalFetch = window.fetch.bind(window);
                 window.fetch = function (input, init) {
                   try {
-                    // Simple string URL
                     if (typeof input === "string") {
                       return originalFetch(rewriteUrl(input), init);
                     }
 
-                    // Request object
                     if (input && typeof input === "object") {
                       var url = input.url;
                       if (typeof url === "string") {
@@ -246,15 +257,34 @@
                       }
                     }
                   } catch (e) {
-                    // Fall back to original fetch
+                    // fall back
                   }
                   return originalFetch(input, init);
                 };
-              } catch (e) {
-                // best-effort only
               }
-            })();
-          }
+            } catch (e) {
+              // best-effort only
+            }
+
+            // Patch XHR (covers axios and similar libs).
+            try {
+              if (window.XMLHttpRequest && window.XMLHttpRequest.prototype) {
+                var originalOpen = window.XMLHttpRequest.prototype.open;
+                window.XMLHttpRequest.prototype.open = function (method, url) {
+                  try {
+                    if (typeof url === "string") {
+                      url = rewriteUrl(url);
+                    }
+                  } catch (e) {
+                    // fall back
+                  }
+                  return originalOpen.apply(this, arguments);
+                };
+              }
+            } catch (e) {
+              // best-effort only
+            }
+          })();
 
           var r = await fetchManifest();
           var manifest = r.manifest;
