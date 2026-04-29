@@ -21,6 +21,9 @@ This webapp is packaged inside the plugin and is split into:
 ## Notes
 
 - The React build currently uses relative asset paths (`./static/...`) which is compatible with DSS webapps.
+- In DSS, frontend code must call the webapp backend via `dataiku.getWebAppBackendUrl(...)`.
+  - Direct calls like `fetch('/api/status')` will hit the DSS server root and 404.
+  - `webapps/pulse-dashboard/body.html` patches `fetch` and `XMLHttpRequest` to rewrite `/api/...` requests to the proxied backend URL.
 - The backend exposes `/api/status` and several JSON APIs used by the packaged React build:
   - `/api/duckdb/query`
   - `/api/debug/duckdb/*` (reload + table introspection)

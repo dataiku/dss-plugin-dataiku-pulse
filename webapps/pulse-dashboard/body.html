@@ -103,151 +103,42 @@
         });
       }
 
-       async function resolveBackendBaseUrl() {
-         // Best-effort backend base URL resolution.
-         //
-         // In DSS, the supported way to reach the backend is
-         // `dataiku.getWebAppBackendUrl(<path>)` which returns the full proxied URL.
-         // However, depending on load order, the `dataiku` JS object may not be
-         // available immediately, so we wait briefly before falling back to
-         // URL pattern probing.
+      // In DSS, the supported way to reach the backend is
+      // `dataiku.getWebAppBackendUrl(<path>)` which returns the full proxied URL.
+      // We wait briefly for the `dataiku` JS object to be injected.
+      function sleep(ms) {
+        return new Promise(function (resolve) {
+          setTimeout(resolve, ms);
+        });
+      }
 
-         function sleep(ms) {
-           return new Promise(function (resolve) {
-             setTimeout(resolve, ms);
-           });
-         }
-
-         async function waitForDataiku(timeoutMs) {
-           var start = Date.now();
-           while (Date.now() - start < timeoutMs) {
-             if (window.dataiku && typeof window.dataiku.getWebAppBackendUrl === "function") {
-               return true;
-             }
-             await sleep(50);
-           }
-           return false;
-         }
-
-         function getWebAppBackendUrl(path) {
-           if (!window.dataiku || typeof window.dataiku.getWebAppBackendUrl !== "function") {
-             return "";
-           }
-
-           // DSS versions differ on whether the leading slash is accepted.
-           var rel = String(path || "");
-           rel = rel.replace(/^\//, "");
-
-           var candidates = [rel, "/" + rel];
-           for (var i = 0; i < candidates.length; i++) {
-             try {
-               var u = String(window.dataiku.getWebAppBackendUrl(candidates[i]) || "");
-               if (u) return u;
-             } catch (e) {
-               // try next
-             }
-           }
-           return "";
-         }
-
-         try {
-           // Give DSS a moment to inject the `dataiku` JS runtime.
-           await waitForDataiku(1500);
-
-           // If available, validate the backend URL via `/api/status`.
-           var statusUrl = getWebAppBackendUrl("api/status");
-           if (statusUrl) {
-             try {
-               var res0 = await fetch(statusUrl, { cache: "no-cache", credentials: "same-origin" });
-               if (res0.ok) {
-                 var body0 = await res0.json();
-                 if (body0 && (body0.ok || body0.msg || body0.status)) {
-                   return statusUrl.replace(/\/?api\/status$/, "");
-                 }
-               }
-             } catch (e) {
-               // fall back
-             }
-           }
-
-
-          var params = new URLSearchParams(window.location.search || "");
-          var projectKey = params.get("projectKey");
-          var webAppId = params.get("webAppId");
-
-          // Fallback for vanity URLs like:
-          // `/projects/<PROJECT_KEY>/webapps/<WEBAPP_ID>_<LABEL>/view`
-          // Note: DSS can be hosted under a path prefix (e.g. `/dataiku`), so don't anchor at `^/projects`.
-          if (!projectKey || !webAppId) {
-            var m = (window.location.pathname || "").match(/\/projects\/([^/]+)\/webapps\/([^/]+)\/view(?:\/|$)/);
-            if (m) {
-              projectKey = m[1];
-              webAppId = m[2];
-            }
+      async function waitForDataiku(timeoutMs) {
+        var start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+          if (window.dataiku && typeof window.dataiku.getWebAppBackendUrl === "function") {
+            return true;
           }
+          await sleep(50);
+        }
+        return false;
+      }
 
-          if (!projectKey || !webAppId) {
-            return "";
-          }
+      function getWebAppBackendUrl(path) {
+        if (!window.dataiku || typeof window.dataiku.getWebAppBackendUrl !== "function") {
+          return "";
+        }
 
-          var pk = encodeURIComponent(projectKey);
+        // DSS versions differ on whether the leading slash is accepted.
+        var rel = String(path || "").replace(/^\//, "");
+        var candidates = [rel, "/" + rel];
 
-          // Vanity URLs use `<id>_<label>` but backend mounts often use `<id>`.
-          // Try both forms.
-          var webAppIds = [webAppId];
+        for (var i = 0; i < candidates.length; i++) {
           try {
-            if (webAppId && webAppId.indexOf("_") > 0) {
-              webAppIds.unshift(webAppId.split("_")[0]);
-            }
+            var u = String(window.dataiku.getWebAppBackendUrl(candidates[i]) || "");
+            if (u) return u;
           } catch (e) {
-            // best-effort only
+            // try next
           }
-
-          var origin = window.location.origin;
-
-          // DSS can be hosted behind a path prefix (e.g. `https://host/dataiku/...`).
-          // When that's the case, backend URLs must include that prefix.
-          var path = window.location.pathname || "";
-          var prefix = "";
-          try {
-            var idx = path.indexOf("/projects/");
-            if (idx > 0) {
-              prefix = path.slice(0, idx);
-            }
-          } catch (e) {
-            // best-effort only
-          }
-
-          // DSS backend mount point differs depending on runtime and version.
-          // Probe a small set of known patterns and validate with `/api/status`.
-          // Some patterns take the vanity webapp id (`<id>_<label>`), others take the raw id (`<id>`).
-          for (var j = 0; j < webAppIds.length; j++) {
-            var wid = encodeURIComponent(webAppIds[j]);
-            var candidates = [
-              origin + prefix + "/dip/api/webapps/backends/" + pk + "/" + wid,
-              origin + prefix + "/dip/api/webapps/backends/" + pk + "/" + wid + "/backend",
-              origin + prefix + "/dip/api/webapps/backend/" + pk + "/" + wid,
-              origin + prefix + "/dip/api/webapps/backend/" + pk + "/" + wid + "/backend",
-              origin + prefix + "/dip/api/projects/" + pk + "/webapps/" + wid + "/backend",
-              origin + prefix + "/projects/" + pk + "/webapps/" + wid + "/backend"
-            ];
-
-            for (var i = 0; i < candidates.length; i++) {
-              var base = candidates[i];
-              try {
-                var res = await fetch(base + "/api/status", { cache: "no-cache", credentials: "same-origin" });
-                if (!res.ok) continue;
-                var body = await res.json();
-                if (body && (body.ok || body.msg || body.status)) {
-                  return base;
-                }
-              } catch (e) {
-                // try next
-              }
-            }
-          }
-        } catch (e) {
-          // best-effort only
         }
         return "";
       }
@@ -257,38 +148,21 @@
         try {
           setupHashLinkInterceptor();
 
-          var backendBaseUrl = await resolveBackendBaseUrl();
-          if (backendBaseUrl) {
-            window.dataiku = window.dataiku || {};
-            window.dataiku.getWebAppBackendUrl = function () {
-              return backendBaseUrl;
-            };
-          }
+          await waitForDataiku(1500);
 
-          // Some builds call APIs via absolute `/api/...` paths, which don't work in DSS
-          // because the backend is mounted under a project/webapp-specific prefix.
-          // Rewrite those requests to hit the webapp backend base URL.
+          // Some builds call APIs via absolute `/api/...` paths, which don't work in DSS.
+          // Rewrite those requests to hit the webapp backend via `dataiku.getWebAppBackendUrl`.
           (function patchApiCalls() {
-            function getBackendBaseUrl() {
-              try {
-                if (window.dataiku && typeof window.dataiku.getWebAppBackendUrl === "function") {
-                  var existing = String(window.dataiku.getWebAppBackendUrl() || "").replace(/\/$/, "");
-                  if (existing) return existing;
-                }
-              } catch (e) {
-                // best-effort only
-              }
-              return backendBaseUrl || "";
-            }
-
             function rewriteUrl(url) {
               if (!url) return url;
               if (typeof url !== "string") return url;
 
               if (url.startsWith("/api/")) {
-                var base = getBackendBaseUrl();
-                if (base) return base + url;
+                var rel = url.replace(/^\//, "");
+                var rewritten = getWebAppBackendUrl(rel);
+                if (rewritten) return rewritten;
               }
+
               return url;
             }
 
