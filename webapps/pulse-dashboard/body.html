@@ -136,7 +136,18 @@
           }
 
           var pk = encodeURIComponent(projectKey);
-          var wid = encodeURIComponent(webAppId);
+
+          // Vanity URLs use `<id>_<label>` but backend mounts often use `<id>`.
+          // Try both forms.
+          var webAppIds = [webAppId];
+          try {
+            if (webAppId && webAppId.indexOf("_") > 0) {
+              webAppIds.unshift(webAppId.split("_")[0]);
+            }
+          } catch (e) {
+            // best-effort only
+          }
+
           var origin = window.location.origin;
 
           // DSS can be hosted behind a path prefix (e.g. `https://host/dataiku/...`).
@@ -154,26 +165,30 @@
 
           // DSS backend mount point differs depending on runtime and version.
           // Probe a small set of known patterns and validate with `/api/status`.
-          var candidates = [
-            origin + prefix + "/dip/api/webapps/backends/" + pk + "/" + wid,
-            origin + prefix + "/dip/api/webapps/backends/" + pk + "/" + wid + "/backend",
-            origin + prefix + "/dip/api/webapps/backend/" + pk + "/" + wid,
-            origin + prefix + "/dip/api/webapps/backend/" + pk + "/" + wid + "/backend",
-            origin + prefix + "/dip/api/projects/" + pk + "/webapps/" + wid + "/backend",
-            origin + prefix + "/projects/" + pk + "/webapps/" + wid + "/backend"
-          ];
+          // Some patterns take the vanity webapp id (`<id>_<label>`), others take the raw id (`<id>`).
+          for (var j = 0; j < webAppIds.length; j++) {
+            var wid = encodeURIComponent(webAppIds[j]);
+            var candidates = [
+              origin + prefix + "/dip/api/webapps/backends/" + pk + "/" + wid,
+              origin + prefix + "/dip/api/webapps/backends/" + pk + "/" + wid + "/backend",
+              origin + prefix + "/dip/api/webapps/backend/" + pk + "/" + wid,
+              origin + prefix + "/dip/api/webapps/backend/" + pk + "/" + wid + "/backend",
+              origin + prefix + "/dip/api/projects/" + pk + "/webapps/" + wid + "/backend",
+              origin + prefix + "/projects/" + pk + "/webapps/" + wid + "/backend"
+            ];
 
-          for (var i = 0; i < candidates.length; i++) {
-            var base = candidates[i];
-            try {
-              var res = await fetch(base + "/api/status", { cache: "no-cache", credentials: "same-origin" });
-              if (!res.ok) continue;
-              var body = await res.json();
-              if (body && (body.ok || body.msg || body.status)) {
-                return base;
+            for (var i = 0; i < candidates.length; i++) {
+              var base = candidates[i];
+              try {
+                var res = await fetch(base + "/api/status", { cache: "no-cache", credentials: "same-origin" });
+                if (!res.ok) continue;
+                var body = await res.json();
+                if (body && (body.ok || body.msg || body.status)) {
+                  return base;
+                }
+              } catch (e) {
+                // try next
               }
-            } catch (e) {
-              // try next
             }
           }
         } catch (e) {
