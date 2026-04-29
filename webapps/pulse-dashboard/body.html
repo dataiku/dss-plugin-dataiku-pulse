@@ -179,6 +179,52 @@
             window.dataiku.getWebAppBackendUrl = function () {
               return backendBaseUrl;
             };
+
+            // Some builds call APIs via absolute `/api/...` paths, which don't work in DSS
+            // because the backend is mounted under a project/webapp-specific prefix.
+            // Rewrite those requests to hit the resolved backend base URL.
+            (function patchFetch() {
+              try {
+                if (!window.fetch) return;
+                var originalFetch = window.fetch.bind(window);
+
+                function rewriteUrl(url) {
+                  if (!url) return url;
+                  if (typeof url !== "string") return url;
+
+                  // Only rewrite the Pulse backend API calls.
+                  if (url.startsWith("/api/")) {
+                    return backendBaseUrl + url;
+                  }
+                  return url;
+                }
+
+                window.fetch = function (input, init) {
+                  try {
+                    // Simple string URL
+                    if (typeof input === "string") {
+                      return originalFetch(rewriteUrl(input), init);
+                    }
+
+                    // Request object
+                    if (input && typeof input === "object") {
+                      var url = input.url;
+                      if (typeof url === "string") {
+                        var rewritten = rewriteUrl(url);
+                        if (rewritten !== url && window.Request) {
+                          return originalFetch(new Request(rewritten, input), init);
+                        }
+                      }
+                    }
+                  } catch (e) {
+                    // Fall back to original fetch
+                  }
+                  return originalFetch(input, init);
+                };
+              } catch (e) {
+                // best-effort only
+              }
+            })();
           }
 
           var r = await fetchManifest();
