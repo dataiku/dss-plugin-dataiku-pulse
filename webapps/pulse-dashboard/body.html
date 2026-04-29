@@ -139,15 +139,28 @@
           var wid = encodeURIComponent(webAppId);
           var origin = window.location.origin;
 
+          // DSS can be hosted behind a path prefix (e.g. `https://host/dataiku/...`).
+          // When that's the case, backend URLs must include that prefix.
+          var path = window.location.pathname || "";
+          var prefix = "";
+          try {
+            var idx = path.indexOf("/projects/");
+            if (idx > 0) {
+              prefix = path.slice(0, idx);
+            }
+          } catch (e) {
+            // best-effort only
+          }
+
           // DSS backend mount point differs depending on runtime and version.
           // Probe a small set of known patterns and validate with `/api/status`.
           var candidates = [
-            origin + "/dip/api/webapps/backends/" + pk + "/" + wid,
-            origin + "/dip/api/webapps/backends/" + pk + "/" + wid + "/backend",
-            origin + "/dip/api/webapps/backend/" + pk + "/" + wid,
-            origin + "/dip/api/webapps/backend/" + pk + "/" + wid + "/backend",
-            origin + "/dip/api/projects/" + pk + "/webapps/" + wid + "/backend",
-            origin + "/projects/" + pk + "/webapps/" + wid + "/backend"
+            origin + prefix + "/dip/api/webapps/backends/" + pk + "/" + wid,
+            origin + prefix + "/dip/api/webapps/backends/" + pk + "/" + wid + "/backend",
+            origin + prefix + "/dip/api/webapps/backend/" + pk + "/" + wid,
+            origin + prefix + "/dip/api/webapps/backend/" + pk + "/" + wid + "/backend",
+            origin + prefix + "/dip/api/projects/" + pk + "/webapps/" + wid + "/backend",
+            origin + prefix + "/projects/" + pk + "/webapps/" + wid + "/backend"
           ];
 
           for (var i = 0; i < candidates.length; i++) {
