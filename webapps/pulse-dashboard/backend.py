@@ -11,6 +11,7 @@ import json
 import logging
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any, cast
 
@@ -23,6 +24,7 @@ _BUILD_DIR = _REPO_ROOT / "resource" / "pulse-dashboard" / "build"
 # In DSS, `app` is injected into the module globals by the webapp runner.
 # For local dev runs, this will be missing and we create an app below.
 app = cast(Flask | None, globals().get("app"))
+_IS_LOCAL_DEV = app is None
 
 
 logger = logging.getLogger(__name__)
@@ -77,15 +79,157 @@ def status():
     return jsonify({"status": "Online", "msg": "Backend is running"})
 
 
+@app.route("/api/startup/duckdb")
+def startup_duckdb():
+    """Blocking startup initializer.
+
+    This is meant to be called by `webapps/pulse-dashboard/body.html` before the
+    React bundle is injected. It forces an eager GOLD load so the dashboard is
+    usable immediately after initial render.
+    """
+
+    if ensure_database_ready is None:
+        return _err("pulse_duckdb not available", status=500)
+
+    started = time.time()
+    try:
+        report = cast(
+            dict[str, Any],
+            ensure_database_ready(
+                load_gold_tables=True,
+                replace_gold_tables=getattr(pulse_settings, "PULSE_AUTO_LOAD_REPLACE", False)
+                if pulse_settings is not None
+                else False,
+            ),
+        )
+        duration_sec = round(time.time() - started, 3)
+        if not bool(report.get("ok", False)):
+            return _err(
+                "DuckDB initialization failed",
+                status=500,
+                hint=json.dumps({"durationSec": duration_sec, "load": report}),
+            )
+        return _ok({"load": report, "durationSec": duration_sec})
+    except Exception as e:
+        logger.exception("DuckDB startup init failed")
+        return _err(str(e), status=500)
+
+
+@app.route("/api/startup/status")
+def startup_status():
+    """Read-only health snapshot for the DuckDB-backed dashboard.
+
+    Important: this endpoint should not *create* the DB. It only inspects the
+    DuckDB file if it already exists.
+    """
+
+    duckdb_path = None
+    if pulse_settings is not None:
+        duckdb_path = str(getattr(pulse_settings, "DUCKDB_PATH", "") or "")
+
+    exists = False
+    size_bytes = None
+    if duckdb_path:
+        try:
+            p = Path(duckdb_path)
+            exists = p.exists()
+            if exists:
+                size_bytes = p.stat().st_size
+        except Exception:
+            exists = False
+
+    expected_objects = [
+        "final_build_catalog",
+        "final_build_products_catalog",
+        "dev_activity_capability_daily",
+        "final_build_development_activity_events",
+    ]
+
+    tables: list[str] = []
+    present_expected: list[str] = []
+    missing_expected: list[str] = []
+
+    if exists and create_connection is not None:
+        try:
+            conn = create_connection(read_only=True)
+            try:
+                rows = conn.execute("PRAGMA show_tables;").fetchall()
+                tables = sorted([str(r[0]) for r in rows])
+            finally:
+                conn.close()
+
+            present_expected = [t for t in expected_objects if t in set(tables)]
+            missing_expected = [t for t in expected_objects if t not in set(tables)]
+        except Exception as e:
+            # If we can't open the DB read-only, treat as not-ready.
+            missing_expected = list(expected_objects)
+            return _ok(
+                {
+                    "duckdb": {
+                        "path": duckdb_path,
+                        "exists": exists,
+                        "sizeBytes": size_bytes,
+                        "openError": str(e),
+                    },
+                    "ready": False,
+                    "expected": {"present": present_expected, "missing": missing_expected},
+                    "tables": tables,
+                }
+            )
+
+    ready = bool(exists and not missing_expected)
+
+    return _ok(
+        {
+            "duckdb": {"path": duckdb_path, "exists": exists, "sizeBytes": size_bytes},
+            "ready": ready,
+            "expected": {"present": present_expected, "missing": missing_expected},
+            "tables": tables,
+        }
+    )
+
+
 # ----------------------------------------------------------------------------
 # Static frontend (local dev convenience)
 # ----------------------------------------------------------------------------
 # In DSS, the HTML/JS are handled by `body.html` + `app.js`.
-# For local runs (gunicorn/flask), serve the packaged React build so `GET /`
-# shows the dashboard.
+# For local runs (gunicorn/flask), we serve `body.html` too so local dev mirrors
+# the DSS loader behavior (warmup + manifest-driven asset injection).
+
+
+@app.route("/resource/pulse-dashboard/build/<path:filename>")
+def serve_packaged_build(filename: str):  # pragma: no cover
+    if not _BUILD_DIR.is_dir():
+        return (
+            "Pulse dashboard build not found. Expected: "
+            f"{_BUILD_DIR}. Run scripts/sync_pulse_dashboard_build.sh to populate it.",
+            404,
+        )
+
+    filename = (filename or "").lstrip("/")
+    candidate = (_BUILD_DIR / filename).resolve()
+
+    try:
+        candidate.relative_to(_BUILD_DIR)
+    except ValueError:
+        return _err("Invalid path", status=400)
+
+    if not candidate.exists() or not candidate.is_file():
+        return _err("Not found", status=404)
+
+    return send_from_directory(_BUILD_DIR, filename)
+
+
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve_frontend(path: str):  # pragma: no cover
+    # Mirror DSS by serving the same loader HTML.
+    if _IS_LOCAL_DEV:
+        body_path = Path(__file__).resolve().parent / "body.html"
+        return send_file(body_path)
+
+    # Fallback: if someone hits this backend outside DSS, try serving the
+    # packaged React build directly.
     if not _BUILD_DIR.is_dir():
         return (
             "Pulse dashboard build not found. Expected: "

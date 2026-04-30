@@ -124,8 +124,11 @@
       }
 
       function getWebAppBackendUrl(path) {
+        // In DSS, use the proxied backend URL.
+        // In local dev, fall back to a direct relative URL.
         if (!window.dataiku || typeof window.dataiku.getWebAppBackendUrl !== "function") {
-          return "";
+          var rel = String(path || "").replace(/^\//, "");
+          return "/" + rel;
         }
 
         // DSS versions differ on whether the leading slash is accepted.
@@ -149,6 +152,87 @@
           setupHashLinkInterceptor();
 
           await waitForDataiku(1500);
+
+          var root = document.getElementById("root");
+          if (root) {
+            root.innerHTML =
+              '<div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; padding: 24px;">' +
+              '<div style="font-size: 18px; font-weight: 600;">Initializing Pulse data…</div>' +
+              '<div style="margin-top: 8px; color: #555;">Loading DuckDB and GOLD tables. This can take a moment on first start.</div>' +
+              '<div style="margin-top: 12px; font-size: 12px; color: #777;">If this hangs, check the webapp backend logs or use the debug reload endpoint.</div>' +
+              '</div>';
+          }
+
+          async function warmupDuckdb() {
+            try {
+              var warmupUrl = getWebAppBackendUrl("api/startup/duckdb");
+              if (!warmupUrl) {
+                return { ok: false, error: "Backend URL not available" };
+              }
+
+              var res = await fetch(warmupUrl, { cache: "no-cache" });
+              if (!res.ok) {
+                var text = "";
+                try {
+                  text = await res.text();
+                } catch (e) {
+                  // ignore
+                }
+                return {
+                  ok: false,
+                  error: "DuckDB init failed (HTTP " + res.status + ")" + (text ? "\n" + text : ""),
+                };
+              }
+
+              return await res.json();
+            } catch (e) {
+              return { ok: false, error: String(e) };
+            }
+          }
+
+          var warmup = await warmupDuckdb();
+          if (!warmup || warmup.ok !== true) {
+            var msg = warmup && warmup.error ? String(warmup.error) : "DuckDB initialization failed";
+            var el = document.getElementById("pulse-loader-error");
+            if (el) {
+              el.textContent = msg;
+            }
+            return;
+          }
+
+          if (root && warmup.durationSec != null) {
+            root.innerHTML =
+              root.innerHTML +
+              '<div style="margin-top: 8px; font-size: 12px; color: #777;">DuckDB init completed in ' +
+              String(warmup.durationSec) +
+              "s</div>";
+          }
+
+          // Optional: fetch a read-only status snapshot for display.
+          try {
+            var statusUrl = getWebAppBackendUrl("api/startup/status");
+            if (statusUrl) {
+              var stRes = await fetch(statusUrl, { cache: "no-cache" });
+              if (stRes.ok) {
+                var st = await stRes.json();
+                if (root && st && st.ok === true && st.duckdb) {
+                  var details = [];
+                  if (st.ready === true) details.push("ready");
+                  if (st.duckdb.path) details.push(st.duckdb.path);
+                  if (st.tables && st.tables.length != null) details.push(String(st.tables.length) + " tables");
+                  if (details.length) {
+                    root.innerHTML =
+                      root.innerHTML +
+                      '<div style="margin-top: 4px; font-size: 12px; color: #777;">Status: ' +
+                      details.join(" · ") +
+                      "</div>";
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            // best-effort only
+          }
 
           // Some builds call APIs via absolute `/api/...` paths, which don't work in DSS.
           // Rewrite those requests to hit the webapp backend via `dataiku.getWebAppBackendUrl`.
