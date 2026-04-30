@@ -446,6 +446,13 @@ def _seed_relational_consistency(conn: duckdb.DuckDBPyConnection):
 
     # Object activity events (for catalog/product activity views)
     conn.execute('DELETE FROM "fact_object_activity_events";')
+    conn.execute(
+        """
+        CREATE OR REPLACE VIEW base_object_activity_events AS
+        SELECT *
+        FROM fact_object_activity_events;
+        """.strip()
+    )
     act_rows = []
     object_refs = [
         ("dataset", "transactions", "FIN"),
@@ -626,6 +633,15 @@ def rebuild_dummy_database() -> dict:
                 raise RuntimeError(f"Dummy DB build missing required base tables: {missing}")
 
             _seed_relational_consistency(conn)
+
+            # Compatibility views (so YAML view specs work in dummy mode)
+            conn.execute(
+                """
+                CREATE OR REPLACE VIEW base_object_activity_events AS
+                SELECT *
+                FROM fact_object_activity_events;
+                """.strip()
+            )
 
             # Views: build from YAML specs
             created_views: list[str] = []

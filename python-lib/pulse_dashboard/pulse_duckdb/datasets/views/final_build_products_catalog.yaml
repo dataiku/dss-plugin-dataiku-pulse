@@ -37,8 +37,8 @@ final_build_products_catalog:
       SELECT
         instance_name,
         project_key,
-        projects_name AS project_name
-      FROM base_projects_instance_metadata_history
+        project_name
+      FROM base_projects_metadata
     ) p
       ON p.instance_name = idx.instance_name
      AND p.project_key = idx.project_key;

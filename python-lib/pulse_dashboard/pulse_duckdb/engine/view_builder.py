@@ -218,10 +218,40 @@ def build_views_from_specs(conn: duckdb.DuckDBPyConnection) -> dict:
 
     If an existing object has the same name but is a TABLE (eg. mistakenly loaded
     from CSV), we drop it before creating the view.
+
+    Some views can be generated dynamically from plugin-owned configs. When that
+    succeeds, we skip the static YAML definitions for those views.
     """
 
     # If present, prefer generating this view dynamically from the registry.
     product_index_report = _build_base_product_index(conn)
+
+    config_reports: dict[str, dict] = {}
+    try:
+        from .config_driven_views import build_base_asset_index
+        from .config_driven_views import build_base_product_index as build_base_product_index_from_config
+        from .config_driven_views import build_product_activity_30d
+        from .config_driven_views import validate_configs
+
+        config_reports["validation"] = validate_configs()
+        config_reports["base_asset_index"] = build_base_asset_index(conn)
+
+        # If the products registry successfully built `base_product_index`, don't
+        # overwrite it with the config-driven version.
+        if product_index_report.get("enabled") and product_index_report.get("ok") and product_index_report.get("created"):
+            config_reports["base_product_index"] = {
+                "ok": True,
+                "enabled": True,
+                "created": False,
+                "reason": "skipped_due_to_registry",
+            }
+        else:
+            config_reports["base_product_index"] = build_base_product_index_from_config(conn)
+
+        config_reports["product_activity_30d"] = build_product_activity_30d(conn)
+    except Exception as e:
+        logger.exception("config-driven view generation failed")
+        config_reports["error"] = {"ok": False, "error": str(e)}
 
     specs = _load_view_specs()
 
@@ -241,6 +271,12 @@ def build_views_from_specs(conn: duckdb.DuckDBPyConnection) -> dict:
             and product_index_report.get("created")
         ):
             continue
+
+        # Prefer config-driven generators when they succeed.
+        if name in {"base_asset_index", "base_product_index", "product_activity_30d"}:
+            report = config_reports.get(name) or {}
+            if report.get("ok") and report.get("created"):
+                continue
 
         if not sql:
             raise ValueError(f"Missing `sql` in view spec: {path}")
@@ -293,4 +329,5 @@ def build_views_from_specs(conn: duckdb.DuckDBPyConnection) -> dict:
         "statements": len(view_statements),
         "errors": errors,
         "base_product_index": product_index_report,
+        "config_driven": config_reports,
     }

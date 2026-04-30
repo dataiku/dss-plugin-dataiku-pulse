@@ -85,10 +85,11 @@ def _maybe_create_inventory_views(conn) -> None:
     """Create compatibility views for inventory tables.
 
     The GOLD builder writes `*_metadata_history` tables. The dashboard view specs
-    expect `base_*_metadata` tables with stable column names.
+    (and our config-driven view generators) expect stable `base_*_metadata` views
+    with consistent column names.
 
     We create `VIEW` aliases that project the history tables into the expected
-    schema so downstream YAML view specs keep working.
+    schema so downstream view builds keep working.
     """
 
     # Projects
@@ -171,6 +172,22 @@ def _maybe_create_inventory_views(conn) -> None:
           try_cast(scenarios_start AS TIMESTAMP) AS scenario_last_run_start,
           scenarios_running AS scenario_running
         FROM base_scenarios_project_metadata_history;
+        """.strip()
+    )
+
+    # Activity events: older view specs expect `base_object_activity_events`.
+    # Our curated base table name follows the `fact_*` convention.
+    # Ensure a VIEW exists (it may have been mistakenly loaded as a table).
+    try:
+        conn.execute('DROP TABLE IF EXISTS "base_object_activity_events";')
+    except Exception:
+        pass
+
+    conn.execute(
+        """
+        CREATE OR REPLACE VIEW base_object_activity_events AS
+        SELECT *
+        FROM fact_object_activity_events;
         """.strip()
     )
 

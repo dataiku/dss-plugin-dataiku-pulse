@@ -1,0 +1,49 @@
+api_endpoint:
+  table: base_api_endpoints_metadata
+  product_key: api_endpoint_id
+  product_name: api_endpoint_name
+  product_subtype: api_endpoint_kind
+  owner_login: owner_login
+  last_modified_by_login: last_modified_by_login
+  created_at: created_at
+  updated_at: updated_at
+
+agent:
+  table: base_agents_metadata
+  product_key: agent_id
+  product_name: agent_name
+  product_subtype: agent_type
+  owner_login: owner_login
+  last_modified_by_login: last_modified_by_login
+  created_at: created_at
+  updated_at: updated_at
+
+dashboard:
+  table: base_dashboards_metadata
+  product_key: dashboard_id
+  product_name: dashboard_name
+  product_subtype: dashboard_kind
+  owner_login: owner_login
+  last_modified_by_login: last_modified_by_login
+  created_at: created_at
+  updated_at: updated_at
+
+web_application:
+  table: base_webapps_metadata
+  product_key: webapp_id
+  product_name: webapp_name
+  product_subtype: webapp_type
+  owner_login: owner_login
+  last_modified_by_login: last_modified_by_login
+  created_at: created_at
+  updated_at: updated_at
+
+dataiku_application:
+  table: base_dataiku_applications_metadata
+  product_key: application_id
+  product_name: application_name
+  product_subtype: application_kind
+  owner_login: owner_login
+  last_modified_by_login: last_modified_by_login
+  created_at: created_at
+  updated_at: updated_at

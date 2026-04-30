@@ -9,16 +9,16 @@ final_build_development_activity_events:
     CREATE OR REPLACE VIEW "final_build_development_activity_events" AS
     SELECT
       e.timestamp,
-      CAST(NULL AS VARCHAR) AS instance_name,
+      e.instance_name,
       e.login,
       e.project_key,
       e.msgtype,
       e.msgtypebase AS base_tag,
-      e.dataiku_category,
-      COALESCE(m.capability, 'Uncategorized') AS capability
+      COALESCE(m.category_display_name, e.dataiku_category) AS dataiku_category,
+      COALESCE(m.capability_display_name, m.capability, 'Uncategorized') AS capability
     FROM fact_dev_activity_events e
     LEFT JOIN dim_category_to_capability m
-      ON m.dataiku_category = e.dataiku_category;
+      ON lower(trim(m.dataiku_category)) = lower(trim(e.dataiku_category));
   example_data: |
     -- This object is a VIEW.
     -- Insert example rows into its upstream base tables.

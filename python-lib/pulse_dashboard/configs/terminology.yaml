@@ -1,0 +1,12 @@
+assets:
+  - project
+  - dataset
+  - recipe
+  - scenario
+
+products:
+  - api_endpoint
+  - agent
+  - dashboard
+  - web_application
+  - dataiku_application

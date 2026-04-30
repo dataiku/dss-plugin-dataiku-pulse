@@ -589,7 +589,7 @@ def build_development_activity():
         activity_daily_df = _query_df(
             """
             SELECT
-              CAST(date_trunc('day', day) AS DATE) AS day,
+              CAST(day AS VARCHAR) AS label,
               SUM(event_count) AS value
             FROM dev_activity_capability_daily
             WHERE day >= current_date - ?::INTEGER
@@ -630,9 +630,16 @@ def build_development_activity():
             """.strip()
         )
 
+        activity_daily_rows = []
+        for row in _df_records(activity_daily_df):
+            label = row.get("label") or row.get("day")
+            if label is None:
+                continue
+            activity_daily_rows.append({"label": label, "value": row.get("value")})
+
         return _ok(
             {
-                "activityDaily": _df_records(activity_daily_df),
+                "activityDaily": activity_daily_rows,
                 "byCapability": _df_records(by_capability_df),
                 "byCategory": _df_records(by_category_df),
                 "topUsers": _df_records(top_users_df),
@@ -674,7 +681,7 @@ def build_development_activity_capability(capability: str):
         activity_daily_df = _query_df(
             """
             SELECT
-              CAST(date_trunc('day', timestamp) AS DATE) AS day,
+              CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,
               COUNT(*) AS value
             FROM final_build_development_activity_events
             WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
@@ -724,10 +731,17 @@ def build_development_activity_capability(capability: str):
             [capability, days],
         )
 
+        activity_daily_rows = []
+        for row in _df_records(activity_daily_df):
+            label = row.get("label") or row.get("day")
+            if label is None:
+                continue
+            activity_daily_rows.append({"label": label, "value": row.get("value")})
+
         return _ok(
             {
                 "summary": summary,
-                "activityDaily": _df_records(activity_daily_df),
+                "activityDaily": activity_daily_rows,
                 "categories": _df_records(categories_df),
                 "tags": _df_records(tags_df),
                 "topUsers": _df_records(top_users_df),
@@ -768,7 +782,7 @@ def build_development_activity_user(login: str):
         activity_daily_df = _query_df(
             """
             SELECT
-              CAST(date_trunc('day', timestamp) AS DATE) AS day,
+              CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,
               COUNT(*) AS value
             FROM final_build_development_activity_events
             WHERE login = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
@@ -817,10 +831,17 @@ def build_development_activity_user(login: str):
             [login, days],
         )
 
+        activity_daily_rows = []
+        for row in _df_records(activity_daily_df):
+            label = row.get("label") or row.get("day")
+            if label is None:
+                continue
+            activity_daily_rows.append({"label": label, "value": row.get("value")})
+
         return _ok(
             {
                 "summary": summary,
-                "activityDaily": _df_records(activity_daily_df),
+                "activityDaily": activity_daily_rows,
                 "capabilities": _df_records(capabilities_df),
                 "categories": _df_records(categories_df),
                 "tags": _df_records(tags_df),

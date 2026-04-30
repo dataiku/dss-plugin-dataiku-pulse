@@ -6,6 +6,20 @@
     <meta name="theme-color" content="#000000" />
     <title>Dataiku Pulse Dashboard</title>
 
+    <style>
+      /*
+        UI polish overrides for the built frontend.
+        We keep these in `body.html` so we don't hand-edit generated assets under
+        `resource/pulse-dashboard/build/`.
+
+        The Development Activity "Top capability / category" labels can be long
+        and were visually clipped by the bar column.
+      */
+      .PulseBarRow {
+        grid-template-columns: minmax(180px, 260px) 1fr 44px !important;
+      }
+    </style>
+
     <script>
       // DSS packages webapps with an HTML body and a JS stub.
       // Our React build lives under the plugin `resource/` directory and uses hashed filenames.
@@ -125,10 +139,23 @@
 
       function getWebAppBackendUrl(path) {
         // In DSS, use the proxied backend URL.
-        // In local dev, fall back to a direct relative URL.
+        // In local dev / reverse-proxy setups, fall back to a discovered base URL.
         if (!window.dataiku || typeof window.dataiku.getWebAppBackendUrl !== "function") {
           var rel = String(path || "").replace(/^\//, "");
-          return "/" + rel;
+
+          var base = String(window.__PULSE_BACKEND_BASE || "");
+          if (!base) {
+            // Last-resort: build from current location.
+            base = String(window.location.origin || "") + String(window.location.pathname || "/");
+          }
+
+          if (base && !base.endsWith("/")) base = base + "/";
+
+          try {
+            return String(new URL(rel, base));
+          } catch (e) {
+            return rel;
+          }
         }
 
         // DSS versions differ on whether the leading slash is accepted.
@@ -151,7 +178,75 @@
         try {
           setupHashLinkInterceptor();
 
-          await waitForDataiku(1500);
+          // In DSS, `window.dataiku` can take a moment to be injected.
+          // If we don't wait long enough, we fall back to `/api/...` URLs which
+          // hit the DSS/nginx root and 404.
+          var hasDataiku = await waitForDataiku(10000);
+          if (!hasDataiku) {
+            try {
+              console.warn("Pulse: dataiku JS API not detected; probing backend base URL");
+            } catch (e) {
+              // ignore
+            }
+          }
+
+          async function discoverBackendBase() {
+            // In DSS, we can always ask `dataiku` for the proxied URL.
+            if (window.dataiku && typeof window.dataiku.getWebAppBackendUrl === "function") {
+              return String(window.dataiku.getWebAppBackendUrl("/__ping") || "").replace(/\/__ping\/?$/, "");
+            }
+
+            // Outside DSS (or when dataiku JS isn't injected), we may still be
+            // behind a reverse proxy. Try a few candidates and keep the first
+            // one that responds.
+            var candidates = [];
+
+            // 1) Same origin, assume the backend is mounted at the same path.
+            candidates.push(String(window.location.origin || "") + String(window.location.pathname || ""));
+
+            // 2) Try trimming one segment.
+            var parts = String(window.location.pathname || "").split("/").filter(Boolean);
+            if (parts.length >= 1) {
+              candidates.push(String(window.location.origin || "") + "/" + parts.slice(0, -1).join("/") + "/");
+            }
+
+            // 3) Code Studio / platform port proxy conventions.
+            // (These are same-origin so cookies/auth are included.)
+            candidates.push(String(window.location.origin || "") + "/proxy/8995/");
+            candidates.push(String(window.location.origin || "") + "/-/proxy/8995/");
+            candidates.push(String(window.location.origin || "") + "/_proxy/8995/");
+
+            // 4) Direct local-dev URL (only works if the browser can reach it).
+            candidates.push("http://localhost:8995/");
+
+            for (var i = 0; i < candidates.length; i++) {
+              var base = String(candidates[i] || "");
+              if (!base) continue;
+              if (!base.endsWith("/")) base = base + "/";
+
+              try {
+                var res = await fetch(base + "__ping", { cache: "no-cache" });
+                if (res && res.ok) {
+                  return base;
+                }
+              } catch (e) {
+                // try next
+              }
+            }
+
+            return "";
+          }
+
+          try {
+            var discovered = await discoverBackendBase();
+            if (discovered) {
+              window.__PULSE_BACKEND_BASE = discovered;
+            }
+          } catch (e) {
+            // ignore
+          }
+
+
 
           var root = document.getElementById("root");
           if (root) {
@@ -163,12 +258,14 @@
               '</div>';
           }
 
+
           async function warmupDuckdb() {
             try {
               var warmupUrl = getWebAppBackendUrl("api/startup/duckdb");
               if (!warmupUrl) {
                 return { ok: false, error: "Backend URL not available" };
               }
+
 
               var res = await fetch(warmupUrl, { cache: "no-cache" });
               if (!res.ok) {

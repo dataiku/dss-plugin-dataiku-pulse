@@ -1,0 +1,39 @@
+project:
+  table: base_projects_metadata
+  object_key: project_key
+  object_name: project_name
+  object_subtype: null
+  owner_login: project_owner_login
+  last_modified_by_login: project_last_modified_by_login
+  created_at: project_created_at
+  updated_at: project_updated_at
+
+dataset:
+  table: base_datasets_metadata
+  object_key: dataset_name
+  object_name: [dataset_smart_name, dataset_name]
+  object_subtype: dataset_type
+  owner_login: dataset_last_modified_by_login
+  last_modified_by_login: dataset_last_modified_by_login
+  created_at: dataset_created_at
+  updated_at: dataset_updated_at
+
+recipe:
+  table: base_recipes_metadata
+  object_key: recipe_name
+  object_name: recipe_name
+  object_subtype: recipe_type
+  owner_login: recipe_last_modified_by_login
+  last_modified_by_login: recipe_last_modified_by_login
+  created_at: recipe_created_at
+  updated_at: recipe_updated_at
+
+scenario:
+  table: base_scenarios_metadata
+  object_key: scenario_id
+  object_name: scenario_name
+  object_subtype: scenario_type
+  owner_login: scenario_run_as_login
+  last_modified_by_login: scenario_run_as_login
+  created_at: scenario_created_at
+  updated_at: scenario_updated_at
