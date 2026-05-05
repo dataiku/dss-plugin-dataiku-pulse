@@ -1,0 +1,12 @@
+# Audit (users: hourly activity counts)
+
+- instance_name
+- timestamp
+
+- login
+- project_key
+
+- viewing_actions_count
+- developing_actions_count
+
+- dataiku_category

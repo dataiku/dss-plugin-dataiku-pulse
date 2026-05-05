@@ -14,6 +14,12 @@ import dataiku
 import yaml
 from dataiku.customrecipe import get_output_names_for_role, get_recipe_config
 
+from data_collection.helper.dss_folder_writer import ensure_managed_folder
+from data_collection.pulse_duckdb.context import build_storage_context
+from data_collection.pulse_duckdb.duckdb_manager import prepare_duckdb
+from data_collection.pulse_duckdb.gold_builder import apply_gold_spec, load_gold_spec
+from data_collection.pulse_duckdb.views import create_silver_view
+
 
 def _resolve_gold_folder_lookup() -> str:
     """Resolve GOLD output folder lookup.
@@ -41,12 +47,6 @@ def _resolve_gold_folder_lookup() -> str:
         "Missing output managed folder for role 'gold_tables_folder' "
         "(or set PULSE_GOLD_DEBUG_LOOKUP for local runs)"
     )
-
-from data_collection.helper.dss_folder_writer import ensure_managed_folder
-from data_collection.pulse_duckdb.context import build_storage_context
-from data_collection.pulse_duckdb.duckdb_manager import prepare_duckdb
-from data_collection.pulse_duckdb.gold_builder import apply_gold_spec, load_gold_spec
-from data_collection.pulse_duckdb.views import create_silver_view
 
 
 logger = logging.getLogger(__name__)
@@ -446,6 +446,39 @@ def _build_fact_dev_activity_events(
     return "fact_dev_activity_events"
 
 
+def _build_fact_user_activity_daily(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    ctx,
+) -> str:
+    """Build `fact_user_activity_daily` from hourly SILVER parquet.
+
+    Current scope is "all projects" (project_key is not part of the GOLD grain yet).
+    """
+
+    view_name = create_silver_view(conn=conn, ctx=ctx, category="users", module="user_activity")
+    if not view_name:
+        return ""
+
+    conn.execute(
+        f"""
+        CREATE OR REPLACE TABLE fact_user_activity_daily AS
+        SELECT
+          CAST(date_trunc('day', timestamp) AS DATE) AS day,
+          instance_name,
+          login,
+          SUM(COALESCE(viewing_actions_count, 0)) AS viewing_actions_count,
+          SUM(COALESCE(developing_actions_count, 0)) AS developing_actions_count
+        FROM {view_name}
+        WHERE timestamp IS NOT NULL
+          AND login IS NOT NULL
+        GROUP BY 1, 2, 3;
+        """.strip()
+    )
+
+    return "fact_user_activity_daily"
+
+
 def run() -> dict:
     # Recipe output folder is used as the GOLD destination.
     # (Later steps will unload parquet here.)
@@ -552,6 +585,9 @@ def run() -> dict:
         # Both are configured in `gold_specs/dataiku_dev_tools/*`.
         _build_dim_category_to_capability(setup.conn, base_dir=base_dir)
         _build_fact_dev_activity_events(setup.conn, ctx=ctx, base_dir=base_dir)
+
+        # Build hourly → daily rollup for user activity.
+        _build_fact_user_activity_daily(setup.conn, ctx=ctx)
 
         # Build object-level activity events (used for asset/product activity rollups).
         _build_fact_object_activity_events(setup.conn, ctx=ctx, base_dir=base_dir)

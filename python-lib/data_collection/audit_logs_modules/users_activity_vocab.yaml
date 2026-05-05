@@ -1,0 +1,18 @@
+# Vocabulary for classifying *developing* actions from audit logs.
+#
+# Logic (mirrors legacy pulse_modules/domain/audit_log/user_login.py):
+# - developing action: msgType contains any `action_words` AND does NOT contain any `remove_words`
+# - viewing action: any retained UI action row (developing is a subset)
+
+action_words:
+  - save
+  - create
+  - analysis
+  - clear
+  - run
+
+remove_words:
+  - list
+  - dataset-clear-samples
+  - dataset-save-schema
+  - project-save-variables
