@@ -522,7 +522,7 @@ def _build_fact_user_activity_project_daily(
           AND length(trim(login)) > 0
           AND project_key IS NOT NULL
           AND length(trim(project_key)) > 0
-        GROUP BY 1, 2, 3, 4, 5;
+        GROUP BY 1, 2, 3, 5;
         """.strip()
     )
 

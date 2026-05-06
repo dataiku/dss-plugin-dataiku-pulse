@@ -218,14 +218,6 @@
             "defaultValue": "2015-01-01 00:00:00"
         },
         {
-            "name": "pulse_backup_audit_logs",
-            "label": "Backup Audit Logs - RAW",
-            "type": "BOOLEAN",
-            "description": "Backup Audit Logs to RAW, may not be needed if Event Server installed",
-            "mandatory": true,
-            "defaultValue": false
-        },
-        {
             "name": "pulse_audit_logs_debug",
             "label": "Force Audit Logs Delta Timestamp",
             "type": "BOOLEAN",
@@ -240,6 +232,14 @@
             "description": "Starting timestamp to run audit logs time delta against",
             "mandatory": true,
             "defaultValue": "2015-01-01 00:00:00"
+        },
+        {
+            "name": "pulse_backup_audit_logs",
+            "label": "Backup Audit Logs - RAW",
+            "type": "BOOLEAN",
+            "description": "Backup Audit Logs to RAW, may not be needed if Event Server installed",
+            "mandatory": true,
+            "defaultValue": false
         },
         {
             "name": "end_separator",
