@@ -1,0 +1,54 @@
+final_users_directory:
+  description: >
+    Canonical user directory across instances.
+
+    Rules:
+    - Identity is case-insensitive via `login_norm = lower(trim(users_login))`.
+    - Pick the most recent `run_ts` record across all instances.
+    - Tie-breaker: prefer instances listed in `PULSE_HUB_INSTANCE_NAMES`.
+
+  depends_on:
+    - base_users_instance_metadata_history
+  build_order: 1205
+  sql: |
+    CREATE OR REPLACE VIEW "final_users_directory" AS
+    WITH src AS (
+      SELECT
+        instance_name,
+        users_login AS login,
+        lower(trim(users_login)) AS login_norm,
+        users_displayname AS display_name,
+        users_email AS email,
+        users_enabled AS enabled,
+        users_userprofile AS user_profile,
+        users_groups AS group_names,
+        run_ts,
+        CASE
+          WHEN instance_name IN ('__none__') THEN 1
+          ELSE 0
+        END AS is_hub
+      FROM base_users_instance_metadata_history
+      WHERE users_login IS NOT NULL
+        AND length(trim(users_login)) > 0
+    ),
+    ranked AS (
+      SELECT
+        *,
+        ROW_NUMBER() OVER (
+          PARTITION BY login_norm
+          ORDER BY run_ts DESC, is_hub DESC, instance_name ASC
+        ) AS rn
+      FROM src
+    )
+    SELECT
+      instance_name,
+      login,
+      login_norm,
+      display_name,
+      email,
+      enabled,
+      user_profile,
+      group_names,
+      run_ts
+    FROM ranked
+    WHERE rn = 1;

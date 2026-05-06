@@ -1,11 +1,11 @@
-from __future__ import annotations
-
 """Centralized configuration for the Pulse (Flask + React) dashboard webapp.
 
 This is based on the previous DEMO app's `settings.py`, but lives in the shared
 `pulse_dashboard` package so the plugin stays lightweight and
 the webapp backend can import it reliably.
 """
+
+from __future__ import annotations
 
 import os
 from pathlib import Path
@@ -92,6 +92,12 @@ PULSE_SEED_DEMO_DEV_ACTIVITY = os.getenv("PULSE_SEED_DEMO_DEV_ACTIVITY", "0").lo
     "true",
     "yes",
 )
+
+# Comma-separated list of instance_name values that should win tie-breakers
+# when selecting a canonical user record across multiple instances.
+#
+# Example: "hub-dss,tam-design-us"
+PULSE_HUB_INSTANCE_NAMES = os.getenv("PULSE_HUB_INSTANCE_NAMES", "")
 
 
 def ensure_duckdb_parent_dir() -> None:

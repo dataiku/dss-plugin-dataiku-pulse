@@ -79,6 +79,35 @@ def status():
     return jsonify({"status": "Online", "msg": "Backend is running"})
 
 
+@app.route("/api/startup/flags")
+def startup_flags():
+    """Feature flags exposed to the React SPA.
+
+    Flags are read from DSS project standard variables so features can be enabled
+    per project.
+
+    Currently supported flags:
+    - `userActivity`: enabled when `standard.user_activity` is JSON boolean `true`.
+
+    Note:
+    - If we cannot resolve the default project / variables, we default to disabled.
+    """
+
+    try:
+        import dataiku
+
+        client = dataiku.api_client()
+        project = client.get_project(dataiku.default_project_key())
+        vars_ = project.get_variables() or {}
+        standard = vars_.get("standard") or {}
+
+        user_activity_enabled = standard.get("user_activity") is True
+        return _ok({"flags": {"userActivity": user_activity_enabled}})
+    except Exception:
+        logger.exception("Failed reading startup flags")
+        return _ok({"flags": {"userActivity": False}})
+
+
 @app.route("/api/startup/duckdb")
 def startup_duckdb():
     """Blocking startup initializer.
@@ -850,4 +879,291 @@ def build_development_activity_user(login: str):
 
     except Exception as e:
         logger.exception("user drilldown failed")
+        return _err(str(e), status=500)
+
+
+# ----------------------------------------------------------------------------
+# Users (UI-only activity from audit logs)
+# ----------------------------------------------------------------------------
+
+
+def _parse_instance_name(value: str | None) -> str | None:
+    out = (value or "").strip()
+    return out or None
+
+
+def _parse_login_norm(value: str) -> str:
+    return value.strip().lower()
+
+
+def _sql_placeholders(n: int) -> str:
+    return ",".join(["?"] * n)
+
+
+def _hub_instances_sql_list() -> str:
+    """Return a SQL-safe list like `'hub1','hub2'`.
+
+    Used only to render plugin-controlled config into VIEW templates.
+    """
+
+    hub_instances = []
+    if pulse_settings is not None:
+        hub_instances = _parse_csv_list(getattr(pulse_settings, "PULSE_HUB_INSTANCE_NAMES", ""))
+
+    if not hub_instances:
+        # Keep the SQL valid; no instance will match this.
+        return "'__none__'"
+
+    escaped = ["'" + s.replace("'", "''") + "'" for s in hub_instances]
+    return ",".join(escaped)
+
+
+@app.route("/api/build/users/facets")
+def build_users_facets():
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        instances = (
+            _query_df(
+                """
+                SELECT DISTINCT instance_name
+                FROM final_users_directory
+                WHERE instance_name IS NOT NULL
+                ORDER BY 1;
+                """.strip()
+            )["instance_name"]
+            .dropna()
+            .astype(str)
+            .tolist()
+        )
+
+        return _ok({"instances": instances})
+    except Exception as e:
+        logger.exception("users facets failed")
+        return _err(str(e), status=500)
+
+
+@app.route("/api/build/users/leaderboard")
+def build_users_leaderboard():
+    """Return leaderboards for viewing and developing activity."""
+
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        days = int(request.args.get("days") or 30)
+        days = max(1, min(365, days))
+
+        instance_name = _parse_instance_name(request.args.get("instance_name"))
+
+        where = ["day >= current_date - ?::INTEGER"]
+        params: list[Any] = [days]
+
+        if instance_name:
+            where.append("instance_name = ?")
+            params.append(instance_name)
+
+        where_sql = " WHERE " + " AND ".join(where)
+
+        # We join to final_users_directory to get the best available display fields.
+        base_sql = (
+            "WITH agg AS (\n"
+            "  SELECT\n"
+            "    login_norm,\n"
+            "    SUM(viewing_actions_count) AS viewing,\n"
+            "    SUM(developing_actions_count) AS developing,\n"
+            "    MAX(last_activity_at) AS last_activity_at,\n"
+            "    COUNT(DISTINCT instance_name) AS instances\n"
+            "  FROM fact_user_activity_daily\n"
+            f"  {where_sql}\n"
+            "  GROUP BY 1\n"
+            ")\n"
+        )
+
+        viewing_df = _query_df(
+            (
+                base_sql
+                + "SELECT\n"
+                + "  a.login_norm AS login,\n"
+                + "  u.display_name AS displayName,\n"
+                + "  u.email AS email,\n"
+                + "  u.user_profile AS userProfile,\n"
+                + "  u.enabled AS enabled,\n"
+                + "  a.viewing AS value,\n"
+                + "  a.developing AS developing,\n"
+                + "  a.instances AS instances,\n"
+                + "  a.last_activity_at AS lastActivityAt\n"
+                + "FROM agg a\n"
+                + "LEFT JOIN final_users_directory u ON u.login_norm = a.login_norm\n"
+                + "ORDER BY value DESC NULLS LAST\n"
+                + "LIMIT 50;"
+            ),
+            params,
+        )
+
+        developing_df = _query_df(
+            (
+                base_sql
+                + "SELECT\n"
+                + "  a.login_norm AS login,\n"
+                + "  u.display_name AS displayName,\n"
+                + "  u.email AS email,\n"
+                + "  u.user_profile AS userProfile,\n"
+                + "  u.enabled AS enabled,\n"
+                + "  a.developing AS value,\n"
+                + "  a.viewing AS viewing,\n"
+                + "  a.instances AS instances,\n"
+                + "  a.last_activity_at AS lastActivityAt\n"
+                + "FROM agg a\n"
+                + "LEFT JOIN final_users_directory u ON u.login_norm = a.login_norm\n"
+                + "ORDER BY value DESC NULLS LAST\n"
+                + "LIMIT 50;"
+            ),
+            params,
+        )
+
+        return _ok(
+            {
+                "days": days,
+                "instanceName": instance_name,
+                "viewing": _df_records(viewing_df),
+                "developing": _df_records(developing_df),
+            }
+        )
+
+    except Exception as e:
+        logger.exception("users leaderboard failed")
+        return _err(str(e), status=500)
+
+
+@app.route("/api/build/users/<login>")
+def build_user_detail(login: str):
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        login_norm = _parse_login_norm(login)
+        if not login_norm:
+            return _err("Missing login")
+
+        days = int(request.args.get("days") or 30)
+        days = max(1, min(365, days))
+
+        instance_name = _parse_instance_name(request.args.get("instance_name"))
+
+        where = ["day >= current_date - ?::INTEGER", "login_norm = ?"]
+        params: list[Any] = [days, login_norm]
+
+        if instance_name:
+            where.append("instance_name = ?")
+            params.append(instance_name)
+
+        where_sql = " WHERE " + " AND ".join(where)
+
+        summary_df = _query_df(
+            (
+                "SELECT\n"
+                "  SUM(viewing_actions_count) AS viewing,\n"
+                "  SUM(developing_actions_count) AS developing,\n"
+                "  MAX(last_activity_at) AS last_activity_at,\n"
+                "  COUNT(DISTINCT instance_name) AS instances,\n"
+                "  COUNT(DISTINCT project_key) AS projects\n"
+                "FROM fact_user_activity_project_daily\n"
+                f"{where_sql};"
+            ),
+            params,
+        )
+        summary = _df_records(summary_df)[0] if len(summary_df) else None
+
+        user_df = _query_df(
+            """
+            SELECT
+              instance_name,
+              login,
+              login_norm,
+              display_name,
+              email,
+              enabled,
+              user_profile,
+              group_names,
+              run_ts
+            FROM final_users_directory
+            WHERE login_norm = ?
+            LIMIT 1;
+            """.strip(),
+            [login_norm],
+        )
+        user = _df_records(user_df)[0] if len(user_df) else None
+
+        # Daily activity trend (UI only)
+        daily_df = _query_df(
+            (
+                "SELECT\n"
+                "  CAST(day AS VARCHAR) AS label,\n"
+                "  SUM(viewing_actions_count) AS viewing,\n"
+                "  SUM(developing_actions_count) AS developing\n"
+                "FROM fact_user_activity_daily\n"
+                f"{where_sql}\n"
+                "GROUP BY 1\n"
+                "ORDER BY 1;"
+            ),
+            params,
+        )
+
+        return _ok({"user": user, "summary": summary, "activityDaily": _df_records(daily_df)})
+
+    except Exception as e:
+        logger.exception("user detail failed")
+        return _err(str(e), status=500)
+
+
+@app.route("/api/build/users/<login>/top-projects")
+def build_user_top_projects(login: str):
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        login_norm = _parse_login_norm(login)
+        if not login_norm:
+            return _err("Missing login")
+
+        days = int(request.args.get("days") or 30)
+        days = max(1, min(365, days))
+
+        limit = int(request.args.get("limit") or 10)
+        limit = max(1, min(100, limit))
+
+        instance_name = _parse_instance_name(request.args.get("instance_name"))
+
+        where = ["day >= current_date - ?::INTEGER", "login_norm = ?"]
+        params: list[Any] = [days, login_norm]
+
+        if instance_name:
+            where.append("instance_name = ?")
+            params.append(instance_name)
+
+        where_sql = " WHERE " + " AND ".join(where)
+
+        df = _query_df(
+            (
+                "SELECT\n"
+                "  instance_name AS instanceName,\n"
+                "  project_key AS projectKey,\n"
+                "  SUM(viewing_actions_count) AS viewing,\n"
+                "  SUM(developing_actions_count) AS developing,\n"
+                "  MAX(last_activity_at) AS lastActivityAt\n"
+                "FROM fact_user_activity_project_daily\n"
+                f"{where_sql}\n"
+                "GROUP BY 1, 2\n"
+                "ORDER BY developing DESC NULLS LAST, viewing DESC NULLS LAST\n"
+                "LIMIT ?;"
+            ),
+            [*params, limit],
+        )
+
+        return _ok({"rows": _df_records(df)})
+
+    except Exception as e:
+        logger.exception("user top projects failed")
         return _err(str(e), status=500)

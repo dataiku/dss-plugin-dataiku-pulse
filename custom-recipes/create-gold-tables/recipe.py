@@ -453,7 +453,11 @@ def _build_fact_user_activity_daily(
 ) -> str:
     """Build `fact_user_activity_daily` from hourly SILVER parquet.
 
-    Current scope is "all projects" (project_key is not part of the GOLD grain yet).
+    This aggregates activity across all projects.
+
+    Notes:
+    - We normalize logins to lower-case (`login_norm`) for case-insensitive identity.
+    - A separate table `fact_user_activity_project_daily` keeps project grain.
     """
 
     view_name = create_silver_view(conn=conn, ctx=ctx, category="users", module="user_activity")
@@ -466,17 +470,63 @@ def _build_fact_user_activity_daily(
         SELECT
           CAST(date_trunc('day', timestamp) AS DATE) AS day,
           instance_name,
-          login,
+          lower(trim(login)) AS login_norm,
+          MIN(trim(login)) AS login,
           SUM(COALESCE(viewing_actions_count, 0)) AS viewing_actions_count,
-          SUM(COALESCE(developing_actions_count, 0)) AS developing_actions_count
+          SUM(COALESCE(developing_actions_count, 0)) AS developing_actions_count,
+          MAX(timestamp) AS last_activity_at
         FROM {view_name}
         WHERE timestamp IS NOT NULL
           AND login IS NOT NULL
+          AND length(trim(login)) > 0
         GROUP BY 1, 2, 3;
         """.strip()
     )
 
     return "fact_user_activity_daily"
+
+
+def _build_fact_user_activity_project_daily(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    ctx,
+) -> str:
+    """Build `fact_user_activity_project_daily` from hourly SILVER parquet.
+
+    This preserves project grain to support "top projects" drilldowns.
+
+    Notes:
+    - Identity is case-insensitive using `login_norm`.
+    - We include `last_activity_at` to help UI sort/filter.
+    """
+
+    view_name = create_silver_view(conn=conn, ctx=ctx, category="users", module="user_activity")
+    if not view_name:
+        return ""
+
+    conn.execute(
+        f"""
+        CREATE OR REPLACE TABLE fact_user_activity_project_daily AS
+        SELECT
+          CAST(date_trunc('day', timestamp) AS DATE) AS day,
+          instance_name,
+          lower(trim(login)) AS login_norm,
+          MIN(trim(login)) AS login,
+          project_key,
+          SUM(COALESCE(viewing_actions_count, 0)) AS viewing_actions_count,
+          SUM(COALESCE(developing_actions_count, 0)) AS developing_actions_count,
+          MAX(timestamp) AS last_activity_at
+        FROM {view_name}
+        WHERE timestamp IS NOT NULL
+          AND login IS NOT NULL
+          AND length(trim(login)) > 0
+          AND project_key IS NOT NULL
+          AND length(trim(project_key)) > 0
+        GROUP BY 1, 2, 3, 4, 5;
+        """.strip()
+    )
+
+    return "fact_user_activity_project_daily"
 
 
 def run() -> dict:
@@ -586,8 +636,9 @@ def run() -> dict:
         _build_dim_category_to_capability(setup.conn, base_dir=base_dir)
         _build_fact_dev_activity_events(setup.conn, ctx=ctx, base_dir=base_dir)
 
-        # Build hourly → daily rollup for user activity.
+        # Build hourly → daily rollups for user activity.
         _build_fact_user_activity_daily(setup.conn, ctx=ctx)
+        _build_fact_user_activity_project_daily(setup.conn, ctx=ctx)
 
         # Build object-level activity events (used for asset/product activity rollups).
         _build_fact_object_activity_events(setup.conn, ctx=ctx, base_dir=base_dir)
