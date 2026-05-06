@@ -30,4 +30,16 @@ This webapp is packaged inside the plugin and is split into:
   - `/api/duckdb/query`
   - `/api/debug/duckdb/*` (reload + table introspection)
   - `/api/build/*` (catalog/products/dev-activity views)
+  - `/api/build/assets/details` and `/api/build/products/details` (modal drilldown details)
   - `/api/build/users/*` (users activity + drilldowns; gated by `standard.user_activity`)
+
+## Frontend source (not in repo)
+
+The plugin repository intentionally stores only the built frontend under `resource/pulse-dashboard/build/`.
+
+In this Code Studio workspace, the React source used to produce that build lives at:
+- `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/`
+
+Rebuild + sync flow:
+- Build: `bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/scripts/build_frontend.sh`
+- Sync into plugin: `scripts/sync_pulse_dashboard_build.sh /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/build`

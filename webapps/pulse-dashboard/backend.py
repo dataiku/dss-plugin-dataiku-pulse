@@ -393,6 +393,62 @@ def _parse_csv_list(value: str | None) -> list[str]:
     return [p for p in parts if p]
 
 
+_MD5_RE = re.compile(r"^[a-fA-F0-9]{32}$")
+
+
+def _is_md5(value: str | None) -> bool:
+    if not value:
+        return False
+    return bool(_MD5_RE.match(str(value).strip()))
+
+
+def _extract_description_from_extras(extras: str | None) -> str | None:
+    if not extras:
+        return None
+
+    try:
+        payload = json.loads(extras)
+    except Exception:
+        return None
+
+    if isinstance(payload, dict):
+        for key in ["description", "desc", "short_description", "shortDescription"]:
+            v = payload.get(key)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+
+        for k, v in payload.items():
+            if "description" in str(k).lower() and isinstance(v, str) and v.strip():
+                return v.strip()
+
+    return None
+
+
+# Best-effort mapping from catalog object types to metadata history tables.
+# These tables are expected in the GOLD outputs.
+_OBJECT_EXTRAS_SOURCES: dict[str, dict[str, object]] = {
+    # Build → Assets
+    "project": {"table": "base_projects_instance_metadata_history", "key_col": "project_key", "project_scoped": False},
+    "dataset": {"table": "base_datasets_project_metadata_history", "key_col": "datasets_name", "project_scoped": True},
+    "recipe": {"table": "base_recipes_project_metadata_history", "key_col": "recipes_name", "project_scoped": True},
+    "scenario": {"table": "base_scenarios_project_metadata_history", "key_col": "scenarios_id", "project_scoped": True},
+    # Build → Products
+    "api_service": {"table": "base_api_services_project_metadata_history", "key_col": "api_services_id", "project_scoped": True},
+    "agent_tool": {"table": "base_agent_tools_project_metadata_history", "key_col": "agent_tools_id", "project_scoped": True},
+    "insight": {"table": "base_insights_project_metadata_history", "key_col": "insights_id", "project_scoped": True},
+    "web_application": {"table": "base_webapps_project_metadata_history", "key_col": "webapps_id", "project_scoped": True},
+    "dataiku_application": {"table": "base_apps_instance_metadata_history", "key_col": "apps_appid", "project_scoped": False},
+}
+
+
+# Map product catalog types to the activity-event object_type.
+_PRODUCT_TO_EVENT_OBJECT_TYPE = {
+    "api_service": "api_endpoint",
+    "insight": "dashboard",
+    "agent_tool": "agent",
+}
+
+
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -628,6 +684,220 @@ def build_assets():
 
     except Exception as e:
         logger.exception("assets query failed")
+        return _err(str(e), status=500)
+
+
+def _fetch_usage_and_related_assets(
+    _query_df,
+    *,
+    project_key: str | None,
+    object_type: str,
+    object_key: str,
+) -> tuple[int, list[dict[str, Any]]]:
+    params: list[Any] = [object_type, object_key]
+    where = "object_type = ? AND object_key = ?"
+    if project_key is not None:
+        where += " AND project_key = ?"
+        params.append(project_key)
+
+    usage_df = _query_df(
+        f"SELECT COUNT(*) AS n FROM v_object_activity_events WHERE {where};",
+        params,
+    )
+    usage = int(usage_df.iloc[0]["n"]) if len(usage_df.index) else 0
+
+    related_df = _query_df(
+        f"""
+        SELECT
+          instance_name AS instanceName,
+          project_key AS projectKey,
+          COUNT(*) AS eventCount
+        FROM v_object_activity_events
+        WHERE {where}
+        GROUP BY 1, 2
+        ORDER BY eventCount DESC, instanceName, projectKey;
+        """.strip(),
+        params,
+    )
+
+    return usage, _df_records(related_df)
+
+
+def _fetch_description(
+    _query_df,
+    *,
+    instance_name: str,
+    project_key: str | None,
+    object_type: str,
+    object_key: str,
+) -> str | None:
+    spec = _OBJECT_EXTRAS_SOURCES.get(object_type)
+    if not spec:
+        return None
+
+    table = str(spec["table"])
+    key_col = str(spec["key_col"])
+    project_scoped = bool(spec.get("project_scoped", False))
+
+    where = ["instance_name = ?", f"{key_col} = ?"]
+    params: list[Any] = [instance_name, object_key]
+
+    if project_scoped:
+        if not project_key:
+            return None
+        where.append("project_key = ?")
+        params.append(project_key)
+
+    df = _query_df(
+        f"SELECT extras FROM {table} WHERE {' AND '.join(where)} LIMIT 1;",
+        params,
+    )
+    if not len(df.index):
+        return None
+
+    extras = df.iloc[0].get("extras")
+    return _extract_description_from_extras(extras if isinstance(extras, str) else None)
+
+
+@app.route("/api/build/assets/details")
+def build_assets_details():
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        asset_id = (request.args.get("assetId") or "").strip()
+        if not _is_md5(asset_id):
+            return _err("Invalid or missing assetId", status=400)
+
+        df = _query_df(
+            """
+            SELECT
+              instance_name AS instanceName,
+              project_key AS projectKey,
+              object_type AS objectType,
+              object_key AS objectKey,
+              object_name AS objectName,
+              owner_login AS ownerLogin,
+              updated_at AS updatedAt,
+              activity_30d AS activity30d
+            FROM final_build_catalog
+            WHERE asset_id = ?
+            LIMIT 1;
+            """.strip(),
+            [asset_id],
+        )
+
+        if not len(df.index):
+            return _err("Asset not found", status=404)
+
+        row = _df_records(df)[0]
+        instance_name = str(row.get("instanceName") or "")
+        project_key = str(row.get("projectKey") or "")
+        object_type = str(row.get("objectType") or "")
+        object_key = str(row.get("objectKey") or "")
+
+        usage, related_assets = _fetch_usage_and_related_assets(
+            _query_df,
+            project_key=project_key or None,
+            object_type=object_type,
+            object_key=object_key,
+        )
+
+        description = None
+        try:
+            description = _fetch_description(
+                _query_df,
+                instance_name=instance_name,
+                project_key=project_key or None,
+                object_type=object_type,
+                object_key=object_key,
+            )
+        except Exception:
+            description = None
+
+        return _ok(
+            {
+                "asset": row,
+                "capturedInfo": {"description": description},
+                "usageSummary": {"eventsAllTime": usage},
+                "relatedAssets": related_assets,
+            }
+        )
+
+    except Exception as e:
+        logger.exception("assets details failed")
+        return _err(str(e), status=500)
+
+
+@app.route("/api/build/products/details")
+def build_products_details():
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        asset_id = (request.args.get("assetId") or "").strip()
+        if not _is_md5(asset_id):
+            return _err("Invalid or missing assetId", status=400)
+
+        df = _query_df(
+            """
+            SELECT
+              instance_name AS instanceName,
+              project_key AS projectKey,
+              product_type AS objectType,
+              product_key AS objectKey,
+              product_name AS objectName,
+              owner_login AS ownerLogin,
+              updated_at AS updatedAt,
+              activity_30d AS activity30d
+            FROM final_build_products_catalog
+            WHERE product_id = ?
+            LIMIT 1;
+            """.strip(),
+            [asset_id],
+        )
+
+        if not len(df.index):
+            return _err("Product not found", status=404)
+
+        row = _df_records(df)[0]
+        instance_name = str(row.get("instanceName") or "")
+        project_key = str(row.get("projectKey") or "")
+        product_type = str(row.get("objectType") or "")
+        product_key = str(row.get("objectKey") or "")
+
+        event_object_type = _PRODUCT_TO_EVENT_OBJECT_TYPE.get(product_type, product_type)
+
+        usage, related_assets = _fetch_usage_and_related_assets(
+            _query_df,
+            project_key=project_key or None,
+            object_type=event_object_type,
+            object_key=product_key,
+        )
+
+        description = None
+        try:
+            description = _fetch_description(
+                _query_df,
+                instance_name=instance_name,
+                project_key=project_key or None,
+                object_type=product_type,
+                object_key=product_key,
+            )
+        except Exception:
+            description = None
+
+        return _ok(
+            {
+                "asset": row,
+                "capturedInfo": {"description": description},
+                "usageSummary": {"eventsAllTime": usage},
+                "relatedAssets": related_assets,
+            }
+        )
+
+    except Exception as e:
+        logger.exception("products details failed")
         return _err(str(e), status=500)
 
 

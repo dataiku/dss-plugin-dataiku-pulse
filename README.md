@@ -106,6 +106,16 @@ Frontend build sync helper:
 
 - `scripts/sync_pulse_dashboard_build.sh`
 
+In this Code Studio workspace, the React source for the dashboard lives at:
+- `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/`
+
+Build + sync (workspace example):
+
+```bash
+bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/scripts/build_frontend.sh
+scripts/sync_pulse_dashboard_build.sh /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/build
+```
+
 ---
 
 ## Users page (optional)

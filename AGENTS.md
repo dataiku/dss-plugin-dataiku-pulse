@@ -98,6 +98,16 @@ To update packaged frontend assets from an already-built React app:
 scripts/sync_pulse_dashboard_build.sh /abs/path/to/react/build
 ```
 
+In this Code Studio workspace, the React source for the Pulse dashboard lives outside the plugin repo at:
+- `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/`
+
+Typical workflow:
+
+```bash
+bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/scripts/build_frontend.sh
+scripts/sync_pulse_dashboard_build.sh /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/build
+```
+
 ## Code style guidelines
 
 ### Principles
