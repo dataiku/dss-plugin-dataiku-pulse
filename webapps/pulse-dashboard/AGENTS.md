@@ -25,6 +25,9 @@ This webapp is packaged inside the plugin and is split into:
   - Direct calls like `fetch('/api/status')` will hit the DSS server root and 404.
   - `webapps/pulse-dashboard/body.html` patches `fetch` and `XMLHttpRequest` to rewrite `/api/...` requests to the proxied backend URL.
 - The backend exposes `/api/status` and several JSON APIs used by the packaged React build:
+  - `/api/startup/flags` (feature flags from project variables)
+  - `/api/startup/duckdb` (blocking DB init)
   - `/api/duckdb/query`
   - `/api/debug/duckdb/*` (reload + table introspection)
   - `/api/build/*` (catalog/products/dev-activity views)
+  - `/api/build/users/*` (users activity + drilldowns; gated by `standard.user_activity`)

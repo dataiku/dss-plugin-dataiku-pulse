@@ -22,6 +22,7 @@ Implemented in `custom-recipes/create-gold-tables/recipe.py`:
 - Creates SILVER external views as needed and materializes curated GOLD tables.
   - Metadata tables are driven by YAML specs under `python-lib/data_collection/pulse_duckdb/gold_specs/`.
   - Development activity + object activity are built from curated audit `event_mapping` modules.
+- User activity rollups are built from audit `users/user_activity` SILVER parquet (UI-only activity).
 - Reads the recipe parameter `unload_behavior` (default: `duckdb`).
 - Unloads curated DuckDB tables to the recipe output managed folder:
   - `base_*`, `dim_*`, `fact_*`

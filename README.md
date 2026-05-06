@@ -1,6 +1,6 @@
 # Dataiku Pulse
 
-**Version:** 3.0.5
+**Version:** 3.0.6
 
 Pulse is an administrative dashboard for **Dataiku DSS** that provides centralized visibility into platform metadata and usage across one or more Dataiku instances.
 
@@ -105,3 +105,18 @@ Manual runnable wrappers (useful outside the DSS plugin runtime):
 Frontend build sync helper:
 
 - `scripts/sync_pulse_dashboard_build.sh`
+
+---
+
+## Users page (optional)
+
+The dashboard includes an optional **Users** page (UI-only activity derived from audit logs).
+
+To enable it, set a project *standard* variable (JSON boolean):
+
+```json
+{ "user_activity": true }
+```
+
+When enabled, the UI shows a **Users** navigation section (after Pulse, before Build). When disabled/missing, the Users route redirects to Home.
+
