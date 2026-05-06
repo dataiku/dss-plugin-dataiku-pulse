@@ -79,18 +79,10 @@ def status():
     return jsonify({"status": "Online", "msg": "Backend is running"})
 
 
-@app.route("/api/startup/flags")
-def startup_flags():
-    """Feature flags exposed to the React SPA.
+def _read_standard_project_variables() -> dict[str, Any]:
+    """Best-effort read of DSS project `standard` variables.
 
-    Flags are read from DSS project standard variables so features can be enabled
-    per project.
-
-    Currently supported flags:
-    - `userActivity`: enabled when `standard.user_activity` is JSON boolean `true`.
-
-    Note:
-    - If we cannot resolve the default project / variables, we default to disabled.
+    In local dev runs (outside DSS), this returns an empty dict.
     """
 
     try:
@@ -100,12 +92,99 @@ def startup_flags():
         project = client.get_project(dataiku.default_project_key())
         vars_ = project.get_variables() or {}
         standard = vars_.get("standard") or {}
+        return standard if isinstance(standard, dict) else {}
+    except Exception:
+        return {}
 
+
+def _read_user_profile_exclude_consumer(standard_vars: dict[str, Any]) -> list[str]:
+    """Profiles excluded by the "no consumer" license filter.
+
+    Configured in DSS project variables:
+    - `standard.user_profile_exclude_consumer`: JSON list of strings
+
+    Fallback default if unset/invalid:
+    - ["READER", "AI_CONSUMER"]
+    """
+
+    default = ["READER", "AI_CONSUMER"]
+    raw = standard_vars.get("user_profile_exclude_consumer")
+
+    if isinstance(raw, list):
+        items = [str(v).strip() for v in raw if v is not None and str(v).strip()]
+        if items:
+            return [s.upper() for s in items]
+        return default
+
+    if isinstance(raw, str):
+        parts = [p.strip() for p in raw.split(",")]
+        parts = [p for p in parts if p]
+        if parts:
+            return [p.upper() for p in parts]
+
+    return default
+
+
+_WINDOW_TO_MONTHS = {
+    "this_month": 1,
+    "last_3_months": 3,
+    "last_12_months": 12,
+}
+
+
+def _parse_window_months(value: str | None) -> int | None:
+    if not value:
+        return None
+    value = str(value).strip().lower()
+    months = _WINDOW_TO_MONTHS.get(value)
+    return int(months) if months else None
+
+
+def _parse_license_filter(value: str | None) -> str:
+    value = (value or "").strip().lower()
+    if value in {"no_consumer", "exclude_consumer", "exclude-consumer"}:
+        return "no_consumer"
+    return "all_enabled"
+
+
+@app.route("/api/startup/flags")
+def startup_flags():
+    """Feature flags + small config exposed to the React SPA.
+
+    Flags are read from DSS project standard variables so features can be enabled
+    per project.
+
+    Currently supported flags:
+    - `userActivity`: enabled when `standard.user_activity` is JSON boolean `true`.
+
+    Config values:
+    - `userProfileExcludeConsumer`: resolved exclusion list for the "no_consumer" toggle,
+      read from `standard.user_profile_exclude_consumer`.
+
+    Note:
+    - If we cannot resolve the default project / variables, we default to disabled.
+    """
+
+    try:
+        standard = _read_standard_project_variables()
         user_activity_enabled = standard.get("user_activity") is True
-        return _ok({"flags": {"userActivity": user_activity_enabled}})
+        excluded_profiles = _read_user_profile_exclude_consumer(standard)
+        return _ok(
+            {
+                "flags": {"userActivity": user_activity_enabled},
+                "config": {
+                    "userProfileExcludeConsumer": excluded_profiles,
+                },
+            }
+        )
     except Exception:
         logger.exception("Failed reading startup flags")
-        return _ok({"flags": {"userActivity": False}})
+        return _ok(
+            {
+                "flags": {"userActivity": False},
+                "config": {"userProfileExcludeConsumer": ["READER", "AI_CONSUMER"]},
+            }
+        )
 
 
 @app.route("/api/startup/duckdb")
@@ -944,6 +1023,264 @@ def build_users_facets():
         return _err(str(e), status=500)
 
 
+def _window_months_where_sql(*, months: int) -> str:
+    # months=3 means: this month + previous 2.
+    # We use month boundaries (calendar months) instead of rolling N days.
+    months = max(1, min(24, int(months)))
+    return f"day >= date_trunc('month', current_date) - INTERVAL {months - 1} MONTH"
+
+
+@app.route("/api/build/users/kpis")
+def build_users_kpis():
+    """User directory KPIs for the Users page.
+
+    KPIs are computed from `base_users_instance_metadata_history` so they reflect
+    per-instance license/profile state.
+
+    Query parameters:
+    - licenseFilter: all_enabled|no_consumer
+    - instance_name: optional filter
+    """
+
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        standard = _read_standard_project_variables()
+        excluded_profiles = _read_user_profile_exclude_consumer(standard)
+
+        license_filter = _parse_license_filter(request.args.get("licenseFilter"))
+        instance_name = _parse_instance_name(request.args.get("instance_name"))
+
+        exclude_sql = ""
+        exclude_params: list[Any] = []
+        if license_filter == "no_consumer" and excluded_profiles:
+            exclude_sql = (
+                f" AND coalesce(upper(trim(users_userprofile)), '') NOT IN ({_sql_placeholders(len(excluded_profiles))})"
+            )
+            exclude_params = list(excluded_profiles)
+
+        instance_sql = ""
+        instance_params: list[Any] = []
+        if instance_name:
+            instance_sql = " AND instance_name = ?"
+            instance_params = [instance_name]
+
+        df = _query_df(
+            (
+                "WITH latest AS (\n"
+                "  SELECT\n"
+                "    instance_name,\n"
+                "    lower(trim(users_login)) AS login_norm,\n"
+                "    users_enabled,\n"
+                "    users_userprofile,\n"
+                "    run_ts,\n"
+                "    ROW_NUMBER() OVER (\n"
+                "      PARTITION BY instance_name, lower(trim(users_login))\n"
+                "      ORDER BY run_ts DESC\n"
+                "    ) AS rn\n"
+                "  FROM base_users_instance_metadata_history\n"
+                "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
+                f"    {instance_sql}\n"
+                ")\n"
+                "SELECT\n"
+                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE) AS enabled_users,\n"
+                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE" + exclude_sql + ") AS enabled_users_no_consumer\n"
+                "FROM latest\n"
+                "WHERE rn = 1;"
+            ),
+            [*instance_params, *exclude_params],
+        )
+
+        row = _df_records(df)[0] if len(df) else {}
+
+        return _ok(
+            {
+                "instanceName": instance_name,
+                "licenseFilter": license_filter,
+                "meta": {
+                    "excludedProfiles": excluded_profiles,
+                    "excludedProfilesSource": "standard.user_profile_exclude_consumer",
+                },
+                "kpis": row,
+            }
+        )
+
+    except Exception as e:
+        logger.exception("users kpis failed")
+        return _err(str(e), status=500)
+
+
+@app.route("/api/build/users/active-monthly")
+def build_users_active_monthly():
+    """Monthly active users (calendar months) with license filter.
+
+    Definition of "active": any UI activity (viewing or developing actions)
+    recorded in `fact_user_activity_daily`.
+
+    License filter is applied using the per-instance snapshot table
+    `base_users_instance_metadata_history`:
+    - all_enabled: enabled users
+    - no_consumer: enabled users excluding profiles from
+      `standard.user_profile_exclude_consumer` (default: READER, AI_CONSUMER)
+
+    Query parameters:
+    - window: this_month|last_3_months|last_12_months (default: last_3_months)
+    - months: integer (optional override; 1..24)
+    - licenseFilter: all_enabled|no_consumer
+    - instance_name: optional filter
+    """
+
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        standard = _read_standard_project_variables()
+        excluded_profiles = _read_user_profile_exclude_consumer(standard)
+
+        months = _parse_window_months(request.args.get("window"))
+        if months is None:
+            months = int(request.args.get("months") or 3)
+        months = max(1, min(24, months))
+
+        license_filter = _parse_license_filter(request.args.get("licenseFilter"))
+        instance_name = _parse_instance_name(request.args.get("instance_name"))
+
+        # Month range (calendar months, including current partial month).
+        # We keep these as SQL expressions (not parameters) to avoid interval-typing issues.
+        start_month_expr = f"(date_trunc('month', current_date) - INTERVAL {months - 1} MONTH)::DATE"
+        end_month_expr = "date_trunc('month', current_date)::DATE"
+        next_month_expr = "(date_trunc('month', current_date) + INTERVAL 1 MONTH)::DATE"
+
+        # Build profile exclusion SQL.
+        exclude_sql = ""
+        exclude_params: list[Any] = []
+        if license_filter == "no_consumer" and excluded_profiles:
+            exclude_sql = (
+                f" AND coalesce(upper(trim(u.users_userprofile)), '') NOT IN ({_sql_placeholders(len(excluded_profiles))})"
+            )
+            exclude_params = list(excluded_profiles)
+
+        instance_sql = ""
+        instance_params_aggregate: list[Any] = []
+        instance_params_by_instance: list[Any] = []
+        instances_filter_sql = ""
+        if instance_name:
+            instance_sql = " AND a.instance_name = ?"
+            instance_params_aggregate = [instance_name]
+            # Used twice in the by-instance query:
+            # - once in the activity CTE (performance)
+            # - once to restrict the generated instance list
+            instance_params_by_instance = [instance_name, instance_name]
+            instances_filter_sql = " AND instance_name = ?"
+
+        # By-instance series.
+        by_instance_df = _query_df(
+            (
+                "WITH months AS (\n"
+                f"  SELECT * FROM generate_series({start_month_expr}, ({next_month_expr} - INTERVAL 1 DAY)::DATE, INTERVAL 1 MONTH) AS t(month_start)\n"
+                "),\n"
+                "activity AS (\n"
+                "  SELECT\n"
+                "    date_trunc('month', a.day) AS month_start,\n"
+                "    a.instance_name,\n"
+                "    a.login_norm\n"
+                "  FROM fact_user_activity_daily a\n"
+                "  JOIN base_users_instance_metadata_history u\n"
+                "    ON u.instance_name = a.instance_name\n"
+                "   AND lower(trim(u.users_login)) = a.login_norm\n"
+                "  WHERE "
+                f"    a.day >= {start_month_expr}\n"
+                f"    AND a.day < {next_month_expr}\n"
+                "    AND u.users_enabled IS TRUE\n"
+                f"    {exclude_sql}\n"
+                f"    {instance_sql}\n"
+                "),\n"
+                "agg AS (\n"
+                "  SELECT\n"
+                "    month_start,\n"
+                "    instance_name,\n"
+                "    COUNT(DISTINCT login_norm) AS active_users\n"
+                "  FROM activity\n"
+                "  GROUP BY 1, 2\n"
+                ")\n"
+                "SELECT\n"
+                "  CAST(m.month_start AS VARCHAR) AS month,\n"
+                "  i.instance_name,\n"
+                "  COALESCE(a.active_users, 0) AS active_users\n"
+                "FROM months m\n"
+                "CROSS JOIN (\n"
+                "  SELECT DISTINCT instance_name\n"
+                "  FROM base_users_instance_metadata_history\n"
+                "  WHERE instance_name IS NOT NULL\n"
+                f"  {instances_filter_sql}\n"
+                ") i\n"
+                "LEFT JOIN agg a\n"
+                "  ON a.month_start = m.month_start AND a.instance_name = i.instance_name\n"
+                "ORDER BY m.month_start, i.instance_name;"
+            ),
+            [*exclude_params, *instance_params_by_instance],
+        )
+
+        # Aggregate series (distinct across instances).
+        aggregate_df = _query_df(
+            (
+                "WITH months AS (\n"
+                f"  SELECT * FROM generate_series({start_month_expr}, ({next_month_expr} - INTERVAL 1 DAY)::DATE, INTERVAL 1 MONTH) AS t(month_start)\n"
+                "),\n"
+                "activity AS (\n"
+                "  SELECT\n"
+                "    date_trunc('month', a.day) AS month_start,\n"
+                "    a.login_norm\n"
+                "  FROM fact_user_activity_daily a\n"
+                "  JOIN base_users_instance_metadata_history u\n"
+                "    ON u.instance_name = a.instance_name\n"
+                "   AND lower(trim(u.users_login)) = a.login_norm\n"
+                "  WHERE "
+                f"    a.day >= {start_month_expr}\n"
+                f"    AND a.day < {next_month_expr}\n"
+                "    AND u.users_enabled IS TRUE\n"
+                f"    {exclude_sql}\n"
+                f"    {instance_sql}\n"
+                "),\n"
+                "agg AS (\n"
+                "  SELECT\n"
+                "    month_start,\n"
+                "    COUNT(DISTINCT login_norm) AS active_users\n"
+                "  FROM activity\n"
+                "  GROUP BY 1\n"
+                ")\n"
+                "SELECT\n"
+                "  CAST(m.month_start AS VARCHAR) AS month,\n"
+                "  COALESCE(a.active_users, 0) AS active_users\n"
+                "FROM months m\n"
+                "LEFT JOIN agg a\n"
+                "  ON a.month_start = m.month_start\n"
+                "ORDER BY m.month_start;"
+            ),
+            [*exclude_params, *instance_params_aggregate],
+        )
+
+        return _ok(
+            {
+                "window": request.args.get("window") or None,
+                "months": months,
+                "licenseFilter": license_filter,
+                "instanceName": instance_name,
+                "meta": {
+                    "excludedProfiles": excluded_profiles if license_filter == "no_consumer" else [],
+                    "excludedProfilesSource": "standard.user_profile_exclude_consumer",
+                },
+                "byInstance": _df_records(by_instance_df),
+                "aggregate": _df_records(aggregate_df),
+            }
+        )
+
+    except Exception as e:
+        logger.exception("users active monthly failed")
+        return _err(str(e), status=500)
+
+
 @app.route("/api/build/users/leaderboard")
 def build_users_leaderboard():
     """Return leaderboards for viewing and developing activity."""
@@ -952,13 +1289,22 @@ def build_users_leaderboard():
         _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
         _ensure_ready_if_enabled()
 
-        days = int(request.args.get("days") or 30)
-        days = max(1, min(365, days))
+        # Prefer calendar-month windows if provided.
+        months = _parse_window_months(request.args.get("window"))
+        if months is None:
+            months = int(request.args.get("months") or 0) or None
+
+        if months is not None:
+            months = max(1, min(24, months))
+            where = [_window_months_where_sql(months=months)]
+            params: list[Any] = []
+        else:
+            days = int(request.args.get("days") or 30)
+            days = max(1, min(365, days))
+            where = ["day >= current_date - ?::INTEGER"]
+            params = [days]
 
         instance_name = _parse_instance_name(request.args.get("instance_name"))
-
-        where = ["day >= current_date - ?::INTEGER"]
-        params: list[Any] = [days]
 
         if instance_name:
             where.append("instance_name = ?")
@@ -1023,14 +1369,16 @@ def build_users_leaderboard():
             params,
         )
 
-        return _ok(
-            {
-                "days": days,
-                "instanceName": instance_name,
-                "viewing": _df_records(viewing_df),
-                "developing": _df_records(developing_df),
-            }
-        )
+        payload: dict[str, Any] = {
+            "instanceName": instance_name,
+            "viewing": _df_records(viewing_df),
+            "developing": _df_records(developing_df),
+        }
+        if months is not None:
+            payload["months"] = months
+        else:
+            payload["days"] = int(request.args.get("days") or 30)
+        return _ok(payload)
 
     except Exception as e:
         logger.exception("users leaderboard failed")
@@ -1047,13 +1395,22 @@ def build_user_detail(login: str):
         if not login_norm:
             return _err("Missing login")
 
-        days = int(request.args.get("days") or 30)
-        days = max(1, min(365, days))
+        # Prefer calendar-month windows if provided.
+        months = _parse_window_months(request.args.get("window"))
+        if months is None:
+            months = int(request.args.get("months") or 0) or None
+
+        if months is not None:
+            months = max(1, min(24, months))
+            where = [_window_months_where_sql(months=months), "login_norm = ?"]
+            params: list[Any] = [login_norm]
+        else:
+            days = int(request.args.get("days") or 30)
+            days = max(1, min(365, days))
+            where = ["day >= current_date - ?::INTEGER", "login_norm = ?"]
+            params = [days, login_norm]
 
         instance_name = _parse_instance_name(request.args.get("instance_name"))
-
-        where = ["day >= current_date - ?::INTEGER", "login_norm = ?"]
-        params: list[Any] = [days, login_norm]
 
         if instance_name:
             where.append("instance_name = ?")
@@ -1075,6 +1432,11 @@ def build_user_detail(login: str):
             params,
         )
         summary = _df_records(summary_df)[0] if len(summary_df) else None
+        if summary is not None:
+            if months is not None:
+                summary["months"] = months
+            else:
+                summary["days"] = int(request.args.get("days") or 30)
 
         user_df = _query_df(
             """
@@ -1128,16 +1490,25 @@ def build_user_top_projects(login: str):
         if not login_norm:
             return _err("Missing login")
 
-        days = int(request.args.get("days") or 30)
-        days = max(1, min(365, days))
+        # Prefer calendar-month windows if provided.
+        months = _parse_window_months(request.args.get("window"))
+        if months is None:
+            months = int(request.args.get("months") or 0) or None
+
+        if months is not None:
+            months = max(1, min(24, months))
+            where = [_window_months_where_sql(months=months), "login_norm = ?"]
+            params: list[Any] = [login_norm]
+        else:
+            days = int(request.args.get("days") or 30)
+            days = max(1, min(365, days))
+            where = ["day >= current_date - ?::INTEGER", "login_norm = ?"]
+            params = [days, login_norm]
 
         limit = int(request.args.get("limit") or 10)
         limit = max(1, min(100, limit))
 
         instance_name = _parse_instance_name(request.args.get("instance_name"))
-
-        where = ["day >= current_date - ?::INTEGER", "login_norm = ?"]
-        params: list[Any] = [days, login_norm]
 
         if instance_name:
             where.append("instance_name = ?")
@@ -1162,7 +1533,12 @@ def build_user_top_projects(login: str):
             [*params, limit],
         )
 
-        return _ok({"rows": _df_records(df)})
+        payload: dict[str, Any] = {"rows": _df_records(df)}
+        if months is not None:
+            payload["months"] = months
+        else:
+            payload["days"] = int(request.args.get("days") or 30)
+        return _ok(payload)
 
     except Exception as e:
         logger.exception("user top projects failed")
