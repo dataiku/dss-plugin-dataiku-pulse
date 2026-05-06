@@ -338,8 +338,18 @@
               if (!url) return url;
               if (typeof url !== "string") return url;
 
+              // The built React app uses `./api/...` when no apiBase is configured.
+              // In DSS, all API calls must go through `dataiku.getWebAppBackendUrl`.
+              var rel = null;
               if (url.startsWith("/api/")) {
-                var rel = url.replace(/^\//, "");
+                rel = url.replace(/^\//, "");
+              } else if (url.startsWith("./api/")) {
+                rel = url.replace(/^\.\//, "");
+              } else if (url.startsWith("api/")) {
+                rel = url;
+              }
+
+              if (rel) {
                 var rewritten = getWebAppBackendUrl(rel);
                 if (rewritten) return rewritten;
               }
