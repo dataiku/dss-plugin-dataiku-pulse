@@ -5,19 +5,17 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List
 
-import dataiku
 import pandas as pd
 from dataiku.runnables import ResultTable, Runnable
 
 from data_collection.data_collection.collect_all_projects import collect_all_projects
 from data_collection.helper import (
     CursorSpec,
-    resolve_worker_project_key,
-    DSSFolderTarget,
     PulseMacroContext,
     build_context,
     ensure_output_folder,
     resolve_cursor_ts,
+    resolve_worker_project_key,
     update_cursor_ts,
 )
 
@@ -191,7 +189,7 @@ class MyRunnable(Runnable):
             debug_dir = Path("/tmp/pulse_project_debug")
 
         result = collect_all_projects(
-            client=ctx.remote_client,
+            client=ctx.local_client,
             output_base_dir=output_base_dir,
             project_keys=keys,
             since=since.to_pydatetime(),
