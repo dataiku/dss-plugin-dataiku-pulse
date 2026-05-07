@@ -955,6 +955,403 @@ def build_products():
         return _err(str(e), status=500)
 
 
+_CONSUMPTION_PRODUCT_OBJECT_TYPES = (
+    "api_endpoint",
+    "agent",
+    "dashboard",
+    "web_application",
+    "dataiku_application",
+)
+
+
+def _parse_string_list_param(value: str | None) -> list[str]:
+    if not value:
+        return []
+    items = [v.strip() for v in str(value).split(",")]
+    return [v for v in items if v]
+
+
+def _build_in_clause(column: str, values: list[str], params: list[Any]) -> str:
+    if not values:
+        return ""
+    placeholders = ", ".join(["?"] * len(values))
+    params.extend(values)
+    return f" AND {column} IN ({placeholders})"
+
+
+def _build_like_clause(column: str, value: str | None, params: list[Any]) -> str:
+    if not value or not str(value).strip():
+        return ""
+    params.append(f"%{str(value).strip()}%")
+    return f" AND {column} ILIKE ?"
+
+
+@app.route("/api/consumption/products/facets")
+def consumption_products_facets():
+    """Facets for consumption filters."""
+
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        quoted_types = ", ".join("'" + t.replace("'", "''") + "'" for t in _CONSUMPTION_PRODUCT_OBJECT_TYPES)
+
+        instances = (
+            _query_df(
+                f"SELECT DISTINCT instance_name FROM v_object_activity_events WHERE object_type IN ({quoted_types}) ORDER BY 1;"
+            )["instance_name"]
+            .dropna()
+            .astype(str)
+            .tolist()
+        )
+
+        projects = (
+            _query_df(
+                f"SELECT DISTINCT project_key FROM v_object_activity_events WHERE object_type IN ({quoted_types}) ORDER BY 1;"
+            )["project_key"]
+            .dropna()
+            .astype(str)
+            .tolist()
+        )
+
+        types = (
+            _query_df(
+                f"SELECT DISTINCT object_type FROM v_object_activity_events WHERE object_type IN ({quoted_types}) ORDER BY 1;"
+            )["object_type"]
+            .dropna()
+            .astype(str)
+            .tolist()
+        )
+
+        owners = (
+            _query_df("SELECT DISTINCT owner_login FROM base_product_index ORDER BY 1;")["owner_login"]
+            .dropna()
+            .astype(str)
+            .tolist()
+        )
+
+        return _ok({"instances": instances, "projects": projects, "types": types, "owners": owners})
+
+    except Exception as e:
+        logger.exception("consumption products facets failed")
+        return _err(str(e), status=500)
+
+
+@app.route("/api/consumption/products/details")
+def consumption_products_details():
+    """Consumption drilldown for a single product (time window)."""
+
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        product_id = (request.args.get("productId") or "").strip()
+        if not _is_md5(product_id):
+            return _err("Invalid or missing productId", status=400)
+
+        days = int(request.args.get("days") or 30)
+        days = max(1, min(365, days))
+
+        row_df = _query_df(
+            """
+            SELECT
+              instance_name AS instanceName,
+              project_key AS projectKey,
+              product_type AS productType,
+              product_key AS productKey,
+              product_name AS productName,
+              owner_login AS ownerLogin
+            FROM final_build_products_catalog
+            WHERE product_id = ?
+            LIMIT 1;
+            """.strip(),
+            [product_id],
+        )
+        if not len(row_df.index):
+            return _err("Product not found", status=404)
+
+        row = _df_records(row_df)[0]
+        instance_name = str(row.get("instanceName") or "")
+        project_key = str(row.get("projectKey") or "")
+        product_type = str(row.get("productType") or "")
+        product_key = str(row.get("productKey") or "")
+
+        params: list[Any] = [days, instance_name, project_key, product_type, product_key]
+        where = (
+            "timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY"
+            " AND instance_name = ?"
+            " AND project_key = ?"
+            " AND object_type = ?"
+            " AND object_key = ?"
+        )
+
+        totals_df = _query_df(
+            (
+                "SELECT\n"
+                "  COUNT(*) AS events,\n"
+                "  COUNT(DISTINCT login) AS active_users,\n"
+                "  MAX(timestamp) AS last_activity_at\n"
+                "FROM v_object_activity_events\n"
+                f"WHERE {where};"
+            ),
+            params,
+        )
+        totals = _df_records(totals_df)[0] if len(totals_df.index) else {}
+
+        daily_df = _query_df(
+            (
+                "SELECT\n"
+                "  CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,\n"
+                "  COUNT(*) AS value\n"
+                "FROM v_object_activity_events\n"
+                f"WHERE {where}\n"
+                "GROUP BY 1\n"
+                "ORDER BY 1;"
+            ),
+            params,
+        )
+
+        top_users_df = _query_df(
+            (
+                "SELECT\n"
+                "  login AS label,\n"
+                "  COUNT(*) AS value\n"
+                "FROM v_object_activity_events\n"
+                f"WHERE {where}\n"
+                "GROUP BY 1\n"
+                "ORDER BY value DESC\n"
+                "LIMIT 25;"
+            ),
+            params,
+        )
+
+        activity_daily_rows = []
+        for r in _df_records(daily_df):
+            label = r.get("label") or r.get("day")
+            if label is None:
+                continue
+            activity_daily_rows.append({"label": label, "value": r.get("value")})
+
+        return _ok(
+            {
+                "windowDays": days,
+                "product": row,
+                "totals": {
+                    "events": int(totals.get("events") or 0),
+                    "activeUsers": int(totals.get("active_users") or 0),
+                    "lastActivityAt": totals.get("last_activity_at"),
+                },
+                "activityDaily": activity_daily_rows,
+                "topUsers": _df_records(top_users_df),
+            }
+        )
+
+    except Exception as e:
+        logger.exception("consumption products details failed")
+        return _err(str(e), status=500)
+
+
+@app.route("/api/consumption/products/summary")
+def consumption_products_summary():
+    """Consumption overview for product-level objects.
+
+    Supports optional filters:
+    - days: int (1..365)
+    - q: substring search over product key/name
+    - instances: CSV list
+    - projects: CSV list
+    - types: CSV list (subset of product object types)
+    - owner: substring match over owner_login
+    """
+
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        days = int(request.args.get("days") or 30)
+        days = max(1, min(365, days))
+
+        q = (request.args.get("q") or "").strip()
+        instances = _parse_string_list_param(request.args.get("instances"))
+        projects = _parse_string_list_param(request.args.get("projects"))
+        types = _parse_string_list_param(request.args.get("types"))
+        owner = (request.args.get("owner") or "").strip()
+
+        allowed_types = set(_CONSUMPTION_PRODUCT_OBJECT_TYPES)
+        types = [t for t in types if t in allowed_types]
+
+        params: list[Any] = [days]
+
+        where = " WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY"
+
+        # Limit to product object types by default.
+        if types:
+            where += _build_in_clause("object_type", types, params)
+        else:
+            quoted_types = ", ".join("'" + t.replace("'", "''") + "'" for t in _CONSUMPTION_PRODUCT_OBJECT_TYPES)
+            where += f" AND object_type IN ({quoted_types})"
+
+        where += " AND object_key IS NOT NULL"
+        where += _build_in_clause("instance_name", instances, params)
+        where += _build_in_clause("project_key", projects, params)
+
+        # Use base_product_index to filter by owner and query string.
+        # This avoids scanning raw event details_json.
+        idx_filters = " WHERE 1=1"
+        idx_params: list[Any] = []
+        idx_filters += _build_like_clause("owner_login", owner, idx_params)
+        if q:
+            idx_filters += _build_like_clause("product_name", q, idx_params)
+            # Also match product_key.
+            idx_filters += _build_like_clause("product_key", q, idx_params)
+
+        idx_df = None
+        idx_pairs: set[tuple[str, str, str, str]] | None = None
+        if idx_filters != " WHERE 1=1":
+            idx_df = _query_df(
+                (
+                    "SELECT instance_name, project_key, product_type, product_key "
+                    "FROM base_product_index" + idx_filters + ";"
+                ),
+                idx_params,
+            )
+            idx_pairs = set(
+                (
+                    str(r.get("instance_name") or ""),
+                    str(r.get("project_key") or ""),
+                    str(r.get("product_type") or ""),
+                    str(r.get("product_key") or ""),
+                )
+                for r in _df_records(idx_df)
+            )
+
+        def _apply_idx_pairs_sql(alias: str) -> tuple[str, list[Any]]:
+            if not idx_pairs:
+                return "", []
+            pairs = list(idx_pairs)
+            sub_params: list[Any] = []
+            clauses = []
+            for inst, proj, typ, key in pairs:
+                clauses.append(f"({alias}.instance_name = ? AND {alias}.project_key = ? AND {alias}.object_type = ? AND {alias}.object_key = ?)")
+                sub_params.extend([inst, proj, typ, key])
+            return " AND (" + " OR ".join(clauses) + ")", sub_params
+
+        idx_where_sql, idx_where_params = _apply_idx_pairs_sql("e")
+
+        totals_df = _query_df(
+            (
+                "SELECT\n"
+                "  COUNT(*) AS events,\n"
+                "  COUNT(DISTINCT login) AS active_users,\n"
+                "  COUNT(DISTINCT object_key) AS active_products\n"
+                "FROM v_object_activity_events e\n"
+                + where
+                + idx_where_sql
+                + ";"
+            ),
+            [*params, *idx_where_params],
+        )
+        totals = _df_records(totals_df)[0] if len(totals_df.index) else {}
+
+        by_type_df = _query_df(
+            (
+                "SELECT\n"
+                "  object_type AS label,\n"
+                "  COUNT(*) AS events,\n"
+                "  COUNT(DISTINCT login) AS active_users,\n"
+                "  COUNT(DISTINCT object_key) AS active_products\n"
+                "FROM v_object_activity_events e\n"
+                + where
+                + idx_where_sql
+                + "\nGROUP BY 1\n"
+                "ORDER BY events DESC;"
+            ),
+            [*params, *idx_where_params],
+        )
+
+        activity_daily_df = _query_df(
+            (
+                "SELECT\n"
+                "  CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,\n"
+                "  COUNT(*) AS value\n"
+                "FROM v_object_activity_events e\n"
+                + where
+                + idx_where_sql
+                + "\nGROUP BY 1\n"
+                "ORDER BY 1;"
+            ),
+            [*params, *idx_where_params],
+        )
+
+        top_products_df = _query_df(
+            (
+                "WITH act AS (\n"
+                "  SELECT\n"
+                "    instance_name,\n"
+                "    project_key,\n"
+                "    object_type AS product_type,\n"
+                "    object_key AS product_key,\n"
+                "    COUNT(*) AS events,\n"
+                "    COUNT(DISTINCT login) AS active_users,\n"
+                "    MAX(timestamp) AS last_activity_at\n"
+                "  FROM v_object_activity_events e\n"
+                + where
+                + idx_where_sql
+                + "\n  GROUP BY 1,2,3,4\n"
+                "),\n"
+                "idx AS (\n"
+                "  SELECT instance_name, project_key, product_type, product_key, product_name, owner_login\n"
+                "  FROM base_product_index\n"
+                ")\n"
+                "SELECT\n"
+                "  md5(concat_ws('|', act.instance_name, act.project_key, act.product_type, act.product_key)) AS productId,\n"
+                "  act.instance_name AS instanceName,\n"
+                "  act.project_key AS projectKey,\n"
+                "  act.product_type AS productType,\n"
+                "  act.product_key AS productKey,\n"
+                "  idx.product_name AS productName,\n"
+                "  idx.owner_login AS ownerLogin,\n"
+                "  act.events AS events,\n"
+                "  act.active_users AS activeUsers,\n"
+                "  act.last_activity_at AS lastActivityAt\n"
+                "FROM act\n"
+                "LEFT JOIN idx\n"
+                "  ON idx.instance_name = act.instance_name\n"
+                " AND idx.project_key = act.project_key\n"
+                " AND idx.product_type = act.product_type\n"
+                " AND idx.product_key = act.product_key\n"
+                "ORDER BY events DESC NULLS LAST, lastActivityAt DESC NULLS LAST\n"
+                "LIMIT 50;"
+            ),
+            [*params, *idx_where_params],
+        )
+
+        activity_daily_rows = []
+        for row in _df_records(activity_daily_df):
+            label = row.get("label") or row.get("day")
+            if label is None:
+                continue
+            activity_daily_rows.append({"label": label, "value": row.get("value")})
+
+        return _ok(
+            {
+                "windowDays": days,
+                "totals": {
+                    "events": int(totals.get("events") or 0),
+                    "activeUsers": int(totals.get("active_users") or 0),
+                    "activeProducts": int(totals.get("active_products") or 0),
+                },
+                "byType": _df_records(by_type_df),
+                "activityDaily": activity_daily_rows,
+                "topProducts": _df_records(top_products_df),
+            }
+        )
+
+    except Exception as e:
+        logger.exception("consumption products summary failed")
+        return _err(str(e), status=500)
+
+
 @app.route("/api/build/development-activity")
 def build_development_activity():
     try:
