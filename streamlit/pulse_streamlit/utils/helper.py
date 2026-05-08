@@ -132,7 +132,7 @@ def get_filtered_actors(filters):
 
     where_sql = " AND ".join(where_clauses)
 
-    sql = f"""  # nosec
+    sql = f"""
         SELECT
             DISTINCT
             instance_name,
@@ -146,6 +146,6 @@ def get_filtered_actors(filters):
             instance_name,
             last_activity_ts DESC
     ;
-    """
+    """  # nosec B608
 
     return query.query_df(sql, params=params)

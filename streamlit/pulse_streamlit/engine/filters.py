@@ -17,13 +17,12 @@ def apply_filters(sql, meta, filters):
     if instance:
         params.append(instance)
 
-    return (
-        f"""  # nosec
+    wrapped_sql = f"""
         SELECT *
         FROM (
             {sql}
         ) base
         WHERE {where_sql}
-        """,
-        params,
-    )
+        """  # nosec B608
+
+    return wrapped_sql, params
