@@ -45,8 +45,10 @@ def debug_duckdb():
             if table_name not in allowed_tables:
                 st.error("Invalid table selection")
                 return
+
+            safe_table = '"' + table_name.replace('"', '""') + '"'
             data_df = query.query_df(
-                f"SELECT * FROM {table_name} LIMIT 10",
+                f"SELECT * FROM {safe_table} LIMIT 10",
                 page="DEBUG",
             )
             st.dataframe(
@@ -55,7 +57,7 @@ def debug_duckdb():
             )
             st.markdown("---")
             st.dataframe(
-                query.query_df(f"DESCRIBE {table_name}", page="DEBUG"),
+                query.query_df(f"DESCRIBE {safe_table}", page="DEBUG"),
                 hide_index=True,
             )
             st.markdown("---")
