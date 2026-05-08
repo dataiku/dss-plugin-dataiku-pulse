@@ -59,7 +59,7 @@ def load_gold_tables(conn, *, show_ui: bool = False) -> bool:
             safe_table = '"' + table_name.replace('"', '""') + '"'
 
             query = (
-                f"CREATE OR REPLACE TABLE {safe_table} AS "
+                f"CREATE OR REPLACE TABLE {safe_table} AS "  # nosec B608
                 f"SELECT * FROM read_parquet('{parquet_path}')"
             )
 

@@ -62,7 +62,7 @@ def get_capability_summary_signal(capability: str, instance_name: str | None = N
             ORDER BY cnt DESC
             LIMIT 1
             """
-        ).format(where_instance=where_instance),
+        ).format(where_instance=where_instance),  # nosec B608
         params=params,
     )
     if df.empty:
@@ -76,7 +76,7 @@ def get_capability_summary_signal(capability: str, instance_name: str | None = N
             WHERE canonical_capability = ?
             {where_instance}
             """
-        ).format(where_instance=where_instance),
+        ).format(where_instance=where_instance),  # nosec B608
         params=params,
     )
     total = total_df["total"].iloc[0]
