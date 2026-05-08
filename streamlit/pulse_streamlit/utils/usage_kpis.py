@@ -72,13 +72,35 @@ def get_total_build_events_last_30_days(tab_scope=None):
                 f"login = {_sql_quote(login)}"
             )
     where_sql = " AND ".join(where_clauses)
-    sql = f"""
+    sql = """
         SELECT
             COALESCE(SUM(build_events), 0) AS total_events
         FROM actor_usage_last_30_days_base
-        WHERE {where_sql};
+        WHERE login NOT LIKE 'api:%'
+        {where_instance}
+        {where_login}
+    ;
     """
-    df = query.query_df(sql)
+
+    where_instance = ""
+    where_login = ""
+    params = []
+
+    if tab_scope:
+        instance_name = tab_scope.get("instance_name")
+        if instance_name and instance_name != "All (General)":
+            where_instance = "AND instance_name = ?"
+            params.append(instance_name)
+
+        login = tab_scope.get("login")
+        if login:
+            where_login = "AND login = ?"
+            params.append(login)
+
+    df = query.query_df(
+        sql.format(where_instance=where_instance, where_login=where_login),
+        params=params if params else None,
+    )
     if df.empty:
         return 0
     value = df.iloc[0]["total_events"]
@@ -88,22 +110,23 @@ def get_total_build_events_last_30_days(tab_scope=None):
 
 
 def get_subcategory_counts_last_30_days(capability, instance_name=None):
-    where_clauses = [
-        f"canonical_capability = {_sql_quote(capability)}"
-    ]
-    if instance_name and instance_name != "All (General)":
-        where_clauses.append(
-            f"instance_name = {_sql_quote(instance_name)}"
-        )
-    where_sql = " AND ".join(where_clauses)
-    sql = f"""
+    sql = """
         SELECT
             dataiku_category,
             SUM(event_count) AS total_events
         FROM capability_subcategory_usage_last_30_days_base
-        WHERE {where_sql}
+        WHERE canonical_capability = ?
+        {where_instance}
         GROUP BY dataiku_category
         ORDER BY total_events DESC
     ;
     """
-    return query.query_df(sql)
+
+    where_instance = ""
+    params = [capability]
+
+    if instance_name and instance_name != "All (General)":
+        where_instance = "AND instance_name = ?"
+        params.append(instance_name)
+
+    return query.query_df(sql.format(where_instance=where_instance), params=params)
