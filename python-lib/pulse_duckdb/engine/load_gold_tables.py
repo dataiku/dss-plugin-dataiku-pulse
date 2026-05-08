@@ -55,8 +55,11 @@ def load_gold_tables(conn, *, show_ui: bool = False) -> bool:
                 )
                 progress_bar.progress(int(idx / total * 100), text=progress_text)
 
+            if not table_name.isidentifier():
+                raise ValueError(f"Invalid table name: {table_name}")
+
             query = (
-                f"CREATE OR REPLACE TABLE {table_name} AS "  # nosec
+                f"CREATE OR REPLACE TABLE {table_name} AS "
                 f"SELECT * FROM read_parquet('{parquet_path}')"
             )
 
