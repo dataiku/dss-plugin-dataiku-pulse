@@ -89,11 +89,10 @@ def reg_dss_source_folder_df(conn, *, data_src: str, show_ui: bool = False) -> b
 
         conn.register("df_view", dss_src_fld_df)
 
-        if not table_name.isidentifier():
-            raise ValueError(f"Invalid table name: {table_name}")
+        safe_table = '"' + table_name.replace('"', '""') + '"'
 
         conn.execute(f"""
-            CREATE OR REPLACE TABLE {table_name} AS
+            CREATE OR REPLACE TABLE {safe_table} AS
             SELECT * FROM df_view
         """)
 

@@ -48,7 +48,7 @@ def debug_duckdb():
 
             safe_table = '"' + table_name.replace('"', '""') + '"'
             data_df = query.query_df(
-                f"SELECT * FROM {safe_table} LIMIT 10",
+                "SELECT * FROM duckdb_tables() LIMIT 10",
                 page="DEBUG",
             )
             st.dataframe(
@@ -57,7 +57,7 @@ def debug_duckdb():
             )
             st.markdown("---")
             st.dataframe(
-                query.query_df(f"DESCRIBE {safe_table}", page="DEBUG"),
+                query.query_df("DESCRIBE SELECT * FROM duckdb_tables()", page="DEBUG"),
                 hide_index=True,
             )
             st.markdown("---")
