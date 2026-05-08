@@ -1,10 +1,12 @@
 import logging
+import os
+import platform
 from pathlib import Path
 
 import duckdb
 import streamlit as st
 
-from pulse_duckdb.settings import DB_PATH
+from pulse_duckdb.settings import BASE_DIR, DB_PATH
 from pulse_duckdb.engine import storage_config
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,57 @@ def reset_duckdb():
 # -------------------------------------------------------------------
 # DuckDB initialization
 # -------------------------------------------------------------------
+def _configure_extensions(conn) -> None:
+    """Load DuckDB extensions bundled with the plugin.
+
+    This avoids `INSTALL` calls that would reach out to the internet,
+    which fails for customers behind a firewall.
+    """
+
+    # Only bundle linux_amd64 for now
+    if platform.system().lower() != "linux" or platform.machine().lower() not in {"x86_64", "amd64"}:
+        return
+
+    duckdb_version = duckdb.__version__
+
+    # DuckDB appends `v<version>/<platform>` under `extension_directory`.
+    # So we set `extension_directory` to the root and store files under
+    # `duckdb_extensions/vX.Y.Z/linux_amd64/`.
+    ext_roots = [
+        # Dev Streamlit runs from repo
+        (BASE_DIR / ".." / "streamlit" / "resource" / "duckdb_extensions").resolve(),
+        # DSS plugin resource root
+        (BASE_DIR / ".." / "resource" / "duckdb_extensions").resolve(),
+    ]
+
+    for ext_root in ext_roots:
+        ext_file = (
+            ext_root
+            / f"v{duckdb_version}"
+            / "linux_amd64"
+            / "httpfs.duckdb_extension"
+        )
+
+        if not ext_file.exists():
+            continue
+
+        conn.execute(f"SET extension_directory='{ext_root.as_posix()}'")
+        try:
+            conn.execute("LOAD httpfs")
+        except Exception:
+            # Fallback: direct path load (works even if DuckDB doesn't use our directory)
+            conn.execute(f"LOAD '{ext_file.as_posix()}'")
+
+        return
+
+    raise FileNotFoundError(
+        "Bundled DuckDB httpfs extension not found in plugin resources. "
+        "Ensure httpfs.duckdb_extension is packaged under "
+        "streamlit/resource/duckdb_extensions/v<duckdb_version>/linux_amd64/ or "
+        "resource/duckdb_extensions/v<duckdb_version>/linux_amd64/."
+    )
+
+
 def create_connection(*, read_only: bool, show_ui: bool = False):
     progress_bar = None
     status_text = None
@@ -49,6 +102,13 @@ def create_connection(*, read_only: bool, show_ui: bool = False):
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
         conn = duckdb.connect(str(DB_PATH), read_only=read_only)
+
+        try:
+            _configure_extensions(conn)
+        except Exception as exc:
+            logger.exception("Failed to load bundled DuckDB extensions")
+            raise
+
         storage_config.configure_storage(conn)
 
         logger.warning(f"DuckDB connected at: {DB_PATH}")

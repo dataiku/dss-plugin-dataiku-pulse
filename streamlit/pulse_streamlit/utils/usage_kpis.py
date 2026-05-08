@@ -7,6 +7,18 @@ def _sql_quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def _to_int0(value) -> int:
+    if value is None or pd.isna(value):
+        return 0
+    return int(value)
+
+
+def _to_float0(value) -> float:
+    if value is None or pd.isna(value):
+        return 0.0
+    return float(value)
+
+
 def format_subcategory_counts(df, limit=5):
     rows = []
     for _, row in df.head(limit).iterrows():
@@ -17,22 +29,32 @@ def format_subcategory_counts(df, limit=5):
 def gather_data():
     sql = """
         SELECT
-            SUM(build_events)                     AS total_build_events,
-            COUNT(DISTINCT login)                 AS active_builders,
-            COUNT(DISTINCT instance_name)         AS active_instances,
-            SUM(build_events)::DOUBLE
-              / NULLIF(COUNT(DISTINCT login), 0)  AS avg_events_per_builder
+            COALESCE(SUM(build_events), 0) AS total_build_events,
+            COUNT(DISTINCT login)          AS active_builders,
+            COUNT(DISTINCT instance_name)  AS active_instances,
+            COALESCE(
+                SUM(build_events)::DOUBLE / NULLIF(COUNT(DISTINCT login), 0),
+                0
+            ) AS avg_events_per_builder
         FROM actor_usage_last_30_days_base
         WHERE login NOT LIKE 'api:%'
     ;
     """
     df = query.query_df(sql)
+    if df.empty:
+        return {
+            "total_events": 0,
+            "builders": 0,
+            "instances": 0,
+            "avg_per_builder": 0.0,
+        }
+
     row = df.iloc[0]
     return {
-        "total_events": int(row["total_build_events"] or 0),
-        "builders": int(row["active_builders"] or 0),
-        "instances": int(row["active_instances"] or 0),
-        "avg_per_builder": float(row["avg_events_per_builder"] or 0),
+        "total_events": _to_int0(row["total_build_events"]),
+        "builders": _to_int0(row["active_builders"]),
+        "instances": _to_int0(row["active_instances"]),
+        "avg_per_builder": _to_float0(row["avg_events_per_builder"]),
     }
 
 

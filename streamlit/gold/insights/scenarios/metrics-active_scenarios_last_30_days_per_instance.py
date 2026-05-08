@@ -13,10 +13,11 @@ def query():
     return """
         SELECT
             instance_name,
-            COUNT(DISTINCT scenarios_id) AS active_scenarios_30_days
+            COUNT(DISTINCT CASE
+                WHEN scenarios_lastModifiedOn >= CURRENT_TIMESTAMP - INTERVAL 30 DAY
+                THEN scenarios_id
+            END) AS active_scenarios_30_days
         FROM scenarios_metadata_base
-        WHERE
-            scenarios_lastModifiedOn >= CURRENT_TIMESTAMP - INTERVAL 30 DAY
         GROUP BY instance_name
         ORDER BY instance_name
     ;
