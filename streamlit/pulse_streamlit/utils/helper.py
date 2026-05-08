@@ -112,27 +112,27 @@ def format_capability_summary(capability, signal):
 
 def get_filtered_actors(filters):
     where_clauses = []
+    params = []
 
     if filters["instance_name"] != "All (General)":
-        instance_name = filters["instance_name"]
-        where_clauses.append(f"instance_name = '{instance_name}'")
+        where_clauses.append("instance_name = ?")
+        params.append(filters["instance_name"])
 
     if filters["user_profiles"]:
-        profiles = ", ".join(f"'{p}'" for p in filters["user_profiles"])
-        where_clauses.append(f"userProfile IN ({profiles})")
+        where_clauses.append("userProfile IN (SELECT * FROM UNNEST(?))")
+        params.append(filters["user_profiles"])
 
     if filters["enabled_option"] == "Enabled only":
         where_clauses.append("enabled = TRUE")
     elif filters["enabled_option"] == "Disabled only":
         where_clauses.append("enabled = FALSE")
 
-    where_clauses.append(
-        f"last_activity_ts >= CURRENT_DATE - INTERVAL {filters['days_since_activity']} DAY"
-    )
+    where_clauses.append("last_activity_ts >= CURRENT_DATE - INTERVAL ? DAY")
+    params.append(int(filters["days_since_activity"]))
 
     where_sql = " AND ".join(where_clauses)
 
-    sql = f"""  # nosec
+    sql = f"""
         SELECT
             DISTINCT
             instance_name,
@@ -148,4 +148,4 @@ def get_filtered_actors(filters):
     ;
     """
 
-    return query.query_df(sql)
+    return query.query_df(sql, params=params)
