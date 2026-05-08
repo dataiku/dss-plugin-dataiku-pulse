@@ -72,7 +72,7 @@ def get_total_build_events_last_30_days(tab_scope=None):
                 f"login = {_sql_quote(login)}"
             )
     where_sql = " AND ".join(where_clauses)
-    sql = f"""  # nosec
+    sql = f"""
         SELECT
             COALESCE(SUM(build_events), 0) AS total_events
         FROM actor_usage_last_30_days_base
@@ -96,7 +96,7 @@ def get_subcategory_counts_last_30_days(capability, instance_name=None):
             f"instance_name = {_sql_quote(instance_name)}"
         )
     where_sql = " AND ".join(where_clauses)
-    sql = f"""  # nosec
+    sql = f"""
         SELECT
             dataiku_category,
             SUM(event_count) AS total_events

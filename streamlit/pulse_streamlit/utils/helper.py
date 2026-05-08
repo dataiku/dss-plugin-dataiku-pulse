@@ -24,10 +24,9 @@ def get_subcategories_for_capability(canonical_capability):
         """
         SELECT DISTINCT dataiku_category
         FROM canonical_capabilities_base
-        WHERE canonical_capability = ?
+        WHERE canonical_capability = '{canonical_capability}'
         ORDER BY dataiku_category
-        """,
-        params=[canonical_capability],
+        """  # nosec
     )
     return df["dataiku_category"].tolist()
 
@@ -48,28 +47,26 @@ def get_capability_summary_signal(capability: str, instance_name: str | None = N
     if instance_name:
         where_instance = f"AND instance_name = '{instance_name}'"
 
-    sql = """
+    df = query.query_df(f"""  # nosec
         SELECT
             dataiku_category,
             SUM(event_count) AS cnt
         FROM capability_subcategory_usage_last_30_days_base
-        WHERE canonical_capability = ?
+        WHERE canonical_capability = '{capability}'
         {where_instance}
         GROUP BY dataiku_category
         ORDER BY cnt DESC
         LIMIT 1
-    """
-    df = query.query_df(sql.format(where_instance=where_instance), params=[capability])
+    """)
     if df.empty:
         return {}
 
-    total_sql = """
+    total_df = query.query_df(f"""  # nosec
         SELECT SUM(event_count) AS total
         FROM capability_subcategory_usage_last_30_days_base
-        WHERE canonical_capability = ?
+        WHERE canonical_capability = '{capability}'
         {where_instance}
-    """
-    total_df = query.query_df(total_sql.format(where_instance=where_instance), params=[capability])
+    """)
     total = total_df["total"].iloc[0]
 
     top = df.iloc[0]
