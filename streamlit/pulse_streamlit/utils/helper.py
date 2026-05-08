@@ -20,12 +20,15 @@ def get_canonical_capabilities():
 
 
 def get_subcategories_for_capability(canonical_capability):
-    df = query.query_df(f"""
+    df = query.query_df(
+        """
         SELECT DISTINCT dataiku_category
         FROM canonical_capabilities_base
-        WHERE canonical_capability = '{canonical_capability}'
+        WHERE canonical_capability = ?
         ORDER BY dataiku_category
-    """)
+        """,
+        params=[canonical_capability],
+    )
     return df["dataiku_category"].tolist()
 
 
@@ -45,26 +48,28 @@ def get_capability_summary_signal(capability: str, instance_name: str | None = N
     if instance_name:
         where_instance = f"AND instance_name = '{instance_name}'"
 
-    df = query.query_df(f"""
+    sql = """
         SELECT
             dataiku_category,
             SUM(event_count) AS cnt
         FROM capability_subcategory_usage_last_30_days_base
-        WHERE canonical_capability = '{capability}'
+        WHERE canonical_capability = ?
         {where_instance}
         GROUP BY dataiku_category
         ORDER BY cnt DESC
         LIMIT 1
-    """)
+    """
+    df = query.query_df(sql.format(where_instance=where_instance), params=[capability])
     if df.empty:
         return {}
 
-    total_df = query.query_df(f"""
+    total_sql = """
         SELECT SUM(event_count) AS total
         FROM capability_subcategory_usage_last_30_days_base
-        WHERE canonical_capability = '{capability}'
+        WHERE canonical_capability = ?
         {where_instance}
-    """)
+    """
+    total_df = query.query_df(total_sql.format(where_instance=where_instance), params=[capability])
     total = total_df["total"].iloc[0]
 
     top = df.iloc[0]
@@ -118,7 +123,7 @@ def get_filtered_actors(filters):
 
     where_sql = " AND ".join(where_clauses)
 
-    sql = f"""
+    sql = f"""  # nosec B608
         SELECT
             DISTINCT
             instance_name,

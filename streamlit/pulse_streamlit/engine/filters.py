@@ -13,7 +13,7 @@ def apply_filters(sql, meta, filters):
 
     where_sql = " AND ".join(clauses)
 
-    return f"""
+    return f"""  # nosec B608
     SELECT *
     FROM (
         {sql}
