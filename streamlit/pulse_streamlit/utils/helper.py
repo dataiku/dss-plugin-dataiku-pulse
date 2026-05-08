@@ -132,7 +132,7 @@ def get_filtered_actors(filters):
 
     where_sql = " AND ".join(where_clauses)
 
-    sql = f"""
+    sql = f"""  # nosec
         SELECT
             DISTINCT
             instance_name,

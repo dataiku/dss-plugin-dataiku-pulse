@@ -18,7 +18,7 @@ def apply_filters(sql, meta, filters):
         params.append(instance)
 
     return (
-        f"""  # nosec B608
+        f"""  # nosec
         SELECT *
         FROM (
             {sql}

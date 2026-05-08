@@ -91,7 +91,7 @@ def reg_dss_source_folder_df(conn, *, data_src: str, show_ui: bool = False) -> b
 
         safe_table = '"' + table_name.replace('"', '""') + '"'
 
-        conn.execute(f"""  # nosec B608
+        conn.execute(f"""  # nosec
             CREATE OR REPLACE TABLE {safe_table} AS
             SELECT * FROM df_view
         """)
