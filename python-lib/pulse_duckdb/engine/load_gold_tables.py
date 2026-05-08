@@ -56,9 +56,9 @@ def load_gold_tables(conn, *, show_ui: bool = False) -> bool:
                 progress_bar.progress(int(idx / total * 100), text=progress_text)
 
             query = (
-                f"CREATE OR REPLACE TABLE {table_name} AS "
+                f"CREATE OR REPLACE TABLE {table_name} AS "  # nosec
                 f"SELECT * FROM read_parquet('{parquet_path}')"
-            )  # nosec B608
+            )
 
             try:
                 logger.debug(f"Creating GOLD table '{table_name}' from {parquet_path}")

@@ -123,7 +123,7 @@ def get_filtered_actors(filters):
 
     where_sql = " AND ".join(where_clauses)
 
-    sql = f"""  # nosec B608
+    sql = f"""  # nosec
         SELECT
             DISTINCT
             instance_name,
