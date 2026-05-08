@@ -44,29 +44,41 @@ def format_capability_label(capability):
 
 def get_capability_summary_signal(capability: str, instance_name: str | None = None):
     where_instance = ""
+    params = [capability]
     if instance_name:
-        where_instance = f"AND instance_name = '{instance_name}'"
+        where_instance = "AND instance_name = ?"
+        params.append(instance_name)
 
-    df = query.query_df(f"""  # nosec
-        SELECT
-            dataiku_category,
-            SUM(event_count) AS cnt
-        FROM capability_subcategory_usage_last_30_days_base
-        WHERE canonical_capability = '{capability}'
-        {where_instance}
-        GROUP BY dataiku_category
-        ORDER BY cnt DESC
-        LIMIT 1
-    """)
+    df = query.query_df(
+        (
+            """
+            SELECT
+                dataiku_category,
+                SUM(event_count) AS cnt
+            FROM capability_subcategory_usage_last_30_days_base
+            WHERE canonical_capability = ?
+            {where_instance}
+            GROUP BY dataiku_category
+            ORDER BY cnt DESC
+            LIMIT 1
+            """
+        ).format(where_instance=where_instance),
+        params=params,
+    )
     if df.empty:
         return {}
 
-    total_df = query.query_df(f"""  # nosec
-        SELECT SUM(event_count) AS total
-        FROM capability_subcategory_usage_last_30_days_base
-        WHERE canonical_capability = '{capability}'
-        {where_instance}
-    """)
+    total_df = query.query_df(
+        (
+            """
+            SELECT SUM(event_count) AS total
+            FROM capability_subcategory_usage_last_30_days_base
+            WHERE canonical_capability = ?
+            {where_instance}
+            """
+        ).format(where_instance=where_instance),
+        params=params,
+    )
     total = total_df["total"].iloc[0]
 
     top = df.iloc[0]
