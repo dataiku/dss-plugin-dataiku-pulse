@@ -924,13 +924,32 @@ def build_products_facets():
         _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
         _ensure_ready_if_enabled()
 
+        instances = (
+            _query_df("SELECT DISTINCT instance_name FROM final_build_products_catalog ORDER BY 1;")["instance_name"]
+            .dropna()
+            .astype(str)
+            .tolist()
+        )
+        projects = (
+            _query_df("SELECT DISTINCT project_key FROM final_build_products_catalog ORDER BY 1;")["project_key"]
+            .dropna()
+            .astype(str)
+            .tolist()
+        )
         types = (
             _query_df("SELECT DISTINCT product_type FROM final_build_products_catalog ORDER BY 1;")["product_type"]
             .dropna()
             .astype(str)
             .tolist()
         )
-        return _ok({"types": types})
+        owners = (
+            _query_df("SELECT DISTINCT owner_login FROM final_build_products_catalog ORDER BY 1;")["owner_login"]
+            .dropna()
+            .astype(str)
+            .tolist()
+        )
+
+        return _ok({"instances": instances, "projects": projects, "types": types, "owners": owners})
     except Exception as e:
         logger.exception("products facets failed")
         return _err(str(e), status=500)
@@ -942,12 +961,57 @@ def build_products():
         _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
         _ensure_ready_if_enabled()
 
+        q = (request.args.get("q") or "").strip()
+        owner = (request.args.get("owner") or "").strip()
+        instances = _parse_csv_list(request.args.get("instances"))
+        projects = _parse_csv_list(request.args.get("projects"))
+        types = _parse_csv_list(request.args.get("types"))
+
+        sort = (request.args.get("sort") or "updated_desc").strip()
         limit = int(request.args.get("limit") or 25)
         offset = int(request.args.get("offset") or 0)
+
+        # Guardrails
         limit = max(1, min(5000, limit))
         offset = max(0, offset)
 
-        total = int(_query_df("SELECT COUNT(*) AS n FROM final_build_products_catalog;").iloc[0]["n"])
+        where = []
+        params: list[Any] = []
+
+        if q:
+            where.append("(lower(product_name) LIKE ? OR lower(product_key) LIKE ?)")
+            qq = f"%{q.lower()}%"
+            params.extend([qq, qq])
+
+        if owner:
+            where.append("owner_login = ?")
+            params.append(owner)
+
+        if instances:
+            where.append(f"instance_name IN ({','.join(['?'] * len(instances))})")
+            params.extend(instances)
+
+        if projects:
+            where.append(f"project_key IN ({','.join(['?'] * len(projects))})")
+            params.extend(projects)
+
+        if types:
+            where.append(f"product_type IN ({','.join(['?'] * len(types))})")
+            params.extend(types)
+
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+        order_by = {
+            "updated_desc": "updated_at DESC NULLS LAST",
+            "updated_asc": "updated_at ASC NULLS LAST",
+            "activity_desc": "activity_30d DESC NULLS LAST, updated_at DESC NULLS LAST",
+            "name_asc": "product_name ASC NULLS LAST",
+        }.get(sort)
+        if order_by is None:
+            return _err(f"Invalid sort: {sort}")
+
+        count_sql = f"SELECT COUNT(*) AS n FROM final_build_products_catalog{where_sql};"
+        total = int(_query_df(count_sql, params).iloc[0]["n"])
 
         sql = (
             "SELECT\n"
@@ -960,15 +1024,166 @@ def build_products():
             "  owner_login AS ownerLogin,\n"
             "  updated_at AS updatedAt,\n"
             "  activity_30d AS activity30d\n"
-            "FROM final_build_products_catalog\n"
-            "ORDER BY updated_at DESC NULLS LAST\n"
+            f"FROM final_build_products_catalog{where_sql}\n"
+            f"ORDER BY {order_by}\n"
             "LIMIT ? OFFSET ?;"
         )
-        rows = _query_df(sql, [limit, offset])
+        rows = _query_df(sql, [*params, limit, offset])
 
         return _ok({"rows": _df_records(rows), "total": total})
     except Exception as e:
         logger.exception("products query failed")
+        return _err(str(e), status=500)
+
+
+@app.route("/api/build/products/type-metrics")
+def build_products_type_metrics():
+    """Deeper metrics/charts for a single product type (30d window)."""
+
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        product_type = (request.args.get("type") or "").strip()
+        if not product_type:
+            return _err("Missing type", status=400)
+
+        days = int(request.args.get("days") or 30)
+        days = max(1, min(365, days))
+
+        # Basic allowlist: product types are plugin-controlled (terminology.yaml)
+        allowed_df = _query_df("SELECT DISTINCT product_type FROM final_build_products_catalog ORDER BY 1;")
+        allowed = set(str(r.get("product_type") or "") for r in _df_records(allowed_df))
+        if product_type not in allowed:
+            return _err("Invalid type", status=400)
+
+        # Inventory-level KPIs (fast, from catalog)
+        kpis_df = _query_df(
+            (
+                "SELECT\n"
+                "  COUNT(*) AS total_products,\n"
+                "  COUNT(*) FILTER (WHERE activity_30d > 0) AS active_products_30d,\n"
+                "  SUM(activity_30d) AS events_30d,\n"
+                "  MAX(last_activity_at) AS last_activity_at\n"
+                "FROM final_build_products_catalog\n"
+                "WHERE product_type = ?;"
+            ),
+            [product_type],
+        )
+        kpis_row = _df_records(kpis_df)[0] if len(kpis_df.index) else {}
+
+        # Owner concentration (inventory)
+        owners_df = _query_df(
+            (
+                "SELECT\n"
+                "  owner_login AS label,\n"
+                "  COUNT(*) AS value\n"
+                "FROM final_build_products_catalog\n"
+                "WHERE product_type = ?\n"
+                "GROUP BY 1\n"
+                "ORDER BY value DESC\n"
+                "LIMIT 12;"
+            ),
+            [product_type],
+        )
+
+        # Top products by activity_30d (inventory-level)
+        top_products_df = _query_df(
+            (
+                "SELECT\n"
+                "  product_id AS productId,\n"
+                "  product_name AS label,\n"
+                "  activity_30d AS value\n"
+                "FROM final_build_products_catalog\n"
+                "WHERE product_type = ?\n"
+                "ORDER BY value DESC NULLS LAST, product_name\n"
+                "LIMIT 12;"
+            ),
+            [product_type],
+        )
+
+        # Use event table for distinct users + daily time series.
+        event_type = _PRODUCT_TO_EVENT_OBJECT_TYPE.get(product_type, product_type)
+        totals_df = _query_df(
+            (
+                "SELECT\n"
+                "  COUNT(*) AS events,\n"
+                "  COUNT(DISTINCT login) AS active_users\n"
+                "FROM v_object_activity_events\n"
+                "WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+                "  AND object_type = ?;"
+            ),
+            [days, event_type],
+        )
+        totals = _df_records(totals_df)[0] if len(totals_df.index) else {}
+
+        daily_df = _query_df(
+            (
+                "SELECT\n"
+                "  CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,\n"
+                "  COUNT(*) AS value\n"
+                "FROM v_object_activity_events\n"
+                "WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+                "  AND object_type = ?\n"
+                "GROUP BY 1\n"
+                "ORDER BY 1;"
+            ),
+            [days, event_type],
+        )
+
+        by_project_df = _query_df(
+            (
+                "SELECT\n"
+                "  project_key AS label,\n"
+                "  COUNT(*) AS value\n"
+                "FROM v_object_activity_events\n"
+                "WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+                "  AND object_type = ?\n"
+                "GROUP BY 1\n"
+                "ORDER BY value DESC\n"
+                "LIMIT 12;"
+            ),
+            [days, event_type],
+        )
+
+        by_instance_df = _query_df(
+            (
+                "SELECT\n"
+                "  instance_name AS label,\n"
+                "  COUNT(*) AS value\n"
+                "FROM v_object_activity_events\n"
+                "WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+                "  AND object_type = ?\n"
+                "GROUP BY 1\n"
+                "ORDER BY value DESC\n"
+                "LIMIT 12;"
+            ),
+            [days, event_type],
+        )
+
+        return _ok(
+            {
+                "type": product_type,
+                "windowDays": days,
+                "kpis": {
+                    "totalProducts": int(kpis_row.get("total_products") or 0),
+                    "activeProducts30d": int(kpis_row.get("active_products_30d") or 0),
+                    "events30d": int(kpis_row.get("events_30d") or 0),
+                    "activeUsers30d": int(totals.get("active_users") or 0),
+                    "lastActivityAt": kpis_row.get("last_activity_at"),
+                },
+                "charts": {
+                    "activityDaily": _df_records(daily_df),
+                    "topOwnersByProducts": _df_records(owners_df),
+                    "topProductsByEvents": _df_records(top_products_df),
+                    "topProjectsByEvents": _df_records(by_project_df),
+                    "eventsByInstance": _df_records(by_instance_df),
+                },
+            }
+        )
+
+    except Exception as e:
+        logger.exception("products type metrics failed")
         return _err(str(e), status=500)
 
 

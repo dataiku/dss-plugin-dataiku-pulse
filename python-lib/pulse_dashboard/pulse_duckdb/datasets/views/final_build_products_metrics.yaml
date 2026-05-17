@@ -1,6 +1,6 @@
 final_build_products_metrics:
   description: >
-    This document describes the DuckDB queries/views needed to power **Build → Products → Metrics**.
+    This document describes the DuckDB queries/views needed to power **Build → Products → Overview**.
   depends_on:
     - final_build_products_catalog
   build_order: 1130
