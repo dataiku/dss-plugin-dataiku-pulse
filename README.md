@@ -130,3 +130,15 @@ To enable it, set a project *standard* variable (JSON boolean):
 
 When enabled, the UI shows a **Users** navigation section (after Pulse, before Build). When disabled/missing, the Users route redirects to Home.
 
+---
+
+## Debug endpoints (optional)
+
+The backend exposes a few troubleshooting endpoints under `/api/debug/duckdb/*` (reload + table introspection).
+
+They are disabled by default. To enable them, set a project *standard* variable (JSON boolean):
+
+```json
+{ "debug": true }
+```
+

@@ -156,6 +156,7 @@ def startup_flags():
 
     Currently supported flags:
     - `userActivity`: enabled when `standard.user_activity` is JSON boolean `true`.
+    - `debug`: enabled when `standard.debug` is JSON boolean `true`.
 
     Config values:
     - `userProfileExcludeConsumer`: resolved exclusion list for the "no_consumer" toggle,
@@ -168,10 +169,14 @@ def startup_flags():
     try:
         standard = _read_standard_project_variables()
         user_activity_enabled = standard.get("user_activity") is True
+        debug_enabled = standard.get("debug") is True
         excluded_profiles = _read_user_profile_exclude_consumer(standard)
         return _ok(
             {
-                "flags": {"userActivity": user_activity_enabled},
+                "flags": {
+                    "userActivity": user_activity_enabled,
+                    "debug": debug_enabled,
+                },
                 "config": {
                     "userProfileExcludeConsumer": excluded_profiles,
                 },
@@ -181,7 +186,7 @@ def startup_flags():
         logger.exception("Failed reading startup flags")
         return _ok(
             {
-                "flags": {"userActivity": False},
+                "flags": {"userActivity": False, "debug": False},
                 "config": {"userProfileExcludeConsumer": ["READER", "AI_CONSUMER"]},
             }
         )
@@ -515,6 +520,10 @@ def duckdb_query():
 @app.route("/api/debug/duckdb/reload", methods=["POST"])
 def debug_duckdb_reload():
     try:
+        standard = _read_standard_project_variables()
+        if standard.get("debug") is not True:
+            return _err("Debug endpoints are disabled", status=403)
+
         _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
 
         # Force a full reload (even if auto-init is enabled) so this endpoint is
@@ -533,6 +542,10 @@ def debug_duckdb_reload():
 @app.route("/api/debug/duckdb/tables")
 def debug_duckdb_tables():
     try:
+        standard = _read_standard_project_variables()
+        if standard.get("debug") is not True:
+            return _err("Debug endpoints are disabled", status=403)
+
         _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
         _ensure_ready_if_enabled()
         conn = _create_connection(read_only=True)
@@ -551,6 +564,10 @@ def debug_duckdb_tables():
 @app.route("/api/debug/duckdb/table/<table_name>")
 def debug_duckdb_table(table_name: str):
     try:
+        standard = _read_standard_project_variables()
+        if standard.get("debug") is not True:
+            return _err("Debug endpoints are disabled", status=403)
+
         _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
         _ensure_ready_if_enabled()
         table_name = _safe_ident(table_name)
