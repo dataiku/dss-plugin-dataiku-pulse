@@ -31,6 +31,12 @@ logger = logging.getLogger(__name__)
 
 _BASE_DIR = Path(__file__).resolve().parents[1]
 _BASE_SPECS_DIR = _BASE_DIR / "datasets" / "base"
+_EXPECTED_STARTUP_TABLES = {
+    "final_build_catalog",
+    "final_build_products_catalog",
+    "dev_activity_capability_daily",
+    "final_build_development_activity_events",
+}
 
 
 def _load_base_spec_sql(table_name: str) -> str:
@@ -390,9 +396,14 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         existing_tables = set(conn.execute("PRAGMA show_tables;").df()["name"].tolist())
                         has_base = any(t.startswith("base_") for t in existing_tables)
                         has_fact_or_dim = any(t.startswith(("fact_", "dim_")) for t in existing_tables)
-                        if has_base and has_fact_or_dim:
+                        has_expected_views = _EXPECTED_STARTUP_TABLES.issubset(existing_tables)
+                        if has_base and has_fact_or_dim and has_expected_views:
                             reason = "base_tables_present"
                         else:
+                            if has_base and has_fact_or_dim and not has_expected_views:
+                                logger.info(
+                                    "DuckDB exists but required startup views are missing; reloading GOLD tables"
+                                )
                             # No base tables yet: do a first-time load.
                             from .gold_loader import load_gold_tables as _load_gold_tables
                             from .gold_loader import infer_table_name

@@ -1,67 +1,67 @@
 # =========================
 # Flask
 # =========================
-Flask
-flask-cors>=6.0.3
-flask-compress
-gunicorn
+Flask==3.1.3
+flask-cors==6.0.2
+flask-compress==1.24
+gunicorn==26.0.0
 
 # =========================
 # DuckDB
 # =========================
-duckdb
-duckdb-engine
-pyarrow
+duckdb==1.5.3
+duckdb-engine==0.17.0
+pyarrow==24.0.0
 
 # =========================
 # Visualization
 # =========================
-altair
-matplotlib
-plotly
-tabulate
+altair==6.1.0
+matplotlib==3.10.9
+plotly==6.7.0
+tabulate==0.10.0
 
 # =========================
 # Parsing & Serialization
 # =========================
-lxml
-orjson
-pyyaml
-sqlparse
-tomli
+lxml==6.1.1
+orjson==3.11.9
+pyyaml==6.0.3
+sqlparse==0.5.5
+tomli==2.4.1
 
 # =========================
 # Cloud
 # =========================
-boto3
-gcsfs
-google-cloud-storage
+boto3==1.43.12
+gcsfs==2026.5.0
+google-cloud-storage==3.10.1
 
 # # =========================
 # # Misc / Core Utilities
 # =========================
-cryptography
-filelock
-fsspec
-joblib>=1.5.4
-tqdm
-python-dotenv
-gunicorn
-pydantic
-pydantic-settings
-requests
-scipy
+cryptography==48.0.0
+filelock==3.29.0
+fsspec==2026.3.0
+joblib==1.5.3
+tqdm==4.67.3
+python-dotenv==1.2.2
+gunicorn==26.0.0
+pydantic==2.13.4
+pydantic-settings==2.14.1
+requests==2.34.2
+scipy==1.17.1
 
 # =========================
 # Optional ORM
 # =========================
-SQLAlchemy
+SQLAlchemy==2.0.49
 
 # =========================
 # Dev / Debugging
 # =========================
-rich
-ruff
-pytest
-black
-nbformat
+rich==15.0.0
+ruff==0.15.14
+pytest==9.0.3
+black==26.5.1
+nbformat==5.10.4

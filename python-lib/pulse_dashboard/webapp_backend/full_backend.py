@@ -11,6 +11,7 @@ import json
 import logging
 import re
 import sys
+import threading
 import time
 from functools import wraps
 from pathlib import Path
@@ -33,6 +34,18 @@ logger = logging.getLogger(__name__)
 _MAX_PAGE_LIMIT = 250
 _MAX_LOOKBACK_DAYS = 365
 _MAX_LOOKBACK_MONTHS = 24
+_startup_init_lock = threading.Lock()
+_startup_init_started = False
+_startup_init_status: dict[str, Any] = {
+    "state": "idle",
+    "message": "Waiting to check DuckDB startup state",
+    "startedAt": None,
+    "finishedAt": None,
+    "durationSec": None,
+    "dbPath": None,
+    "report": None,
+    "error": None,
+}
 
 
 class RequestValidationError(ValueError):
@@ -293,6 +306,17 @@ def startup_duckdb():
         return _err("pulse_duckdb not available", status=500)
 
     started = time.time()
+    _startup_init_status.update(
+        {
+            "state": "running",
+            "message": "Initializing DuckDB and loading GOLD tables",
+            "startedAt": started,
+            "finishedAt": None,
+            "durationSec": None,
+            "error": None,
+            "report": None,
+        }
+    )
     try:
         report = cast(
             dict[str, Any],
@@ -305,13 +329,42 @@ def startup_duckdb():
         )
         duration_sec = round(time.time() - started, 3)
         if not bool(report.get("ok", False)):
+            _startup_init_status.update(
+                {
+                    "state": "failed",
+                    "message": "DuckDB initialization failed",
+                    "finishedAt": time.time(),
+                    "durationSec": duration_sec,
+                    "error": json.dumps(report),
+                    "report": report,
+                }
+            )
             return _err(
                 "DuckDB initialization failed",
                 status=500,
                 hint=json.dumps({"durationSec": duration_sec, "load": report}),
             )
+        _startup_init_status.update(
+            {
+                "state": "ready",
+                "message": "DuckDB initialization complete",
+                "finishedAt": time.time(),
+                "durationSec": duration_sec,
+                "error": None,
+                "report": report,
+            }
+        )
         return _ok({"load": report, "durationSec": duration_sec})
     except Exception as e:
+        _startup_init_status.update(
+            {
+                "state": "failed",
+                "message": "DuckDB initialization failed",
+                "finishedAt": time.time(),
+                "durationSec": round(time.time() - started, 3),
+                "error": str(e),
+            }
+        )
         logger.exception("DuckDB startup init failed")
         return _err(str(e), status=500)
 
@@ -388,6 +441,142 @@ def startup_status():
             "tables": tables,
         }
     )
+
+
+def _run_startup_duckdb_init() -> None:
+    if ensure_database_ready is None:
+        _startup_init_status.update(
+            {
+                "state": "unavailable",
+                "message": "DuckDB engine unavailable",
+                "finishedAt": time.time(),
+                "error": "DuckDB engine unavailable",
+            }
+        )
+        logger.warning("Pulse webapp startup init skipped: DuckDB engine unavailable")
+        return
+
+    try:
+        started_at = time.time()
+        _startup_init_status.update(
+            {
+                "state": "running",
+                "message": "Initializing DuckDB and loading GOLD tables",
+                "startedAt": started_at,
+                "finishedAt": None,
+                "durationSec": None,
+                "error": None,
+                "report": None,
+            }
+        )
+        logger.info("Pulse webapp startup: initializing DuckDB in background")
+        report = cast(
+            dict[str, Any],
+            ensure_database_ready(
+                load_gold_tables=True,
+                replace_gold_tables=getattr(pulse_settings, "PULSE_AUTO_LOAD_REPLACE", False)
+                if pulse_settings is not None
+                else False,
+            ),
+        )
+        finished_at = time.time()
+        duration_sec = round(finished_at - started_at, 3)
+        if bool(report.get("ok", False)):
+            _startup_init_status.update(
+                {
+                    "state": "ready",
+                    "message": "DuckDB initialization complete",
+                    "finishedAt": finished_at,
+                    "durationSec": duration_sec,
+                    "report": report,
+                }
+            )
+            logger.info("Pulse webapp startup: DuckDB initialization finished in %ss", duration_sec)
+        else:
+            _startup_init_status.update(
+                {
+                    "state": "failed",
+                    "message": "DuckDB initialization reported a failure",
+                    "finishedAt": finished_at,
+                    "durationSec": duration_sec,
+                    "report": report,
+                    "error": json.dumps(report),
+                }
+            )
+            logger.warning(
+                "Pulse webapp startup: DuckDB initialization reported failure after %ss: %s",
+                duration_sec,
+                report,
+            )
+    except Exception:
+        finished_at = time.time()
+        duration_sec = None
+        if _startup_init_status.get("startedAt") is not None:
+            try:
+                duration_sec = round(finished_at - float(_startup_init_status["startedAt"]), 3)
+            except Exception:
+                duration_sec = None
+        _startup_init_status.update(
+            {
+                "state": "failed",
+                "message": "DuckDB initialization failed",
+                "finishedAt": finished_at,
+                "durationSec": duration_sec,
+                "error": "DuckDB initialization failed. Check backend logs.",
+            }
+        )
+        logger.exception("Pulse webapp startup: DuckDB initialization failed")
+
+
+def _maybe_schedule_startup_duckdb_init() -> None:
+    global _startup_init_started
+
+    if pulse_settings is None or ensure_database_ready is None:
+        _startup_init_status.update(
+            {
+                "state": "unavailable",
+                "message": "DuckDB settings unavailable",
+                "error": "DuckDB settings unavailable",
+            }
+        )
+        return
+
+    duckdb_path = Path(getattr(pulse_settings, "DUCKDB_PATH", "") or "")
+    if not duckdb_path:
+        _startup_init_status.update(
+            {
+                "state": "unavailable",
+                "message": "DuckDB path is not configured",
+                "error": "DuckDB path is not configured",
+            }
+        )
+        return
+    _startup_init_status["dbPath"] = str(duckdb_path)
+    if duckdb_path.exists():
+        _startup_init_status.update(
+            {
+                "state": "ready",
+                "message": "DuckDB file already present",
+                "finishedAt": time.time(),
+                "durationSec": 0.0,
+                "error": None,
+            }
+        )
+        return
+
+    with _startup_init_lock:
+        if _startup_init_started:
+            return
+        _startup_init_started = True
+
+    logger.info("Pulse webapp startup: DuckDB missing at %s; initializing now", duckdb_path)
+    thread = threading.Thread(target=_run_startup_duckdb_init, name="pulse-duckdb-startup-init", daemon=True)
+    thread.start()
+
+
+@bp.route("/api/startup/init-status")
+def startup_init_status():
+    return _ok({"init": dict(_startup_init_status)})
 
 
 # ----------------------------------------------------------------------------
@@ -612,9 +801,34 @@ def debug_duckdb_reload():
     _require_debug_access()
     _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
 
+    started = time.time()
+    _startup_init_status.update(
+        {
+            "state": "running",
+            "message": "Reloading DuckDB and refreshing GOLD tables",
+            "startedAt": started,
+            "finishedAt": None,
+            "durationSec": None,
+            "error": None,
+            "report": None,
+        }
+    )
+
     load_report = cast(
         dict[str, Any],
         _ensure_database_ready(load_gold_tables=True, replace_gold_tables=True),
+    )
+
+    duration_sec = round(time.time() - started, 3)
+    _startup_init_status.update(
+        {
+            "state": "ready" if bool(load_report.get("ok", False)) else "failed",
+            "message": "DuckDB reload complete" if bool(load_report.get("ok", False)) else "DuckDB reload failed",
+            "finishedAt": time.time(),
+            "durationSec": duration_sec,
+            "error": None if bool(load_report.get("ok", False)) else json.dumps(load_report),
+            "report": load_report,
+        }
     )
 
     return _ok({"load": load_report})
@@ -2501,3 +2715,4 @@ def register_routes(app: Flask) -> None:
     global _IS_LOCAL_DEV
     _IS_LOCAL_DEV = False
     app.register_blueprint(bp)
+    _maybe_schedule_startup_duckdb_init()
