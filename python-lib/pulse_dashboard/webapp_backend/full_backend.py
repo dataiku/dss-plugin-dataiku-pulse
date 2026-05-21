@@ -2250,6 +2250,8 @@ def build_users_kpis():
                 "  SELECT\n"
                 "    instance_name,\n"
                 "    lower(trim(users_login)) AS login_norm,\n"
+                "    trim(users_login) AS login,\n"
+                "    coalesce(trim(users_displayname), trim(users_login)) AS display_name,\n"
                 "    users_enabled,\n"
                 "    users_userprofile,\n"
                 "    run_ts,\n"
@@ -2261,16 +2263,95 @@ def build_users_kpis():
                 "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
                 f"    {instance_sql}\n"  # nosec B608 (instance_sql uses placeholders)
                 ")\n"
+                ", activity AS (\n"
+                "  SELECT\n"
+                "    lower(trim(login_norm)) AS login_norm,\n"
+                "    SUM(viewing_actions_count) AS total_viewing,\n"
+                "    SUM(developing_actions_count) AS total_developing\n"
+                "  FROM fact_user_activity_daily\n"
+                "  GROUP BY 1\n"
+                ")\n"
                 "SELECT\n"
                 "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE) AS enabled_users,\n"
-                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE" + exclude_sql + ") AS enabled_users_no_consumer\n"
-                "FROM latest\n"
+                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE" + exclude_sql + ") AS enabled_users_no_consumer,\n"
+                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE AND coalesce(total_viewing, 0) > 0) AS viewing_users,\n"
+                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE AND coalesce(total_developing, 0) > 0) AS developing_users\n"
+                "FROM latest l\n"
+                "LEFT JOIN activity a ON a.login_norm = l.login_norm\n"
                 "WHERE rn = 1;"
             ),
             [*instance_params, *exclude_params],
         )
 
         row = _df_records(df)[0] if len(df) else {}
+
+        by_profile_df = _query_df(
+            (
+                "WITH latest AS (\n"
+                "  SELECT\n"
+                "    instance_name,\n"
+                "    lower(trim(users_login)) AS login_norm,\n"
+                "    coalesce(nullif(trim(users_userprofile), ''), 'UNKNOWN') AS user_profile,\n"
+                "    users_enabled,\n"
+                "    run_ts,\n"
+                "    ROW_NUMBER() OVER (\n"
+                "      PARTITION BY instance_name, lower(trim(users_login))\n"
+                "      ORDER BY run_ts DESC\n"
+                "    ) AS rn\n"
+                "  FROM base_users_instance_metadata_history\n"
+                "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
+                f"    {instance_sql}\n"  # nosec B608
+                ")\n"
+                "SELECT\n"
+                "  user_profile AS profile,\n"
+                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE) AS enabled_users\n"
+                "FROM latest\n"
+                "WHERE rn = 1\n"
+                "GROUP BY 1\n"
+                "ORDER BY enabled_users DESC, profile;"
+            ),
+            instance_params,
+        )
+
+        by_instance_df = _query_df(
+            (
+                "WITH latest AS (\n"
+                "  SELECT\n"
+                "    instance_name,\n"
+                "    lower(trim(users_login)) AS login_norm,\n"
+                "    users_enabled,\n"
+                "    users_userprofile,\n"
+                "    run_ts,\n"
+                "    ROW_NUMBER() OVER (\n"
+                "      PARTITION BY instance_name, lower(trim(users_login))\n"
+                "      ORDER BY run_ts DESC\n"
+                "    ) AS rn\n"
+                "  FROM base_users_instance_metadata_history\n"
+                "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
+                "),\n"
+                "activity AS (\n"
+                "  SELECT\n"
+                "    instance_name,\n"
+                "    lower(trim(login_norm)) AS login_norm,\n"
+                "    SUM(viewing_actions_count) AS total_viewing,\n"
+                "    SUM(developing_actions_count) AS total_developing\n"
+                "  FROM fact_user_activity_daily\n"
+                "  GROUP BY 1, 2\n"
+                ")\n"
+                "SELECT\n"
+                "  l.instance_name AS instanceName,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE) AS enabled_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE" + exclude_sql + ") AS enabled_users_no_consumer,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_viewing, 0) > 0) AS viewing_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_developing, 0) > 0) AS developing_users\n"
+                "FROM latest l\n"
+                "LEFT JOIN activity a ON a.instance_name = l.instance_name AND a.login_norm = l.login_norm\n"
+                "WHERE l.rn = 1\n"
+                "GROUP BY 1\n"
+                "ORDER BY enabled_users DESC, instanceName;"
+            ),
+            exclude_params,
+        )
 
         return _ok(
             {
@@ -2281,6 +2362,8 @@ def build_users_kpis():
                     "excludedProfilesSource": "standard.user_profile_exclude_consumer",
                 },
                 "kpis": row,
+                "byProfile": _df_records(by_profile_df),
+                "byInstance": _df_records(by_instance_df),
             }
         )
 
@@ -2624,11 +2707,30 @@ def build_user_detail(login: str):
               run_ts
             FROM final_users_directory
             WHERE login_norm = ?
+            ORDER BY enabled DESC, run_ts DESC, instance_name
             LIMIT 1;
             """.strip(),
             [login_norm],
         )
         user = _df_records(user_df)[0] if len(user_df) else None
+
+        instances_df = _query_df(
+            """
+            SELECT
+              instance_name AS instanceName,
+              login,
+              display_name AS displayName,
+              email,
+              enabled,
+              user_profile AS userProfile,
+              group_names AS groupNames,
+              run_ts AS runTs
+            FROM final_users_directory
+            WHERE login_norm = ?
+            ORDER BY enabled DESC, instance_name, run_ts DESC;
+            """.strip(),
+            [login_norm],
+        )
 
         # Daily activity trend (UI only)
         daily_df = _query_df(
@@ -2645,7 +2747,29 @@ def build_user_detail(login: str):
             params,
         )
 
-        return _ok({"user": user, "summary": summary, "activityDaily": _df_records(daily_df)})
+        monthly_df = _query_df(
+            (
+                "SELECT\n"
+                "  CAST(date_trunc('month', day) AS VARCHAR) AS month,\n"
+                "  SUM(viewing_actions_count) AS viewing,\n"
+                "  SUM(developing_actions_count) AS developing\n"
+                "FROM fact_user_activity_daily\n"
+                f"{where_sql}\n"  # nosec B608
+                "GROUP BY 1\n"
+                "ORDER BY 1;"
+            ),
+            params,
+        )
+
+        return _ok(
+            {
+                "user": user,
+                "instances": _df_records(instances_df),
+                "summary": summary,
+                "activityDaily": _df_records(daily_df),
+                "activityMonthly": _df_records(monthly_df),
+            }
+        )
 
     except Exception as e:
         logger.exception("user detail failed")
