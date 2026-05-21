@@ -58,3 +58,22 @@ At the end of this macro run:
   - `python-lib/data_collection/collection_exclusions/instance_project_inclusion.yaml`
 
 These are written once (using the same RAW/SILVER pattern) under the worker project key.
+
+## Method-specific rules
+
+Some DSS methods need special call arguments or small cleanup steps before persistence.
+
+These are defined in:
+- `python-lib/data_collection/collection_exclusions/instance_method_rules.yaml`
+- `python-lib/data_collection/method_rules_hooks.py`
+
+Behavior:
+- Methods without a rule use the generic no-arg collection flow.
+- Methods with declarative rules can add fixed kwargs and dataframe cleanup.
+- Methods with hook-based rules can compute kwargs or apply custom payload/dataframe cleanup.
+- If a method needs explicit handling and no valid rule is available, the result table reports `needs_rule`.
+
+Example included:
+- `list_connections`: hook-based cleanup removes secret-like dataframe columns before SILVER normalization.
+- `list_global_api_keys`: explicitly disabled pending safe handling for sensitive fields.
+- `list_imported_bundles`, `list_ml_tasks`, `list_llms`: explicitly registered so future per-method cleanup can be added without changing the runnable flow.

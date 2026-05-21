@@ -127,13 +127,13 @@ def _load_parquet_to_table(
                 select_cols.append(f"CAST(? AS INTEGER) AS {k}")
                 params.append(int(partitions[k]))
 
-        sql_select = f"SELECT {', '.join(select_cols)} FROM read_parquet(?)"
+        sql_select = f"SELECT {', '.join(select_cols)} FROM read_parquet(?)"  # nosec B608 (select_cols are fixed/derived)
         params.append(str(tmp_path))
 
         if append:
-            conn.execute(f'INSERT INTO "{table_name}" {sql_select};', params)
+            conn.execute(f'INSERT INTO "{table_name}" {sql_select};', params)  # nosec B608 (table_name validated)
         else:
-            conn.execute(f'CREATE TABLE "{table_name}" AS {sql_select};', params)
+            conn.execute(f'CREATE TABLE "{table_name}" AS {sql_select};', params)  # nosec B608 (table_name validated)
     finally:
         try:
             os.remove(tmp_path)
@@ -161,7 +161,7 @@ def _load_csv_to_table(
 
         # `read_csv_auto` infers TIMESTAMP/BOOLEAN/etc better than pandas.
         conn.execute(
-            f'CREATE TABLE "{table_name}" AS SELECT * FROM read_csv_auto(?, header=true);',
+            f'CREATE TABLE "{table_name}" AS SELECT * FROM read_csv_auto(?, header=true);',  # nosec B608 (table_name validated)
             [str(tmp_path)],
         )
     finally:
@@ -293,7 +293,7 @@ def load_gold_tables(
             elif suffix == ".csv" and settings.PULSE_GOLD_LOAD_USE_DUCKDB_CSV_AUTO:
                 _load_csv_to_table(conn, folder, path=rel_path, table_name=table_name)
                 created_tables.add(table_name)
-                row = conn.execute(f'SELECT COUNT(*) FROM "{table_name}";').fetchone()
+                row = conn.execute(f'SELECT COUNT(*) FROM "{table_name}";').fetchone()  # nosec B608 (table_name validated)
                 rows = int(row[0]) if row else 0
 
             elif suffix == ".csv":
@@ -302,9 +302,9 @@ def load_gold_tables(
                     df = pd.read_csv(io.BytesIO(stream.read()))
                 conn.register("_tmp_df", df)
                 if table_name in created_tables:
-                    conn.execute(f'INSERT INTO "{table_name}" SELECT * FROM _tmp_df;')
+                    conn.execute(f'INSERT INTO "{table_name}" SELECT * FROM _tmp_df;')  # nosec B608 (table_name validated)
                 else:
-                    conn.execute(f'CREATE TABLE "{table_name}" AS SELECT * FROM _tmp_df;')
+                    conn.execute(f'CREATE TABLE "{table_name}" AS SELECT * FROM _tmp_df;')  # nosec B608 (table_name validated)
                     created_tables.add(table_name)
                 conn.unregister("_tmp_df")
                 rows = len(df)

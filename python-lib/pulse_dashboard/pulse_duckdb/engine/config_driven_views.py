@@ -281,15 +281,15 @@ def build_base_asset_index(conn: duckdb.DuckDBPyConnection) -> dict[str, Any]:
             "SELECT\n"
             "  instance_name,\n"
             "  project_key,\n"
-            f"  '{type_name}' AS object_type,\n"
-            f"  {key_sql} AS object_key,\n"
-            f"  {name_sql} AS object_name,\n"
-            f"  {subtype_sql} AS object_subtype,\n"
-            f"  {owner_sql} AS owner_login,\n"
-            f"  {lmb_sql} AS last_modified_by_login,\n"
-            f"  try_cast({created_sql} AS TIMESTAMP) AS created_at,\n"
-            f"  try_cast({updated_sql} AS TIMESTAMP) AS updated_at\n"
-            f"FROM {_sql_ident(table)}"
+            f"  '{type_name}' AS object_type,\n"  # nosec B608 (type_name is plugin config)
+            f"  {key_sql} AS object_key,\n"  # nosec B608 (validated identifiers)
+            f"  {name_sql} AS object_name,\n"  # nosec B608 (validated identifiers)
+            f"  {subtype_sql} AS object_subtype,\n"  # nosec B608 (validated identifiers)
+            f"  {owner_sql} AS owner_login,\n"  # nosec B608 (validated identifiers)
+            f"  {lmb_sql} AS last_modified_by_login,\n"  # nosec B608 (validated identifiers)
+            f"  try_cast({created_sql} AS TIMESTAMP) AS created_at,\n"  # nosec B608 (validated identifiers)
+            f"  try_cast({updated_sql} AS TIMESTAMP) AS updated_at\n"  # nosec B608 (validated identifiers)
+            f"FROM {_sql_ident(table)}"  # nosec B608 (table is validated)
         )
         branches.append(branch)
         included.append({"object_type": type_name, "table": table})
@@ -388,15 +388,15 @@ def build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict[str, Any]:
             "SELECT\n"
             "  instance_name,\n"
             "  project_key,\n"
-            f"  '{type_name}' AS product_type,\n"
-            f"  {key_sql} AS product_key,\n"
-            f"  {name_sql} AS product_name,\n"
-            f"  {subtype_sql} AS product_subtype,\n"
-            f"  {owner_sql} AS owner_login,\n"
-            f"  {lmb_sql} AS last_modified_by_login,\n"
-            f"  try_cast({created_sql} AS TIMESTAMP) AS created_at,\n"
-            f"  try_cast({updated_sql} AS TIMESTAMP) AS updated_at\n"
-            f"FROM {_sql_ident(table)}"
+            f"  '{type_name}' AS product_type,\n"  # nosec B608 (type_name is plugin config)
+            f"  {key_sql} AS product_key,\n"  # nosec B608 (validated identifiers)
+            f"  {name_sql} AS product_name,\n"  # nosec B608 (validated identifiers)
+            f"  {subtype_sql} AS product_subtype,\n"  # nosec B608 (validated identifiers)
+            f"  {owner_sql} AS owner_login,\n"  # nosec B608 (validated identifiers)
+            f"  {lmb_sql} AS last_modified_by_login,\n"  # nosec B608 (validated identifiers)
+            f"  try_cast({created_sql} AS TIMESTAMP) AS created_at,\n"  # nosec B608 (validated identifiers)
+            f"  try_cast({updated_sql} AS TIMESTAMP) AS updated_at\n"  # nosec B608 (validated identifiers)
+            f"FROM {_sql_ident(table)}"  # nosec B608 (table is validated)
         )
 
         branches.append(branch)
@@ -478,8 +478,8 @@ def build_product_activity_30d(conn: duckdb.DuckDBPyConnection) -> dict[str, Any
             "  COUNT(*) FILTER (WHERE timestamp >= now() - INTERVAL 30 DAY) AS activity_30d,\n"
             "  COUNT(DISTINCT login) FILTER (WHERE timestamp >= now() - INTERVAL 30 DAY) AS active_users_30d,\n"
             "  MAX(timestamp) AS last_activity_at\n"
-            f"FROM {activity_source}\n"
-            f"WHERE {where_in}\n"
+            f"FROM {activity_source}\n"  # nosec B608 (activity_source is fixed/validated)
+            f"WHERE {where_in}\n"  # nosec B608 (where_in is built from plugin-owned allowlist)
             "  AND object_key IS NOT NULL\n"
             "GROUP BY 1,2,3,4;"
         )

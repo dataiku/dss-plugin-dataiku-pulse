@@ -173,7 +173,9 @@
         return "";
       }
 
-
+      function pulseApiUrl(path) {
+        return getWebAppBackendUrl(String(path || "").replace(/^\.?\/?/, "api/"));
+      }
       async function loadPulseFrontend() {
         try {
           setupHashLinkInterceptor();
@@ -261,7 +263,7 @@
 
           async function warmupDuckdb() {
             try {
-              var warmupUrl = getWebAppBackendUrl("api/startup/duckdb");
+              var warmupUrl = pulseApiUrl("startup/duckdb");
               if (!warmupUrl) {
                 return { ok: false, error: "Backend URL not available" };
               }
@@ -307,7 +309,7 @@
 
           // Optional: fetch a read-only status snapshot for display.
           try {
-            var statusUrl = getWebAppBackendUrl("api/startup/status");
+            var statusUrl = pulseApiUrl("startup/status");
             if (statusUrl) {
               var stRes = await fetch(statusUrl, { cache: "no-cache" });
               if (stRes.ok) {
@@ -331,80 +333,11 @@
             // best-effort only
           }
 
-          // Some builds call APIs via absolute `/api/...` paths, which don't work in DSS.
-          // Rewrite those requests to hit the webapp backend via `dataiku.getWebAppBackendUrl`.
-          (function patchApiCalls() {
-            function rewriteUrl(url) {
-              if (!url) return url;
-              if (typeof url !== "string") return url;
-
-              // The built React app uses `./api/...` when no apiBase is configured.
-              // In DSS, all API calls must go through `dataiku.getWebAppBackendUrl`.
-              var rel = null;
-              if (url.startsWith("/api/")) {
-                rel = url.replace(/^\//, "");
-              } else if (url.startsWith("./api/")) {
-                rel = url.replace(/^\.\//, "");
-              } else if (url.startsWith("api/")) {
-                rel = url;
-              }
-
-              if (rel) {
-                var rewritten = getWebAppBackendUrl(rel);
-                if (rewritten) return rewritten;
-              }
-
-              return url;
-            }
-
-            // Patch `fetch`.
-            try {
-              if (window.fetch) {
-                var originalFetch = window.fetch.bind(window);
-                window.fetch = function (input, init) {
-                  try {
-                    if (typeof input === "string") {
-                      return originalFetch(rewriteUrl(input), init);
-                    }
-
-                    if (input && typeof input === "object") {
-                      var url = input.url;
-                      if (typeof url === "string") {
-                        var rewritten = rewriteUrl(url);
-                        if (rewritten !== url && window.Request) {
-                          return originalFetch(new Request(rewritten, input), init);
-                        }
-                      }
-                    }
-                  } catch (e) {
-                    // fall back
-                  }
-                  return originalFetch(input, init);
-                };
-              }
-            } catch (e) {
-              // best-effort only
-            }
-
-            // Patch XHR (covers axios and similar libs).
-            try {
-              if (window.XMLHttpRequest && window.XMLHttpRequest.prototype) {
-                var originalOpen = window.XMLHttpRequest.prototype.open;
-                window.XMLHttpRequest.prototype.open = function (method, url) {
-                  try {
-                    if (typeof url === "string") {
-                      url = rewriteUrl(url);
-                    }
-                  } catch (e) {
-                    // fall back
-                  }
-                  return originalOpen.apply(this, arguments);
-                };
-              }
-            } catch (e) {
-              // best-effort only
-            }
-          })();
+          window.__PULSE_RUNTIME_CONFIG = {
+            backendBaseUrl: String(window.__PULSE_BACKEND_BASE || ""),
+            apiBaseUrl: pulseApiUrl(""),
+            getApiUrl: pulseApiUrl,
+          };
 
           var r = await fetchManifest();
           var manifest = r.manifest;

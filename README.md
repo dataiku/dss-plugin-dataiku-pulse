@@ -118,17 +118,11 @@ scripts/sync_pulse_dashboard_build.sh /home/dataiku/workspace/project-lib-versio
 
 ---
 
-## Users page (optional)
+## Users page
 
-The dashboard includes an optional **Users** page (UI-only activity derived from audit logs).
+The dashboard includes a **Users** page (UI-only activity derived from audit logs).
 
-To enable it, set a project *standard* variable (JSON boolean):
-
-```json
-{ "user_activity": true }
-```
-
-When enabled, the UI shows a **Users** navigation section (after Pulse, before Build). When disabled/missing, the Users route redirects to Home.
+It is available by default when the underlying user-activity GOLD tables are present. No project variable is required.
 
 ---
 

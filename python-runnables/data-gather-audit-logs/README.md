@@ -5,8 +5,8 @@ This runnable is intended to be packaged as a Dataiku plugin macro.
 ## What it does
 
 - Loads plugin settings from the single macro parameter set: `plugin_config["pulse_primary"]`
-- Locates DSS audit logs (`DATA_DIR/run/audit/audit.log*`) using `client.get_instance_info()`
-  - If `pulse_audit_logs_debug` is true, uses the static test folder `python/audit_data/`
+- Locates DSS audit logs (`DATA_DIR/run/audit/audit.log*`) using `client.get_instance_info()` without changing process working directory
+  - If `PULSE_AUDIT_LOGS_USE_CACHED` is truthy, uses the static test folder `python/audit_data/`
 - Uses a delta cursor `local.audit_log_delta` stored in the *worker project* variables (the project where the macro runs)
 - Expands the audit `message` JSON into `message_*` columns
 - Runs a configurable list of processors from:
@@ -57,5 +57,9 @@ Plugin settings used (under `pulse_primary`):
 
 - Worker project resolution: `client.get_default_project().project_key`
 - Cursor variable: `local.audit_log_delta`
-- Updated to the max `timestamp` processed when the macro succeeds.
+- Updated only to the max `timestamp` from chunks that completed successfully across all configured processors.
 
+Additional behavior:
+- RAW backups now use hive-style partitions (`instance_name=.../year=.../month=.../day=...`).
+- SILVER and RAW partitions now use event time (max timestamp in the written group/chunk), not macro run time.
+- Result output includes summary diagnostics for dropped rows, scanned files/chunks, DQ failures, and cursor movement.

@@ -91,3 +91,17 @@ When `pulse_projects_delta_debug` is enabled, methods that lack any detectable t
 
 These diagnostics are not written to the managed folder during normal macro runs.
 
+## Centralized method rules
+
+Project-level custom method behavior now lives under `python-lib/data_collection/` so it is discoverable alongside instance-level rules.
+
+Files:
+- `python-lib/data_collection/method_rules.py`
+- `python-lib/data_collection/method_rules_hooks.py`
+- `python-lib/data_collection/collection_exclusions/project_method_rules.yaml`
+
+Behavior:
+- Generic no-arg project methods continue to run through the shared collector.
+- Methods needing custom args/cleanup can be added as centralized rules and hooks.
+- Project row-level delta filtering remains supported through the shared engine.
+- Methods currently excluded for unsupported handling remain explicitly disabled until a rule is added.

@@ -1,0 +1,30 @@
+methods:
+  list_imported_bundles:
+    enabled: false
+    call_mode: auto
+    cleanup_mode: none
+    notes: Remains disabled until project-level handling is defined.
+
+  list_llms:
+    enabled: false
+    call_mode: auto
+    cleanup_mode: none
+    notes: Remains disabled until project-level handling is defined.
+
+  list_macros:
+    enabled: false
+    call_mode: auto
+    cleanup_mode: none
+    notes: Remains disabled until project-level handling is defined.
+
+  list_ml_tasks:
+    enabled: false
+    call_mode: auto
+    cleanup_mode: none
+    notes: Remains disabled until project-level handling is defined.
+
+  list_running_notebooks:
+    enabled: false
+    call_mode: auto
+    cleanup_mode: none
+    notes: Remains disabled until project-level handling is defined.

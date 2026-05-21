@@ -2,28 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
-import json
-import os
-
-import pandas as pd
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, List
 
 from dataikuapi.dss.project import DSSProject
 
 from .introspection import get_noarg_list_methods
 
-from data_collection.data_normalizer import check_silver_dq, normalize_silver
 from data_collection.exclusion_config import load_exclusions
-from data_collection.helper import (
-    DSSFolderTarget,
-    OutputLayout,
-    build_error_row,
-    raw_to_dataframe,
-    upload_json,
-    upload_json_gzip,
-    upload_parquet,
-)
+from data_collection.helper import DSSFolderTarget, OutputLayout
+from data_collection.method_rules import MethodCallContext, MethodCollectResult, collect_method_output
 
 
 @dataclass(frozen=True)
@@ -31,6 +19,7 @@ class CollectResult:
     project_key: str
     collected: List[str]
     errors: Dict[str, str]
+    method_results: List[MethodCollectResult]
 
 
 def collect_project_list_methods(
@@ -45,7 +34,7 @@ def collect_project_list_methods(
     output_folder_target: DSSFolderTarget = DSSFolderTarget(project_key="DATA_COLLECTION"),
     debug_dir: Path | None = None,
 ) -> CollectResult:
-    """Collect all no-arg list_* outputs for a project handle."""
+    """Collect all configured project-level list_* outputs for a project handle."""
 
     layout = OutputLayout(base_dir=output_base_dir, module="project_metadata")
     methods = get_noarg_list_methods(project)
@@ -53,189 +42,40 @@ def collect_project_list_methods(
 
     collected: List[str] = []
     errors: Dict[str, str] = {}
+    method_results: List[MethodCollectResult] = []
 
     for method_name, fn in sorted(methods.items()):
         if method_name in excluded:
+            method_results.append(MethodCollectResult(method_name, "project", "excluded", 0, 0, 0))
             continue
-        prefix = f"{layout.prefix_base(method_name)}_"
 
-        raw_path = layout.project_data_path(
-            "raw",
-            method_name,
-            instance_name,
-            run_date,
-            project_key,
-            "json.gz",
-        )
-        raw_error_path = layout.project_data_path(
-            "raw_errors",
-            method_name,
-            instance_name,
-            run_date,
-            project_key,
-            "json",
-        )
-        silver_path = layout.project_data_path(
-            "silver",
-            method_name,
-            instance_name,
-            run_date,
-            project_key,
-            "parquet",
-        )
-        silver_fail_path = layout.project_data_path(
-            "silver_fail",
-            method_name,
-            instance_name,
-            run_date,
-            project_key,
-            "parquet",
-        )
-        silver_fail_reason_path = layout.project_data_path(
-            "silver_fail",
-            method_name,
-            instance_name,
-            run_date,
-            project_key,
-            "dq.json",
-        )
-
-        try:
-            payload = fn()
-
-            # If list_* returns an empty payload, skip without writing anything.
-            if payload is None:
-                continue
-            if isinstance(payload, (list, tuple, set)) and len(payload) == 0:
-                continue
-            if isinstance(payload, dict) and len(payload) == 0:
-                continue
-
-            raw_df = raw_to_dataframe(payload, prefix=prefix)
-            if raw_df.shape[0] == 0:
-                # Nothing to persist.
-                continue
-
-            # Apply row-level delta filtering when a timestamp column is available.
-            # If filtering produces no rows, treat it as "no change" and skip writing.
-            filtered_payload = payload
-            if since is not None:
-                from data_collection.helper import filter_payload_by_delta
-
-                maybe_filtered = filter_payload_by_delta(payload=payload, raw_df=raw_df, since=since)
-                if maybe_filtered is not None:
-                    # Delta filtering was applied.
-                    if isinstance(maybe_filtered, list) and len(maybe_filtered) == 0:
-                        continue
-                    filtered_payload = maybe_filtered
-                else:
-                    # No timestamp columns detected.
-                    #
-                    # For end users we don't want to emit "errors" for this, because
-                    # many list_* endpoints simply don't expose timestamps.
-                    #
-                    # For local debugging, we optionally write a sample payload to a
-                    # workspace directory so we can review schemas and decide whether
-                    # to improve the heuristic.
-                    if debug_dir is not None:
-                        debug_dir.mkdir(parents=True, exist_ok=True)
-                        out_path = debug_dir / f"{project_key}__{method_name}__missing_timestamps.json"
-                        out_path.write_text(
-                            json.dumps(
-                                {
-                                    "project_key": project_key,
-                                    "method_name": method_name,
-                                    "columns": [str(c) for c in raw_df.columns],
-                                    "rows": int(raw_df.shape[0]),
-                                    "sample": raw_df.head(50).to_dict("records"),
-                                },
-                                ensure_ascii=False,
-                                indent=2,
-                                default=str,
-                            ),
-                            encoding="utf-8",
-                        )
-
-            # RAW: dump the API payload as compressed JSON.
-            upload_json_gzip(
-                target=output_folder_target,
-                output_path=raw_path,
-                output_base_dir=output_base_dir,
-                payload=filtered_payload,
-            )
-
-            # SILVER: normalize + write typed parquet.
-            category = layout.category_name(method_name)
-            silver_df = normalize_silver(
-                df=raw_df,
+        result = collect_method_output(
+            fn=fn,
+            method_name=method_name,
+            file_key=project_key,
+            layout=layout,
+            target=output_folder_target,
+            context=MethodCallContext(
+                scope="project",
                 instance_name=instance_name,
                 run_ts=run_ts,
-                category=category,
-                module=layout.module,
-            )
-            dq = check_silver_dq(silver_df)
-            if dq.ok:
-                upload_parquet(
-                    target=output_folder_target,
-                    output_path=silver_path,
-                    output_base_dir=output_base_dir,
-                    df=silver_df,
-                    compression="snappy",
-                )
-            else:
-                upload_parquet(
-                    target=output_folder_target,
-                    output_path=silver_fail_path,
-                    output_base_dir=output_base_dir,
-                    df=silver_df,
-                    compression="snappy",
-                )
-                upload_json(
-                    target=output_folder_target,
-                    output_path=silver_fail_reason_path,
-                    output_base_dir=output_base_dir,
-                    payload={
-                        "instance_name": instance_name,
-                        "project_key": project_key,
-                        "run_ts": run_ts,
-                        "method_name": method_name,
-                        "rows": int(silver_df.shape[0]),
-                        "cols": int(silver_df.shape[1]),
-                        "dq_errors": dq.errors,
-                    },
-                )
-
-            collected.append(method_name)
-        except Exception as e:
-            errors[method_name] = repr(e)
-
-            err_df = build_error_row(
-                error=e,
-                instance_name=instance_name,
+                param_set={},
                 project_key=project_key,
-                run_ts=run_ts,
-            )
+                since=since,
+            ),
+            run_date=run_date,
+            todo_section="project",
+            debug_dir=debug_dir,
+        )
+        method_results.append(result)
+        if result.status == "silver_written":
+            collected.append(method_name)
+        elif result.status == "call_failed":
+            errors[method_name] = result.message or "call_failed"
 
-            # Persist errors.
-            upload_json(
-                target=output_folder_target,
-                output_path=raw_error_path,
-                output_base_dir=output_base_dir,
-                payload={
-                    "instance_name": instance_name,
-                    "project_key": project_key,
-                    "run_ts": run_ts,
-                    "method_name": method_name,
-                    "error": repr(e),
-                },
-            )
-            upload_parquet(
-                target=output_folder_target,
-                output_path=silver_path,
-                output_base_dir=output_base_dir,
-                df=err_df,
-                write_empty=True,
-                compression="snappy",
-            )
-
-    return CollectResult(project_key=project_key, collected=collected, errors=errors)
+    return CollectResult(
+        project_key=project_key,
+        collected=collected,
+        errors=errors,
+        method_results=method_results,
+    )

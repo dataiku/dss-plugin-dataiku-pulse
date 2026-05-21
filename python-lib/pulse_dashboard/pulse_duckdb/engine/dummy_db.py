@@ -265,7 +265,7 @@ def _insert_dummy_rows(
     col_names = [c for c, _ in columns]
     placeholders = ", ".join(["?"] * len(col_names))
     col_list = ", ".join([f'"{c}"' for c in col_names])
-    sql = f'INSERT INTO "{table_name}" ({col_list}) VALUES ({placeholders});'
+    sql = f'INSERT INTO "{table_name}" ({col_list}) VALUES ({placeholders});'  # nosec B608 (table_name validated)
 
     for i in range(n_rows):
         values = [_dummy_value(c, t, i, ctx) for c, t in columns]

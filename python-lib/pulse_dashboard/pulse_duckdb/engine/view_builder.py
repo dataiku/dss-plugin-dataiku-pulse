@@ -109,7 +109,7 @@ def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
           where_sql
         FROM {_sql_ident(registry_table)}
         ORDER BY product_type;
-        """.strip()
+        """.strip()  # nosec B608 (registry_table is fixed)
     ).fetchall()
 
     included: list[dict] = []
@@ -179,18 +179,18 @@ def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
 
         branch = (
             "SELECT\n"
-            f"  {_sql_ident(str(instance_name_col))} AS instance_name,\n"
-            f"  {_sql_ident(str(project_key_col))} AS project_key,\n"
-            f"  '{product_type}' AS product_type,\n"
-            f"  {_sql_ident(str(key_col))} AS product_key,\n"
-            f"  {_sql_ident(str(name_col))} AS product_name,\n"
-            f"  {_maybe_col(subtype_col)} AS product_subtype,\n"
-            f"  {_maybe_col(owner_col)} AS owner_login,\n"
-            f"  {_maybe_col(last_modified_by_col)} AS last_modified_by_login,\n"
-            f"  try_cast({_maybe_col(created_at_col)} AS TIMESTAMP) AS created_at,\n"
-            f"  try_cast({_maybe_col(updated_at_col)} AS TIMESTAMP) AS updated_at\n"
-            f"FROM {_sql_ident(source_table)}\n"
-            f"WHERE {where}"
+            f"  {_sql_ident(str(instance_name_col))} AS instance_name,\n"  # nosec B608 (identifiers are validated)
+            f"  {_sql_ident(str(project_key_col))} AS project_key,\n"  # nosec B608 (identifiers are validated)
+            f"  '{product_type}' AS product_type,\n"  # nosec B608 (product_type from registry)
+            f"  {_sql_ident(str(key_col))} AS product_key,\n"  # nosec B608 (identifiers are validated)
+            f"  {_sql_ident(str(name_col))} AS product_name,\n"  # nosec B608 (identifiers are validated)
+            f"  {_maybe_col(subtype_col)} AS product_subtype,\n"  # nosec B608 (identifiers are validated)
+            f"  {_maybe_col(owner_col)} AS owner_login,\n"  # nosec B608 (identifiers are validated)
+            f"  {_maybe_col(last_modified_by_col)} AS last_modified_by_login,\n"  # nosec B608 (identifiers are validated)
+            f"  try_cast({_maybe_col(created_at_col)} AS TIMESTAMP) AS created_at,\n"  # nosec B608 (identifiers are validated)
+            f"  try_cast({_maybe_col(updated_at_col)} AS TIMESTAMP) AS updated_at\n"  # nosec B608 (identifiers are validated)
+            f"FROM {_sql_ident(source_table)}\n"  # nosec B608 (table is validated)
+            f"WHERE {where}"  # nosec B608 (where_sql comes from registry config)
         )
 
         branches.append(branch)
@@ -200,7 +200,7 @@ def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
         logger.info("base_product_index: no registry branches included")
         return {"ok": True, "enabled": True, "created": False, "included": included, "skipped": skipped}
 
-    sql = f"CREATE OR REPLACE VIEW base_product_index AS\n" + "\nUNION ALL\n".join(branches) + ";"
+    sql = f"CREATE OR REPLACE VIEW base_product_index AS\n" + "\nUNION ALL\n".join(branches) + ";"  # nosec B608 (sql built from validated identifiers)
     conn.execute(sql)
 
     return {

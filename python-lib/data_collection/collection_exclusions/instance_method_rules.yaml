@@ -1,0 +1,29 @@
+methods:
+  list_connections:
+    enabled: true
+    call_mode: auto
+    cleanup_mode: python_hook
+    notes: Drop secret-like columns and keep connection snapshots stable.
+  list_imported_bundles:
+    enabled: true
+    call_mode: auto
+    cleanup_mode: rename_drop_cast
+    notes: Keep generic collection but make the method explicit for future cleanup expansion.
+
+  list_ml_tasks:
+    enabled: true
+    call_mode: auto
+    cleanup_mode: rename_drop_cast
+    notes: Keep generic collection but make the method explicit for future cleanup expansion.
+
+  list_llms:
+    enabled: true
+    call_mode: auto
+    cleanup_mode: rename_drop_cast
+    notes: Keep generic collection but make the method explicit for future cleanup expansion.
+
+  list_global_api_keys:
+    enabled: false
+    call_mode: auto
+    cleanup_mode: none
+    notes: Disabled by rule until safe handling for secrets-sensitive fields is defined.

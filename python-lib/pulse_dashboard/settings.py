@@ -8,15 +8,16 @@ the webapp backend can import it reliably.
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 
 
 APP_NAME = os.getenv("PULSE_APP_NAME", "dataiku_pulse")
 
-HOST = os.getenv("PULSE_HOST", "0.0.0.0")
+HOST = os.getenv("PULSE_HOST", "127.0.0.1")  # nosec B104 (local dev default; DSS controls binding)
 PORT = int(os.getenv("PULSE_PORT", "8995"))
 
-DUCKDB_DIR = Path(os.getenv("PULSE_DUCKDB_DIR", "/tmp/pulse"))
+DUCKDB_DIR = Path(os.getenv("PULSE_DUCKDB_DIR", str(Path(tempfile.gettempdir()) / "pulse")))
 DUCKDB_PATH = Path(os.getenv("PULSE_DUCKDB_PATH", str(DUCKDB_DIR / "dataiku_pulse.db")))
 
 DUCKDB_READ_ONLY = os.getenv("PULSE_DUCKDB_READ_ONLY", "0").lower() in ("1", "true", "yes")

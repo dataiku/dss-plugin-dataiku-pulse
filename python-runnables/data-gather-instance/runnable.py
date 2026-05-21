@@ -1,55 +1,34 @@
-# This file is the actual code for the Python runnable data-gather-instance
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
 
-import dataiku
-import pandas as pd
 from dataiku.runnables import ResultTable, Runnable
-
 
 from data_collection.data_collection.instance import get_instance_name
 from data_collection.data_collection.introspection import get_noarg_list_methods
-from data_collection.data_normalizer import check_silver_dq, normalize_silver
 from data_collection.exclusion_config import load_exclusions, load_inclusions
 from data_collection.helper import (
     OutputLayout,
     PulseMacroContext,
     build_context,
     ensure_output_folder,
-    raw_to_dataframe,
-    upload_json,
-    upload_json_gzip,
-    upload_parquet,
+    resolve_worker_project_key,
 )
+from data_collection.method_rules import MethodCallContext, MethodCollectResult, collect_method_output
 
-
-
-@dataclass(frozen=True)
-class CollectInstanceResult:
-    collected: List[str]
-    errors: Dict[str, str]
+logger = logging.getLogger(__name__)
 
 
 class MyRunnable(Runnable):
-    """Gather instance-level metadata from `client.list_*` methods."""
+    """Gather instance-level metadata from DSS methods with centralized rules."""
 
     def __init__(self, project_key, config, plugin_config):
         self.project_key = project_key
         self.config = config or {}
         self.plugin_config = plugin_config or {}
-
-        # DSS macros expose a single parameter set; we use `pulse_primary` as the
-        # canonical container for all plugin settings.
         self.param_set = self.plugin_config.get("pulse_primary", {}) or {}
-
-        # Remote output target (can be same DSS instance).
-        self.output_project_key = self.param_set.get("pulse_project_key", "DATA_COLLECTION")
-        self.output_folder_lookup = self.param_set.get("pulse_partitioned_data", "partitioned_data")
-        self.output_connection_name = self.param_set.get("pulse_folder_connection")
 
     def get_progress_target(self):
         return None
@@ -69,308 +48,115 @@ class MyRunnable(Runnable):
         layout = OutputLayout(base_dir=Path("partitioned_data"), module="instance_metadata")
         methods = get_noarg_list_methods(ctx.local_client)
         excluded = set(load_exclusions("instance_data").excluded_methods)
-
-        # Project-level methods that are known to be project-invariant and only
-        # need to be collected once.
         project_inclusions = load_inclusions("instance_project_inclusion.yaml")
-        worker_project_key = self.param_set.get("pulse_worker_key")
-
+        worker_project_key = str(
+            self.param_set.get("pulse_worker_key")
+            or resolve_worker_project_key(ctx.local_client, fallback_project_key=self.project_key)
+        )
         target = ensure_output_folder(param_set=self.param_set, remote_client=ctx.remote_client)
-
-        collected: List[str] = []
-        errors: Dict[str, str] = {}
 
         if progress_callback is not None:
             progress_callback(0)
 
-        # For client-level objects, there is no per-project key.
-        file_key = "instance"
+        method_results: list[MethodCollectResult] = []
+        total_work = len(methods) + len(project_inclusions)
+        completed = 0
 
         for method_name, fn in sorted(methods.items()):
             if method_name in excluded:
-                continue
-            category = layout.category_name(method_name)
-            prefix = f"{layout.prefix_base(method_name)}_"
-
-            raw_path = layout.project_data_path(
-                "raw",
-                method_name,
-                instance_name,
-                run_date,
-                file_key,
-                "json.gz",
-            )
-            raw_error_path = layout.project_data_path(
-                "raw_errors",
-                method_name,
-                instance_name,
-                run_date,
-                file_key,
-                "json",
-            )
-            silver_path = layout.project_data_path(
-                "silver",
-                method_name,
-                instance_name,
-                run_date,
-                file_key,
-                "parquet",
-            )
-            silver_fail_path = layout.project_data_path(
-                "silver_fail",
-                method_name,
-                instance_name,
-                run_date,
-                file_key,
-                "parquet",
-            )
-            silver_fail_reason_path = layout.project_data_path(
-                "silver_fail",
-                method_name,
-                instance_name,
-                run_date,
-                file_key,
-                "dq.json",
-            )
-
-            try:
-                payload = fn()
-
-                if payload is None:
-                    continue
-                if isinstance(payload, (list, tuple, set)) and len(payload) == 0:
-                    continue
-                if isinstance(payload, dict) and len(payload) == 0:
-                    continue
-
-                raw_df = raw_to_dataframe(payload, prefix=prefix)
-                if raw_df.shape[0] == 0:
-                    continue
-
-                upload_json_gzip(
-                    target=target,
-                    output_path=raw_path,
-                    output_base_dir=layout.base_dir,
-                    payload=payload,
-                )
-
-                silver_df = normalize_silver(
-                    df=raw_df,
-                    instance_name=instance_name,
-                    run_ts=run_ts,
-                    category=category,
-                    module=layout.module,
-                    todo_section="instance",
-                )
-                dq = check_silver_dq(silver_df)
-                if dq.ok:
-                    upload_parquet(
+                method_results.append(MethodCollectResult(method_name, "instance", "excluded", 0, 0, 0))
+            else:
+                method_results.append(
+                    collect_method_output(
+                        fn=fn,
+                        method_name=method_name,
+                        file_key="instance",
+                        layout=layout,
                         target=target,
-                        output_path=silver_path,
-                        output_base_dir=layout.base_dir,
-                        df=silver_df,
-                        compression="snappy",
-                    )
-                else:
-                    upload_parquet(
-                        target=target,
-                        output_path=silver_fail_path,
-                        output_base_dir=layout.base_dir,
-                        df=silver_df,
-                        compression="snappy",
-                    )
-                    upload_json(
-                        target=target,
-                        output_path=silver_fail_reason_path,
-                        output_base_dir=layout.base_dir,
-                        payload={
-                            "instance_name": instance_name,
-                            "run_ts": run_ts,
-                            "method_name": method_name,
-                            "rows": int(silver_df.shape[0]),
-                            "cols": int(silver_df.shape[1]),
-                            "dq_errors": dq.errors,
-                        },
-                    )
-
-                collected.append(method_name)
-            except Exception as e:
-                errors[method_name] = repr(e)
-                upload_json(
-                    target=target,
-                    output_path=raw_error_path,
-                    output_base_dir=layout.base_dir,
-                    payload={
-                        "instance_name": instance_name,
-                        "run_ts": run_ts,
-                        "method_name": method_name,
-                        "error": repr(e),
-                    },
-                )
-
-        # Run project-level inclusions once, against a single worker project.
-        included_collected: List[str] = []
-        included_errors: Dict[str, str] = {}
-        if worker_project_key and project_inclusions:
-            try:
-                worker_project = ctx.local_client.get_project(worker_project_key)
-                project_methods = get_noarg_list_methods(worker_project)
-
-                for method_name in project_inclusions:
-                    fn = project_methods.get(method_name)
-                    if fn is None:
-                        included_errors[method_name] = "method_not_found"
-                        continue
-
-                    category = layout.category_name(method_name)
-                    prefix = f"{layout.prefix_base(method_name)}_"
-
-                    raw_path = layout.project_data_path(
-                        "raw",
-                        method_name,
-                        instance_name,
-                        run_date,
-                        worker_project_key,
-                        "json.gz",
-                    )
-                    raw_error_path = layout.project_data_path(
-                        "raw_errors",
-                        method_name,
-                        instance_name,
-                        run_date,
-                        worker_project_key,
-                        "json",
-                    )
-                    silver_path = layout.project_data_path(
-                        "silver",
-                        method_name,
-                        instance_name,
-                        run_date,
-                        worker_project_key,
-                        "parquet",
-                    )
-                    silver_fail_path = layout.project_data_path(
-                        "silver_fail",
-                        method_name,
-                        instance_name,
-                        run_date,
-                        worker_project_key,
-                        "parquet",
-                    )
-                    silver_fail_reason_path = layout.project_data_path(
-                        "silver_fail",
-                        method_name,
-                        instance_name,
-                        run_date,
-                        worker_project_key,
-                        "dq.json",
-                    )
-
-                    try:
-                        payload = fn()
-                        if payload is None:
-                            continue
-                        if isinstance(payload, (list, tuple, set)) and len(payload) == 0:
-                            continue
-                        if isinstance(payload, dict) and len(payload) == 0:
-                            continue
-
-                        raw_df = raw_to_dataframe(payload, prefix=prefix)
-                        if raw_df.shape[0] == 0:
-                            continue
-
-                        upload_json_gzip(
-                            target=target,
-                            output_path=raw_path,
-                            output_base_dir=layout.base_dir,
-                            payload=payload,
-                        )
-
-                        silver_df = normalize_silver(
-                            df=raw_df,
+                        context=MethodCallContext(
+                            scope="instance",
                             instance_name=instance_name,
                             run_ts=run_ts,
-                            category=category,
-                            module=layout.module,
-                            todo_section="instance",
-                        )
-                        dq = check_silver_dq(silver_df)
-                        if dq.ok:
-                            upload_parquet(
-                                target=target,
-                                output_path=silver_path,
-                                output_base_dir=layout.base_dir,
-                                df=silver_df,
-                                compression="snappy",
-                            )
-                        else:
-                            upload_parquet(
-                                target=target,
-                                output_path=silver_fail_path,
-                                output_base_dir=layout.base_dir,
-                                df=silver_df,
-                                compression="snappy",
-                            )
-                            upload_json(
-                                target=target,
-                                output_path=silver_fail_reason_path,
-                                output_base_dir=layout.base_dir,
-                                payload={
-                                    "instance_name": instance_name,
-                                    "run_ts": run_ts,
-                                    "method_name": method_name,
-                                    "worker_project_key": worker_project_key,
-                                    "rows": int(silver_df.shape[0]),
-                                    "cols": int(silver_df.shape[1]),
-                                    "dq_errors": dq.errors,
-                                },
-                            )
+                            param_set=self.param_set,
+                            worker_project_key=worker_project_key,
+                        ),
+                        run_date=run_date,
+                        todo_section="instance",
+                    )
+                )
+            completed += 1
+            if progress_callback is not None and total_work > 0:
+                progress_callback(completed / total_work)
 
-                        included_collected.append(method_name)
-                    except Exception as e:
-                        included_errors[method_name] = repr(e)
-                        upload_json(
-                            target=target,
-                            output_path=raw_error_path,
-                            output_base_dir=layout.base_dir,
-                            payload={
-                                "instance_name": instance_name,
-                                "run_ts": run_ts,
-                                "method_name": method_name,
-                                "error": repr(e),
-                                "worker_project_key": worker_project_key,
-                            },
-                        )
-            except Exception as e:
-                included_errors["__worker_project__"] = repr(e)
+        project_methods = {}
+        try:
+            worker_project = ctx.local_client.get_project(worker_project_key)
+            project_methods = get_noarg_list_methods(worker_project)
+        except Exception as exc:
+            logger.exception("Failed to resolve worker project %s", worker_project_key)
+            method_results.append(MethodCollectResult("__worker_project__", "project_inclusion", "call_failed", 0, 0, 0, message=repr(exc)))
 
-        if progress_callback is not None:
-            progress_callback(len(collected) + len(included_collected))
+        for method_name in project_inclusions:
+            fn = project_methods.get(method_name)
+            if fn is None:
+                method_results.append(MethodCollectResult(method_name, "project_inclusion", "method_not_found", 0, 0, 0))
+            else:
+                method_results.append(
+                    collect_method_output(
+                        fn=fn,
+                        method_name=method_name,
+                        file_key=worker_project_key,
+                        layout=layout,
+                        target=target,
+                        context=MethodCallContext(
+                            scope="instance",
+                            instance_name=instance_name,
+                            run_ts=run_ts,
+                            param_set=self.param_set,
+                            project_key=worker_project_key,
+                            worker_project_key=worker_project_key,
+                        ),
+                        run_date=run_date,
+                        todo_section="instance",
+                    )
+                )
+            completed += 1
+            if progress_callback is not None and total_work > 0:
+                progress_callback(completed / total_work)
 
-        # Summary table
-        summary_rows = [
-            {"metric": "list_methods_total", "value": len(methods)},
-            {"metric": "list_methods_collected", "value": len(collected)},
-            {"metric": "list_methods_failed", "value": len(errors)},
-            {"metric": "project_inclusions_total", "value": len(project_inclusions)},
-            {"metric": "project_inclusions_collected", "value": len(included_collected)},
-            {"metric": "project_inclusions_failed", "value": len(included_errors)},
-        ]
-
-        for method_name, err in sorted(included_errors.items()):
-            summary_rows.append(
-                {
-                    "metric": "project_inclusion_error",
-                    "value": f"{method_name}: {err}",
-                }
-            )
-
-        summary = pd.DataFrame(summary_rows)
+        status_counts: dict[str, int] = {}
+        for item in method_results:
+            status_counts[item.status] = status_counts.get(item.status, 0) + 1
 
         rt = ResultTable()
         rt.add_column(1, "metric", "STRING")
         rt.add_column(2, "value", "STRING")
-        for _, row in summary.astype(str).iterrows():
-            rt.add_record([row["metric"], row["value"]])
+        rt.add_column(3, "scope", "STRING")
+        rt.add_column(4, "status", "STRING")
+        rt.add_column(5, "details", "STRING")
+
+        for row in [
+            ("list_methods_total", str(len(methods)), "summary", "info", ""),
+            ("project_inclusions_total", str(len(project_inclusions)), "summary", "info", ""),
+            ("excluded_total", str(status_counts.get("excluded", 0)), "summary", "info", ""),
+            ("excluded_by_rule_total", str(status_counts.get("excluded_by_rule", 0)), "summary", "info", ""),
+            ("silver_written_total", str(status_counts.get("silver_written", 0)), "summary", "info", ""),
+            ("silver_failed_dq_total", str(status_counts.get("silver_failed_dq", 0)), "summary", "info", ""),
+            ("empty_payload_total", str(status_counts.get("empty_payload", 0)), "summary", "info", ""),
+            ("empty_dataframe_total", str(status_counts.get("empty_dataframe", 0)), "summary", "info", ""),
+            ("call_failed_total", str(status_counts.get("call_failed", 0)), "summary", "info", ""),
+            ("method_not_found_total", str(status_counts.get("method_not_found", 0)), "summary", "info", ""),
+            ("needs_rule_total", str(status_counts.get("needs_rule", 0)), "summary", "info", ""),
+        ]:
+            rt.add_record(list(row))
+
+        for item in method_results:
+            rt.add_record([
+                item.method_name,
+                str(item.rows_silver if item.rows_silver else item.rows_raw),
+                item.scope,
+                item.status,
+                f"rule={item.rule_mode}; duration_ms={item.duration_ms}; rows_raw={item.rows_raw}; rows_silver={item.rows_silver}; message={item.message or ''}",
+            ])
 
         return rt

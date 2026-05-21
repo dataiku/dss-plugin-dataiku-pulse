@@ -108,6 +108,8 @@ bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/w
 scripts/sync_pulse_dashboard_build.sh /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/build
 ```
 
+When editing the external Pulse dashboard frontend source at `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/`, agents should automatically rebuild the frontend and sync the resulting build into `resource/pulse-dashboard/build/` before handing work back, unless the user explicitly asks not to.
+
 ## Code style guidelines
 
 ### Principles

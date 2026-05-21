@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import os
 import re
+import tempfile
 from pathlib import Path
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH_DEFAULT = Path("/tmp/duckdb/pulse.duckdb")
+DB_PATH_DEFAULT = Path(tempfile.gettempdir()) / "duckdb" / "pulse.duckdb"
 
 DB_PATH_ENV = "PULSE_DUCKDB_PATH"
 DB_DIR_ENV = "PULSE_DUCKDB_DIR"
@@ -25,7 +26,7 @@ def db_path(*, project_key: str | None = None) -> Path:
     Priority:
     1) `PULSE_DUCKDB_PATH` explicit file path
     2) `PULSE_DUCKDB_DIR` directory + default filename
-    3) fallback to `/tmp/duckdb/pulse.duckdb`
+    3) fallback to `<tempdir>/duckdb/pulse.duckdb`
 
     If `project_key` is provided and no explicit path is set, it is appended to
     the default filename stem for isolation across runs/projects.

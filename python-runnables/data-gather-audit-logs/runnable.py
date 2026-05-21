@@ -1,43 +1,43 @@
 from __future__ import annotations
 
 import importlib
-import json
-import os
+import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Iterable
 
-import dataiku
 import pandas as pd
 from dataiku.runnables import ResultTable, Runnable
 
-from data_collection.audit_logs_modules.audit_paths import chdir_audit_logs
+from data_collection.audit_logs_modules.audit_paths import resolve_audit_logs_dir
 from data_collection.data_collection.instance import get_instance_name
 from data_collection.data_normalizer import check_silver_dq, normalize_silver
 from data_collection.helper import (
     CursorSpec,
-    resolve_worker_project_key,
     OutputLayout,
     PulseMacroContext,
     build_context,
     ensure_output_folder,
     resolve_cursor_ts,
+    resolve_worker_project_key,
     update_cursor_ts,
     upload_json_gzip,
     upload_parquet,
 )
 
+logger = logging.getLogger(__name__)
 
-def _find_recent_files(file_list: Iterable[Path], *, hours: float) -> List[Path]:
-    recent_files: List[Path] = []
+
+def _find_recent_files(file_list: Iterable[Path], *, hours: float) -> list[Path]:
+    recent_files: list[Path] = []
     cutoff = time.time() - (hours * 3600)
-    for p in file_list:
+    for path in file_list:
         try:
-            if p.exists() and p.stat().st_mtime >= cutoff:
-                recent_files.append(p)
+            if path.exists() and path.stat().st_mtime >= cutoff:
+                recent_files.append(path)
         except Exception:
             continue
     return recent_files
@@ -55,22 +55,24 @@ def _parse_timestamp(series: pd.Series) -> pd.Series:
         unit = _detect_epoch_unit(series)
         return pd.to_datetime(series, unit=unit, utc=True, errors="coerce").dt.floor("s")
 
-    # Use object dtype so pandas doesn't treat mixed values oddly.
     series_obj = series.astype("object")
     dt = pd.to_datetime(series_obj, utc=True, errors="coerce")
 
-    # If parsing failed for all rows but values are numeric-like strings,
-    # retry as epoch.
     if dt.notna().sum() == 0 and series_obj.notna().sum() > 0:
         from data_collection.data_normalizer.casting import _detect_epoch_unit
 
         unit = _detect_epoch_unit(series_obj)
-        dt = pd.to_datetime(pd.to_numeric(series_obj, errors="coerce"), unit=unit, utc=True, errors="coerce")
+        dt = pd.to_datetime(
+            pd.to_numeric(series_obj, errors="coerce"),
+            unit=unit,
+            utc=True,
+            errors="coerce",
+        )
 
     return dt.dt.floor("s")
 
 
-def _load_yaml_list(path: Path) -> List[str]:
+def _load_yaml_list(path: Path) -> list[str]:
     import yaml
 
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -81,20 +83,24 @@ def _load_yaml_list(path: Path) -> List[str]:
     raise ValueError(f"Expected YAML list in {path}, got {type(raw)!r}")
 
 
-def _load_processor_names() -> List[str]:
-    """Load `modules.yaml` from the installed plugin resources.
-
-    In DSS macro runs, runnables are executed from a temporary `dku_code.py` file,
-    so relative filesystem paths like `Path(__file__).parents[...]` are not
-    reliable. Reading the YAML from the `data_collection.audit_logs_modules`
-    package ensures this works both locally and in DSS.
-    """
-
+def _load_processor_names() -> list[str]:
     from importlib.resources import as_file, files
 
     modules_res = files("data_collection.audit_logs_modules").joinpath("modules.yaml")
-    with as_file(modules_res) as p:
-        return _load_yaml_list(Path(p))
+    with as_file(modules_res) as path:
+        return _load_yaml_list(Path(path))
+
+
+def _load_processors(names: list[str]) -> tuple[dict[str, Any], dict[str, str]]:
+    processors: dict[str, Any] = {}
+    messages: dict[str, str] = {}
+    for name in names:
+        try:
+            processors[name] = importlib.import_module(f"data_collection.audit_logs_modules.{name}")
+        except Exception as exc:
+            logger.exception("Failed loading audit processor %s", name)
+            messages[name] = repr(exc)
+    return processors, messages
 
 
 @dataclass(frozen=True)
@@ -106,6 +112,16 @@ class ProcessorResult:
     message: str | None = None
 
 
+@dataclass(frozen=True)
+class ChunkProcessingStats:
+    rows_read: int = 0
+    rows_missing_timestamp: int = 0
+    rows_invalid_timestamp: int = 0
+    rows_before_cursor: int = 0
+    raw_backups_written: int = 0
+    silver_fail_groups: int = 0
+
+
 class MyRunnable(Runnable):
     """Gather audit logs and run audit processors."""
 
@@ -113,12 +129,7 @@ class MyRunnable(Runnable):
         self.project_key = project_key
         self.config = config or {}
         self.plugin_config = plugin_config or {}
-
-        # DSS macros expose a single parameter set; we use `pulse_primary` as the
-        # canonical container for all plugin settings.
         self.param_set = self.plugin_config.get("pulse_primary", {}) or {}
-
-        # Remote output target (can be same DSS instance).
         self.output_project_key = self.param_set.get("pulse_project_key", "DATA_COLLECTION")
         self.output_folder_lookup = self.param_set.get("pulse_partitioned_data", "partitioned_data")
         self.output_connection_name = self.param_set.get("pulse_folder_connection")
@@ -130,22 +141,17 @@ class MyRunnable(Runnable):
         return bool(self.param_set.get("pulse_audit_logs_debug", False))
 
     def _resolve_audit_start_ts(self) -> pd.Timestamp:
-        """Resolve the configured starting timestamp for reading audit logs."""
-
         default_dt = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=1)
-
         raw = self.param_set.get("pulse_audit_logs_delta")
         if raw:
             dt = pd.to_datetime(raw, utc=True, errors="coerce")
             if not pd.isna(dt):
                 return dt
-
         return default_dt
 
     def _read_audit_delta(self, client: Any) -> pd.Timestamp:
         start_dt = self._resolve_audit_start_ts()
         worker_project_key = resolve_worker_project_key(client, fallback_project_key=self.project_key)
-
         return resolve_cursor_ts(
             client=client,
             project_key=worker_project_key,
@@ -157,7 +163,6 @@ class MyRunnable(Runnable):
 
     def _update_audit_delta(self, client: Any, value: str) -> None:
         worker_project_key = resolve_worker_project_key(client, fallback_project_key=self.project_key)
-
         update_cursor_ts(
             client=client,
             project_key=worker_project_key,
@@ -166,12 +171,54 @@ class MyRunnable(Runnable):
             enabled=not self._is_local_debug(),
         )
 
+    def _build_partition_dir(
+        self,
+        *,
+        layout: OutputLayout,
+        layer: str,
+        proc_name: str,
+        module_name: str,
+        instance_name: str,
+        event_date,
+    ) -> Path:
+        return (
+            layout.base_dir
+            / layer
+            / f"category={proc_name}"
+            / f"module={module_name}"
+            / f"instance_name={instance_name}"
+            / f"year={event_date.year:04d}"
+            / f"month={event_date.month:02d}"
+            / f"day={event_date.day:02d}"
+        )
+
+    def _build_raw_backup_path(
+        self,
+        *,
+        layout: OutputLayout,
+        instance_name: str,
+        event_date,
+        file_name: str,
+    ) -> Path:
+        return (
+            layout.base_dir
+            / "raw"
+            / "category=audit_logs"
+            / "module=backup"
+            / f"instance_name={instance_name}"
+            / f"year={event_date.year:04d}"
+            / f"month={event_date.month:02d}"
+            / f"day={event_date.day:02d}"
+            / file_name
+        )
+
     def run(self, progress_callback):
         ctx: PulseMacroContext = build_context(plugin_config=self.plugin_config)
         self.param_set = ctx.param_set
 
         repo_root = Path(__file__).resolve().parents[2]
-        chdir_audit_logs(client=ctx.local_client, plugin_config=self.param_set, repo_root=repo_root)
+        audit_dir = resolve_audit_logs_dir(client=ctx.local_client, repo_root=repo_root)
+        logger.info("Resolved audit log directory: %s", audit_dir)
 
         instance_name = get_instance_name(ctx.local_client)
         if not instance_name:
@@ -179,74 +226,131 @@ class MyRunnable(Runnable):
 
         run_dt = datetime.now(timezone.utc)
         run_ts = run_dt.isoformat()
-        run_date = run_dt.date()
         run_epoch_ms = int(run_dt.timestamp() * 1000)
 
         target = ensure_output_folder(param_set=self.param_set, remote_client=ctx.remote_client)
-
         layout = OutputLayout(base_dir=Path("partitioned_data"), module="audit_metadata")
 
-        # Determine delta and which files to read
         last_update = self._read_audit_delta(ctx.local_client)
         time_diff = pd.Timestamp.now(tz="UTC") - last_update
         hours = float((time_diff.total_seconds() / 3600) + 1)
 
-        files = [p for p in Path(".").iterdir() if p.is_file() and p.name.startswith("audit.log")]
+        files = [path for path in audit_dir.iterdir() if path.is_file() and path.name.startswith("audit.log")]
         files = _find_recent_files(files, hours=hours)
-        files = sorted(files, key=lambda p: p.name)
+        files = sorted(files, key=lambda path: path.name)
 
         chunk_size = int(self.param_set.get("pulse_audit_logs_chunk_size", 50_000))
         max_files = int(self.param_set.get("pulse_audit_logs_max_files", 5))
         backup_raw = bool(self.param_set.get("pulse_backup_audit_logs", False))
 
         processor_names = _load_processor_names()
+        processors, processor_messages = _load_processors(processor_names)
         processor_results_by_name: dict[str, dict[str, int]] = defaultdict(
             lambda: {"rows_in": 0, "rows_out": 0, "wrote_groups": 0}
         )
-        processor_messages: dict[str, str] = {}
 
         chunk_idx = 0
         wrote_any = False
         max_ts_seen: pd.Timestamp | None = None
+        pending_cursor_ts: pd.Timestamp | None = None
+        stats = ChunkProcessingStats()
+        files_scanned = 0
+        chunks_scanned = 0
+        processor_failures = 0
 
-        for p in files[:max_files]:
-            for chunk in pd.read_json(p, lines=True, chunksize=chunk_size):
+        logger.info(
+            "Starting audit gather for %s with last_update=%s, max_files=%s, chunk_size=%s",
+            instance_name,
+            last_update,
+            max_files,
+            chunk_size,
+        )
+
+        for path in files[:max_files]:
+            files_scanned += 1
+            logger.info("Reading audit log file %s", path)
+            for chunk in pd.read_json(path, lines=True, chunksize=chunk_size):
+                chunks_scanned += 1
                 chunk_idx += 1
 
                 if chunk is None or chunk.shape[0] == 0:
                     continue
 
+                stats = ChunkProcessingStats(
+                    rows_read=stats.rows_read + int(chunk.shape[0]),
+                    rows_missing_timestamp=stats.rows_missing_timestamp,
+                    rows_invalid_timestamp=stats.rows_invalid_timestamp,
+                    rows_before_cursor=stats.rows_before_cursor,
+                    raw_backups_written=stats.raw_backups_written,
+                    silver_fail_groups=stats.silver_fail_groups,
+                )
+
                 if "timestamp" not in chunk.columns:
+                    logger.warning("Chunk %s missing timestamp column in %s", chunk_idx, path.name)
+                    stats = ChunkProcessingStats(
+                        rows_read=stats.rows_read,
+                        rows_missing_timestamp=stats.rows_missing_timestamp + int(chunk.shape[0]),
+                        rows_invalid_timestamp=stats.rows_invalid_timestamp,
+                        rows_before_cursor=stats.rows_before_cursor,
+                        raw_backups_written=stats.raw_backups_written,
+                        silver_fail_groups=stats.silver_fail_groups,
+                    )
                     continue
 
-                chunk["timestamp"] = _parse_timestamp(chunk["timestamp"])
+                parsed_ts = _parse_timestamp(chunk["timestamp"])
+                invalid_ts = int(parsed_ts.isna().sum())
+                if invalid_ts:
+                    logger.info("Chunk %s dropped %s rows with invalid timestamps", chunk_idx, invalid_ts)
+                chunk = chunk.copy()
+                chunk["timestamp"] = parsed_ts
                 chunk = chunk[chunk["timestamp"].notna()].copy()
+                stats = ChunkProcessingStats(
+                    rows_read=stats.rows_read,
+                    rows_missing_timestamp=stats.rows_missing_timestamp,
+                    rows_invalid_timestamp=stats.rows_invalid_timestamp + invalid_ts,
+                    rows_before_cursor=stats.rows_before_cursor,
+                    raw_backups_written=stats.raw_backups_written,
+                    silver_fail_groups=stats.silver_fail_groups,
+                )
                 if chunk.shape[0] == 0:
                     continue
 
-                chunk = chunk[chunk["timestamp"] >= last_update]
+                before_cursor = int((chunk["timestamp"] < last_update).sum())
+                chunk = chunk[chunk["timestamp"] >= last_update].copy()
+                stats = ChunkProcessingStats(
+                    rows_read=stats.rows_read,
+                    rows_missing_timestamp=stats.rows_missing_timestamp,
+                    rows_invalid_timestamp=stats.rows_invalid_timestamp,
+                    rows_before_cursor=stats.rows_before_cursor + before_cursor,
+                    raw_backups_written=stats.raw_backups_written,
+                    silver_fail_groups=stats.silver_fail_groups,
+                )
                 if chunk.shape[0] == 0:
                     continue
 
                 wrote_any = True
+                chunk_max_ts = pd.Timestamp(chunk["timestamp"].max())
+                if pd.notna(chunk_max_ts) and (max_ts_seen is None or chunk_max_ts > max_ts_seen):
+                    max_ts_seen = chunk_max_ts
 
-                chunk_max_ts = chunk["timestamp"].max()
-                if pd.notna(chunk_max_ts):
-                    if max_ts_seen is None or chunk_max_ts > max_ts_seen:
-                        max_ts_seen = pd.Timestamp(chunk_max_ts)
+                if "message" in chunk.columns:
+                    jdf = pd.json_normalize(chunk["message"]).add_prefix("message_").reset_index(drop=True)
+                    drop_cols = [col for col in ["message", "mdc"] if col in chunk.columns]
+                    chunk = chunk.drop(columns=drop_cols).reset_index(drop=True)
+                    chunk = pd.concat([chunk, jdf], axis=1)
 
-                # Optional RAW backup (before cleansing)
+                chunk["date"] = chunk["timestamp"].dt.date
+                chunk["instance_name"] = instance_name
+
+                chunk_success = True
+
                 if backup_raw:
-                    raw_backup_path = (
-                        layout.base_dir
-                        / "raw"
-                        / "category=audit_logs"
-                        / "module=backup"
-                        / instance_name
-                        / f"{run_date.year:04d}"
-                        / f"{run_date.month:02d}"
-                        / f"{run_date.day:02d}"
-                        / f"audit_logs-{run_epoch_ms}-{chunk_idx}.json.gz"
+                    event_date = chunk["timestamp"].max().date()
+                    raw_backup_path = self._build_raw_backup_path(
+                        layout=layout,
+                        instance_name=instance_name,
+                        event_date=event_date,
+                        file_name=f"audit_logs-{run_epoch_ms}-{chunk_idx}.json.gz",
                     )
                     upload_json_gzip(
                         target=target,
@@ -254,24 +358,29 @@ class MyRunnable(Runnable):
                         output_base_dir=layout.base_dir,
                         payload=chunk.to_dict(orient="records"),
                     )
-
-                # Expand message
-                if "message" in chunk.columns:
-                    jdf = pd.json_normalize(chunk["message"]).add_prefix("message_").reset_index(drop=True)
-                    drop_cols = [c for c in ["message", "mdc"] if c in chunk.columns]
-                    chunk = chunk.drop(columns=drop_cols).reset_index(drop=True)
-                    chunk = pd.concat([chunk, jdf], axis=1)
-
-                # Minimal smoothing
-                chunk["date"] = chunk["timestamp"].dt.date
-                chunk["instance_name"] = instance_name
+                    stats = ChunkProcessingStats(
+                        rows_read=stats.rows_read,
+                        rows_missing_timestamp=stats.rows_missing_timestamp,
+                        rows_invalid_timestamp=stats.rows_invalid_timestamp,
+                        rows_before_cursor=stats.rows_before_cursor,
+                        raw_backups_written=stats.raw_backups_written + 1,
+                        silver_fail_groups=stats.silver_fail_groups,
+                    )
 
                 for proc_name in processor_names:
+                    mod = processors.get(proc_name)
+                    if mod is None:
+                        processor_failures += 1
+                        chunk_success = False
+                        continue
+
                     try:
-                        mod = importlib.import_module(f"data_collection.audit_logs_modules.{proc_name}")
                         out_df = mod.main(chunk)
-                    except Exception as e:
-                        processor_messages.setdefault(proc_name, repr(e))
+                    except Exception as exc:
+                        processor_failures += 1
+                        chunk_success = False
+                        logger.exception("Processor %s failed on chunk %s", proc_name, chunk_idx)
+                        processor_messages.setdefault(proc_name, repr(exc))
                         continue
 
                     processor_results_by_name[proc_name]["rows_in"] += int(chunk.shape[0])
@@ -281,15 +390,15 @@ class MyRunnable(Runnable):
 
                     processor_results_by_name[proc_name]["rows_out"] += int(out_df.shape[0])
 
-                    # Require dataiku_category for partitioning
                     if "dataiku_category" not in out_df.columns:
-                        processor_messages.setdefault(proc_name, "missing dataiku_category")
+                        processor_failures += 1
+                        chunk_success = False
+                        message = "missing dataiku_category"
+                        logger.warning("Processor %s output missing dataiku_category", proc_name)
+                        processor_messages.setdefault(proc_name, message)
                         continue
 
                     for module_name, grp in out_df.groupby("dataiku_category"):
-                        # SILVER only
-                        # Flatten config lookup key can differ from storage partitions.
-                        # For event_mapping, all categories share a common base schema.
                         flatten_category = proc_name
                         flatten_module = str(module_name)
                         flatten_variant = None
@@ -313,30 +422,24 @@ class MyRunnable(Runnable):
 
                         parquet_name = f"audit_logs-{run_epoch_ms}-{chunk_idx}.parquet"
                         dq_name = f"audit_logs-{run_epoch_ms}-{chunk_idx}.dq.json.gz"
+                        event_date = pd.Timestamp(silver_df["timestamp"].max()).date() if "timestamp" in silver_df.columns else chunk_max_ts.date()
 
-                        # Write SILVER grouped by dataiku_category
-                        silver_path = (
-                            layout.base_dir
-                            / "silver"
-                            / f"category={proc_name}"
-                            / f"module={str(module_name)}"
-                            / f"instance_name={instance_name}"
-                            / f"year={run_date.year:04d}"
-                            / f"month={run_date.month:02d}"
-                            / f"day={run_date.day:02d}"
-                            / parquet_name
-                        )
-                        silver_fail_reason_path = (
-                            layout.base_dir
-                            / "silver_fail"
-                            / f"category={proc_name}"
-                            / f"module={str(module_name)}"
-                            / f"instance_name={instance_name}"
-                            / f"year={run_date.year:04d}"
-                            / f"month={run_date.month:02d}"
-                            / f"day={run_date.day:02d}"
-                            / dq_name
-                        )
+                        silver_path = self._build_partition_dir(
+                            layout=layout,
+                            layer="silver",
+                            proc_name=proc_name,
+                            module_name=str(module_name),
+                            instance_name=instance_name,
+                            event_date=event_date,
+                        ) / parquet_name
+                        silver_fail_reason_path = self._build_partition_dir(
+                            layout=layout,
+                            layer="silver_fail",
+                            proc_name=proc_name,
+                            module_name=str(module_name),
+                            instance_name=instance_name,
+                            event_date=event_date,
+                        ) / dq_name
 
                         dq = check_silver_dq(silver_df)
                         if dq.ok:
@@ -349,17 +452,23 @@ class MyRunnable(Runnable):
                             )
                             processor_results_by_name[proc_name]["wrote_groups"] += 1
                         else:
-                            fail_path = (
-                                layout.base_dir
-                                / "silver_fail"
-                                / f"category={proc_name}"
-                                / f"module={str(module_name)}"
-                                / f"instance_name={instance_name}"
-                                / f"year={run_date.year:04d}"
-                                / f"month={run_date.month:02d}"
-                                / f"day={run_date.day:02d}"
-                                / parquet_name
+                            chunk_success = False
+                            stats = ChunkProcessingStats(
+                                rows_read=stats.rows_read,
+                                rows_missing_timestamp=stats.rows_missing_timestamp,
+                                rows_invalid_timestamp=stats.rows_invalid_timestamp,
+                                rows_before_cursor=stats.rows_before_cursor,
+                                raw_backups_written=stats.raw_backups_written,
+                                silver_fail_groups=stats.silver_fail_groups + 1,
                             )
+                            fail_path = self._build_partition_dir(
+                                layout=layout,
+                                layer="silver_fail",
+                                proc_name=proc_name,
+                                module_name=str(module_name),
+                                instance_name=instance_name,
+                                event_date=event_date,
+                            ) / parquet_name
                             upload_parquet(
                                 target=target,
                                 output_path=fail_path,
@@ -382,15 +491,26 @@ class MyRunnable(Runnable):
                                 },
                             )
 
+                if chunk_success and pd.notna(chunk_max_ts):
+                    if pending_cursor_ts is None or chunk_max_ts > pending_cursor_ts:
+                        pending_cursor_ts = chunk_max_ts
+
         if not wrote_any:
+            logger.info("No new audit rows found after %s", last_update)
             return "No new audit rows"
 
-        # Update cursor on success (best-effort).
-        if max_ts_seen is not None and pd.notna(max_ts_seen):
-            self._update_audit_delta(ctx.local_client, pd.Timestamp(max_ts_seen).isoformat())
+        if pending_cursor_ts is not None and pd.notna(pending_cursor_ts):
+            logger.info("Updating audit cursor to %s", pending_cursor_ts.isoformat())
+            self._update_audit_delta(ctx.local_client, pending_cursor_ts.isoformat())
+        else:
+            logger.warning(
+                "Skipping cursor update because no chunk completed successfully; max_ts_seen=%s",
+                max_ts_seen,
+            )
 
-        processor_results: List[ProcessorResult] = []
-        for name, agg in processor_results_by_name.items():
+        processor_results: list[ProcessorResult] = []
+        for name in processor_names:
+            agg = processor_results_by_name.get(name, {})
             processor_results.append(
                 ProcessorResult(
                     name,
@@ -401,7 +521,6 @@ class MyRunnable(Runnable):
                 )
             )
 
-        # ResultTable
         rt = ResultTable()
         rt.add_column(1, "processor", "STRING")
         rt.add_column(2, "rows_in", "STRING")
@@ -409,7 +528,30 @@ class MyRunnable(Runnable):
         rt.add_column(4, "wrote_groups", "STRING")
         rt.add_column(5, "message", "STRING")
 
-        for r in processor_results:
-            rt.add_record([r.name, str(r.rows_in), str(r.rows_out), str(r.wrote_groups), str(r.message or "")])
+        for result in processor_results:
+            rt.add_record([
+                result.name,
+                str(result.rows_in),
+                str(result.rows_out),
+                str(result.wrote_groups),
+                str(result.message or ""),
+            ])
+
+        rt.add_record([
+            "__summary__",
+            str(stats.rows_read),
+            str(stats.rows_invalid_timestamp),
+            str(sum(item.wrote_groups for item in processor_results)),
+            (
+                f"files_scanned={files_scanned}; chunks_scanned={chunks_scanned}; "
+                f"missing_timestamp_rows={stats.rows_missing_timestamp}; "
+                f"before_cursor_rows={stats.rows_before_cursor}; "
+                f"raw_backups_written={stats.raw_backups_written}; "
+                f"silver_fail_groups={stats.silver_fail_groups}; "
+                f"processor_failures={processor_failures}; "
+                f"cursor_from={last_update.isoformat()}; "
+                f"cursor_to={(pending_cursor_ts.isoformat() if pending_cursor_ts is not None else '')}"
+            ),
+        ])
 
         return rt

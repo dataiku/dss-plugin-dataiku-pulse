@@ -9,7 +9,7 @@
 .htmlcov
 .DS_Store
 .idea
-TODO
+.codex
 
 # Local development artifacts
 .pulse-logs/

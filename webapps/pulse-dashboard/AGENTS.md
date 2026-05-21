@@ -31,7 +31,7 @@ This webapp is packaged inside the plugin and is split into:
   - `/api/debug/duckdb/*` (reload + table introspection)
   - `/api/build/*` (catalog/products/dev-activity views)
   - `/api/build/assets/details` and `/api/build/products/details` (modal drilldown details)
-  - `/api/build/users/*` (users activity + drilldowns; gated by `standard.user_activity`)
+  - `/api/build/users/*` (users activity + drilldowns)
 
 ## Frontend source (not in repo)
 
