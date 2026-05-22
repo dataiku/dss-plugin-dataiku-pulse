@@ -22,6 +22,7 @@ from flask import Blueprint, Flask, jsonify, request, send_file, send_from_direc
 # Resolve repo paths for local dev static serving.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _BUILD_DIR = _REPO_ROOT / "resource" / "pulse-dashboard" / "build"
+_BODY_HTML_PATH = _REPO_ROOT / "webapps" / "pulse-dashboard" / "body.html"
 
 # In DSS, `app` is injected into the module globals by the webapp runner.
 # For local dev runs, this will be missing and we create an app below.
@@ -615,8 +616,7 @@ def serve_packaged_build(filename: str):  # pragma: no cover
 def serve_frontend(path: str):  # pragma: no cover
     # Mirror DSS by serving the same loader HTML.
     if _IS_LOCAL_DEV:
-        body_path = Path(__file__).resolve().parent / "body.html"
-        return send_file(body_path)
+        return send_file(_BODY_HTML_PATH)
 
     # Fallback: if someone hits this backend outside DSS, try serving the
     # packaged React build directly.
@@ -2835,8 +2835,11 @@ def build_user_top_projects(login: str):
 
 
 
-def register_routes(app: Flask) -> None:
+def register_routes(app: Flask, *, is_local_dev: bool = False) -> None:
     global _IS_LOCAL_DEV
-    _IS_LOCAL_DEV = False
+    _IS_LOCAL_DEV = is_local_dev
     app.register_blueprint(bp)
-    _maybe_schedule_startup_duckdb_init()
+    # In loader-backed mode, body.html owns the blocking startup init via
+    # /api/startup/duckdb; avoid racing it with a background init thread.
+    if not _IS_LOCAL_DEV:
+        _maybe_schedule_startup_duckdb_init()
