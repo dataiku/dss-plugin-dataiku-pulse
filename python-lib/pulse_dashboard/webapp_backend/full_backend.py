@@ -918,7 +918,7 @@ def build_assets():
         types = _parse_csv_list(request.args.get("types"))
 
         sort = (request.args.get("sort") or "updated_desc").strip()
-        limit, offset = _parse_pagination(default_limit=25)
+        limit, offset = _parse_pagination(default_limit=25, max_limit=5000)
 
         # Guardrails
         limit = max(1, min(5000, limit))
