@@ -2230,12 +2230,18 @@ def build_users_kpis():
         license_filter = _parse_license_filter(request.args.get("licenseFilter"))
         instance_name = _parse_instance_name(request.args.get("instance_name"))
 
-        exclude_sql = ""
         exclude_params: list[Any] = []
-        exclude_placeholders = ""
+        exclude_sql = ""
+        exclude_sql_by_instance = ""
         if license_filter == "no_consumer" and excluded_profiles:
-            exclude_placeholders = _sql_placeholders(len(excluded_profiles))
+            placeholders = _sql_placeholders(len(excluded_profiles))
             exclude_params = list(excluded_profiles)
+            exclude_sql = (
+                f" AND coalesce(upper(trim(users_userprofile)), '') NOT IN ({placeholders})"
+            )
+            exclude_sql_by_instance = (
+                f" AND coalesce(upper(trim(l.users_userprofile)), '') NOT IN ({placeholders})"
+            )
 
         instance_sql = ""
         instance_params: list[Any] = []
@@ -2243,53 +2249,8 @@ def build_users_kpis():
             instance_sql = " AND instance_name = ?"
             instance_params = [instance_name]
 
-        if exclude_placeholders:
-            by_instance_exclude_condition = (
-                "      AND coalesce(upper(trim(l.users_userprofile)), '') NOT IN ("
-                + exclude_placeholders
-                + ")\n"
-            )
-            by_instance_sql = (
-                "WITH latest AS (\n"
-                + "  SELECT\n"
-                + "    instance_name,\n"
-                + "    lower(trim(users_login)) AS login_norm,\n"
-                + "    users_enabled,\n"
-                + "    users_userprofile,\n"
-                + "    run_ts,\n"
-                + "    ROW_NUMBER() OVER (\n"
-                + "      PARTITION BY instance_name, lower(trim(users_login))\n"
-                + "      ORDER BY run_ts DESC\n"
-                + "    ) AS rn\n"
-                + "  FROM base_users_instance_metadata_history\n"
-                + "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
-                + "),\n"
-                + "activity AS (\n"
-                + "  SELECT\n"
-                + "    instance_name,\n"
-                + "    lower(trim(login_norm)) AS login_norm,\n"
-                + "    SUM(viewing_actions_count) AS total_viewing,\n"
-                + "    SUM(developing_actions_count) AS total_developing\n"
-                + "  FROM fact_user_activity_daily\n"
-                + "  GROUP BY 1, 2\n"
-                + ")\n"
-                + "SELECT\n"
-                + "  l.instance_name AS instanceName,\n"
-                + "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE) AS enabled_users,\n"
-                + "  COUNT(DISTINCT l.login_norm) FILTER (\n"
-                + "    WHERE l.users_enabled IS TRUE\n"
-                + by_instance_exclude_condition
-                + "  ) AS enabled_users_no_consumer,\n"
-                + "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_viewing, 0) > 0) AS viewing_users,\n"
-                + "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_developing, 0) > 0) AS developing_users\n"
-                + "FROM latest l\n"
-                + "LEFT JOIN activity a ON a.instance_name = l.instance_name AND a.login_norm = l.login_norm\n"
-                + "WHERE l.rn = 1\n"
-                + "GROUP BY 1\n"
-                + "ORDER BY enabled_users DESC, instanceName;"
-            )
-        else:
-            df_sql = (
+        df = _query_df(
+            (
                 "WITH latest AS (\n"
                 "  SELECT\n"
                 "    instance_name,\n"
@@ -2317,15 +2278,16 @@ def build_users_kpis():
                 ")\n"
                 "SELECT\n"
                 "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE) AS enabled_users,\n"
-                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE) AS enabled_users_no_consumer,\n"
+                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE"
+                f"{exclude_sql}) AS enabled_users_no_consumer,\n"  # nosec B608 (exclude_sql uses placeholders)
                 "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE AND coalesce(total_viewing, 0) > 0) AS viewing_users,\n"
                 "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE AND coalesce(total_developing, 0) > 0) AS developing_users\n"
                 "FROM latest l\n"
                 "LEFT JOIN activity a ON a.login_norm = l.login_norm\n"
                 "WHERE rn = 1;"
-            )
-
-        df = _query_df(df_sql, [*instance_params, *exclude_params])
+            ),
+            [*instance_params, *exclude_params],
+        )
 
         row = _df_records(df)[0] if len(df) else {}
 
@@ -2344,7 +2306,7 @@ def build_users_kpis():
                 "    ) AS rn\n"
                 "  FROM base_users_instance_metadata_history\n"
                 "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
-                f"    {instance_sql}\n"  # nosec B608
+                f"    {instance_sql}\n"  # nosec B608 (instance_sql uses placeholders)
                 ")\n"
                 "SELECT\n"
                 "  user_profile AS profile,\n"
@@ -2357,13 +2319,8 @@ def build_users_kpis():
             instance_params,
         )
 
-        if exclude_placeholders:
-            by_instance_exclude_condition = (
-                "      AND coalesce(upper(trim(l.users_userprofile)), '') NOT IN ("
-                + exclude_placeholders
-                + ")\n"
-            )
-            by_instance_sql = (
+        by_instance_df = _query_df(
+            (
                 "WITH latest AS (\n"
                 "  SELECT\n"
                 "    instance_name,\n"
@@ -2390,10 +2347,8 @@ def build_users_kpis():
                 "SELECT\n"
                 "  l.instance_name AS instanceName,\n"
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE) AS enabled_users,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (\n"
-                "    WHERE l.users_enabled IS TRUE\n"
-                + by_instance_exclude_condition
-                + "  ) AS enabled_users_no_consumer,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE"
+                f"{exclude_sql_by_instance}) AS enabled_users_no_consumer,\n"  # nosec B608 (exclude_sql_by_instance uses placeholders)
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_viewing, 0) > 0) AS viewing_users,\n"
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_developing, 0) > 0) AS developing_users\n"
                 "FROM latest l\n"
@@ -2401,46 +2356,9 @@ def build_users_kpis():
                 "WHERE l.rn = 1\n"
                 "GROUP BY 1\n"
                 "ORDER BY enabled_users DESC, instanceName;"
-            )
-        else:
-            by_instance_sql = (
-                "WITH latest AS (\n"
-                "  SELECT\n"
-                "    instance_name,\n"
-                "    lower(trim(users_login)) AS login_norm,\n"
-                "    users_enabled,\n"
-                "    users_userprofile,\n"
-                "    run_ts,\n"
-                "    ROW_NUMBER() OVER (\n"
-                "      PARTITION BY instance_name, lower(trim(users_login))\n"
-                "      ORDER BY run_ts DESC\n"
-                "    ) AS rn\n"
-                "  FROM base_users_instance_metadata_history\n"
-                "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
-                "),\n"
-                "activity AS (\n"
-                "  SELECT\n"
-                "    instance_name,\n"
-                "    lower(trim(login_norm)) AS login_norm,\n"
-                "    SUM(viewing_actions_count) AS total_viewing,\n"
-                "    SUM(developing_actions_count) AS total_developing\n"
-                "  FROM fact_user_activity_daily\n"
-                "  GROUP BY 1, 2\n"
-                ")\n"
-                "SELECT\n"
-                "  l.instance_name AS instanceName,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE) AS enabled_users,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE) AS enabled_users_no_consumer,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_viewing, 0) > 0) AS viewing_users,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_developing, 0) > 0) AS developing_users\n"
-                "FROM latest l\n"
-                "LEFT JOIN activity a ON a.instance_name = l.instance_name AND a.login_norm = l.login_norm\n"
-                "WHERE l.rn = 1\n"
-                "GROUP BY 1\n"
-                "ORDER BY enabled_users DESC, instanceName;"
-            )
-
-        by_instance_df = _query_df(by_instance_sql, exclude_params)
+            ),
+            exclude_params,
+        )
 
         return _ok(
             {
@@ -2459,7 +2377,6 @@ def build_users_kpis():
     except Exception as e:
         logger.exception("users kpis failed")
         return _err(str(e), status=500)
-
 
 @bp.route("/api/build/users/active-monthly")
 def build_users_active_monthly():
