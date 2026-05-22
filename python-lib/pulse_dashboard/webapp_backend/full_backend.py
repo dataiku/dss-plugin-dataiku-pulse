@@ -2244,6 +2244,17 @@ def build_users_kpis():
             instance_sql = " AND instance_name = ?"
             instance_params = [instance_name]
 
+        users_no_consumer_select = (
+            "  COUNT(DISTINCT login_norm) FILTER (\n"
+            "    WHERE users_enabled IS TRUE\n"
+            f"      {exclude_sql}\n"
+            "  ) AS enabled_users_no_consumer,\n"
+        )
+        if not exclude_sql:
+            users_no_consumer_select = (
+                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE) AS enabled_users_no_consumer,\n"
+            )
+
         df = _query_df(
             (
                 "WITH latest AS (\n"
@@ -2273,12 +2284,12 @@ def build_users_kpis():
                 ")\n"
                 "SELECT\n"
                 "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE) AS enabled_users,\n"
-                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE" + exclude_sql + ") AS enabled_users_no_consumer,\n"
-                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE AND coalesce(total_viewing, 0) > 0) AS viewing_users,\n"
-                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE AND coalesce(total_developing, 0) > 0) AS developing_users\n"
-                "FROM latest l\n"
-                "LEFT JOIN activity a ON a.login_norm = l.login_norm\n"
-                "WHERE rn = 1;"
+                + users_no_consumer_select
+                + "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE AND coalesce(total_viewing, 0) > 0) AS viewing_users,\n"
+                + "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE AND coalesce(total_developing, 0) > 0) AS developing_users\n"
+                + "FROM latest l\n"
+                + "LEFT JOIN activity a ON a.login_norm = l.login_norm\n"
+                + "WHERE rn = 1;"
             ),
             [*instance_params, *exclude_params],
         )
@@ -2313,6 +2324,17 @@ def build_users_kpis():
             instance_params,
         )
 
+        by_instance_users_no_consumer_select = (
+            "  COUNT(DISTINCT l.login_norm) FILTER (\n"
+            "    WHERE l.users_enabled IS TRUE\n"
+            f"      {exclude_sql}\n"
+            "  ) AS enabled_users_no_consumer,\n"
+        )
+        if not exclude_sql:
+            by_instance_users_no_consumer_select = (
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE) AS enabled_users_no_consumer,\n"
+            )
+
         by_instance_df = _query_df(
             (
                 "WITH latest AS (\n"
@@ -2341,14 +2363,14 @@ def build_users_kpis():
                 "SELECT\n"
                 "  l.instance_name AS instanceName,\n"
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE) AS enabled_users,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE" + exclude_sql + ") AS enabled_users_no_consumer,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_viewing, 0) > 0) AS viewing_users,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_developing, 0) > 0) AS developing_users\n"
-                "FROM latest l\n"
-                "LEFT JOIN activity a ON a.instance_name = l.instance_name AND a.login_norm = l.login_norm\n"
-                "WHERE l.rn = 1\n"
-                "GROUP BY 1\n"
-                "ORDER BY enabled_users DESC, instanceName;"
+                + by_instance_users_no_consumer_select
+                + "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_viewing, 0) > 0) AS viewing_users,\n"
+                + "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_developing, 0) > 0) AS developing_users\n"
+                + "FROM latest l\n"
+                + "LEFT JOIN activity a ON a.instance_name = l.instance_name AND a.login_norm = l.login_norm\n"
+                + "WHERE l.rn = 1\n"
+                + "GROUP BY 1\n"
+                + "ORDER BY enabled_users DESC, instanceName;"
             ),
             exclude_params,
         )
