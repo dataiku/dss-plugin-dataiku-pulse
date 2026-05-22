@@ -35,6 +35,19 @@ logger = logging.getLogger(__name__)
 _MAX_PAGE_LIMIT = 250
 _MAX_LOOKBACK_DAYS = 365
 _MAX_LOOKBACK_MONTHS = 24
+
+
+def _metadata_completeness_sql(*, name_col: str, key_col: str, owner_col: str, updated_col: str) -> tuple[str, str]:
+    score_sql = (
+        "("
+        f"CASE WHEN {name_col} IS NOT NULL AND length(trim(CAST({name_col} AS VARCHAR))) > 0 THEN 1 ELSE 0 END + "
+        f"CASE WHEN {key_col} IS NOT NULL AND length(trim(CAST({key_col} AS VARCHAR))) > 0 THEN 1 ELSE 0 END + "
+        f"CASE WHEN {owner_col} IS NOT NULL AND length(trim(CAST({owner_col} AS VARCHAR))) > 0 THEN 1 ELSE 0 END + "
+        f"CASE WHEN {updated_col} IS NOT NULL THEN 1 ELSE 0 END"
+        ")"
+    )
+    status_sql = f"CASE WHEN {score_sql} = 4 THEN 'complete' WHEN {score_sql} >= 2 THEN 'partial' ELSE 'sparse' END"
+    return score_sql, status_sql
 _startup_init_lock = threading.Lock()
 _startup_init_started = False
 _startup_init_status: dict[str, Any] = {
@@ -916,9 +929,16 @@ def build_assets():
         instances = _parse_csv_list(request.args.get("instances"))
         projects = _parse_csv_list(request.args.get("projects"))
         types = _parse_csv_list(request.args.get("types"))
+        completeness_status = (request.args.get("completenessStatus") or "").strip().lower()
 
         sort = (request.args.get("sort") or "updated_desc").strip()
         limit, offset = _parse_pagination(default_limit=25, max_limit=5000)
+        score_sql, status_sql = _metadata_completeness_sql(
+            name_col="object_name",
+            key_col="object_key",
+            owner_col="owner_login",
+            updated_col="updated_at",
+        )
 
         # Guardrails
         limit = max(1, min(5000, limit))
@@ -948,6 +968,12 @@ def build_assets():
             where.append(f"object_type IN ({','.join(['?'] * len(types))})")
             params.extend(types)
 
+        if completeness_status:
+            if completeness_status not in {"complete", "partial", "sparse"}:
+                return _err(f"Invalid completenessStatus: {completeness_status}")
+            where.append(f"{status_sql} = ?")
+            params.append(completeness_status)
+
         where_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
         order_by = {
@@ -955,6 +981,8 @@ def build_assets():
             "updated_asc": "updated_at ASC NULLS LAST",
             "activity_desc": "activity_30d DESC NULLS LAST, updated_at DESC NULLS LAST",
             "name_asc": "object_name ASC NULLS LAST",
+            "completeness_desc": f"{score_sql} DESC, updated_at DESC NULLS LAST",
+            "completeness_asc": f"{score_sql} ASC, updated_at DESC NULLS LAST",
         }.get(sort)
         if order_by is None:
             return _err(f"Invalid sort: {sort}")
@@ -972,7 +1000,9 @@ def build_assets():
             "  project_key AS projectKey,\n"
             "  owner_login AS ownerLogin,\n"
             "  updated_at AS updatedAt,\n"
-            "  activity_30d AS activity30d\n"
+            "  activity_30d AS activity30d,\n"
+            f"  ({score_sql} * 25) AS metadataCompletenessScore,\n"
+            f"  {status_sql} AS metadataCompletenessStatus\n"
             f"FROM final_build_catalog{where_sql}\n"  # nosec B608 (where_sql is parameterized)
             f"ORDER BY {order_by}\n"  # nosec B608 (order_by from allowlist)
             "LIMIT ? OFFSET ?;"
@@ -1248,9 +1278,16 @@ def build_products():
         instances = _parse_csv_list(request.args.get("instances"))
         projects = _parse_csv_list(request.args.get("projects"))
         types = _parse_csv_list(request.args.get("types"))
+        completeness_status = (request.args.get("completenessStatus") or "").strip().lower()
 
         sort = (request.args.get("sort") or "updated_desc").strip()
         limit, offset = _parse_pagination(default_limit=25, max_limit=5000)
+        score_sql, status_sql = _metadata_completeness_sql(
+            name_col="product_name",
+            key_col="product_key",
+            owner_col="owner_login",
+            updated_col="updated_at",
+        )
 
         # Guardrails
         limit = max(1, min(5000, limit))
@@ -1280,6 +1317,12 @@ def build_products():
             where.append(f"product_type IN ({','.join(['?'] * len(types))})")
             params.extend(types)
 
+        if completeness_status:
+            if completeness_status not in {"complete", "partial", "sparse"}:
+                return _err(f"Invalid completenessStatus: {completeness_status}")
+            where.append(f"{status_sql} = ?")
+            params.append(completeness_status)
+
         where_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
         order_by = {
@@ -1287,6 +1330,8 @@ def build_products():
             "updated_asc": "updated_at ASC NULLS LAST",
             "activity_desc": "activity_30d DESC NULLS LAST, updated_at DESC NULLS LAST",
             "name_asc": "product_name ASC NULLS LAST",
+            "completeness_desc": f"{score_sql} DESC, updated_at DESC NULLS LAST",
+            "completeness_asc": f"{score_sql} ASC, updated_at DESC NULLS LAST",
         }.get(sort)
         if order_by is None:
             return _err(f"Invalid sort: {sort}")
@@ -1304,7 +1349,9 @@ def build_products():
             "  project_key AS projectKey,\n"
             "  owner_login AS ownerLogin,\n"
             "  updated_at AS updatedAt,\n"
-            "  activity_30d AS activity30d\n"
+            "  activity_30d AS activity30d,\n"
+            f"  ({score_sql} * 25) AS metadataCompletenessScore,\n"
+            f"  {status_sql} AS metadataCompletenessStatus\n"
             f"FROM final_build_products_catalog{where_sql}\n"  # nosec B608 (where_sql is parameterized)
             f"ORDER BY {order_by}\n"  # nosec B608 (order_by from allowlist)
             "LIMIT ? OFFSET ?;"
