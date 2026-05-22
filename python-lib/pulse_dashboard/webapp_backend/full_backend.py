@@ -1912,6 +1912,195 @@ def consumption_products_summary():
         return _err(str(e), status=500)
 
 
+@bp.route("/api/consumption/process-usage")
+def consumption_process_usage():
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        days = _parse_days_arg(default=30)
+
+        summary_df = _query_df(
+            """
+            SELECT
+              COUNT(*) AS events,
+              COUNT(DISTINCT capability) AS active_capabilities,
+              COUNT(DISTINCT login) AS active_users,
+              COUNT(DISTINCT project_key) AS active_projects,
+              COUNT(DISTINCT instance_name) AS active_instances
+            FROM final_build_development_activity_events
+            WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY;
+            """.strip(),
+            [days],
+        )
+        summary = _df_records(summary_df)[0] if len(summary_df) else {}
+
+        by_capability_df = _query_df(
+            """
+            SELECT
+              capability AS label,
+              COUNT(*) AS value,
+              COUNT(DISTINCT login) AS activeUsers,
+              COUNT(DISTINCT project_key) AS projects,
+              COUNT(DISTINCT instance_name) AS instances
+            FROM final_build_development_activity_events
+            WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
+            GROUP BY 1
+            ORDER BY value DESC, label;
+            """.strip(),
+            [days],
+        )
+
+        activity_daily_df = _query_df(
+            """
+            SELECT
+              CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,
+              COUNT(*) AS value
+            FROM final_build_development_activity_events
+            WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
+            GROUP BY 1
+            ORDER BY 1;
+            """.strip(),
+            [days],
+        )
+
+        top_by_users_df = _query_df(
+            """
+            SELECT
+              capability AS label,
+              COUNT(DISTINCT login) AS value
+            FROM final_build_development_activity_events
+            WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
+            GROUP BY 1
+            ORDER BY value DESC, label;
+            """.strip(),
+            [days],
+        )
+
+        top_by_projects_df = _query_df(
+            """
+            SELECT
+              capability AS label,
+              COUNT(DISTINCT project_key) AS value
+            FROM final_build_development_activity_events
+            WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
+            GROUP BY 1
+            ORDER BY value DESC, label;
+            """.strip(),
+            [days],
+        )
+
+        top_by_instances_df = _query_df(
+            """
+            SELECT
+              capability AS label,
+              COUNT(DISTINCT instance_name) AS value
+            FROM final_build_development_activity_events
+            WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
+            GROUP BY 1
+            ORDER BY value DESC, label;
+            """.strip(),
+            [days],
+        )
+
+        return _ok(
+            {
+                "windowDays": days,
+                "summary": summary,
+                "activityDaily": _df_records(activity_daily_df),
+                "byCapability": _df_records(by_capability_df),
+                "topByUsers": _df_records(top_by_users_df),
+                "topByProjects": _df_records(top_by_projects_df),
+                "topByInstances": _df_records(top_by_instances_df),
+            }
+        )
+
+    except Exception as e:
+        logger.exception("consumption process usage failed")
+        return _err(str(e), status=500)
+
+
+@bp.route("/api/consumption/process-usage/capability/<capability>")
+def consumption_process_usage_capability(capability: str):
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        capability = capability.strip()
+        if not capability:
+            return _err("Missing capability")
+
+        days = _parse_days_arg(default=30)
+
+        summary_df = _query_df(
+            """
+            SELECT
+              COUNT(*) AS events,
+              COUNT(DISTINCT login) AS users,
+              COUNT(DISTINCT project_key) AS projects,
+              COUNT(DISTINCT instance_name) AS instances
+            FROM final_build_development_activity_events
+            WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY;
+            """.strip(),
+            [capability, days],
+        )
+        summary = _df_records(summary_df)[0] if len(summary_df) else {}
+
+        activity_daily_df = _query_df(
+            """
+            SELECT
+              CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,
+              COUNT(*) AS value
+            FROM final_build_development_activity_events
+            WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
+            GROUP BY 1
+            ORDER BY 1;
+            """.strip(),
+            [capability, days],
+        )
+
+        top_users_df = _query_df(
+            """
+            SELECT
+              login AS label,
+              COUNT(*) AS value
+            FROM final_build_development_activity_events
+            WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
+            GROUP BY 1
+            ORDER BY value DESC
+            LIMIT 50;
+            """.strip(),
+            [capability, days],
+        )
+
+        top_projects_df = _query_df(
+            """
+            SELECT
+              concat_ws(':', instance_name, project_key) AS label,
+              COUNT(*) AS value
+            FROM final_build_development_activity_events
+            WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
+            GROUP BY 1
+            ORDER BY value DESC
+            LIMIT 50;
+            """.strip(),
+            [capability, days],
+        )
+
+        return _ok(
+            {
+                "summary": summary,
+                "activityDaily": _df_records(activity_daily_df),
+                "topUsers": _df_records(top_users_df),
+                "topProjects": _df_records(top_projects_df),
+            }
+        )
+
+    except Exception as e:
+        logger.exception("consumption capability detail failed")
+        return _err(str(e), status=500)
+
+
 @bp.route("/api/build/development-activity")
 def build_development_activity():
     try:
