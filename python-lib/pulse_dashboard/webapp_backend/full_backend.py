@@ -2352,6 +2352,11 @@ def build_users_kpis():
         )
 
         if exclude_placeholders:
+            by_instance_exclude_condition = (
+                "      AND coalesce(upper(trim(l.users_userprofile)), '') NOT IN ("
+                + exclude_placeholders
+                + ")\n"
+            )
             by_instance_sql = (
                 "WITH latest AS (\n"
                 "  SELECT\n"
