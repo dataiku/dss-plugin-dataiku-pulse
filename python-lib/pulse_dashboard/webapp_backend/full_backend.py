@@ -2249,6 +2249,8 @@ def build_users_kpis():
             instance_sql = " AND instance_name = ?"
             instance_params = [instance_name]
 
+        six_month_start_expr = "(current_date - INTERVAL 6 MONTH)::DATE"
+
         df = _query_df(
             (
                 "WITH latest AS (\n"
@@ -2272,7 +2274,13 @@ def build_users_kpis():
                 "  SELECT\n"
                 "    lower(trim(login_norm)) AS login_norm,\n"
                 "    SUM(viewing_actions_count) AS total_viewing,\n"
-                "    SUM(developing_actions_count) AS total_developing\n"
+                "    SUM(developing_actions_count) AS total_developing,\n"
+                "    SUM(CASE WHEN day >= "
+                f"{six_month_start_expr}"
+                " THEN viewing_actions_count ELSE 0 END) AS viewing_6m,\n"
+                "    SUM(CASE WHEN day >= "
+                f"{six_month_start_expr}"
+                " THEN developing_actions_count ELSE 0 END) AS developing_6m\n"
                 "  FROM fact_user_activity_daily\n"
                 "  GROUP BY 1\n"
                 ")\n"
@@ -2281,7 +2289,10 @@ def build_users_kpis():
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE"
                 f"{exclude_sql}) AS enabled_users_no_consumer,\n"  # nosec B608 (exclude_sql uses placeholders)
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_viewing, 0) > 0) AS viewing_users,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_developing, 0) > 0) AS developing_users\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_developing, 0) > 0) AS developing_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.developing_6m, 0) > 0) AS developing_users_6m,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND (coalesce(a.viewing_6m, 0) > 0 OR coalesce(a.developing_6m, 0) > 0)) AS active_users_6m,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.viewing_6m, 0) > 0 AND coalesce(a.developing_6m, 0) = 0) AS viewer_only_users_6m\n"
                 "FROM latest l\n"
                 "LEFT JOIN activity a ON a.login_norm = l.login_norm\n"
                 "WHERE rn = 1;"
@@ -2290,6 +2301,14 @@ def build_users_kpis():
         )
 
         row = _df_records(df)[0] if len(df) else {}
+        enabled_users = int(row.get("enabled_users") or 0)
+        active_users_6m = int(row.get("active_users_6m") or 0)
+        developing_users = int(row.get("developing_users") or 0)
+        developing_users_6m = int(row.get("developing_users_6m") or 0)
+        row["inactive_users_6m"] = max(0, enabled_users - active_users_6m)
+        row["active_rate_6m"] = (active_users_6m / enabled_users) if enabled_users else 0.0
+        row["contributor_rate_6m"] = (developing_users_6m / enabled_users) if enabled_users else 0.0
+        row["inactive_window_months"] = 6
 
         by_profile_df = _query_df(
             (
@@ -2340,7 +2359,13 @@ def build_users_kpis():
                 "    instance_name,\n"
                 "    lower(trim(login_norm)) AS login_norm,\n"
                 "    SUM(viewing_actions_count) AS total_viewing,\n"
-                "    SUM(developing_actions_count) AS total_developing\n"
+                "    SUM(developing_actions_count) AS total_developing,\n"
+                "    SUM(CASE WHEN day >= "
+                f"{six_month_start_expr}"
+                " THEN viewing_actions_count ELSE 0 END) AS viewing_6m,\n"
+                "    SUM(CASE WHEN day >= "
+                f"{six_month_start_expr}"
+                " THEN developing_actions_count ELSE 0 END) AS developing_6m\n"
                 "  FROM fact_user_activity_daily\n"
                 "  GROUP BY 1, 2\n"
                 ")\n"
@@ -2350,7 +2375,10 @@ def build_users_kpis():
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE"
                 f"{exclude_sql_by_instance}) AS enabled_users_no_consumer,\n"  # nosec B608 (exclude_sql_by_instance uses placeholders)
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_viewing, 0) > 0) AS viewing_users,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_developing, 0) > 0) AS developing_users\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_developing, 0) > 0) AS developing_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.developing_6m, 0) > 0) AS developing_users_6m,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND (coalesce(a.viewing_6m, 0) > 0 OR coalesce(a.developing_6m, 0) > 0)) AS active_users_6m,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.viewing_6m, 0) > 0 AND coalesce(a.developing_6m, 0) = 0) AS viewer_only_users_6m\n"
                 "FROM latest l\n"
                 "LEFT JOIN activity a ON a.instance_name = l.instance_name AND a.login_norm = l.login_norm\n"
                 "WHERE l.rn = 1\n"
@@ -2359,6 +2387,17 @@ def build_users_kpis():
             ),
             exclude_params,
         )
+
+        by_instance_rows = _df_records(by_instance_df)
+        for item in by_instance_rows:
+            enabled_users_instance = int(item.get("enabled_users") or 0)
+            active_users_6m_instance = int(item.get("active_users_6m") or 0)
+            developing_users_instance = int(item.get("developing_users") or 0)
+            developing_users_6m_instance = int(item.get("developing_users_6m") or 0)
+            item["inactive_users_6m"] = max(0, enabled_users_instance - active_users_6m_instance)
+            item["active_rate_6m"] = (active_users_6m_instance / enabled_users_instance) if enabled_users_instance else 0.0
+            item["contributor_rate_6m"] = (developing_users_6m_instance / enabled_users_instance) if enabled_users_instance else 0.0
+            item["inactive_window_months"] = 6
 
         return _ok(
             {
@@ -2370,7 +2409,7 @@ def build_users_kpis():
                 },
                 "kpis": row,
                 "byProfile": _df_records(by_profile_df),
-                "byInstance": _df_records(by_instance_df),
+                "byInstance": by_instance_rows,
             }
         )
 
