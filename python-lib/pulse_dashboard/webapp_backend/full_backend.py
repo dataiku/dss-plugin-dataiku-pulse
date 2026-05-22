@@ -2232,10 +2232,9 @@ def build_users_kpis():
 
         exclude_sql = ""
         exclude_params: list[Any] = []
+        exclude_placeholders = ""
         if license_filter == "no_consumer" and excluded_profiles:
-            exclude_sql = (
-                f" AND coalesce(upper(trim(users_userprofile)), '') NOT IN ({_sql_placeholders(len(excluded_profiles))})"
-            )
+            exclude_placeholders = _sql_placeholders(len(excluded_profiles))
             exclude_params = list(excluded_profiles)
 
         instance_sql = ""
@@ -2244,7 +2243,7 @@ def build_users_kpis():
             instance_sql = " AND instance_name = ?"
             instance_params = [instance_name]
 
-        if exclude_sql:
+        if exclude_placeholders:
             df_sql = (
                 "WITH latest AS (\n"
                 "  SELECT\n"
@@ -2352,7 +2351,7 @@ def build_users_kpis():
             instance_params,
         )
 
-        if exclude_sql:
+        if exclude_placeholders:
             by_instance_sql = (
                 "WITH latest AS (\n"
                 "  SELECT\n"
