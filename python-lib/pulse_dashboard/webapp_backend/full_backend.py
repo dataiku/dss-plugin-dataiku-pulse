@@ -3869,37 +3869,34 @@ def build_user_detail(login: str):
         )
         summary = _df_records(summary_df)[0] if len(summary_df) else None
         if summary is not None:
+            viewing = int(summary.get("viewing") or 0)
+            developing = int(summary.get("developing") or 0)
+            total_actions = viewing + developing
+            summary["viewing"] = viewing
+            summary["developing"] = developing
+            summary["total_actions"] = total_actions
+            summary["activity_mode"] = (
+                "developer"
+                if developing > viewing
+                else "viewer"
+                if viewing > developing
+                else "balanced"
+                if total_actions > 0
+                else "inactive"
+            )
+            summary["developing_share"] = (developing / total_actions) if total_actions else 0.0
+            summary["viewing_share"] = (viewing / total_actions) if total_actions else 0.0
             if months is not None:
                 summary["months"] = months
             else:
                 summary["days"] = int(days or 30)
-
-        user_df = _query_df(
-            """
-            SELECT
-              instance_name,
-              login,
-              login_norm,
-              display_name,
-              email,
-              enabled,
-              user_profile,
-              group_names,
-              run_ts
-            FROM final_users_directory
-            WHERE login_norm = ?
-            ORDER BY enabled DESC, run_ts DESC, instance_name
-            LIMIT 1;
-            """.strip(),
-            [login_norm],
-        )
-        user = _df_records(user_df)[0] if len(user_df) else None
 
         instances_df = _query_df(
             """
             SELECT
               instance_name AS instanceName,
               login,
+              login_norm AS loginNorm,
               display_name AS displayName,
               email,
               enabled,
@@ -3912,6 +3909,27 @@ def build_user_detail(login: str):
             """.strip(),
             [login_norm],
         )
+        instance_rows = _df_records(instances_df)
+
+        preferred_user = None
+        if instance_name:
+            preferred_user = next((row for row in instance_rows if row.get("instanceName") == instance_name), None)
+        if preferred_user is None and instance_rows:
+            preferred_user = instance_rows[0]
+
+        user = None
+        if preferred_user is not None:
+            user = {
+                "instance_name": preferred_user.get("instanceName"),
+                "login": preferred_user.get("login"),
+                "login_norm": preferred_user.get("loginNorm"),
+                "display_name": preferred_user.get("displayName"),
+                "email": preferred_user.get("email"),
+                "enabled": preferred_user.get("enabled"),
+                "user_profile": preferred_user.get("userProfile"),
+                "group_names": preferred_user.get("groupNames"),
+                "run_ts": preferred_user.get("runTs"),
+            }
 
         # Daily activity trend (UI only)
         daily_df = _query_df(
