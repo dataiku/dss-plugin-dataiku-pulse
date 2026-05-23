@@ -53,6 +53,65 @@ def _resolve_gold_folder_lookup() -> str:
 logger = logging.getLogger(__name__)
 
 
+def _collect_user_activity_quality_report(conn: duckdb.DuckDBPyConnection) -> dict:
+    report: dict[str, object] = {
+        "daily_present": False,
+        "project_present": False,
+        "daily": {},
+        "project": {},
+    }
+
+    tables = {name for (name,) in conn.sql("SHOW TABLES").fetchall()}
+
+    if "fact_user_activity_daily" in tables:
+        row = conn.execute(
+            """
+            SELECT
+              COUNT(*) AS rows_count,
+              COUNT(DISTINCT login_norm) AS distinct_users,
+              SUM(COALESCE(viewing_actions_count, 0)) AS viewing_actions,
+              SUM(COALESCE(developing_actions_count, 0)) AS developing_actions,
+              COUNT(*) FILTER (WHERE COALESCE(developing_actions_count, 0) > 0) AS rows_with_developing,
+              MIN(day) AS min_day,
+              MAX(day) AS max_day
+            FROM fact_user_activity_daily;
+            """.strip()
+        ).fetchone()
+        report["daily_present"] = True
+        report["daily"] = {
+            "rows_count": int(row[0] or 0),
+            "distinct_users": int(row[1] or 0),
+            "viewing_actions": int(row[2] or 0),
+            "developing_actions": int(row[3] or 0),
+            "rows_with_developing": int(row[4] or 0),
+            "min_day": str(row[5]) if row[5] is not None else None,
+            "max_day": str(row[6]) if row[6] is not None else None,
+        }
+
+    if "fact_user_activity_project_daily" in tables:
+        row = conn.execute(
+            """
+            SELECT
+              COUNT(*) AS rows_count,
+              COUNT(DISTINCT login_norm) AS distinct_users,
+              COUNT(DISTINCT project_key) AS distinct_projects,
+              SUM(COALESCE(viewing_actions_count, 0)) AS viewing_actions,
+              SUM(COALESCE(developing_actions_count, 0)) AS developing_actions
+            FROM fact_user_activity_project_daily;
+            """.strip()
+        ).fetchone()
+        report["project_present"] = True
+        report["project"] = {
+            "rows_count": int(row[0] or 0),
+            "distinct_users": int(row[1] or 0),
+            "distinct_projects": int(row[2] or 0),
+            "viewing_actions": int(row[3] or 0),
+            "developing_actions": int(row[4] or 0),
+        }
+
+    return report
+
+
 def _cleanup_stale_duckdb_files(*, base_dir: Path, max_age_hours: float = 24.0) -> None:
     """Remove old per-run DuckDB files (best-effort)."""
 
@@ -567,6 +626,12 @@ def run() -> dict:
     )
 
     failed_tables: list[str] = []
+    user_activity_quality: dict[str, object] = {
+        "daily_present": False,
+        "project_present": False,
+        "daily": {},
+        "project": {},
+    }
     base_tables: list[str] = []
     storage_info: dict = {}
 
@@ -640,6 +705,8 @@ def run() -> dict:
         # Build hourly → daily rollups for user activity.
         _build_fact_user_activity_daily(setup.conn, ctx=ctx)
         _build_fact_user_activity_project_daily(setup.conn, ctx=ctx)
+        user_activity_quality = _collect_user_activity_quality_report(setup.conn)
+        logger.info("User activity quality report: %s", user_activity_quality)
 
         # Build object-level activity events (used for asset/product activity rollups).
         _build_fact_object_activity_events(setup.conn, ctx=ctx, base_dir=base_dir)
@@ -877,6 +944,7 @@ def run() -> dict:
         "gold_output_folder": gold_folder_lookup,
         "unload_behavior": unload_behavior,
         "unloaded_tables": unloaded_tables,
+        "user_activity_quality": user_activity_quality,
     }
 
 

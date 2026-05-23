@@ -48,6 +48,140 @@ def _metadata_completeness_sql(*, name_col: str, key_col: str, owner_col: str, u
     )
     status_sql = f"CASE WHEN {score_sql} = 4 THEN 'complete' WHEN {score_sql} >= 2 THEN 'partial' ELSE 'sparse' END"
     return score_sql, status_sql
+
+
+def _non_empty_sql(column_sql: str) -> str:
+    return f"CASE WHEN {column_sql} IS NOT NULL AND length(trim(CAST({column_sql} AS VARCHAR))) > 0 THEN 1 ELSE 0 END"
+
+
+def _non_empty_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return bool(str(value).strip())
+
+
+def _metadata_status_from_score(score: float) -> str:
+    if score >= 99.9:
+        return "complete"
+    if score >= 50.0:
+        return "partial"
+    return "sparse"
+
+
+def _asset_inventory_metadata_score(row: dict[str, Any]) -> float:
+    checks = [
+        _non_empty_value(row.get("objectName")),
+        _non_empty_value(row.get("objectKey")),
+        _non_empty_value(row.get("ownerLogin")),
+        row.get("createdAt") is not None,
+        row.get("updatedAt") is not None,
+    ]
+    if row.get("objectType") in {"dataset", "recipe", "scenario"}:
+        checks.insert(2, _non_empty_value(row.get("objectSubtype")))
+    return 100.0 * (sum(1 for ok in checks if ok) / len(checks)) if checks else 0.0
+
+
+def _product_inventory_metadata_score(row: dict[str, Any]) -> float:
+    checks = [
+        _non_empty_value(row.get("productName")),
+        _non_empty_value(row.get("productKey")),
+        _non_empty_value(row.get("productType")),
+        _non_empty_value(row.get("ownerLogin")),
+        row.get("createdAt") is not None,
+        row.get("updatedAt") is not None,
+    ]
+    return 100.0 * (sum(1 for ok in checks if ok) / len(checks)) if checks else 0.0
+
+
+def _metadata_completeness_sql_for_asset_type() -> tuple[str, str]:
+    score_sql = (
+        "CASE\n"
+        "  WHEN object_type = 'project' THEN 20 * ("
+        + " + ".join(
+            [
+                _non_empty_sql("object_name"),
+                _non_empty_sql("object_key"),
+                _non_empty_sql("owner_login"),
+                "CASE WHEN created_at IS NOT NULL THEN 1 ELSE 0 END",
+                "CASE WHEN updated_at IS NOT NULL THEN 1 ELSE 0 END",
+            ]
+        )
+        + ")\n"
+        "  WHEN object_type IN ('dataset', 'recipe', 'scenario') THEN 100.0 * (("
+        + " + ".join(
+            [
+                _non_empty_sql("object_name"),
+                _non_empty_sql("object_key"),
+                _non_empty_sql("object_subtype"),
+                _non_empty_sql("owner_login"),
+                "CASE WHEN created_at IS NOT NULL THEN 1 ELSE 0 END",
+                "CASE WHEN updated_at IS NOT NULL THEN 1 ELSE 0 END",
+            ]
+        )
+        + ") / 6.0)\n"
+        "  ELSE 25 * ("
+        + " + ".join(
+            [
+                _non_empty_sql("object_name"),
+                _non_empty_sql("object_key"),
+                _non_empty_sql("owner_login"),
+                "CASE WHEN updated_at IS NOT NULL THEN 1 ELSE 0 END",
+            ]
+        )
+        + ")\n"
+        "END"
+    )
+    status_sql = (
+        f"CASE WHEN ({score_sql}) >= 99.9 THEN 'complete' "
+        f"WHEN ({score_sql}) >= 50 THEN 'partial' ELSE 'sparse' END"
+    )
+    return score_sql, status_sql
+
+
+def _metadata_completeness_sql_for_product_type() -> tuple[str, str]:
+    score_sql = (
+        "100.0 * (("
+        + " + ".join(
+            [
+                _non_empty_sql("product_name"),
+                _non_empty_sql("product_key"),
+                _non_empty_sql("product_type"),
+                _non_empty_sql("owner_login"),
+                "CASE WHEN created_at IS NOT NULL THEN 1 ELSE 0 END",
+                "CASE WHEN updated_at IS NOT NULL THEN 1 ELSE 0 END",
+            ]
+        )
+        + ") / 6.0)"
+    )
+    status_sql = (
+        f"CASE WHEN ({score_sql}) >= 99.9 THEN 'complete' "
+        f"WHEN ({score_sql}) >= 50 THEN 'partial' ELSE 'sparse' END"
+    )
+    return score_sql, status_sql
+
+
+def _metadata_summary_payload_from_queries(_query_df, *, summary_sql: str, by_type_sql: str) -> dict[str, Any]:
+    summary_df = _query_df(summary_sql)
+    summary = _df_records(summary_df)[0] if len(summary_df.index) else {}
+    total_assets = int(summary.get("total_assets") or 0)
+    by_type_df = _query_df(by_type_sql)
+
+    return {
+        "summary": {
+            "totalAssets": total_assets,
+            "avgScore": float(summary.get("avg_score") or 0.0),
+            "completeCount": int(summary.get("complete_count") or 0),
+            "partialCount": int(summary.get("partial_count") or 0),
+            "sparseCount": int(summary.get("sparse_count") or 0),
+            "completeRate": ((int(summary.get("complete_count") or 0) / total_assets) if total_assets else 0.0),
+            "sparseRate": ((int(summary.get("sparse_count") or 0) / total_assets) if total_assets else 0.0),
+        },
+        "byType": _df_records(by_type_df),
+    }
+
+
 _startup_init_lock = threading.Lock()
 _startup_init_started = False
 _startup_init_status: dict[str, Any] = {
@@ -667,6 +801,13 @@ def _df_records(df):
     return json.loads(df.to_json(orient="records", date_format="iso"))
 
 
+def _safe_json_dumps(value: Any) -> str:
+    try:
+        return json.dumps(value, default=str)
+    except Exception:
+        return repr(value)
+
+
 def _ok(payload: dict[str, Any] | None = None, *, status: int = 200):
     data = {"ok": True}
     if payload:
@@ -717,6 +858,109 @@ def _extract_description_from_extras(extras: str | None) -> str | None:
                 return v.strip()
 
     return None
+
+
+def _description_present_sql(extras_col: str) -> str:
+    checks = [
+        f"json_extract_string({extras_col}, '$.description')",
+        f"json_extract_string({extras_col}, '$.desc')",
+        f"json_extract_string({extras_col}, '$.short_description')",
+        f"json_extract_string({extras_col}, '$.shortDescription')",
+    ]
+    return (
+        "CASE WHEN "
+        + " OR ".join(f"length(trim(coalesce({expr}, ''))) > 0" for expr in checks)
+        + " THEN 1 ELSE 0 END"
+    )
+
+
+def _metadata_completeness_sql_for_asset_inventory() -> tuple[str, str]:
+    score_sql = (
+        "CASE\n"
+        "  WHEN object_type = 'project' THEN 100.0 * (("
+        + " + ".join(
+            [
+                _non_empty_sql("object_name"),
+                _non_empty_sql("object_key"),
+                _non_empty_sql("owner_login"),
+                "CASE WHEN created_at IS NOT NULL THEN 1 ELSE 0 END",
+                "CASE WHEN updated_at IS NOT NULL THEN 1 ELSE 0 END",
+            ]
+        )
+        + ") / 5.0)\n"
+        "  WHEN object_type = 'dataset' THEN 100.0 * (("
+        + " + ".join(
+            [
+                _non_empty_sql("object_name"),
+                _non_empty_sql("object_key"),
+                _non_empty_sql("object_subtype"),
+                _non_empty_sql("owner_login"),
+                "CASE WHEN created_at IS NOT NULL THEN 1 ELSE 0 END",
+                "CASE WHEN updated_at IS NOT NULL THEN 1 ELSE 0 END",
+            ]
+        )
+        + ") / 6.0)\n"
+        "  WHEN object_type = 'recipe' THEN 100.0 * (("
+        + " + ".join(
+            [
+                _non_empty_sql("object_name"),
+                _non_empty_sql("object_key"),
+                _non_empty_sql("object_subtype"),
+                _non_empty_sql("owner_login"),
+                "CASE WHEN created_at IS NOT NULL THEN 1 ELSE 0 END",
+                "CASE WHEN updated_at IS NOT NULL THEN 1 ELSE 0 END",
+            ]
+        )
+        + ") / 6.0)\n"
+        "  WHEN object_type = 'scenario' THEN 100.0 * (("
+        + " + ".join(
+            [
+                _non_empty_sql("object_name"),
+                _non_empty_sql("object_key"),
+                _non_empty_sql("object_subtype"),
+                _non_empty_sql("owner_login"),
+                "CASE WHEN created_at IS NOT NULL THEN 1 ELSE 0 END",
+                "CASE WHEN updated_at IS NOT NULL THEN 1 ELSE 0 END",
+            ]
+        )
+        + ") / 6.0)\n"
+        "  ELSE 25 * ("
+        + " + ".join(
+            [
+                _non_empty_sql("object_name"),
+                _non_empty_sql("object_key"),
+                _non_empty_sql("owner_login"),
+                "CASE WHEN updated_at IS NOT NULL THEN 1 ELSE 0 END",
+            ]
+        )
+        + ")\n"
+        "END"
+    )
+    status_sql = (
+        f"CASE WHEN ({score_sql}) >= 99.9 THEN 'complete' "
+        f"WHEN ({score_sql}) >= 50 THEN 'partial' ELSE 'sparse' END"
+    )
+    return score_sql, status_sql
+def _metadata_completeness_sql_for_product_inventory() -> tuple[str, str]:
+    score_sql = (
+        "100.0 * (("
+        + " + ".join(
+            [
+                _non_empty_sql("product_name"),
+                _non_empty_sql("product_key"),
+                _non_empty_sql("product_type"),
+                _non_empty_sql("owner_login"),
+                "CASE WHEN created_at IS NOT NULL THEN 1 ELSE 0 END",
+                "CASE WHEN updated_at IS NOT NULL THEN 1 ELSE 0 END",
+            ]
+        )
+        + ") / 6.0)"
+    )
+    status_sql = (
+        f"CASE WHEN ({score_sql}) >= 99.9 THEN 'complete' "
+        f"WHEN ({score_sql}) >= 50 THEN 'partial' ELSE 'sparse' END"
+    )
+    return score_sql, status_sql
 
 
 # Best-effort mapping from catalog object types to metadata history tables.
@@ -839,7 +1083,7 @@ def debug_duckdb_reload():
             "message": "DuckDB reload complete" if bool(load_report.get("ok", False)) else "DuckDB reload failed",
             "finishedAt": time.time(),
             "durationSec": duration_sec,
-            "error": None if bool(load_report.get("ok", False)) else json.dumps(load_report),
+            "error": None if bool(load_report.get("ok", False)) else _safe_json_dumps(load_report),
             "report": load_report,
         }
     )
@@ -933,12 +1177,7 @@ def build_assets():
 
         sort = (request.args.get("sort") or "updated_desc").strip()
         limit, offset = _parse_pagination(default_limit=25, max_limit=5000)
-        score_sql, status_sql = _metadata_completeness_sql(
-            name_col="object_name",
-            key_col="object_key",
-            owner_col="owner_login",
-            updated_col="updated_at",
-        )
+        score_sql, status_sql = _metadata_completeness_sql_for_asset_inventory()
 
         # Guardrails
         limit = max(1, min(5000, limit))
@@ -1001,7 +1240,7 @@ def build_assets():
             "  owner_login AS ownerLogin,\n"
             "  updated_at AS updatedAt,\n"
             "  activity_30d AS activity30d,\n"
-            f"  ({score_sql} * 25) AS metadataCompletenessScore,\n"
+            f"  ROUND(({score_sql}), 1) AS metadataCompletenessScore,\n"
             f"  {status_sql} AS metadataCompletenessStatus\n"
             f"FROM final_build_catalog{where_sql}\n"  # nosec B608 (where_sql is parameterized)
             f"ORDER BY {order_by}\n"  # nosec B608 (order_by from allowlist)
@@ -1013,6 +1252,97 @@ def build_assets():
 
     except Exception as e:
         logger.exception("assets query failed")
+        return _err(str(e), status=500)
+
+
+@bp.route("/api/build/assets/metadata-summary")
+def build_assets_metadata_summary():
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        rows_df = _query_df(
+            (
+                "SELECT\n"
+                "  object_type AS objectType,\n"
+                "  object_name AS objectName,\n"
+                "  object_key AS objectKey,\n"
+                "  object_subtype AS objectSubtype,\n"
+                "  owner_login AS ownerLogin,\n"
+                "  created_at AS createdAt,\n"
+                "  updated_at AS updatedAt\n"
+                "FROM final_build_catalog;"
+            )
+        )
+        source_rows = _df_records(rows_df)
+        rows: list[dict[str, Any]] = []
+        for row in source_rows:
+            score = round(_asset_inventory_metadata_score(row), 1)
+            rows.append(
+                {
+                    "label": str(row.get("objectType") or "Unknown"),
+                    "avgScore": score,
+                    "metadataStatus": _metadata_status_from_score(score),
+                }
+            )
+
+        total_assets = len(rows)
+        avg_score = round(
+            sum(float(row.get("avgScore") or 0.0) for row in rows) / total_assets,
+            1,
+        ) if total_assets else 0.0
+        complete_count = sum(1 for row in rows if row.get("metadataStatus") == "complete")
+        partial_count = sum(1 for row in rows if row.get("metadataStatus") == "partial")
+        sparse_count = sum(1 for row in rows if row.get("metadataStatus") == "sparse")
+
+        by_type: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            label = str(row.get("label") or "Unknown")
+            bucket = by_type.setdefault(
+                label,
+                {
+                    "label": label,
+                    "totalAssets": 0,
+                    "_scoreSum": 0.0,
+                    "completeCount": 0,
+                    "partialCount": 0,
+                    "sparseCount": 0,
+                },
+            )
+            bucket["totalAssets"] += 1
+            bucket["_scoreSum"] += float(row.get("avgScore") or 0.0)
+            status = row.get("metadataStatus")
+            if status == "complete":
+                bucket["completeCount"] += 1
+            elif status == "partial":
+                bucket["partialCount"] += 1
+            else:
+                bucket["sparseCount"] += 1
+
+        by_type_rows: list[dict[str, Any]] = []
+        for bucket in by_type.values():
+            total = int(bucket["totalAssets"])
+            score_sum = float(bucket.pop("_scoreSum"))
+            bucket["avgScore"] = round(score_sum / total, 1) if total else 0.0
+            by_type_rows.append(bucket)
+        by_type_rows.sort(key=lambda item: (-int(item["totalAssets"]), str(item["label"])))
+
+        return _ok(
+            {
+                "summary": {
+                    "totalAssets": total_assets,
+                    "avgScore": avg_score,
+                    "completeCount": complete_count,
+                    "partialCount": partial_count,
+                    "sparseCount": sparse_count,
+                    "completeRate": (complete_count / total_assets) if total_assets else 0.0,
+                    "sparseRate": (sparse_count / total_assets) if total_assets else 0.0,
+                },
+                "byType": by_type_rows,
+            }
+        )
+    except Exception as e:
+        logger.exception("assets metadata summary failed")
         return _err(str(e), status=500)
 
 
@@ -1282,12 +1612,7 @@ def build_products():
 
         sort = (request.args.get("sort") or "updated_desc").strip()
         limit, offset = _parse_pagination(default_limit=25, max_limit=5000)
-        score_sql, status_sql = _metadata_completeness_sql(
-            name_col="product_name",
-            key_col="product_key",
-            owner_col="owner_login",
-            updated_col="updated_at",
-        )
+        score_sql, status_sql = _metadata_completeness_sql_for_product_inventory()
 
         # Guardrails
         limit = max(1, min(5000, limit))
@@ -1350,7 +1675,7 @@ def build_products():
             "  owner_login AS ownerLogin,\n"
             "  updated_at AS updatedAt,\n"
             "  activity_30d AS activity30d,\n"
-            f"  ({score_sql} * 25) AS metadataCompletenessScore,\n"
+            f"  ROUND(({score_sql}), 1) AS metadataCompletenessScore,\n"
             f"  {status_sql} AS metadataCompletenessStatus\n"
             f"FROM final_build_products_catalog{where_sql}\n"  # nosec B608 (where_sql is parameterized)
             f"ORDER BY {order_by}\n"  # nosec B608 (order_by from allowlist)
@@ -1361,6 +1686,96 @@ def build_products():
         return _ok({"rows": _df_records(rows), "total": total})
     except Exception as e:
         logger.exception("products query failed")
+        return _err(str(e), status=500)
+
+
+@bp.route("/api/build/products/metadata-summary")
+def build_products_metadata_summary():
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        rows_df = _query_df(
+            (
+                "SELECT\n"
+                "  product_type AS productType,\n"
+                "  product_name AS productName,\n"
+                "  product_key AS productKey,\n"
+                "  owner_login AS ownerLogin,\n"
+                "  created_at AS createdAt,\n"
+                "  updated_at AS updatedAt\n"
+                "FROM final_build_products_catalog;"
+            )
+        )
+        source_rows = _df_records(rows_df)
+        rows: list[dict[str, Any]] = []
+        for row in source_rows:
+            score = round(_product_inventory_metadata_score(row), 1)
+            rows.append(
+                {
+                    "label": str(row.get("productType") or "Unknown"),
+                    "avgScore": score,
+                    "metadataStatus": _metadata_status_from_score(score),
+                }
+            )
+
+        total_assets = len(rows)
+        avg_score = round(
+            sum(float(row.get("avgScore") or 0.0) for row in rows) / total_assets,
+            1,
+        ) if total_assets else 0.0
+        complete_count = sum(1 for row in rows if row.get("metadataStatus") == "complete")
+        partial_count = sum(1 for row in rows if row.get("metadataStatus") == "partial")
+        sparse_count = sum(1 for row in rows if row.get("metadataStatus") == "sparse")
+
+        by_type: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            label = str(row.get("label") or "Unknown")
+            bucket = by_type.setdefault(
+                label,
+                {
+                    "label": label,
+                    "totalAssets": 0,
+                    "_scoreSum": 0.0,
+                    "completeCount": 0,
+                    "partialCount": 0,
+                    "sparseCount": 0,
+                },
+            )
+            bucket["totalAssets"] += 1
+            bucket["_scoreSum"] += float(row.get("avgScore") or 0.0)
+            status = row.get("metadataStatus")
+            if status == "complete":
+                bucket["completeCount"] += 1
+            elif status == "partial":
+                bucket["partialCount"] += 1
+            else:
+                bucket["sparseCount"] += 1
+
+        by_type_rows: list[dict[str, Any]] = []
+        for bucket in by_type.values():
+            total = int(bucket["totalAssets"])
+            score_sum = float(bucket.pop("_scoreSum"))
+            bucket["avgScore"] = round(score_sum / total, 1) if total else 0.0
+            by_type_rows.append(bucket)
+        by_type_rows.sort(key=lambda item: (-int(item["totalAssets"]), str(item["label"])))
+
+        return _ok(
+            {
+                "summary": {
+                    "totalAssets": total_assets,
+                    "avgScore": avg_score,
+                    "completeCount": complete_count,
+                    "partialCount": partial_count,
+                    "sparseCount": sparse_count,
+                    "completeRate": (complete_count / total_assets) if total_assets else 0.0,
+                    "sparseRate": (sparse_count / total_assets) if total_assets else 0.0,
+                },
+                "byType": by_type_rows,
+            }
+        )
+    except Exception as e:
+        logger.exception("products metadata summary failed")
         return _err(str(e), status=500)
 
 
@@ -1803,7 +2218,7 @@ def consumption_products_summary():
                 "SELECT\n"  # nosec B608 (where/idx_where_sql use placeholders)
                 "  COUNT(*) AS events,\n"
                 "  COUNT(DISTINCT login) AS active_users,\n"
-                "  COUNT(DISTINCT object_key) AS active_products\n"
+                "  COUNT(DISTINCT concat_ws('|', instance_name, project_key, object_type, object_key)) AS active_products\n"
                 "FROM v_object_activity_events e\n"
                 + where
                 + idx_where_sql
@@ -1812,6 +2227,8 @@ def consumption_products_summary():
             [*params, *idx_where_params],
         )
         totals = _df_records(totals_df)[0] if len(totals_df.index) else {}
+
+        lifecycle = {}
 
         by_type_df = _query_df(
             (
@@ -1900,6 +2317,27 @@ def consumption_products_summary():
                     "events": int(totals.get("events") or 0),
                     "activeUsers": int(totals.get("active_users") or 0),
                     "activeProducts": int(totals.get("active_products") or 0),
+                    "avgUsersPerProduct": 0.0,
+                    "collaborativeProducts": 0,
+                    "repeatProducts": 0,
+                    "singleUserProducts": 0,
+                    "multiUserLightProducts": 0,
+                    "adoptedProducts": 0,
+                    "topProductEvents": 0,
+                    "topUserProducts": 0,
+                    "avgProductsPerUser": 0.0,
+                    "top1ProductEvents": 0,
+                    "top5ProductEvents": 0,
+                    "top1UserEvents": 0,
+                    "top5UserEvents": 0,
+                    "maturityScore": 0.0,
+                    "maturityTier": "emerging",
+                    "maturityComponents": {
+                        "breadthScore": 0.0,
+                        "repeatScore": 0.0,
+                        "collaborationScore": 0.0,
+                        "concentrationScore": 0.0,
+                    },
                 },
                 "byType": _df_records(by_type_df),
                 "activityDaily": activity_daily_rows,
@@ -1909,6 +2347,154 @@ def consumption_products_summary():
 
     except Exception as e:
         logger.exception("consumption products summary failed")
+        return _err(str(e), status=500)
+
+
+@bp.route("/api/consumption/products/lifecycle-summary")
+def consumption_products_lifecycle_summary():
+    """Observed lifecycle latency for products.
+
+    v1 definition uses platform-observed milestones only:
+    - start: product `created_at`
+    - first consumption: first observed product activity event
+    - multi-user adoption: first day cumulative distinct users >= 2
+    - repeat use: first day cumulative events >= 5
+    """
+
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        days = _parse_days_arg(default=365)
+        instances = _parse_string_list_param(request.args.get("instances"))
+        projects = _parse_string_list_param(request.args.get("projects"))
+        types = _parse_string_list_param(request.args.get("types"))
+
+        allowed_types = set(_CONSUMPTION_PRODUCT_OBJECT_TYPES)
+        types = [t for t in types if t in allowed_types]
+
+        params: list[Any] = [days]
+        filters = ["e.timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY", "e.object_key IS NOT NULL"]
+        if types:
+            filters.append(f"e.object_type IN ({','.join(['?'] * len(types))})")
+            params.extend(types)
+        else:
+            filters.append(
+                "e.object_type IN ('api_endpoint','agent','dashboard','web_application','dataiku_application')"
+            )
+        if instances:
+            filters.append(f"e.instance_name IN ({','.join(['?'] * len(instances))})")
+            params.extend(instances)
+        if projects:
+            filters.append(f"e.project_key IN ({','.join(['?'] * len(projects))})")
+            params.extend(projects)
+
+        event_where_sql = " WHERE " + " AND ".join(filters)
+        sql = (
+            "WITH product_events AS (\n"
+            "  SELECT\n"
+            "    e.instance_name,\n"
+            "    e.project_key,\n"
+            "    e.object_type AS product_type,\n"
+            "    e.object_key AS product_key,\n"
+            "    CAST(date_trunc('day', e.timestamp) AS DATE) AS event_day,\n"
+            "    MIN(e.timestamp) AS first_event_at_day,\n"
+            "    COUNT(*) AS daily_events,\n"
+            "    COUNT(DISTINCT e.login) AS daily_users\n"
+            "  FROM v_object_activity_events e\n"
+            f"  {event_where_sql}\n"  # nosec B608 (event_where_sql is built from placeholders and allowlisted literals)
+            "  GROUP BY 1,2,3,4,5\n"
+            "),\n"
+            "milestones AS (\n"
+            "  SELECT\n"
+            "    pe.*,\n"
+            "    SUM(daily_events) OVER w AS cumulative_events\n"
+            "  FROM product_events pe\n"
+            "  WINDOW w AS (PARTITION BY instance_name, project_key, product_type, product_key ORDER BY event_day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)\n"
+            "),\n"
+            "users_by_product AS (\n"
+            "  SELECT\n"
+            "    e.instance_name,\n"
+            "    e.project_key,\n"
+            "    e.object_type AS product_type,\n"
+            "    e.object_key AS product_key,\n"
+            "    CAST(date_trunc('day', e.timestamp) AS DATE) AS event_day,\n"
+            "    COUNT(DISTINCT e.login) AS cumulative_users\n"
+            "  FROM v_object_activity_events e\n"
+            f"  {event_where_sql}\n"  # nosec B608 (event_where_sql is built from placeholders and allowlisted literals)
+            "  GROUP BY 1,2,3,4,5\n"
+            "),\n"
+            "firsts AS (\n"
+            "  SELECT\n"
+            "    p.instance_name,\n"
+            "    p.project_key,\n"
+            "    p.product_type,\n"
+            "    p.product_key,\n"
+            "    p.product_name,\n"
+            "    p.created_at,\n"
+            "    MIN(m.first_event_at_day) AS first_consumption_at,\n"
+            "    MIN(CASE WHEN u.cumulative_users >= 2 THEN u.event_day END) AS multi_user_at,\n"
+            "    MIN(CASE WHEN m.cumulative_events >= 5 THEN m.event_day END) AS repeat_use_at\n"
+            "  FROM final_build_products_catalog p\n"
+            "  LEFT JOIN milestones m\n"
+            "    ON m.instance_name = p.instance_name\n"
+            "   AND m.project_key = p.project_key\n"
+            "   AND m.product_type = p.product_type\n"
+            "   AND m.product_key = p.product_key\n"
+            "  LEFT JOIN users_by_product u\n"
+            "    ON u.instance_name = p.instance_name\n"
+            "   AND u.project_key = p.project_key\n"
+            "   AND u.product_type = p.product_type\n"
+            "   AND u.product_key = p.product_key\n"
+            "   AND u.event_day = m.event_day\n"
+            "  GROUP BY 1,2,3,4,5,6\n"
+            "),\n"
+            "durations AS (\n"
+            "  SELECT\n"
+            "    *,\n"
+            "    datediff('day', CAST(created_at AS DATE), CAST(first_consumption_at AS DATE)) AS days_to_first_consumption,\n"
+            "    datediff('day', CAST(created_at AS DATE), CAST(multi_user_at AS DATE)) AS days_to_multi_user,\n"
+            "    datediff('day', CAST(created_at AS DATE), CAST(repeat_use_at AS DATE)) AS days_to_repeat_use\n"
+            "  FROM firsts\n"
+            "  WHERE created_at IS NOT NULL\n"
+            ")\n"
+            "SELECT\n"
+            "  COUNT(*) AS products_with_created_at,\n"
+            "  COUNT(*) FILTER (WHERE first_consumption_at IS NOT NULL) AS products_with_first_consumption,\n"
+            "  COUNT(*) FILTER (WHERE multi_user_at IS NOT NULL) AS products_with_multi_user,\n"
+            "  COUNT(*) FILTER (WHERE repeat_use_at IS NOT NULL) AS products_with_repeat_use,\n"
+            "  median(days_to_first_consumption) FILTER (WHERE days_to_first_consumption IS NOT NULL AND days_to_first_consumption >= 0) AS median_days_to_first_consumption,\n"
+            "  avg(days_to_first_consumption) FILTER (WHERE days_to_first_consumption IS NOT NULL AND days_to_first_consumption >= 0) AS avg_days_to_first_consumption,\n"
+            "  median(days_to_multi_user) FILTER (WHERE days_to_multi_user IS NOT NULL AND days_to_multi_user >= 0) AS median_days_to_multi_user,\n"
+            "  avg(days_to_multi_user) FILTER (WHERE days_to_multi_user IS NOT NULL AND days_to_multi_user >= 0) AS avg_days_to_multi_user,\n"
+            "  median(days_to_repeat_use) FILTER (WHERE days_to_repeat_use IS NOT NULL AND days_to_repeat_use >= 0) AS median_days_to_repeat_use,\n"
+            "  avg(days_to_repeat_use) FILTER (WHERE days_to_repeat_use IS NOT NULL AND days_to_repeat_use >= 0) AS avg_days_to_repeat_use\n"
+            "FROM durations;"
+        )
+
+        df = _query_df(sql, [*params, *params])
+
+        row = _df_records(df)[0] if len(df.index) else {}
+        return _ok(
+            {
+                "days": days,
+                "summary": {
+                    "productsWithCreatedAt": int(row.get("products_with_created_at") or 0),
+                    "productsWithFirstConsumption": int(row.get("products_with_first_consumption") or 0),
+                    "productsWithMultiUser": int(row.get("products_with_multi_user") or 0),
+                    "productsWithRepeatUse": int(row.get("products_with_repeat_use") or 0),
+                    "medianDaysToFirstConsumption": float(row.get("median_days_to_first_consumption") or 0.0),
+                    "avgDaysToFirstConsumption": float(row.get("avg_days_to_first_consumption") or 0.0),
+                    "medianDaysToMultiUser": float(row.get("median_days_to_multi_user") or 0.0),
+                    "avgDaysToMultiUser": float(row.get("avg_days_to_multi_user") or 0.0),
+                    "medianDaysToRepeatUse": float(row.get("median_days_to_repeat_use") or 0.0),
+                    "avgDaysToRepeatUse": float(row.get("avg_days_to_repeat_use") or 0.0),
+                },
+            }
+        )
+
+    except Exception as e:
+        logger.exception("consumption lifecycle summary failed")
         return _err(str(e), status=500)
 
 
@@ -2485,7 +3071,10 @@ def build_users_kpis():
             instance_sql = " AND instance_name = ?"
             instance_params = [instance_name]
 
+        thirty_day_start_expr = "(current_date - INTERVAL 30 DAY)::DATE"
+        ninety_day_start_expr = "(current_date - INTERVAL 90 DAY)::DATE"
         six_month_start_expr = "(current_date - INTERVAL 6 MONTH)::DATE"
+        twelve_month_start_expr = "(current_date - INTERVAL 12 MONTH)::DATE"
 
         df = _query_df(
             (
@@ -2512,11 +3101,29 @@ def build_users_kpis():
                 "    SUM(viewing_actions_count) AS total_viewing,\n"
                 "    SUM(developing_actions_count) AS total_developing,\n"
                 "    SUM(CASE WHEN day >= "
+                f"{thirty_day_start_expr}"
+                " THEN viewing_actions_count ELSE 0 END) AS viewing_30d,\n"
+                "    SUM(CASE WHEN day >= "
+                f"{thirty_day_start_expr}"
+                " THEN developing_actions_count ELSE 0 END) AS developing_30d,\n"
+                "    SUM(CASE WHEN day >= "
+                f"{ninety_day_start_expr}"
+                " THEN viewing_actions_count ELSE 0 END) AS viewing_90d,\n"
+                "    SUM(CASE WHEN day >= "
+                f"{ninety_day_start_expr}"
+                " THEN developing_actions_count ELSE 0 END) AS developing_90d,\n"
+                "    SUM(CASE WHEN day >= "
                 f"{six_month_start_expr}"
                 " THEN viewing_actions_count ELSE 0 END) AS viewing_6m,\n"
                 "    SUM(CASE WHEN day >= "
                 f"{six_month_start_expr}"
-                " THEN developing_actions_count ELSE 0 END) AS developing_6m\n"
+                " THEN developing_actions_count ELSE 0 END) AS developing_6m,\n"
+                "    SUM(CASE WHEN day >= "
+                f"{twelve_month_start_expr}"
+                " THEN viewing_actions_count ELSE 0 END) AS viewing_12m,\n"
+                "    SUM(CASE WHEN day >= "
+                f"{twelve_month_start_expr}"
+                " THEN developing_actions_count ELSE 0 END) AS developing_12m\n"
                 "  FROM fact_user_activity_daily\n"
                 "  GROUP BY 1\n"
                 ")\n"
@@ -2524,10 +3131,18 @@ def build_users_kpis():
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE) AS enabled_users,\n"
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE"
                 f"{exclude_sql}) AS enabled_users_no_consumer,\n"  # nosec B608 (exclude_sql uses placeholders)
+                "  COALESCE(SUM(a.total_viewing), 0) AS total_viewing_actions,\n"
+                "  COALESCE(SUM(a.total_developing), 0) AS total_developing_actions,\n"
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_viewing, 0) > 0) AS viewing_users,\n"
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_developing, 0) > 0) AS developing_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND (coalesce(a.viewing_30d, 0) > 0 OR coalesce(a.developing_30d, 0) > 0)) AS active_users_30d,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.developing_30d, 0) > 0) AS developing_users_30d,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND (coalesce(a.viewing_90d, 0) > 0 OR coalesce(a.developing_90d, 0) > 0)) AS active_users_90d,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.developing_90d, 0) > 0) AS developing_users_90d,\n"
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.developing_6m, 0) > 0) AS developing_users_6m,\n"
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND (coalesce(a.viewing_6m, 0) > 0 OR coalesce(a.developing_6m, 0) > 0)) AS active_users_6m,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND (coalesce(a.viewing_12m, 0) > 0 OR coalesce(a.developing_12m, 0) > 0)) AS active_users_12m,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.developing_12m, 0) > 0) AS developing_users_12m,\n"
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.viewing_6m, 0) > 0 AND coalesce(a.developing_6m, 0) = 0) AS viewer_only_users_6m\n"
                 "FROM latest l\n"
                 "LEFT JOIN activity a ON a.login_norm = l.login_norm\n"
@@ -2538,13 +3153,36 @@ def build_users_kpis():
 
         row = _df_records(df)[0] if len(df) else {}
         enabled_users = int(row.get("enabled_users") or 0)
+        active_users_30d = int(row.get("active_users_30d") or 0)
+        active_users_90d = int(row.get("active_users_90d") or 0)
         active_users_6m = int(row.get("active_users_6m") or 0)
-        developing_users = int(row.get("developing_users") or 0)
+        active_users_12m = int(row.get("active_users_12m") or 0)
+        developing_users_30d = int(row.get("developing_users_30d") or 0)
+        developing_users_90d = int(row.get("developing_users_90d") or 0)
         developing_users_6m = int(row.get("developing_users_6m") or 0)
+        developing_users_12m = int(row.get("developing_users_12m") or 0)
         row["inactive_users_6m"] = max(0, enabled_users - active_users_6m)
+        row["inactive_users_30d"] = max(0, enabled_users - active_users_30d)
+        row["inactive_users_90d"] = max(0, enabled_users - active_users_90d)
+        row["inactive_users_12m"] = max(0, enabled_users - active_users_12m)
+        total_viewing_actions = int(row.get("total_viewing_actions") or 0)
+        total_developing_actions = int(row.get("total_developing_actions") or 0)
+        row["active_rate_30d"] = (active_users_30d / enabled_users) if enabled_users else 0.0
+        row["active_rate_90d"] = (active_users_90d / enabled_users) if enabled_users else 0.0
         row["active_rate_6m"] = (active_users_6m / enabled_users) if enabled_users else 0.0
+        row["active_rate_12m"] = (active_users_12m / enabled_users) if enabled_users else 0.0
+        row["contributor_rate_30d"] = (developing_users_30d / enabled_users) if enabled_users else 0.0
+        row["contributor_rate_90d"] = (developing_users_90d / enabled_users) if enabled_users else 0.0
         row["contributor_rate_6m"] = (developing_users_6m / enabled_users) if enabled_users else 0.0
+        row["contributor_rate_12m"] = (developing_users_12m / enabled_users) if enabled_users else 0.0
+        row["developing_action_share"] = (
+            total_developing_actions / (total_viewing_actions + total_developing_actions)
+            if (total_viewing_actions + total_developing_actions)
+            else 0.0
+        )
+        row["active_window_days"] = [30, 90]
         row["inactive_window_months"] = 6
+        row["active_window_months"] = [6, 12]
 
         by_profile_df = _query_df(
             (
@@ -2924,6 +3562,268 @@ def build_users_leaderboard():
 
     except Exception as e:
         logger.exception("users leaderboard failed")
+        return _err(str(e), status=500)
+
+
+@bp.route("/api/build/users/segments")
+def build_users_segments():
+    """Return user behavior segments for the selected window.
+
+    Segments are based on activity in `fact_user_activity_daily`:
+    - viewer_only: viewing > 0 and developing = 0
+    - developer_only: developing > 0 and viewing = 0
+    - mixed: viewing > 0 and developing > 0
+    - inactive: enabled users with neither in the selected window
+    """
+
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        standard = _read_standard_project_variables()
+        excluded_profiles = _read_user_profile_exclude_consumer(standard)
+
+        months, days = _resolve_window_params()
+        license_filter = _parse_license_filter(request.args.get("licenseFilter"))
+        instance_name = _parse_instance_name(request.args.get("instance_name"))
+
+        exclude_sql = ""
+        exclude_params: list[Any] = []
+        if license_filter == "no_consumer" and excluded_profiles:
+            exclude_sql = (
+                f" AND coalesce(upper(trim(l.users_userprofile)), '') NOT IN ({_sql_placeholders(len(excluded_profiles))})"
+            )
+            exclude_params = list(excluded_profiles)
+
+        latest_instance_sql = ""
+        activity_instance_sql = ""
+        instance_params: list[Any] = []
+        if instance_name:
+            latest_instance_sql = " AND instance_name = ?"
+            activity_instance_sql = " AND instance_name = ?"
+            instance_params = [instance_name]
+
+        if months is not None:
+            activity_window_sql = _window_months_where_sql(months=months)
+            activity_params: list[Any] = []
+        else:
+            activity_window_sql = "day >= current_date - ?::INTEGER"
+            activity_params = [int(days or 30)]
+
+        df = _query_df(
+            (
+                "WITH latest AS (\n"
+                "  SELECT\n"
+                "    instance_name,\n"
+                "    lower(trim(users_login)) AS login_norm,\n"
+                "    users_enabled,\n"
+                "    users_userprofile,\n"
+                "    ROW_NUMBER() OVER (\n"
+                "      PARTITION BY instance_name, lower(trim(users_login))\n"
+                "      ORDER BY run_ts DESC\n"
+                "    ) AS rn\n"
+                "  FROM base_users_instance_metadata_history\n"
+                "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
+                f"    {latest_instance_sql}\n"  # nosec B608
+                "),\n"
+                "activity AS (\n"
+                "  SELECT\n"
+                "    lower(trim(login_norm)) AS login_norm,\n"
+                "    SUM(viewing_actions_count) AS viewing,\n"
+                "    SUM(developing_actions_count) AS developing\n"
+                "  FROM fact_user_activity_daily\n"
+                f"  WHERE {activity_window_sql}\n"  # nosec B608
+                f"    {activity_instance_sql}\n"  # nosec B608
+                "  GROUP BY 1\n"
+                ")\n"
+                "SELECT\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE" + f"{exclude_sql}) AS enabled_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.viewing, 0) > 0 AND coalesce(a.developing, 0) = 0" + f"{exclude_sql}) AS viewer_only_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.developing, 0) > 0 AND coalesce(a.viewing, 0) = 0" + f"{exclude_sql}) AS developer_only_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.viewing, 0) > 0 AND coalesce(a.developing, 0) > 0" + f"{exclude_sql}) AS mixed_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.viewing, 0) > coalesce(a.developing, 0) AND coalesce(a.developing, 0) > 0" + f"{exclude_sql}) AS viewer_dominant_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.developing, 0) > coalesce(a.viewing, 0) AND coalesce(a.viewing, 0) > 0" + f"{exclude_sql}) AS developer_dominant_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.viewing, 0) = coalesce(a.developing, 0) AND coalesce(a.viewing, 0) > 0" + f"{exclude_sql}) AS balanced_mixed_users\n"
+                "FROM latest l\n"
+                "LEFT JOIN activity a ON a.login_norm = l.login_norm\n"
+                "WHERE l.rn = 1;"
+            ),
+            [*instance_params, *activity_params, *instance_params, *exclude_params],
+        )
+
+        row = _df_records(df)[0] if len(df.index) else {}
+        enabled_users = int(row.get("enabled_users") or 0)
+        viewer_only_users = int(row.get("viewer_only_users") or 0)
+        developer_only_users = int(row.get("developer_only_users") or 0)
+        mixed_users = int(row.get("mixed_users") or 0)
+        viewer_dominant_users = int(row.get("viewer_dominant_users") or 0)
+        developer_dominant_users = int(row.get("developer_dominant_users") or 0)
+        balanced_mixed_users = int(row.get("balanced_mixed_users") or 0)
+        inactive_users = max(0, enabled_users - viewer_only_users - developer_only_users - mixed_users)
+
+        segments = [
+            {"label": "Viewer only", "value": viewer_only_users},
+            {"label": "Developer only", "value": developer_only_users},
+            {"label": "Mixed", "value": mixed_users},
+            {"label": "Inactive", "value": inactive_users},
+        ]
+        dominance_segments = [
+            {"label": "Viewer dominant", "value": viewer_dominant_users},
+            {"label": "Developer dominant", "value": developer_dominant_users},
+            {"label": "Balanced mixed", "value": balanced_mixed_users},
+        ]
+
+        payload: dict[str, Any] = {
+            "instanceName": instance_name,
+            "licenseFilter": license_filter,
+            "segments": segments,
+            "dominanceSegments": dominance_segments,
+            "totals": {
+                "enabledUsers": enabled_users,
+                "viewerOnlyUsers": viewer_only_users,
+                "developerOnlyUsers": developer_only_users,
+                "mixedUsers": mixed_users,
+                "inactiveUsers": inactive_users,
+                "viewerDominantUsers": viewer_dominant_users,
+                "developerDominantUsers": developer_dominant_users,
+                "balancedMixedUsers": balanced_mixed_users,
+            },
+        }
+        if months is not None:
+            payload["months"] = months
+        else:
+            payload["days"] = int(days or 30)
+        return _ok(payload)
+
+    except Exception as e:
+        logger.exception("users segments failed")
+        return _err(str(e), status=500)
+
+
+@bp.route("/api/build/users/stickiness")
+def build_users_stickiness():
+    """Return monthly stickiness and reactivation metrics.
+
+    Stickiness here is the monthly active rate among currently enabled users.
+    Reactivated users are active this month after being inactive in the prior month.
+    """
+
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        standard = _read_standard_project_variables()
+        excluded_profiles = _read_user_profile_exclude_consumer(standard)
+
+        months = _parse_window_months(request.args.get("window"))
+        if months is None:
+            months = int(request.args.get("months") or 6)
+        months = max(2, min(24, months))
+
+        license_filter = _parse_license_filter(request.args.get("licenseFilter"))
+        instance_name = _parse_instance_name(request.args.get("instance_name"))
+
+        start_month_expr = f"(date_trunc('month', current_date) - INTERVAL {months - 1} MONTH)::DATE"
+        next_month_expr = "(date_trunc('month', current_date) + INTERVAL 1 MONTH)::DATE"
+
+        exclude_sql = ""
+        exclude_params: list[Any] = []
+        if license_filter == "no_consumer" and excluded_profiles:
+            exclude_sql = (
+                f" AND coalesce(upper(trim(u.users_userprofile)), '') NOT IN ({_sql_placeholders(len(excluded_profiles))})"
+            )
+            exclude_params = list(excluded_profiles)
+
+        instance_sql_users = ""
+        instance_sql_activity = ""
+        instance_params_users: list[Any] = []
+        instance_params_activity: list[Any] = []
+        if instance_name:
+            instance_sql_users = " AND u.instance_name = ?"
+            instance_sql_activity = " AND a.instance_name = ?"
+            instance_params_users = [instance_name]
+            instance_params_activity = [instance_name]
+
+        df = _query_df(
+            (
+                "WITH months AS (\n"
+                f"  SELECT * FROM generate_series({start_month_expr}, ({next_month_expr} - INTERVAL 1 DAY)::DATE, INTERVAL 1 MONTH) AS t(month_start)\n"
+                "),\n"
+                "eligible AS (\n"
+                "  SELECT\n"
+                "    m.month_start,\n"
+                "    COUNT(DISTINCT lower(trim(u.users_login))) AS enabled_users\n"
+                "  FROM months m\n"
+                "  JOIN base_users_instance_metadata_history u ON TRUE\n"
+                "  WHERE u.users_login IS NOT NULL\n"
+                "    AND length(trim(u.users_login)) > 0\n"
+                "    AND u.users_enabled IS TRUE\n"
+                f"    {exclude_sql}\n"  # nosec B608
+                f"    {instance_sql_users}\n"  # nosec B608
+                "  GROUP BY 1\n"
+                "),\n"
+                "activity AS (\n"
+                "  SELECT\n"
+                "    date_trunc('month', a.day) AS month_start,\n"
+                "    a.login_norm\n"
+                "  FROM fact_user_activity_daily a\n"
+                "  JOIN base_users_instance_metadata_history u\n"
+                "    ON u.instance_name = a.instance_name\n"
+                "   AND lower(trim(u.users_login)) = a.login_norm\n"
+                "  WHERE a.day >= " + start_month_expr + "\n"
+                "    AND a.day < " + next_month_expr + "\n"
+                "    AND u.users_enabled IS TRUE\n"
+                f"    {exclude_sql}\n"  # nosec B608
+                f"    {instance_sql_activity}\n"  # nosec B608
+                "  GROUP BY 1, 2\n"
+                "),\n"
+                "activity_with_prev AS (\n"
+                "  SELECT\n"
+                "    month_start,\n"
+                "    login_norm,\n"
+                "    LAG(month_start) OVER (PARTITION BY login_norm ORDER BY month_start) AS prev_month_start\n"
+                "  FROM activity\n"
+                "),\n"
+                "monthly AS (\n"
+                "  SELECT\n"
+                "    m.month_start,\n"
+                "    COUNT(DISTINCT a.login_norm) AS active_users,\n"
+                "    COUNT(DISTINCT CASE WHEN a.prev_month_start = m.month_start - INTERVAL 1 MONTH THEN a.login_norm END) AS retained_users,\n"
+                "    COUNT(DISTINCT CASE WHEN a.prev_month_start IS NOT NULL AND a.prev_month_start < m.month_start - INTERVAL 1 MONTH THEN a.login_norm END) AS reactivated_users,\n"
+                "    COUNT(DISTINCT CASE WHEN a.prev_month_start IS NULL THEN a.login_norm END) AS new_active_users\n"
+                "  FROM months m\n"
+                "  LEFT JOIN activity_with_prev a ON a.month_start = m.month_start\n"
+                "  GROUP BY 1\n"
+                ")\n"
+                "SELECT\n"
+                "  CAST(m.month_start AS VARCHAR) AS month,\n"
+                "  COALESCE(m.active_users, 0) AS activeUsers,\n"
+                "  COALESCE(e.enabled_users, 0) AS enabledUsers,\n"
+                "  COALESCE(m.retained_users, 0) AS retainedUsers,\n"
+                "  COALESCE(m.reactivated_users, 0) AS reactivatedUsers,\n"
+                "  COALESCE(m.new_active_users, 0) AS newActiveUsers,\n"
+                "  CASE WHEN COALESCE(e.enabled_users, 0) > 0 THEN COALESCE(m.active_users, 0) * 1.0 / e.enabled_users ELSE 0 END AS activeRate\n"
+                "FROM monthly m\n"
+                "LEFT JOIN eligible e ON e.month_start = m.month_start\n"
+                "ORDER BY m.month_start;"
+            ),
+            [*exclude_params, *instance_params_users, *exclude_params, *instance_params_activity],
+        )
+
+        rows = _df_records(df)
+        latest = rows[-1] if rows else {}
+        return _ok(
+            {
+                "months": months,
+                "instanceName": instance_name,
+                "licenseFilter": license_filter,
+                "series": rows,
+                "latest": latest,
+            }
+        )
+
+    except Exception as e:
+        logger.exception("users stickiness failed")
         return _err(str(e), status=500)
 
 

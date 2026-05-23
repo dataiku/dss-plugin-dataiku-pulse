@@ -10,9 +10,58 @@ action_words:
   - analysis
   - clear
   - run
+  - edit
+  - update
+  - upload
+  - import
+  - export
+  - build
+  - train
+  - deploy
+  - publish
+  - execute
+  - compute
+  - recipe
+  - scenario
+  - notebook
+  - webapp
+  - dashboard
+  - api
+  - app
+  - flow
+  - plugin
+  - code-env
+  - codeenv
+  - settings
+  - rename
+  - delete
+  - move
+  - copy
+  - duplicate
+  - sync
+  - git
+  - commit
+  - schema
+  - partition
 
 remove_words:
   - list
   - dataset-clear-samples
   - dataset-save-schema
   - project-save-variables
+  - get
+  - read
+  - open
+  - preview
+  - view
+  - explore
+  - sample
+  - status
+  - summary
+  - timeline
+  - search
+  - recent
+  - details
+  - read-meta
+  - read-data
+  - read-schema

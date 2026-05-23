@@ -139,9 +139,29 @@ def main(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     msgtype = out[msgtype_col].astype("string").fillna("")
+    msgtype_base_col = _first_present(set(out.columns), ["message_msgTypeBase", "message_msgtypebase", "msgTypeBase", "msgtypebase"])
+    if msgtype_base_col is not None:
+        msgtype_base = out[msgtype_base_col].astype("string").fillna("").str.lower()
+    else:
+        msgtype_base = pd.Series("", index=out.index, dtype="string")
 
     vocab = _load_vocab()
-    is_developing = msgtype.str.contains(vocab.action_pattern) & ~msgtype.str.contains(vocab.remove_pattern)
+    mutating_bases = {
+        "action",
+        "add",
+        "admin",
+        "create",
+        "delete",
+        "edit",
+        "import",
+        "run",
+        "save",
+        "update",
+        "upload",
+    }
+    base_is_developing = msgtype_base.isin(mutating_bases)
+    text_is_developing = msgtype.str.contains(vocab.action_pattern) & ~msgtype.str.contains(vocab.remove_pattern)
+    is_developing = base_is_developing | text_is_developing
 
     # Option 1: viewing count is all retained UI actions.
     out["viewing_actions_count"] = 1
