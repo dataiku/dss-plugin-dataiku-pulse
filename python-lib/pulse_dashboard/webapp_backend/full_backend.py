@@ -4038,7 +4038,9 @@ def register_routes(app: Flask, *, is_local_dev: bool = False) -> None:
     global _IS_LOCAL_DEV
     _IS_LOCAL_DEV = is_local_dev
     app.register_blueprint(bp)
-    # In loader-backed mode, body.html owns the blocking startup init via
-    # /api/startup/duckdb; avoid racing it with a background init thread.
-    if not _IS_LOCAL_DEV:
+    # In local Flask dev, there is no DSS body.html warmup flow, so kick off a
+    # best-effort background init. In DSS/visual-webapp mode,  owns
+    # the blocking startup init via ; avoid racing it with
+    # a parallel background init thread that can hit the shared lock timeout.
+    if _IS_LOCAL_DEV:
         _maybe_schedule_startup_duckdb_init()
