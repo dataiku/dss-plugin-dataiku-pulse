@@ -329,6 +329,8 @@ def _duckdb_init_lock():
 def initialize_database() -> None:
     """Create the DuckDB file and seed a minimal schema."""
 
+    started = time.time()
+    logger.info("DuckDB initialize_database: opening writable connection to %s", settings.DUCKDB_PATH)
     conn = create_connection(read_only=False)
     try:
         conn.execute(
@@ -351,6 +353,10 @@ def initialize_database() -> None:
         )
     finally:
         conn.close()
+        logger.info(
+            "DuckDB initialize_database: completed in %.3fs",
+            time.time() - started,
+        )
 
 
 def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_tables: bool | None = None) -> dict:
@@ -371,18 +377,48 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
     if replace_gold_tables is None:
         replace_gold_tables = settings.PULSE_AUTO_LOAD_REPLACE
 
+    started = time.time()
+    logger.info(
+        "DuckDB ensure_database_ready: start load_gold_tables=%s replace_gold_tables=%s path=%s source_project=%s folder=%s",
+        load_gold_tables,
+        replace_gold_tables,
+        settings.DUCKDB_PATH,
+        settings.PULSE_SOURCE_PROJECT_KEY,
+        settings.PULSE_GOLD_TABLES_FOLDER_ID or settings.PULSE_GOLD_TABLES_FOLDER_NAME,
+    )
+
     try:
+        logger.info("DuckDB ensure_database_ready: waiting for init lock at %s", settings.PULSE_DUCKDB_INIT_LOCK_PATH)
         with _duckdb_init_lock():
+            logger.info(
+                "DuckDB ensure_database_ready: acquired init lock after %.3fs",
+                time.time() - started,
+            )
             initialize_database()
 
             if not load_gold_tables:
+                logger.info(
+                    "DuckDB ensure_database_ready: completed without GOLD load in %.3fs",
+                    time.time() - started,
+                )
                 return {"ok": True, "initialized": True, "gold_loaded": False}
 
             try:
+                connection_started = time.time()
+                logger.info("DuckDB ensure_database_ready: opening main writable connection")
                 conn = create_connection(read_only=False)
                 try:
+                    logger.info(
+                        "DuckDB ensure_database_ready: main connection ready in %.3fs",
+                        time.time() - connection_started,
+                    )
                     # Lazy import: this pulls in `dataiku` (heavier) and hits DSS APIs.
+                    import_started = time.time()
                     from .view_builder import build_views_from_specs
+                    logger.info(
+                        "DuckDB ensure_database_ready: imported view builder in %.3fs",
+                        time.time() - import_started,
+                    )
 
                     report: dict | None = None
                     gold_tables_loaded = False
@@ -397,6 +433,13 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         has_base = any(t.startswith("base_") for t in existing_tables)
                         has_fact_or_dim = any(t.startswith(("fact_", "dim_")) for t in existing_tables)
                         has_expected_views = _EXPECTED_STARTUP_TABLES.issubset(existing_tables)
+                        logger.info(
+                            "DuckDB ensure_database_ready: existing tables=%s has_base=%s has_fact_or_dim=%s has_expected_views=%s",
+                            len(existing_tables),
+                            has_base,
+                            has_fact_or_dim,
+                            has_expected_views,
+                        )
                         if has_base and has_fact_or_dim and has_expected_views:
                             reason = "base_tables_present"
                         else:
@@ -409,22 +452,36 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                             from .gold_loader import infer_table_name
                             from .gold_loader import list_gold_paths
 
+                            path_listing_started = time.time()
+                            logger.info("DuckDB ensure_database_ready: listing candidate GOLD paths")
                             view_like_names = {
                                 p.stem
                                 for p in (Path(__file__).resolve().parents[1] / "datasets" / "views").glob("*.yaml")
                             }
-                            from .gold_loader import infer_table_name
+
+                            gold_paths = list_gold_paths(suffixes=(".csv", ".parquet"))
+                            logger.info(
+                                "DuckDB ensure_database_ready: listed %s GOLD paths in %.3fs",
+                                len(gold_paths),
+                                time.time() - path_listing_started,
+                            )
 
                             allowed_names = {
                                 infer_table_name(str(p).lstrip("/"))
-                                for p in list_gold_paths(suffixes=(".csv", ".parquet"))
+                                for p in gold_paths
                                 if PurePosixPath(str(p).lstrip("/")).parts
                                 and PurePosixPath(str(p).lstrip("/")).parts[0].lstrip("/") == "gold"
                                 and infer_table_name(str(p).lstrip("/"))
                                 and infer_table_name(str(p).lstrip("/")) not in view_like_names
                                 and infer_table_name(str(p).lstrip("/")).startswith(("base_", "dim_", "fact_", "reg_"))
                             }
+                            logger.info(
+                                "DuckDB ensure_database_ready: %s allowed GOLD table names after filtering",
+                                len(allowed_names),
+                            )
 
+                            load_started = time.time()
+                            logger.info("DuckDB ensure_database_ready: loading GOLD tables replace=%s", False)
                             report = _load_gold_tables(
                                 conn,
                                 replace=False,
@@ -433,28 +490,49 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                                 allowed_suffixes=(".csv", ".parquet"),
                                 allowed_table_names=allowed_names,
                             )
+                            logger.info(
+                                "DuckDB ensure_database_ready: GOLD load completed in %.3fs with ok=%s loaded=%s failed=%s",
+                                time.time() - load_started,
+                                report.get("ok"),
+                                len(report.get("loaded", [])),
+                                len(report.get("failed", [])),
+                            )
                             gold_tables_loaded = bool(report.get("loaded"))
                     else:
                         from .gold_loader import infer_table_name
                         from .gold_loader import load_gold_tables as _load_gold_tables
                         from .gold_loader import list_gold_paths
 
+                        path_listing_started = time.time()
+                        logger.info("DuckDB ensure_database_ready: listing candidate GOLD paths for replace run")
                         view_like_names = {
                             p.stem
                             for p in (Path(__file__).resolve().parents[1] / "datasets" / "views").glob("*.yaml")
                         }
-                        from .gold_loader import infer_table_name
+
+                        gold_paths = list_gold_paths(suffixes=(".csv", ".parquet"))
+                        logger.info(
+                            "DuckDB ensure_database_ready: listed %s GOLD paths in %.3fs",
+                            len(gold_paths),
+                            time.time() - path_listing_started,
+                        )
 
                         allowed_names = {
                             infer_table_name(str(p).lstrip("/"))
-                            for p in list_gold_paths(suffixes=(".csv", ".parquet"))
+                            for p in gold_paths
                             if PurePosixPath(str(p).lstrip("/")).parts
                             and PurePosixPath(str(p).lstrip("/")).parts[0].lstrip("/") == "gold"
                             and infer_table_name(str(p).lstrip("/"))
                             and infer_table_name(str(p).lstrip("/")) not in view_like_names
                             and infer_table_name(str(p).lstrip("/")).startswith(("base_", "dim_", "fact_", "reg_"))
                         }
+                        logger.info(
+                            "DuckDB ensure_database_ready: %s allowed GOLD table names after filtering",
+                            len(allowed_names),
+                        )
 
+                        load_started = time.time()
+                        logger.info("DuckDB ensure_database_ready: loading GOLD tables replace=%s", True)
                         report = _load_gold_tables(
                             conn,
                             replace=True,
@@ -463,19 +541,50 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                             allowed_suffixes=(".csv", ".parquet"),
                             allowed_table_names=allowed_names,
                         )
+                        logger.info(
+                            "DuckDB ensure_database_ready: GOLD load completed in %.3fs with ok=%s loaded=%s failed=%s",
+                            time.time() - load_started,
+                            report.get("ok"),
+                            len(report.get("loaded", [])),
+                            len(report.get("failed", [])),
+                        )
                         gold_tables_loaded = bool(report.get("loaded"))
 
                     # Compatibility views: map GOLD `*_metadata_history` outputs to
                     # the UI-facing `base_*_metadata` tables expected by view specs.
+                    inventory_started = time.time()
                     _maybe_create_inventory_views(conn)
+                    logger.info(
+                        "DuckDB ensure_database_ready: inventory compatibility views ready in %.3fs",
+                        time.time() - inventory_started,
+                    )
 
+                    seed_started = time.time()
                     seed_report = _maybe_seed_demo_dev_activity(conn)
+                    logger.info(
+                        "DuckDB ensure_database_ready: demo seed completed in %.3fs enabled=%s",
+                        time.time() - seed_started,
+                        seed_report.get("enabled"),
+                    )
+                    views_started = time.time()
                     views_report = build_views_from_specs(conn)
+                    logger.info(
+                        "DuckDB ensure_database_ready: view build completed in %.3fs with ok=%s",
+                        time.time() - views_started,
+                        views_report.get("ok"),
+                    )
 
                     ok = bool(views_report.get("ok", False))
                     if report is not None:
                         ok = ok and bool(report.get("ok", False))
 
+                    logger.info(
+                        "DuckDB ensure_database_ready: finished in %.3fs ok=%s gold_loaded=%s reason=%s",
+                        time.time() - started,
+                        ok,
+                        gold_tables_loaded,
+                        reason,
+                    )
                     return {
                         "ok": ok,
                         "initialized": True,

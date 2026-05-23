@@ -6,6 +6,7 @@ import fnmatch
 import io
 import logging
 import os
+import time
 import uuid
 from pathlib import Path, PurePosixPath
 
@@ -55,8 +56,17 @@ def list_gold_paths(*, suffixes: tuple[str, ...] = (".parquet", ".csv")) -> list
     `list_contents()` is not reliably recursive across DSS versions.
     """
 
+    started = time.time()
+    lookup = _resolve_gold_folder_lookup()
+    logger.info(
+        "DuckDB gold_loader.list_gold_paths: start project=%s lookup=%s suffixes=%s",
+        settings.PULSE_SOURCE_PROJECT_KEY,
+        lookup,
+        suffixes,
+    )
+
     folder = dataiku.Folder(
-        lookup=_resolve_gold_folder_lookup(),
+        lookup=lookup,
         project_key=settings.PULSE_SOURCE_PROJECT_KEY,
         ignore_flow=True,
     )
@@ -67,7 +77,13 @@ def list_gold_paths(*, suffixes: tuple[str, ...] = (".parquet", ".csv")) -> list
         if any(p.lower().endswith(s) for s in suffixes):
             paths.append(p)
 
-    return sorted(paths)
+    sorted_paths = sorted(paths)
+    logger.info(
+        "DuckDB gold_loader.list_gold_paths: found %s matching paths in %.3fs",
+        len(sorted_paths),
+        time.time() - started,
+    )
+    return sorted_paths
 
 
 def _parse_hive_partitions(rel_path: str) -> dict[str, str]:
@@ -95,6 +111,8 @@ def _load_parquet_to_table(
     This is more memory-friendly than loading the whole parquet into pandas.
     """
 
+    started = time.time()
+    logger.info("DuckDB gold_loader: loading parquet path=%s table=%s append=%s", path, table_name, append)
     ingest_dir = Path(settings.DUCKDB_DIR) / "_ingest"
     ingest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -139,6 +157,12 @@ def _load_parquet_to_table(
             os.remove(tmp_path)
         except OSError:
             pass
+        logger.info(
+            "DuckDB gold_loader: finished parquet path=%s table=%s in %.3fs",
+            path,
+            table_name,
+            time.time() - started,
+        )
 
 
 def _load_csv_to_table(
@@ -151,6 +175,8 @@ def _load_csv_to_table(
     file under `settings.DUCKDB_DIR` and load from there.
     """
 
+    started = time.time()
+    logger.info("DuckDB gold_loader: loading csv path=%s table=%s", path, table_name)
     ingest_dir = Path(settings.DUCKDB_DIR) / "_ingest"
     ingest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -169,6 +195,12 @@ def _load_csv_to_table(
             os.remove(tmp_path)
         except OSError:
             pass
+        logger.info(
+            "DuckDB gold_loader: finished csv path=%s table=%s in %.3fs",
+            path,
+            table_name,
+            time.time() - started,
+        )
 
 
 def infer_table_name(rel_path: str) -> str:
@@ -222,8 +254,19 @@ def load_gold_tables(
     Returns basic stats for UI/debug.
     """
 
+    started = time.time()
+    lookup = _resolve_gold_folder_lookup()
+    logger.info(
+        "DuckDB gold_loader.load_gold_tables: start replace=%s prefix=%s glob=%s project=%s lookup=%s",
+        replace,
+        prefix,
+        name_glob,
+        settings.PULSE_SOURCE_PROJECT_KEY,
+        lookup,
+    )
+
     folder = dataiku.Folder(
-        lookup=_resolve_gold_folder_lookup(),
+        lookup=lookup,
         project_key=settings.PULSE_SOURCE_PROJECT_KEY,
         ignore_flow=True,
     )
@@ -238,7 +281,7 @@ def load_gold_tables(
 
     created_tables: set[str] = set()
 
-    for path in paths:
+    for index, path in enumerate(paths, start=1):
         rel_path = str(path).lstrip("/")
         base_name = PurePosixPath(rel_path).name
 
@@ -255,6 +298,14 @@ def load_gold_tables(
             continue
 
         try:
+            logger.info(
+                "DuckDB gold_loader.load_gold_tables: processing %s/%s path=%s table=%s suffix=%s",
+                index,
+                len(paths),
+                rel_path,
+                table_name,
+                suffix,
+            )
             if replace and table_name not in created_tables:
                 # The existing object might be a VIEW or a TABLE (from previous runs).
                 # DuckDB errors if you drop the wrong type, so we ignore failures.
@@ -319,6 +370,13 @@ def load_gold_tables(
             logger.exception("Failed loading %s", rel_path)
             failed.append({"table": table_name, "path": rel_path, "error": str(e)})
 
+    logger.info(
+        "DuckDB gold_loader.load_gold_tables: finished in %.3fs loaded=%s skipped=%s failed=%s",
+        time.time() - started,
+        len(loaded),
+        len(skipped),
+        len(failed),
+    )
     return {
         "ok": len(failed) == 0,
         "source_project": settings.PULSE_SOURCE_PROJECT_KEY,
