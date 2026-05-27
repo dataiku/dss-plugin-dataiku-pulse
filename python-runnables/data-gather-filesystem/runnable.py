@@ -31,8 +31,8 @@ class MyRunnable(Runnable):
     def run(self, progress_callback):
         # Get the output of the DF command
         results = []
-        cmd = "df"
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True)
+        cmd = ["df"]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         result = result.stdout.split("\n")
         result.pop(0)
         data = []

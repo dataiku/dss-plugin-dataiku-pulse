@@ -50,7 +50,24 @@ class MyRunnable(Runnable):
             ]
         if not paths:
             raise Exception(f"No Hive-partitioned paths found for category '{limit}'")
-                    
+
+        # Drop SILVER for selected category (or all)
+        silver_paths = [
+            path for path in all_paths
+            if "/silver/category=" in path
+        ]
+        if limit != "all":
+            silver_paths = [
+                path for path in silver_paths
+                if f"/silver/category={limit}/" in path
+            ]
+        for path in silver_paths:
+            try:
+                self.folder.delete_path(path=path)
+            except Exception as e:
+                # best-effort deletion; rebuild will overwrite many paths
+                self.logger.error(f"Failed to delete silver path: {path} - {e}")
+
         # Re-Run Silver Quality Guard
         if self.preset_pc["do_parallel"]:
             chunks = np.array_split(paths, self.preset_pc["cores"])

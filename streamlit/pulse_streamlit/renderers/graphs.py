@@ -6,6 +6,10 @@ def render_graph(result, key=None):
     df = result["df"]
     meta = result["meta"]
 
+    if df is None or df.empty:
+        st.info("No data to display")
+        return
+
     if key is None:
         key = meta.get("id")
 

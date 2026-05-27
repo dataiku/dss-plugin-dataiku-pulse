@@ -1,11 +1,13 @@
 from pathlib import Path
+import tempfile
+
 import dataiku
 
 # Base app directory (useful if the app is executed from various working dirs)
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # DuckDB file location
-DB_PATH = Path("/tmp/duckdb/pulse.duckdb")
+DB_PATH = Path(tempfile.gettempdir()) / "duckdb" / "pulse.duckdb"
 
 # Dataiku Folder
 dss_partitioned_folder = dataiku.Folder(

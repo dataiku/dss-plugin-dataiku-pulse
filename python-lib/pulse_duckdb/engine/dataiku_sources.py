@@ -89,10 +89,14 @@ def reg_dss_source_folder_df(conn, *, data_src: str, show_ui: bool = False) -> b
 
         conn.register("df_view", dss_src_fld_df)
 
-        conn.execute(f"""
-            CREATE OR REPLACE TABLE {table_name} AS
+        safe_table = '"' + table_name.replace('"', '""') + '"'
+
+        sql = f"""
+            CREATE OR REPLACE TABLE {safe_table} AS
             SELECT * FROM df_view
-        """)
+        """  # nosec B608
+
+        conn.execute(sql)
 
         logger.info(f"Materialized table '{table_name}' with {len(dss_src_fld_df)} rows")
 

@@ -13,10 +13,11 @@ def query():
     return """
         SELECT
             instance_name,
-            COUNT(DISTINCT project_key) AS active_projects_30_days
+            COUNT(DISTINCT CASE
+                WHEN project_versionTag_lastModifiedOn >= CURRENT_TIMESTAMP - INTERVAL 30 DAY
+                THEN project_key
+            END) AS active_projects_30_days
         FROM projects_metadata_base
-        WHERE
-            project_versionTag_lastModifiedOn >= CURRENT_TIMESTAMP - INTERVAL 30 DAY
         GROUP BY instance_name
         ORDER BY instance_name
     ;

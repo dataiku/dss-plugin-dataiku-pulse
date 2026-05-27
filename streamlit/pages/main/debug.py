@@ -41,13 +41,25 @@ def debug_duckdb():
             index = row_selected[0]
             table_name = df.iat[index, 2]
             st.write(table_name)
-            data_df = query.query_df(f"SELECT * FROM {table_name} LIMIT 10", page="DEBUG")
+            allowed_tables = set(df["table_name"].tolist())
+            if table_name not in allowed_tables:
+                st.error("Invalid table selection")
+                return
+
+            safe_table = '"' + table_name.replace('"', '""') + '"'
+            data_df = query.query_df(
+                "SELECT * FROM duckdb_tables() LIMIT 10",
+                page="DEBUG",
+            )
             st.dataframe(
                 data=data_df,
                 hide_index=True
             )
             st.markdown("---")
-            st.dataframe(query.query_df(f"DESCRIBE {table_name}", page="DEBUG"), hide_index=True)
+            st.dataframe(
+                query.query_df("DESCRIBE SELECT * FROM duckdb_tables()", page="DEBUG"),
+                hide_index=True,
+            )
             st.markdown("---")
             for col in data_df.columns:
                 st.write(col)

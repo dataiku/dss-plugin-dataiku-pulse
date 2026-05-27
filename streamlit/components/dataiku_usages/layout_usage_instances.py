@@ -15,7 +15,7 @@ def display(tab, data_category):
 
     # Page Body Section
     st.divider()
-    sql = f"""
+    sql = """
         SELECT
             instance_name AS instance,
             SUM(build_events) AS total_events,
