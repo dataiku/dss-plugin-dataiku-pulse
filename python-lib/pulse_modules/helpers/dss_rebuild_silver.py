@@ -65,6 +65,7 @@ def rebuild_silver(self, paths):
         category = path.split("/")[2].replace("category=", "")
         module_name = path.split("/")[3].replace("module=", "")
         self.instance_name = path.split("/")[4].replace("instance_name=", "")
+        df["instance_name"] = self.instance_name
         #
         mode="client"
         if "dataiku_usage" == category:
