@@ -55,8 +55,11 @@ def load_gold_tables(conn, *, show_ui: bool = False) -> bool:
                 )
                 progress_bar.progress(int(idx / total * 100), text=progress_text)
 
+
+            safe_table = '"' + table_name.replace('"', '""') + '"'
+
             query = (
-                f"CREATE OR REPLACE TABLE {table_name} AS "
+                f"CREATE OR REPLACE TABLE {safe_table} AS "  # nosec B608
                 f"SELECT * FROM read_parquet('{parquet_path}')"
             )
 

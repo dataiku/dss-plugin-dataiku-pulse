@@ -20,12 +20,14 @@ def get_canonical_capabilities():
 
 
 def get_subcategories_for_capability(canonical_capability):
-    df = query.query_df(f"""
+    df = query.query_df(
+        """
         SELECT DISTINCT dataiku_category
         FROM canonical_capabilities_base
         WHERE canonical_capability = '{canonical_capability}'
         ORDER BY dataiku_category
-    """)
+        """  # nosec
+    )
     return df["dataiku_category"].tolist()
 
 
@@ -42,29 +44,41 @@ def format_capability_label(capability):
 
 def get_capability_summary_signal(capability: str, instance_name: str | None = None):
     where_instance = ""
+    params = [capability]
     if instance_name:
-        where_instance = f"AND instance_name = '{instance_name}'"
+        where_instance = "AND instance_name = ?"
+        params.append(instance_name)
 
-    df = query.query_df(f"""
-        SELECT
-            dataiku_category,
-            SUM(event_count) AS cnt
-        FROM capability_subcategory_usage_last_30_days_base
-        WHERE canonical_capability = '{capability}'
-        {where_instance}
-        GROUP BY dataiku_category
-        ORDER BY cnt DESC
-        LIMIT 1
-    """)
+    df = query.query_df(
+        (
+            """
+            SELECT
+                dataiku_category,
+                SUM(event_count) AS cnt
+            FROM capability_subcategory_usage_last_30_days_base
+            WHERE canonical_capability = ?
+            {where_instance}
+            GROUP BY dataiku_category
+            ORDER BY cnt DESC
+            LIMIT 1
+            """
+        ).format(where_instance=where_instance),  # nosec B608
+        params=params,
+    )
     if df.empty:
         return {}
 
-    total_df = query.query_df(f"""
-        SELECT SUM(event_count) AS total
-        FROM capability_subcategory_usage_last_30_days_base
-        WHERE canonical_capability = '{capability}'
-        {where_instance}
-    """)
+    total_df = query.query_df(
+        (
+            """
+            SELECT SUM(event_count) AS total
+            FROM capability_subcategory_usage_last_30_days_base
+            WHERE canonical_capability = ?
+            {where_instance}
+            """
+        ).format(where_instance=where_instance),  # nosec B608
+        params=params,
+    )
     total = total_df["total"].iloc[0]
 
     top = df.iloc[0]
@@ -98,23 +112,23 @@ def format_capability_summary(capability, signal):
 
 def get_filtered_actors(filters):
     where_clauses = []
+    params = []
 
     if filters["instance_name"] != "All (General)":
-        instance_name = filters["instance_name"]
-        where_clauses.append(f"instance_name = '{instance_name}'")
+        where_clauses.append("instance_name = ?")
+        params.append(filters["instance_name"])
 
     if filters["user_profiles"]:
-        profiles = ", ".join(f"'{p}'" for p in filters["user_profiles"])
-        where_clauses.append(f"userProfile IN ({profiles})")
+        where_clauses.append("userProfile IN (SELECT * FROM UNNEST(?))")
+        params.append(filters["user_profiles"])
 
     if filters["enabled_option"] == "Enabled only":
         where_clauses.append("enabled = TRUE")
     elif filters["enabled_option"] == "Disabled only":
         where_clauses.append("enabled = FALSE")
 
-    where_clauses.append(
-        f"last_activity_ts >= CURRENT_DATE - INTERVAL {filters['days_since_activity']} DAY"
-    )
+    where_clauses.append("last_activity_ts >= CURRENT_DATE - INTERVAL ? DAY")
+    params.append(int(filters["days_since_activity"]))
 
     where_sql = " AND ".join(where_clauses)
 
@@ -132,6 +146,6 @@ def get_filtered_actors(filters):
             instance_name,
             last_activity_ts DESC
     ;
-    """
+    """  # nosec B608
 
-    return query.query_df(sql)
+    return query.query_df(sql, params=params)

@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
     ttl=120, # 2 minutes (tune this)
     max_entries=256, # prevents unbounded growth
 )
-def _execute_analytic_cached(analytic_id: str, sql: str, filters_key: str):
-    return query.query_df(sql)
+def _execute_analytic_cached(analytic_id: str, sql: str, filters_key: str, params):
+    return query.query_df(sql, params=params)
 
 
 def execute_analytic(analytic, filters=None, scope=None):
@@ -34,8 +34,9 @@ def execute_analytic(analytic, filters=None, scope=None):
     if scope and meta.get("usage_scoped"):
         sql = apply_usage_scope(sql, scope)
 
+    params = []
     if filters:
-        sql = apply_filters(sql, meta, filters)
+        sql, params = apply_filters(sql, meta, filters)
         #sql = apply_grouping(sql, meta, filters)
 
     # Query intent logging (must NOT affect execution)
@@ -67,7 +68,8 @@ def execute_analytic(analytic, filters=None, scope=None):
     df = _execute_analytic_cached(
         meta["id"],
         sql,
-        filters_key
+        filters_key,
+        params,
     )
     return {
         "type": meta.get("type"),

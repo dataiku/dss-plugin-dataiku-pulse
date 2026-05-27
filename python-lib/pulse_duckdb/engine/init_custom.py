@@ -4,7 +4,7 @@ import time
 import os
 from filelock import FileLock, Timeout
 import streamlit as st
-from pulse_duckdb.engine import create_conn, expand_duckdb, raw_views, dataiku_usage, gold_tables
+from pulse_duckdb.engine import create_conn, expand_duckdb, raw_views, dataiku_usage, create_gold_tables
 from pulse_duckdb.engine import dataiku_sources
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,11 @@ def _run_init_pipeline(init_funcs, *, reset=False, success_message="Initializati
 
     finally:
         if "lock_path" in locals():
-            os.remove(lock_path)
+            try:
+                os.remove(lock_path)
+            except FileNotFoundError:
+                # `filelock` may already have removed the lock file
+                pass
     return
 
 
@@ -82,7 +86,7 @@ def custom_recipe_create_gold_tables(reset: bool = False):
         dataiku_sources.register_partition_df,
         raw_views.register_raw_views,
         dataiku_usage.register_dataiku_usage_views,
-        gold_tables.register_gold_tables,
+        create_gold_tables.register_gold_tables,
     ]
 
     # Run pipeline
@@ -97,7 +101,7 @@ def custom_recipe_create_gold_tables(reset: bool = False):
 def streamlit_load_tables():
     init_funcs = [
         create_conn.create_connection,
-        gold_tables.register_gold_tables,
+        create_gold_tables.register_gold_tables,
     ]
 
     # Run pipeline

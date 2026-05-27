@@ -13,10 +13,11 @@ def query():
     return """
         SELECT
             instance_name,
-            COUNT(DISTINCT recipes_type) AS active_recipes_30_days
+            COUNT(DISTINCT CASE
+                WHEN recipes_versionTag_lastModifiedOn >= CURRENT_TIMESTAMP - INTERVAL 30 DAY
+                THEN recipes_type
+            END) AS active_recipes_30_days
         FROM recipes_metadata_base
-        WHERE
-            recipes_versionTag_lastModifiedOn >= CURRENT_TIMESTAMP - INTERVAL 30 DAY
         GROUP BY instance_name
         ORDER BY instance_name
     ;

@@ -11,7 +11,12 @@ from pulse_modules.helpers import dss_folder, dss_funcs, dss_silver
 
 
 def get_size(d):
-    result = subprocess.run(f"""du -sc "{d}" """, shell=True, capture_output=True, text=True, check=True)
+    result = subprocess.run(
+        ["du", "-sc", d],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
     size = result.stdout.split("\t")[0]
     size = int(size)
     return size
@@ -42,8 +47,8 @@ class MyRunnable(Runnable):
         
         # Find directories maxdepth
         results = []
-        cmd = "find . -maxdepth 3 -type d"
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True)
+        cmd = ["find", ".", "-maxdepth", "3", "-type", "d"]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         directories = result.stdout.split("\n")
         directories.remove(".")
         

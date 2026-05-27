@@ -86,5 +86,9 @@ def initialize_database():
 
     finally:
         if "lock_path" in locals():
-            os.remove(lock_path)
+            try:
+                os.remove(lock_path)
+            except FileNotFoundError:
+                # `filelock` may already have removed the lock file
+                pass
     return

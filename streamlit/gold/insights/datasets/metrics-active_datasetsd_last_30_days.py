@@ -13,10 +13,11 @@ def query():
     return """
         SELECT
             instance_name,
-            COUNT(*) AS active_datasets_30d
+            COUNT(CASE
+                WHEN dataset_versionTag_lastModifiedOn >= CURRENT_TIMESTAMP - INTERVAL 30 DAY
+                THEN 1
+            END) AS active_datasets_30d
         FROM datasets_metadata_base
-        WHERE
-            dataset_versionTag_lastModifiedOn >= CURRENT_TIMESTAMP - INTERVAL 30 DAY
         GROUP BY instance_name
         ORDER BY instance_name
     ;

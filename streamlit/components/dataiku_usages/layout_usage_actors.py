@@ -26,7 +26,7 @@ def display(tab, data_category):
 
     # Page Body Section
     st.divider()
-    sql = f"""
+    sql = """
         SELECT
             login AS actor,
             SUM(build_events) AS total_events,

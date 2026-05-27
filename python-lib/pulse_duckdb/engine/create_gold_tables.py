@@ -1,6 +1,8 @@
 import logging
 from pathlib import Path
+
 import streamlit as st
+
 from pulse_duckdb import settings
 from pulse_duckdb.helpers import yaml_loader
 
@@ -11,6 +13,57 @@ queries = {}
 
 for path in root.rglob("*.yaml"):
     queries |= yaml_loader.load_yaml(path)
+
+
+def _patch_users_metadata_sql_for_missing_trial_columns(conn, sql: str) -> str:
+    """Ensure `users_metadata_table` can build on older schemas.
+
+    Some older `users_metadata_view` parquet schemas do not include `trial_*` columns.
+    In that case we substitute `NULL`-typed expressions so DuckDB doesn't fail bind-time.
+    """
+
+    required = [
+        "trial_exists",
+        "trial_valid",
+        "trial_expired",
+        "trial_illegal",
+        "trial_granted_on",
+        "trial_expires_on",
+    ]
+
+    try:
+        cols_df = conn.execute("PRAGMA table_info('users_metadata_view')").df()
+        existing = set(cols_df["name"].tolist())
+    except Exception:
+        # If we can't introspect, don't rewrite SQL.
+        return sql
+
+    missing = [c for c in required if c not in existing]
+    if not missing:
+        return sql
+
+    patched = sql
+    # Boolean defaults
+    for col in ["trial_exists", "trial_valid", "trial_expired", "trial_illegal"]:
+        if col in missing:
+            patched = patched.replace(
+                f"\n        {col},",
+                f"\n        CAST(NULL AS BOOLEAN) AS {col},",
+            )
+
+    # Timestamp defaults
+    for col in ["trial_granted_on", "trial_expires_on"]:
+        if col in missing:
+            patched = patched.replace(
+                f"\n        {col}\n",
+                f"\n        CAST(NULL AS TIMESTAMP) AS {col}\n",
+            )
+            patched = patched.replace(
+                f"\n        {col},\n",
+                f"\n        CAST(NULL AS TIMESTAMP) AS {col},\n",
+            )
+
+    return patched
 
 
 # -------------------------------------------------------
@@ -66,6 +119,9 @@ def register_gold_tables(conn, *, show_ui: bool = False):
                 logger.warning(f"Legacy rebuild for `{table_name}`")
             else:
                 raise ValueError(f"No `full_sql` defined for GOLD table `{table_name}`")
+
+            if table_name == "users_metadata_table":
+                current_sql = _patch_users_metadata_sql_for_missing_trial_columns(conn, current_sql)
 
             logger.debug(
                 f"Executing GOLD table query for `{table_name}`:\n{current_sql}"
