@@ -38,10 +38,19 @@ def reset_duckdb():
 # DuckDB initialization
 # -------------------------------------------------------------------
 def _configure_extensions(conn) -> None:
-    """Load DuckDB extensions bundled with the plugin.
+    """Ensure DuckDB `httpfs` is available.
 
-    This avoids `INSTALL` calls that would reach out to the internet,
-    which fails for customers behind a firewall.
+    Strategy:
+    1) Always attempt the standard internet-backed `INSTALL httpfs; LOAD httpfs`.
+       This supports environments where outbound access is allowed.
+    2) If that fails (no internet, blocked, or non-writable default dirs), fall back to a
+       bundled `httpfs.duckdb_extension` shipped under the plugin `resource/` directory.
+    3) If the bundled file isn't present on disk (common in some containerized runs),
+       optionally download it from a URL specified via environment variable and then load.
+
+    Environment variables:
+    - PULSE_DUCKDB_HTTPFS_BUNDLE_URL: full URL to `httpfs.duckdb_extension` (optional)
+    - PULSE_DUCKDB_HTTPFS_BUNDLE_TIMEOUT_SECONDS: download timeout (optional, default 30)
     """
 
     # Only bundle linux_amd64 for now
@@ -50,41 +59,83 @@ def _configure_extensions(conn) -> None:
 
     duckdb_version = duckdb.__version__
 
+    logger.info(
+        "Configuring DuckDB extensions (duckdb=%s, os=%s, arch=%s)",
+        duckdb_version,
+        platform.system(),
+        platform.machine(),
+    )
+
+    # Make online INSTALL work in containers by using a writable directory.
+    tmp_ext_dir = Path("/tmp/duckdb/extensions")
+    try:
+        tmp_ext_dir.mkdir(parents=True, exist_ok=True)
+        conn.execute(f"SET extension_directory='{tmp_ext_dir.as_posix()}'")
+    except Exception:
+        # If we can't set/create, don't block; proceed and let INSTALL attempt.
+        logger.debug("Failed to set extension_directory to /tmp", exc_info=True)
+
+    # 1) Standard method (internet-backed)
+    try:
+        conn.execute("INSTALL httpfs")
+        conn.execute("LOAD httpfs")
+        logger.info("DuckDB httpfs loaded via INSTALL/LOAD")
+        return
+    except Exception:
+        logger.warning("DuckDB INSTALL/LOAD httpfs failed; trying bundled fallback", exc_info=True)
+
+    # 2) Bundled fallback in plugin resources
     # DuckDB appends `v<version>/<platform>` under `extension_directory`.
     # So we set `extension_directory` to the root and store files under
     # `duckdb_extensions/vX.Y.Z/linux_amd64/`.
-    ext_roots = [
-        # Dev Streamlit runs from repo
-        (BASE_DIR / ".." / "streamlit" / "resource" / "duckdb_extensions").resolve(),
-        # DSS plugin resource root
-        (BASE_DIR / ".." / "resource" / "duckdb_extensions").resolve(),
-    ]
+    ext_root = (BASE_DIR / ".." / "resource" / "duckdb_extensions").resolve()
+    ext_file = ext_root / f"v{duckdb_version}" / "linux_amd64" / "httpfs.duckdb_extension"
 
-    for ext_root in ext_roots:
-        ext_file = (
-            ext_root
-            / f"v{duckdb_version}"
-            / "linux_amd64"
-            / "httpfs.duckdb_extension"
-        )
+    logger.info("Checking bundled httpfs at %s (exists=%s)", ext_file.as_posix(), ext_file.exists())
 
-        if not ext_file.exists():
-            continue
+    if ext_file.exists():
+        # Prefer direct path load (least sensitive to extension_directory behavior)
+        try:
+            conn.execute(f"LOAD '{ext_file.as_posix()}'")
+            logger.info("DuckDB httpfs loaded from bundled file")
+            return
+        except Exception:
+            logger.warning("Failed to LOAD bundled httpfs by path; trying directory-based load", exc_info=True)
 
         conn.execute(f"SET extension_directory='{ext_root.as_posix()}'")
-        try:
-            conn.execute("LOAD httpfs")
-        except Exception:
-            # Fallback: direct path load (works even if DuckDB doesn't use our directory)
-            conn.execute(f"LOAD '{ext_file.as_posix()}'")
-
+        conn.execute("LOAD httpfs")
+        logger.info("DuckDB httpfs loaded from bundled extension_directory")
         return
 
+    # 3) Optional URL download fallback (for containers missing plugin resources)
+    bundle_url = os.environ.get("PULSE_DUCKDB_HTTPFS_BUNDLE_URL")
+    if bundle_url:
+        timeout_seconds = int(os.environ.get("PULSE_DUCKDB_HTTPFS_BUNDLE_TIMEOUT_SECONDS", "30"))
+        target_file = Path("/tmp/duckdb_extensions") / f"v{duckdb_version}" / "linux_amd64" / "httpfs.duckdb_extension"
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+
+        logger.info("Downloading bundled httpfs from %s to %s", bundle_url, target_file.as_posix())
+
+        try:
+            import urllib.request
+
+            with urllib.request.urlopen(bundle_url, timeout=timeout_seconds) as resp:
+                target_file.write_bytes(resp.read())
+
+            conn.execute(f"LOAD '{target_file.as_posix()}'")
+            logger.info("DuckDB httpfs loaded from downloaded bundle")
+            return
+        except Exception as exc:
+            logger.exception("Failed to download/load httpfs from PULSE_DUCKDB_HTTPFS_BUNDLE_URL")
+            raise RuntimeError(
+                "DuckDB httpfs extension not available. Online INSTALL failed and bundled resource file "
+                "was not found; URL download fallback also failed."
+            ) from exc
+
     raise FileNotFoundError(
-        "Bundled DuckDB httpfs extension not found in plugin resources. "
-        "Ensure httpfs.duckdb_extension is packaged under "
-        "streamlit/resource/duckdb_extensions/v<duckdb_version>/linux_amd64/ or "
-        "resource/duckdb_extensions/v<duckdb_version>/linux_amd64/."
+        "DuckDB httpfs extension not available. Online INSTALL failed and bundled resource file not found. "
+        "Ensure `resource/duckdb_extensions/v<duckdb_version>/linux_amd64/httpfs.duckdb_extension` is packaged "
+        "with the plugin, or set PULSE_DUCKDB_HTTPFS_BUNDLE_URL for containerized runs."
     )
 
 
