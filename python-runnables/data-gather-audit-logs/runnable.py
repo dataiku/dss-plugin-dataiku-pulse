@@ -145,12 +145,32 @@ class MyRunnable(Runnable):
 
                 df["date"] = df["timestamp"].dt.date
                 df["instance_name"] = self.instance_name
+
+                # Normalize some known alternate field names
                 if "message_projectKey" in df.columns:
                     df = df.rename(columns={"message_projectKey": "message_project_key"})
                 if "message_login" in df.columns:
                     df = df.rename(columns={"message_login": "message_logged_in"})
                 if "message_authUser" in df.columns:
                     df = df.rename(columns={"message_authUser": "message_login"})
+
+                # Stabilize schema across chunks: a chunk might not include some message fields
+                # that exist elsewhere in the same log file.
+                expected_cols = [
+                    "topic",
+                    "timestamp",
+                    "date",
+                    "instance_name",
+                    "message_authSource",
+                    "message_authVia",
+                    "message_callPath",
+                    "message_msgType",
+                    "message_login",
+                    "message_project_key",
+                ]
+                for col in expected_cols:
+                    if col not in df.columns:
+                        df[col] = None
 
                 results.append(["SETUP", f"Process Audit Log Chunk ({Path(log).name})", True, None])
 
