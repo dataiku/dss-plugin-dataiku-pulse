@@ -1,6 +1,7 @@
 import logging
 import os
 import platform
+import tempfile
 from pathlib import Path
 
 import duckdb
@@ -67,7 +68,7 @@ def _configure_extensions(conn) -> None:
     )
 
     # Make online INSTALL work in containers by using a writable directory.
-    tmp_ext_dir = Path("/tmp/duckdb/extensions")
+    tmp_ext_dir = Path(tempfile.gettempdir()) / "duckdb" / "extensions"
     try:
         tmp_ext_dir.mkdir(parents=True, exist_ok=True)
         conn.execute(f"SET extension_directory='{tmp_ext_dir.as_posix()}'")
@@ -111,15 +112,28 @@ def _configure_extensions(conn) -> None:
     bundle_url = os.environ.get("PULSE_DUCKDB_HTTPFS_BUNDLE_URL")
     if bundle_url:
         timeout_seconds = int(os.environ.get("PULSE_DUCKDB_HTTPFS_BUNDLE_TIMEOUT_SECONDS", "30"))
-        target_file = Path("/tmp/duckdb_extensions") / f"v{duckdb_version}" / "linux_amd64" / "httpfs.duckdb_extension"
+        target_file = (
+            Path(tempfile.gettempdir())
+            / "duckdb_extensions"
+            / f"v{duckdb_version}"
+            / "linux_amd64"
+            / "httpfs.duckdb_extension"
+        )
         target_file.parent.mkdir(parents=True, exist_ok=True)
 
         logger.info("Downloading bundled httpfs from %s to %s", bundle_url, target_file.as_posix())
 
         try:
             import urllib.request
+            from urllib.parse import urlparse
 
-            with urllib.request.urlopen(bundle_url, timeout=timeout_seconds) as resp:
+            parsed_url = urlparse(bundle_url)
+            if parsed_url.scheme not in {"https"} or not parsed_url.netloc:
+                raise ValueError(
+                    "PULSE_DUCKDB_HTTPFS_BUNDLE_URL must be an https URL"
+                )
+
+            with urllib.request.urlopen(bundle_url, timeout=timeout_seconds) as resp:  # nosec B310
                 target_file.write_bytes(resp.read())
 
             conn.execute(f"LOAD '{target_file.as_posix()}'")
