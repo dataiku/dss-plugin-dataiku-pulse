@@ -58,9 +58,11 @@ def load_gold_tables(conn, *, show_ui: bool = False) -> bool:
 
             safe_table = '"' + table_name.replace('"', '""') + '"'
 
+            safe_parquet_path = parquet_path.replace("'", "''")
+
             query = (
-                f"CREATE OR REPLACE TABLE {safe_table} AS "  # nosec B608
-                f"SELECT * FROM read_parquet('{parquet_path}')"
+                f"CREATE OR REPLACE VIEW {safe_table} AS "  # nosec B608
+                f"SELECT * FROM read_parquet('{safe_parquet_path}')"
             )
 
             try:
