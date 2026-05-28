@@ -70,6 +70,10 @@ def main(self, df):
         merged_df["dataiku_category"] = merged_df["dataiku_category"].str.lower()
 
         # AuthVia
+        # With chunked JSONL parsing, a given chunk may not contain any event
+        # with authVia, so the column may be missing entirely.
+        if "authvia" not in merged_df.columns:
+            merged_df["authvia"] = ""
         merged_df["authvia"] = merged_df["authvia"].fillna("")
         merged_df["authvia"] = merged_df["authvia"].apply(normalize_authvia)
         merged_df[["project_key_temp", "webapp_id_temp"]] = pd.DataFrame(

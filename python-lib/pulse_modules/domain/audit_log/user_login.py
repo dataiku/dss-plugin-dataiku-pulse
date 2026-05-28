@@ -43,7 +43,15 @@ def clean_audit_log_base(df, results,):
     if "message_jobId" in df.columns:
         df = df[df["message_jobId"].isna()]
     # 2. Keep only user-generated UI actions
-    df = df[df["message_authSource"] == "USER_FROM_UI"]
+    if "message_authSource" in df.columns:
+        df = df[df["message_authSource"] == "USER_FROM_UI"]
+    else:
+        results.append([
+            "Loading Audit Logs",
+            False,
+            "Missing required column: message_authSource",
+        ])
+        return None, results
     # 3. Drop invalid rows / empty columns
     df = (
         df

@@ -72,7 +72,7 @@ def rebuild_silver(self, paths):
             mode="dataiku_usage"
         elif "operating_system" == category:
             mode="client"
-        elif "user_login_acivity" == module_name:
+        elif "user_login_activity" == module_name:
             mode="SKIP"
         elif "_user_logins" in module_name:
             continue
