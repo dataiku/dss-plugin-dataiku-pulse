@@ -27,44 +27,61 @@ class MyRunnable(Runnable):
         plugin_settings = plugin_handle.get_settings()
         pdi_ps = plugin_settings.get_parameter_set(parameter_set_name="params-dashboard-instance")
         self.primary_preset_name = pdi_ps.list_preset_names()[0]
-        
-        cont = True
+
         results = []
         for worker_host in self.params["worker_hosts"]:
+            cont = True
+            project_handle = None
+
             worker_url = worker_host.get("worker_url", None)
             worker_api = worker_host.get("worker_api", None)
             preset_name = worker_host.get("preset_name", None)
             self.preset_pc = dss_funcs.get_preset_pc(self, preset_name)
             self.preset_pc_name = "DATAIKU-PULSE"
-            
+
             # Create a remote client
             try:
                 remote_client = dss_funcs.build_remote_client(self, worker_url, worker_api)
             except Exception as e:
                 results.append([worker_url, f"Failed to connect to host: {worker_url}  {worker_api}", False, e])
-                cont = False
-            
+                continue
+
+            # Force skip all git/github operations
+            if self.config.get("force_skip_github", False):
+                plugin_found = False
+                try:
+                    for plugin in remote_client.list_plugins():
+                        if plugin.get("id") == "dataiku-pulse":
+                            plugin_found = True
+                            break
+                except Exception as e:
+                    results.append([worker_url, "SKIP: List plugins", False, e])
+                    continue
+
+                if not plugin_found:
+                    results.append([worker_url, "SKIP: Plugin missing", False, "Plugin not found; please install by hand"]) 
+                    continue
+
             # Install/Update Plugin if not found
             if cont:
-                if self.params["pulse_project_url"] != worker_url:
+                if self.params["pulse_project_url"] != worker_url and not self.config.get("force_skip_github", False):
                     try:
                         dss_init.install_plugin(self, remote_client)
                         results.append([worker_url, "Plugin Configured", True, None])
                     except Exception as e:
                         results.append([worker_url, "Plugin Configured", False, e])
                         cont = False
-            
+
             # Create/Update the default call home config
             if cont:
-                    try:
-                        plugin_handle = remote_client.get_plugin(plugin_id="dataiku-pulse") 
-                        dss_init.update_default_node(self, plugin_handle)
-                        results.append([worker_url, "Default Preset Built", True, None])
-                    except Exception as e:
-                        results.append([worker_url, "Default Preset Built", False, e])
-                        cont = False
+                try:
+                    plugin_handle = remote_client.get_plugin(plugin_id="dataiku-pulse")
+                    dss_init.update_default_node(self, plugin_handle)
+                    results.append([worker_url, "Default Preset Built", True, None])
+                except Exception as e:
+                    results.append([worker_url, "Default Preset Built", False, e])
+                    cont = False
 
-            
             # Create the Worker Project
             if cont:
                 try:
@@ -72,8 +89,8 @@ class MyRunnable(Runnable):
                     results.append([worker_url, "Worker Created", True, None])
                 except Exception as e:
                     results.append([worker_url, "Worker Created", False, e])
-                    cont = False                        
-            
+                    cont = False
+
             # Create the DSS Commit Table
             if cont:
                 try:
@@ -82,7 +99,7 @@ class MyRunnable(Runnable):
                 except Exception as e:
                     cont = False
                     results.append([worker_url, "Load DSS Commits Table", False, e])
-            
+
             # Create the Phone Home Scenarios
             if cont:
                 try:
