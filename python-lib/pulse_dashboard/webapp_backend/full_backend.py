@@ -370,6 +370,34 @@ def _resolve_license_filter_clause(license_filter: str) -> tuple[str, list[str]]
 def _format_license_filter_clause(template: str, *, profile_expr: str) -> str:
     return template.format(profile_expr=profile_expr) if template else ""
 
+def _license_group_case_sql(profile_expr: str) -> str:
+    groups = _read_license_groups()
+    creator = groups.get("license_creator", [])
+    consumer = groups.get("license_consumer", [])
+    admin = groups.get("license_admin", [])
+
+    clauses: list[str] = []
+    if creator:
+        clauses.append(
+            f"WHEN coalesce(upper(trim({profile_expr})), '') IN ({_sql_string_literals(creator)}) THEN 'Creator Licenses'"
+        )
+    if consumer:
+        clauses.append(
+            f"WHEN coalesce(upper(trim({profile_expr})), '') IN ({_sql_string_literals(consumer)}) THEN 'Consumer Licenses'"
+        )
+    if admin:
+        clauses.append(
+            f"WHEN coalesce(upper(trim({profile_expr})), '') IN ({_sql_string_literals(admin)}) THEN 'Admin Licenses'"
+        )
+
+    if not clauses:
+        return "'Other Licenses'"
+
+    when_sql = "\n      ".join(clauses)
+    return "CASE\n      " + when_sql + "\n      ELSE 'Other Licenses'\n    END"
+
+
+
 
 def _is_debug_enabled() -> bool:
     if _IS_LOCAL_DEV:
@@ -3342,6 +3370,7 @@ def build_users_kpis():
                 },
                 "kpis": row,
                 "byProfile": _df_records(by_profile_df),
+                "byLicenseGroup": _df_records(by_license_group_df),
                 "byInstance": by_instance_rows,
             }
         )
