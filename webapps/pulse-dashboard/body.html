@@ -218,16 +218,92 @@
         }
       }
 
+      function formatElapsedSeconds(seconds) {
+        var rounded = Math.max(0, Math.round(Number(seconds) || 0));
+        if (rounded < 60) return String(rounded) + "s";
+        var minutes = Math.floor(rounded / 60);
+        var secs = rounded % 60;
+        if (secs === 0) return String(minutes) + "m";
+        return String(minutes) + "m " + String(secs) + "s";
+      }
+
+      function loaderSubstepsForPhase(phase) {
+        var items = [
+          { key: "waiting_lock", label: "Waiting for the reload lock" },
+          { key: "preparing_db", label: "Preparing the local DuckDB file" },
+          { key: "preparing_reload", label: "Opening DuckDB for reload" },
+          { key: "listing_gold", label: "Finding GOLD datasets to load" },
+          { key: "loading_gold", label: "Loading GOLD datasets into DuckDB" },
+          { key: "inventory_views", label: "Creating compatibility views" },
+          { key: "seeding_demo", label: "Seeding demo data when needed" },
+          { key: "building_views", label: "Building Pulse dashboard views" },
+        ];
+
+        var currentIndex = -1;
+        for (var i = 0; i < items.length; i++) {
+          if (items[i].key === phase) {
+            currentIndex = i;
+            break;
+          }
+        }
+
+        return items.map(function (item, index) {
+          var state = "pending";
+          if (phase === "frontend_ready") {
+            state = "done";
+          } else if (phase === "failed" || phase === "unavailable") {
+            if (currentIndex >= 0 && index < currentIndex) state = "done";
+            else if (currentIndex === index) state = "error";
+          } else if (currentIndex >= 0) {
+            if (index < currentIndex) state = "done";
+            else if (index === currentIndex) state = "active";
+          }
+          return { label: item.label, state: state };
+        });
+      }
+
+      function renderLoaderSubsteps(phase) {
+        var el = document.getElementById("pulse-loader-substeps");
+        if (!el) return;
+
+        var items = loaderSubstepsForPhase(String(phase || "idle"));
+        el.innerHTML = items
+          .map(function (item) {
+            var color = item.state === "done"
+              ? "#166534"
+              : item.state === "active"
+                ? "#1d4ed8"
+                : item.state === "error"
+                  ? "#b91c1c"
+                  : "#64748b";
+            var bullet = item.state === "done"
+              ? "✓"
+              : item.state === "active"
+                ? "•"
+                : item.state === "error"
+                  ? "!"
+                  : "○";
+            return '<div style="display:flex; align-items:center; gap:8px; color:' + color + ';"><span style="font-weight:700; width:12px; text-align:center;">' + bullet + '</span><span>' + item.label + '</span></div>';
+          })
+          .join("");
+      }
+
       function renderInitStatus(status) {
         if (!status || !status.init) return;
         var init = status.init;
         var state = String(init.state || "idle");
+        var phase = String(init.phase || "idle");
         var isReloading = state === "running";
 
-        if (isReloading) {
+        if (isReloading || phase === "frontend_ready") {
           setLoaderStep(1, "done");
-          setLoaderStep(2, "active");
-          setLoaderStep(3, "pending");
+          if (phase === "frontend_ready") {
+            setLoaderStep(2, "done");
+            setLoaderStep(3, "active");
+          } else {
+            setLoaderStep(2, "active");
+            setLoaderStep(3, "pending");
+          }
         } else if (state === "ready") {
           setLoaderStep(1, "done");
           setLoaderStep(2, "done");
@@ -252,9 +328,17 @@
           }
         }
 
+        renderLoaderSubsteps(phase);
+
         var details = [];
         if (init.dbPath) details.push(String(init.dbPath));
-        if (init.durationSec != null) details.push("elapsed: " + String(init.durationSec) + "s");
+        var overallElapsedSec = null;
+        if (init.startedAt != null) {
+          overallElapsedSec = Math.max(0, Date.now() / 1000 - Number(init.startedAt));
+        } else if (init.durationSec != null) {
+          overallElapsedSec = Number(init.durationSec);
+        }
+        if (overallElapsedSec != null) details.push("elapsed: " + formatElapsedSeconds(overallElapsedSec));
         if (init.error) details.push(String(init.error));
         setLoaderMeta(details.join(" · "));
 
@@ -266,8 +350,8 @@
         var subtitleEl = document.getElementById("pulse-loader-subtitle");
         if (subtitleEl) {
           subtitleEl.textContent = isReloading
-            ? "Your data experience is loading in the background."
-            : "Checking the DuckDB startup state before the dashboard loads.";
+            ? "We are refreshing the analytics layer and will reopen the dashboard when it is ready."
+            : "Checking backend readiness, preparing data, and loading the dashboard.";
         }
       }
 
@@ -357,9 +441,10 @@
               '<div id="pulse-loader-subtitle" style="margin-top: 14px; font-size: 13px; line-height: 1.6; color: #64748b;">Checking the DuckDB startup state before the dashboard loads.</div>' +
               '<div id="pulse-loader-message" style="margin-top: 10px; font-size: 15px; line-height: 1.6; color: #334155;">Checking the DuckDB startup state before the dashboard loads.</div>' +
               '<div style="margin-top: 18px; display: grid; gap: 10px;">' +
-              '<div id="pulse-step-1" style="padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(148,163,184,0.18); background: #f8fafc; color: #1e293b;"><strong>Step 1:</strong> Starting the backend and checking for the DuckDB file</div>' +
-              '<div id="pulse-step-2" style="padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(148,163,184,0.18); background: #f8fafc; color: #1e293b;"><strong>Step 2:</strong> Preparing your Pulse data and reloading the dashboard database</div>' +
-              '<div id="pulse-step-3" style="padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(148,163,184,0.18); background: #f8fafc; color: #1e293b;"><strong>Step 3:</strong> Loading the dashboard application</div>' +
+              '<div id="pulse-step-1" style="padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(148,163,184,0.18); background: #f8fafc; color: #1e293b;"><strong>Step 1:</strong> Connecting to the Pulse backend</div>' +
+              '<div id="pulse-step-2" style="padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(148,163,184,0.18); background: #f8fafc; color: #1e293b;"><strong>Step 2:</strong> Rebuilding the Pulse analytics database</div>' +
+              '<div id="pulse-loader-substeps" style="margin-top: 8px; padding-left: 14px; display: grid; gap: 6px; font-size: 12px; color: #64748b;"></div>' +
+              '<div id="pulse-step-3" style="padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(148,163,184,0.18); background: #f8fafc; color: #1e293b;"><strong>Step 3:</strong> Opening the Pulse dashboard</div>' +
               '</div>' +
               '<div id="pulse-loader-meta" style="margin-top: 18px; font-size: 12px; color: #64748b;">You can check the webapp backend logs for progress while initialization runs.</div>' +
               '</div>' +

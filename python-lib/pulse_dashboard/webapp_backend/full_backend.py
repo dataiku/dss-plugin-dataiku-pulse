@@ -8,7 +8,6 @@ from __future__ import annotations
 # `index.html`.
 
 import json
-from pathlib import Path
 import logging
 import re
 import sys
@@ -18,6 +17,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, cast
 
+import yaml
 from flask import Blueprint, Flask, jsonify, request, send_file, send_from_directory
 
 # Resolve repo paths for local dev static serving.
@@ -188,6 +188,7 @@ _startup_init_started = False
 _startup_init_status: dict[str, Any] = {
     "state": "idle",
     "message": "Waiting to check DuckDB startup state",
+    "phase": "idle",
     "startedAt": None,
     "finishedAt": None,
     "durationSec": None,
@@ -195,6 +196,15 @@ _startup_init_status: dict[str, Any] = {
     "report": None,
     "error": None,
 }
+
+
+def _update_startup_init_message(message: str) -> None:
+    _startup_init_status["message"] = str(message)
+
+
+def _update_startup_init_phase(phase: str, message: str) -> None:
+    _startup_init_status["phase"] = str(phase)
+    _startup_init_status["message"] = str(message)
 
 
 class RequestValidationError(ValueError):
@@ -226,6 +236,9 @@ except Exception:
         create_connection = None
         ensure_database_ready = None
         query_df = None
+
+if pulse_settings is not None:
+    setattr(pulse_settings, "PULSE_INIT_STATUS_CALLBACK", _update_startup_init_phase)
 
 
 @bp.route("/__ping", endpoint="pulse_dashboard_ping")
@@ -336,6 +349,19 @@ def _parse_license_filter(value: str | None) -> str:
     }
     normalized = aliases.get(value, value)
     return normalized if normalized in allowed else "all_enabled"
+
+
+def _parse_activity_filter(value: str | None) -> str:
+    value = (value or "").strip().lower()
+    allowed = {"license_creator", "license_consumer"}
+    aliases = {
+        "creator": "license_creator",
+        "creators": "license_creator",
+        "consumer": "license_consumer",
+        "consumers": "license_consumer",
+    }
+    normalized = aliases.get(value, value)
+    return normalized if normalized in allowed else "license_creator"
 
 
 def _resolve_license_filter_clause(license_filter: str) -> tuple[str, list[str]]:
@@ -552,6 +578,7 @@ def startup_duckdb():
     _startup_init_status.update(
         {
             "state": "running",
+            "phase": "bootstrap",
             "message": "Initializing DuckDB and loading GOLD tables",
             "startedAt": started,
             "finishedAt": None,
@@ -575,6 +602,7 @@ def startup_duckdb():
             _startup_init_status.update(
                 {
                     "state": "failed",
+                    "phase": "failed",
                     "message": "DuckDB initialization failed",
                     "finishedAt": time.time(),
                     "durationSec": duration_sec,
@@ -590,6 +618,7 @@ def startup_duckdb():
         _startup_init_status.update(
             {
                 "state": "ready",
+                "phase": "frontend_ready",
                 "message": "DuckDB initialization complete",
                 "finishedAt": time.time(),
                 "durationSec": duration_sec,
@@ -602,6 +631,7 @@ def startup_duckdb():
         _startup_init_status.update(
             {
                 "state": "failed",
+                "phase": "failed",
                 "message": "DuckDB initialization failed",
                 "finishedAt": time.time(),
                 "durationSec": round(time.time() - started, 3),
@@ -691,6 +721,7 @@ def _run_startup_duckdb_init() -> None:
         _startup_init_status.update(
             {
                 "state": "unavailable",
+                "phase": "unavailable",
                 "message": "DuckDB engine unavailable",
                 "finishedAt": time.time(),
                 "error": "DuckDB engine unavailable",
@@ -704,6 +735,7 @@ def _run_startup_duckdb_init() -> None:
         _startup_init_status.update(
             {
                 "state": "running",
+                "phase": "bootstrap",
                 "message": "Initializing DuckDB and loading GOLD tables",
                 "startedAt": started_at,
                 "finishedAt": None,
@@ -728,6 +760,7 @@ def _run_startup_duckdb_init() -> None:
             _startup_init_status.update(
                 {
                     "state": "ready",
+                    "phase": "frontend_ready",
                     "message": "DuckDB initialization complete",
                     "finishedAt": finished_at,
                     "durationSec": duration_sec,
@@ -739,6 +772,7 @@ def _run_startup_duckdb_init() -> None:
             _startup_init_status.update(
                 {
                     "state": "failed",
+                    "phase": "failed",
                     "message": "DuckDB initialization reported a failure",
                     "finishedAt": finished_at,
                     "durationSec": duration_sec,
@@ -762,6 +796,7 @@ def _run_startup_duckdb_init() -> None:
         _startup_init_status.update(
             {
                 "state": "failed",
+                "phase": "failed",
                 "message": "DuckDB initialization failed",
                 "finishedAt": finished_at,
                 "durationSec": duration_sec,
@@ -778,6 +813,7 @@ def _maybe_schedule_startup_duckdb_init() -> None:
         _startup_init_status.update(
             {
                 "state": "unavailable",
+                "phase": "unavailable",
                 "message": "DuckDB settings unavailable",
                 "error": "DuckDB settings unavailable",
             }
@@ -789,6 +825,7 @@ def _maybe_schedule_startup_duckdb_init() -> None:
         _startup_init_status.update(
             {
                 "state": "unavailable",
+                "phase": "unavailable",
                 "message": "DuckDB path is not configured",
                 "error": "DuckDB path is not configured",
             }
@@ -799,6 +836,7 @@ def _maybe_schedule_startup_duckdb_init() -> None:
         _startup_init_status.update(
             {
                 "state": "ready",
+                "phase": "frontend_ready",
                 "message": "DuckDB file already present",
                 "finishedAt": time.time(),
                 "durationSec": 0.0,
@@ -1157,6 +1195,7 @@ def debug_duckdb_reload():
     _startup_init_status.update(
         {
             "state": "running",
+            "phase": "bootstrap",
             "message": "Reloading DuckDB and refreshing GOLD tables",
             "startedAt": started,
             "finishedAt": None,
@@ -1175,6 +1214,7 @@ def debug_duckdb_reload():
     _startup_init_status.update(
         {
             "state": "ready" if bool(load_report.get("ok", False)) else "failed",
+            "phase": "frontend_ready" if bool(load_report.get("ok", False)) else "failed",
             "message": "DuckDB reload complete" if bool(load_report.get("ok", False)) else "DuckDB reload failed",
             "finishedAt": time.time(),
             "durationSec": duration_sec,
@@ -3074,6 +3114,13 @@ def _sql_placeholders(n: int) -> str:
     return ",".join(["?"] * n)
 
 
+def _sql_string_literals(values: list[str]) -> str:
+    escaped = [str(value).replace("'", "''") for value in values]
+    if not escaped:
+        return "''"
+    return ",".join(f"'{value}'" for value in escaped)
+
+
 def _hub_instances_sql_list() -> str:
     """Return a SQL-safe list like `'hub1','hub2'`.
 
@@ -3133,7 +3180,8 @@ def build_users_kpis():
     per-instance license/profile state.
 
     Query parameters:
-    - licenseFilter: all_enabled|no_consumer
+    - licenseFilter: entitlement/license-group filter for enabled-user counts
+    - activityFilter: optional observed-activity cohort filter for activity-based counts
     - instance_name: optional filter
     """
 
@@ -3144,13 +3192,26 @@ def build_users_kpis():
         standard = _read_standard_project_variables()
         excluded_profiles = _read_user_profile_exclude_consumer(standard)
 
-        license_filter = _parse_license_filter(request.args.get("licenseFilter"))
+        raw_license_filter = request.args.get("licenseFilter")
+        raw_activity_filter = request.args.get("activityFilter")
+        license_filter = _parse_license_filter(raw_license_filter)
+        activity_filter = _parse_activity_filter(raw_activity_filter) if raw_activity_filter else None
         instance_name = _parse_instance_name(request.args.get("instance_name"))
 
-        filter_sql_template, filter_params = _resolve_license_filter_clause(license_filter)
-        exclude_params: list[Any] = list(filter_params)
-        exclude_sql = _format_license_filter_clause(filter_sql_template, profile_expr="users_userprofile")
-        exclude_sql_by_instance = _format_license_filter_clause(filter_sql_template, profile_expr="l.users_userprofile")
+        license_filter_sql_template, license_filter_params = _resolve_license_filter_clause(license_filter)
+        license_filter_sql = _format_license_filter_clause(license_filter_sql_template, profile_expr="users_userprofile")
+        license_filter_sql_by_instance = _format_license_filter_clause(license_filter_sql_template, profile_expr="l.users_userprofile")
+        license_filter_params_list: list[Any] = list(license_filter_params)
+        license_group_case_sql_for_latest = _license_group_case_sql("l.users_userprofile")
+
+        activity_filter_sql = ""
+        activity_filter_sql_by_instance = ""
+        activity_filter_params_list: list[Any] = []
+        if activity_filter:
+            activity_filter_sql_template, activity_filter_params = _resolve_license_filter_clause(activity_filter)
+            activity_filter_sql = _format_license_filter_clause(activity_filter_sql_template, profile_expr="users_userprofile")
+            activity_filter_sql_by_instance = _format_license_filter_clause(activity_filter_sql_template, profile_expr="l.users_userprofile")
+            activity_filter_params_list = list(activity_filter_params)
 
         instance_sql = ""
         instance_params: list[Any] = []
@@ -3217,7 +3278,11 @@ def build_users_kpis():
                 "SELECT\n"
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE) AS enabled_users,\n"
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE"
-                f"{exclude_sql}) AS enabled_users_no_consumer,\n"  # nosec B608 (exclude_sql uses placeholders)
+                f"{license_filter_sql}) AS enabled_users_no_consumer,\n"  # nosec B608 (exclude_sql uses placeholders)
+                f"  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND ({license_group_case_sql_for_latest}) = 'Creator Licenses') AS enabled_users_license_creator,\n"
+                f"  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND ({license_group_case_sql_for_latest}) = 'Consumer Licenses') AS enabled_users_license_consumer,\n"
+                f"  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND ({license_group_case_sql_for_latest}) = 'Admin Licenses') AS enabled_users_license_admin,\n"
+                f"  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND ({license_group_case_sql_for_latest}) = 'Other Licenses') AS enabled_users_license_other,\n"
                 "  COALESCE(SUM(a.total_viewing), 0) AS total_viewing_actions,\n"
                 "  COALESCE(SUM(a.total_developing), 0) AS total_developing_actions,\n"
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_viewing, 0) > 0) AS viewing_users,\n"
@@ -3235,7 +3300,7 @@ def build_users_kpis():
                 "LEFT JOIN activity a ON a.login_norm = l.login_norm\n"
                 "WHERE rn = 1;"
             ),
-            [*instance_params, *exclude_params],
+            [*instance_params, *license_filter_params_list],
         )
 
         row = _df_records(df)[0] if len(df) else {}
@@ -3299,6 +3364,35 @@ def build_users_kpis():
             instance_params,
         )
 
+        license_group_case_sql = _license_group_case_sql("user_profile")
+        by_license_group_df = _query_df(
+            (
+                "WITH latest AS (\n"
+                "  SELECT\n"
+                "    instance_name,\n"
+                "    lower(trim(users_login)) AS login_norm,\n"
+                "    coalesce(nullif(trim(users_userprofile), ''), 'UNKNOWN') AS user_profile,\n"
+                "    users_enabled,\n"
+                "    run_ts,\n"
+                "    ROW_NUMBER() OVER (\n"
+                "      PARTITION BY instance_name, lower(trim(users_login))\n"
+                "      ORDER BY run_ts DESC\n"
+                "    ) AS rn\n"
+                "  FROM base_users_instance_metadata_history\n"
+                "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
+                f"    {instance_sql}\n"  # nosec B608 (instance_sql uses placeholders)
+                ")\n"
+                "SELECT\n"
+                f"  {license_group_case_sql} AS license_group,\n"
+                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE) AS enabled_users\n"
+                "FROM latest\n"
+                "WHERE rn = 1\n"
+                "GROUP BY 1\n"
+                "ORDER BY enabled_users DESC, license_group;"
+            ),
+            instance_params,
+        )
+
         by_instance_df = _query_df(
             (
                 "WITH latest AS (\n"
@@ -3314,6 +3408,7 @@ def build_users_kpis():
                 "    ) AS rn\n"
                 "  FROM base_users_instance_metadata_history\n"
                 "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
+                f"    {instance_sql}\n"  # nosec B608 (instance_sql uses placeholders)
                 "),\n"
                 "activity AS (\n"
                 "  SELECT\n"
@@ -3334,7 +3429,7 @@ def build_users_kpis():
                 "  l.instance_name AS instanceName,\n"
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE) AS enabled_users,\n"
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE"
-                f"{exclude_sql_by_instance}) AS enabled_users_no_consumer,\n"  # nosec B608 (exclude_sql_by_instance uses placeholders)
+                f"{license_filter_sql_by_instance}) AS enabled_users_no_consumer,\n"  # nosec B608 (exclude_sql_by_instance uses placeholders)
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_viewing, 0) > 0) AS viewing_users,\n"
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_developing, 0) > 0) AS developing_users,\n"
                 "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.developing_6m, 0) > 0) AS developing_users_6m,\n"
@@ -3346,7 +3441,7 @@ def build_users_kpis():
                 "GROUP BY 1\n"
                 "ORDER BY enabled_users DESC, instanceName;"
             ),
-            exclude_params,
+            [*instance_params, *license_filter_params_list],
         )
 
         by_instance_rows = _df_records(by_instance_df)
@@ -3364,6 +3459,7 @@ def build_users_kpis():
             {
                 "instanceName": instance_name,
                 "licenseFilter": license_filter,
+                "activityFilter": activity_filter,
                 "meta": {
                     "excludedProfiles": excluded_profiles,
                     "excludedProfilesSource": "pulse_dashboard.configs.terminology_yaml.license_groups.license_consumer",
@@ -3386,16 +3482,14 @@ def build_users_active_monthly():
     Definition of "active": any UI activity (viewing or developing actions)
     recorded in `fact_user_activity_daily`.
 
-    License filter is applied using the per-instance snapshot table
-    `base_users_instance_metadata_history`:
-    - all_enabled: enabled users
-    - no_consumer: enabled users excluding profiles from
-      `pulse_dashboard/configs/terminology.yaml` `license_groups.license_consumer`
+    Activity filter is applied using the per-instance snapshot table
+    `base_users_instance_metadata_history`, scoped to configured Creator vs
+    Consumer license-group membership.
 
     Query parameters:
     - window: this_month|last_3_months|last_12_months (default: last_3_months)
     - months: integer (optional override; 1..24)
-    - licenseFilter: all_enabled|no_consumer
+    - activityFilter: creator|consumer
     - instance_name: optional filter
     """
 
@@ -3411,7 +3505,7 @@ def build_users_active_monthly():
             months = int(request.args.get("months") or 3)
         months = max(1, min(24, months))
 
-        license_filter = _parse_license_filter(request.args.get("licenseFilter"))
+        activity_filter = _parse_activity_filter(request.args.get("activityFilter"))
         instance_name = _parse_instance_name(request.args.get("instance_name"))
 
         # Month range (calendar months, including current partial month).
@@ -3421,7 +3515,7 @@ def build_users_active_monthly():
         next_month_expr = "(date_trunc('month', current_date) + INTERVAL 1 MONTH)::DATE"
 
         # Build profile exclusion SQL.
-        filter_sql_template, filter_params = _resolve_license_filter_clause(license_filter)
+        filter_sql_template, filter_params = _resolve_license_filter_clause(activity_filter)
         exclude_sql = _format_license_filter_clause(filter_sql_template, profile_expr="u.users_userprofile")
         exclude_params: list[Any] = list(filter_params)
 
@@ -3529,10 +3623,10 @@ def build_users_active_monthly():
             {
                 "window": request.args.get("window") or None,
                 "months": months,
-                "licenseFilter": license_filter,
+                "activityFilter": activity_filter,
                 "instanceName": instance_name,
                 "meta": {
-                    "excludedProfiles": excluded_profiles if license_filter == "no_consumer" else [],
+                    "excludedProfiles": excluded_profiles if activity_filter == "license_consumer" else [],
                     "excludedProfilesSource": "pulse_dashboard.configs.terminology_yaml.license_groups.license_consumer",
                 },
                 "byInstance": _df_records(by_instance_df),
@@ -3668,12 +3762,12 @@ def build_users_segments():
         excluded_profiles = _read_user_profile_exclude_consumer(standard)
 
         months, days = _resolve_window_params()
-        license_filter = _parse_license_filter(request.args.get("licenseFilter"))
+        activity_filter = _parse_activity_filter(request.args.get("activityFilter"))
         instance_name = _parse_instance_name(request.args.get("instance_name"))
 
         exclude_sql = ""
         exclude_params: list[Any] = []
-        if license_filter == "no_consumer" and excluded_profiles:
+        if activity_filter == "license_consumer" and excluded_profiles:
             exclude_sql = (
                 f" AND coalesce(upper(trim(l.users_userprofile)), '') NOT IN ({_sql_placeholders(len(excluded_profiles))})"
             )
@@ -3759,7 +3853,7 @@ def build_users_segments():
 
         payload: dict[str, Any] = {
             "instanceName": instance_name,
-            "licenseFilter": license_filter,
+            "activityFilter": activity_filter,
             "segments": segments,
             "dominanceSegments": dominance_segments,
             "totals": {
@@ -3804,13 +3898,13 @@ def build_users_stickiness():
             months = int(request.args.get("months") or 6)
         months = max(2, min(24, months))
 
-        license_filter = _parse_license_filter(request.args.get("licenseFilter"))
+        activity_filter = _parse_activity_filter(request.args.get("activityFilter"))
         instance_name = _parse_instance_name(request.args.get("instance_name"))
 
         start_month_expr = f"(date_trunc('month', current_date) - INTERVAL {months - 1} MONTH)::DATE"
         next_month_expr = "(date_trunc('month', current_date) + INTERVAL 1 MONTH)::DATE"
 
-        filter_sql_template, filter_params = _resolve_license_filter_clause(license_filter)
+        filter_sql_template, filter_params = _resolve_license_filter_clause(activity_filter)
         exclude_sql = _format_license_filter_clause(filter_sql_template, profile_expr="u.users_userprofile")
         exclude_params: list[Any] = list(filter_params)
 
@@ -3896,7 +3990,7 @@ def build_users_stickiness():
             {
                 "months": months,
                 "instanceName": instance_name,
-                "licenseFilter": license_filter,
+                "activityFilter": activity_filter,
                 "series": rows,
                 "latest": latest,
             }

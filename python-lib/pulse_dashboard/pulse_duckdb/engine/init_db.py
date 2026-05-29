@@ -39,6 +39,15 @@ _EXPECTED_STARTUP_TABLES = {
 }
 
 
+def _set_status_callback(phase: str, message: str) -> None:
+    callback = getattr(settings, "PULSE_INIT_STATUS_CALLBACK", None)
+    if callable(callback):
+        try:
+            callback(str(phase), str(message))
+        except Exception:
+            logger.debug("DuckDB init status callback failed", exc_info=True)
+
+
 def _load_base_spec_sql(table_name: str) -> str:
     path = _BASE_SPECS_DIR / f"{table_name}.yaml"
     doc = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -386,10 +395,12 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
         settings.PULSE_SOURCE_PROJECT_KEY,
         settings.PULSE_GOLD_TABLES_FOLDER_ID or settings.PULSE_GOLD_TABLES_FOLDER_NAME,
     )
+    _set_status_callback("waiting_lock", "Waiting for DuckDB init lock")
 
     try:
         logger.info("DuckDB ensure_database_ready: waiting for init lock at %s", settings.PULSE_DUCKDB_INIT_LOCK_PATH)
         with _duckdb_init_lock():
+            _set_status_callback("preparing_db", "Init lock acquired; preparing local DuckDB")
             logger.info(
                 "DuckDB ensure_database_ready: acquired init lock after %.3fs",
                 time.time() - started,
@@ -397,6 +408,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
             initialize_database()
 
             if not load_gold_tables:
+                _set_status_callback("frontend_ready", "DuckDB is ready")
                 logger.info(
                     "DuckDB ensure_database_ready: completed without GOLD load in %.3fs",
                     time.time() - started,
@@ -408,6 +420,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                 logger.info("DuckDB ensure_database_ready: opening main writable connection")
                 conn = create_connection(read_only=False)
                 try:
+                    _set_status_callback("preparing_reload", "Connected to DuckDB; preparing GOLD reload")
                     logger.info(
                         "DuckDB ensure_database_ready: main connection ready in %.3fs",
                         time.time() - connection_started,
@@ -504,6 +517,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         from .gold_loader import list_gold_paths
 
                         path_listing_started = time.time()
+                        _set_status_callback("listing_gold", "Listing GOLD datasets from managed folder")
                         logger.info("DuckDB ensure_database_ready: listing candidate GOLD paths for replace run")
                         view_like_names = {
                             p.stem
@@ -532,6 +546,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         )
 
                         load_started = time.time()
+                        _set_status_callback("loading_gold", "Loading GOLD tables into DuckDB")
                         logger.info("DuckDB ensure_database_ready: loading GOLD tables replace=%s", True)
                         report = _load_gold_tables(
                             conn,
@@ -553,6 +568,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                     # Compatibility views: map GOLD `*_metadata_history` outputs to
                     # the UI-facing `base_*_metadata` tables expected by view specs.
                     inventory_started = time.time()
+                    _set_status_callback("inventory_views", "Creating compatibility views")
                     _maybe_create_inventory_views(conn)
                     logger.info(
                         "DuckDB ensure_database_ready: inventory compatibility views ready in %.3fs",
@@ -560,6 +576,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                     )
 
                     seed_started = time.time()
+                    _set_status_callback("seeding_demo", "Seeding demo activity data if needed")
                     seed_report = _maybe_seed_demo_dev_activity(conn)
                     logger.info(
                         "DuckDB ensure_database_ready: demo seed completed in %.3fs enabled=%s",
@@ -567,6 +584,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         seed_report.get("enabled"),
                     )
                     views_started = time.time()
+                    _set_status_callback("building_views", "Building dashboard views")
                     views_report = build_views_from_specs(conn)
                     logger.info(
                         "DuckDB ensure_database_ready: view build completed in %.3fs with ok=%s",
@@ -584,6 +602,10 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         ok,
                         gold_tables_loaded,
                         reason,
+                    )
+                    _set_status_callback(
+                        "frontend_ready" if ok else "failed",
+                        "DuckDB initialization complete" if ok else "DuckDB initialization failed",
                     )
                     return {
                         "ok": ok,
