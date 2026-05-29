@@ -96,21 +96,53 @@ def _ensure_table_exists(conn, *, table_name: str) -> bool:
     return True
 
 
-def _maybe_create_inventory_views(conn) -> None:
-    """Create compatibility views for inventory tables.
-
-    The GOLD builder writes `*_metadata_history` tables. The dashboard view specs
-    (and our config-driven view generators) expect stable `base_*_metadata` views
-    with consistent column names.
-
-    We create `VIEW` aliases that project the history tables into the expected
-    schema so downstream view builds keep working.
-    """
-
-    # Projects
-    conn.execute(
+def _object_type(conn, name: str) -> str | None:
+    row = conn.execute(
         """
-        CREATE OR REPLACE VIEW base_projects_metadata AS
+        SELECT table_type
+        FROM information_schema.tables
+        WHERE table_schema='main' AND table_name=?
+        """,
+        [name],
+    ).fetchone()
+    if not row:
+        return None
+    return str(row[0]).upper()
+
+
+def _table_exists(conn, name: str) -> bool:
+    return _object_type(conn, name) == "BASE TABLE"
+
+
+def _replace_view_from_query(conn, *, view_name: str, source_table: str, select_sql: str) -> None:
+    if _table_exists(conn, view_name):
+        logger.info(
+            "DuckDB init: keeping existing base table %s; skipping compatibility view from %s",
+            view_name,
+            source_table,
+        )
+        return
+
+    if not _object_type(conn, source_table):
+        logger.info(
+            "DuckDB init: source table %s missing; skipping compatibility view %s",
+            source_table,
+            view_name,
+        )
+        return
+
+    conn.execute(f'DROP VIEW IF EXISTS "{view_name}";')
+    conn.execute(f'CREATE VIEW "{view_name}" AS {select_sql}')  # nosec B608
+
+
+def _maybe_create_inventory_views(conn) -> None:
+    """Create compatibility views for inventory tables when base tables are absent."""
+
+    _replace_view_from_query(
+        conn,
+        view_name="base_projects_metadata",
+        source_table="base_projects_instance_metadata_history",
+        select_sql="""
         SELECT
           instance_name,
           project_key,
@@ -125,14 +157,15 @@ def _maybe_create_inventory_views(conn) -> None:
           projects_projectapptype AS project_app_type,
           projects_tutorialproject AS tutorial_project,
           projects_commitmode AS commit_mode
-        FROM base_projects_instance_metadata_history;
-        """.strip()
+        FROM base_projects_instance_metadata_history
+        """.strip(),
     )
 
-    # Datasets
-    conn.execute(
-        """
-        CREATE OR REPLACE VIEW base_datasets_metadata AS
+    _replace_view_from_query(
+        conn,
+        view_name="base_datasets_metadata",
+        source_table="base_datasets_project_metadata_history",
+        select_sql="""
         SELECT
           instance_name,
           project_key,
@@ -146,14 +179,15 @@ def _maybe_create_inventory_views(conn) -> None:
           datasets_smartname AS dataset_smart_name,
           CAST(NULL AS VARCHAR) AS dataset_subtype,
           datasets_featuregroup AS is_feature_group
-        FROM base_datasets_project_metadata_history;
-        """.strip()
+        FROM base_datasets_project_metadata_history
+        """.strip(),
     )
 
-    # Recipes
-    conn.execute(
-        """
-        CREATE OR REPLACE VIEW base_recipes_metadata AS
+    _replace_view_from_query(
+        conn,
+        view_name="base_recipes_metadata",
+        source_table="base_recipes_project_metadata_history",
+        select_sql="""
         SELECT
           instance_name,
           project_key,
@@ -165,14 +199,15 @@ def _maybe_create_inventory_views(conn) -> None:
           recipes_params_enginetype AS engine_type,
           recipes_params_enginelabel AS engine_label,
           recipes_params_enginerecommended AS engine_recommended
-        FROM base_recipes_project_metadata_history;
-        """.strip()
+        FROM base_recipes_project_metadata_history
+        """.strip(),
     )
 
-    # Scenarios
-    conn.execute(
-        """
-        CREATE OR REPLACE VIEW base_scenarios_metadata AS
+    _replace_view_from_query(
+        conn,
+        view_name="base_scenarios_metadata",
+        source_table="base_scenarios_project_metadata_history",
+        select_sql="""
         SELECT
           instance_name,
           project_key,
@@ -186,24 +221,15 @@ def _maybe_create_inventory_views(conn) -> None:
           try_cast(scenarios_nextrun AS TIMESTAMP) AS scenario_next_run,
           try_cast(scenarios_start AS TIMESTAMP) AS scenario_last_run_start,
           scenarios_running AS scenario_running
-        FROM base_scenarios_project_metadata_history;
-        """.strip()
+        FROM base_scenarios_project_metadata_history
+        """.strip(),
     )
 
-    # Activity events: older view specs expect `base_object_activity_events`.
-    # Our curated base table name follows the `fact_*` convention.
-    # Ensure a VIEW exists (it may have been mistakenly loaded as a table).
-    try:
-        conn.execute('DROP TABLE IF EXISTS "base_object_activity_events";')
-    except Exception:
-        pass
-
-    conn.execute(
-        """
-        CREATE OR REPLACE VIEW base_object_activity_events AS
-        SELECT *
-        FROM fact_object_activity_events;
-        """.strip()
+    _replace_view_from_query(
+        conn,
+        view_name="base_object_activity_events",
+        source_table="fact_object_activity_events",
+        select_sql="SELECT * FROM fact_object_activity_events",
     )
 
 
