@@ -148,7 +148,7 @@ def _build_serving_snapshot_tables(conn: duckdb.DuckDBPyConnection) -> list[str]
           try_cast(datasets_creationtag_lastmodifiedon AS TIMESTAMP) AS datasets_creationtag_lastmodifiedon,
           try_cast(datasets_versiontag_lastmodifiedon AS TIMESTAMP) AS datasets_versiontag_lastmodifiedon,
           datasets_featuregroup AS datasets_featuregroup,
-          CAST(NULL AS VARCHAR) AS extras
+          coalesce(CAST(datasets_description AS VARCHAR), CAST(datasets_raw AS VARCHAR)) AS extras
         FROM base_datasets_project_metadata_history;
         """,
         "base_recipes_metadata": """
@@ -191,7 +191,7 @@ def _build_serving_snapshot_tables(conn: duckdb.DuckDBPyConnection) -> list[str]
           instance_name,
           project_key,
           api_services_id,
-          CAST(NULL AS VARCHAR) AS extras
+          CAST(api_services_raw AS VARCHAR) AS extras
         FROM base_api_services_project_metadata_history;
         """,
         "base_agent_tools_metadata": """
@@ -200,7 +200,7 @@ def _build_serving_snapshot_tables(conn: duckdb.DuckDBPyConnection) -> list[str]
           instance_name,
           project_key,
           agent_tools_id,
-          CAST(NULL AS VARCHAR) AS extras
+          CAST(agent_tools_raw AS VARCHAR) AS extras
         FROM base_agent_tools_project_metadata_history;
         """,
         "base_insights_metadata": """
@@ -209,7 +209,7 @@ def _build_serving_snapshot_tables(conn: duckdb.DuckDBPyConnection) -> list[str]
           instance_name,
           project_key,
           insights_id,
-          CAST(NULL AS VARCHAR) AS extras
+          CAST(insights_raw AS VARCHAR) AS extras
         FROM base_insights_project_metadata_history;
         """,
         "base_webapps_metadata": """
@@ -224,8 +224,8 @@ def _build_serving_snapshot_tables(conn: duckdb.DuckDBPyConnection) -> list[str]
           webapps_lastmodifiedby_login,
           try_cast(webapps_createdon AS TIMESTAMP) AS webapps_createdon,
           try_cast(webapps_lastmodifiedon AS TIMESTAMP) AS webapps_lastmodifiedon,
-          CAST(NULL AS VARCHAR) AS details_json,
-          CAST(NULL AS VARCHAR) AS extras
+          CAST(webapps_raw AS VARCHAR) AS details_json,
+          CAST(webapps_raw AS VARCHAR) AS extras
         FROM base_webapps_project_metadata_history;
         """,
         "base_apps_metadata": """
@@ -233,7 +233,7 @@ def _build_serving_snapshot_tables(conn: duckdb.DuckDBPyConnection) -> list[str]
         SELECT
           instance_name,
           apps_appid,
-          CAST(NULL AS VARCHAR) AS extras
+          CAST(apps_raw AS VARCHAR) AS extras
         FROM base_apps_instance_metadata_history;
         """,
     }
