@@ -1,6 +1,6 @@
 {
     "id": "dataiku-pulse",
-    "version": "2.9.1",
+    "version": "2.9.2",
     "meta": {
         "label": "Dataiku Pulse Dashboard",
         "category": "Dataiku Usage & Insights",
