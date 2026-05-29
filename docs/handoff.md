@@ -2,8 +2,8 @@
 
 ## Current Checkpoint
 - Branch: `v3`
-- Working tree includes uncommitted fixes for Users Activity / License Overview filtering and license-group KPI classification
-- Latest prior pushed commit referenced in this handoff baseline: `e024a9ef` — `Add Pulse license overview group metrics`
+- Latest pushed commit: `e38dcab5` — `Refine Pulse user filters and license overview copy`
+- Previous pushed baseline before this polish/fix series: `e024a9ef` — `Add Pulse license overview group metrics`
 
 ## What Changed
 
@@ -83,6 +83,7 @@ User Insights updates now in place:
 - Manual validation through backend restarts confirmed:
   - `/api/build/users/kpis` returns non-zero all-instance entitlement totals
   - license-group classification now reads the configured YAML mapping correctly
+- Current checkpoint committed and pushed to `origin/v3`
 
 ## Important Notes For Resume
 - The React source is **outside** the main plugin repo at:
@@ -95,4 +96,4 @@ User Insights updates now in place:
 When work resumes, the next likely area is polish rather than repair:
 - optional copy cleanup on `Entitlement Summary`
 - optional addition of true combined filters on one page (license entitlement + observed behavior together in the UI)
-- optional commit of the current working tree if the user wants to save this checkpoint
+- optional validation of combined-filter UX if both controls are introduced on one page

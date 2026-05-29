@@ -198,6 +198,21 @@ _startup_init_status: dict[str, Any] = {
 }
 
 
+def _is_backend_local_timeout_error(exc: BaseException) -> bool:
+    message = str(exc or "")
+    lowered = message.lower()
+    return any(
+        token in lowered
+        for token in (
+            "timed out",
+            "timeout",
+            "read timed out",
+            "bad gateway",
+            "502",
+        )
+    )
+
+
 def _update_startup_init_message(message: str) -> None:
     _startup_init_status["message"] = str(message)
 
@@ -628,6 +643,33 @@ def startup_duckdb():
         )
         return _ok({"load": report, "durationSec": duration_sec})
     except Exception as e:
+        duration_sec = round(time.time() - started, 3)
+        if _is_backend_local_timeout_error(e):
+            _startup_init_status.update(
+                {
+                    "state": "running",
+                    "message": "DuckDB initialization is still running",
+                    "finishedAt": None,
+                    "durationSec": duration_sec,
+                    "error": None,
+                }
+            )
+            logger.warning(
+                "DuckDB startup request timed out after %.3fs while initialization continues: %s",
+                duration_sec,
+                e,
+            )
+            return _ok(
+                {
+                    "load": {
+                        "ok": True,
+                        "pending": True,
+                        "message": "DuckDB initialization is still running",
+                    },
+                    "durationSec": duration_sec,
+                    "pending": True,
+                }
+            )
         _startup_init_status.update(
             {
                 "state": "failed",
