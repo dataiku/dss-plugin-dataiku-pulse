@@ -218,6 +218,12 @@
         }
       }
 
+      function isRecoverableWarmupFailure(result) {
+        if (!result || result.ok === true) return false;
+        var message = String(result.error || "").toLowerCase();
+        return message.indexOf("502") >= 0 || message.indexOf("bad gateway") >= 0 || message.indexOf("timeout") >= 0;
+      }
+
       function formatElapsedSeconds(seconds) {
         var rounded = Math.max(0, Math.round(Number(seconds) || 0));
         if (rounded < 60) return String(rounded) + "s";
@@ -351,8 +357,15 @@
         if (subtitleEl) {
           subtitleEl.textContent = isReloading
             ? "We are refreshing the analytics layer and will reopen the dashboard when it is ready."
-            : "Checking backend readiness, preparing data, and loading the dashboard.";
+            : "Checking backend readiness, preparing data, and loading the dashboard. Large rebuilds can take several minutes.";
         }
+
+        return {
+          state: state,
+          phase: phase,
+          overallElapsedSec: overallElapsedSec,
+          signature: [state, phase, String(init.message || ""), String(init.error || "")].join("|"),
+        };
       }
 
       async function loadPulseFrontend() {
@@ -453,14 +466,54 @@
 
           setLoaderStep(1, "active");
 
+          var INIT_POLL_INTERVAL_MS = 1500;
+          var INIT_STATUS_TIMEOUT_MS = 180000;
           var initPoll = null;
+          var latestInitState = null;
+          var lastProgressAt = Date.now();
+          var lastStatusOkAt = 0;
+
+          async function pollInitStatusOnce() {
+            var status = await fetchInitStatus();
+            if (!status || !status.init) return null;
+
+            lastStatusOkAt = Date.now();
+            var rendered = renderInitStatus(status);
+            if (rendered) {
+              if (!latestInitState || latestInitState.signature !== rendered.signature) {
+                lastProgressAt = Date.now();
+              }
+              latestInitState = rendered;
+            }
+            return rendered;
+          }
+
           async function startInitPolling() {
-            var run = async function () {
-              var status = await fetchInitStatus();
-              renderInitStatus(status);
-            };
-            await run();
-            initPoll = window.setInterval(run, 1500);
+            await pollInitStatusOnce();
+            initPoll = window.setInterval(function () {
+              pollInitStatusOnce();
+            }, INIT_POLL_INTERVAL_MS);
+          }
+
+          function stopInitPolling() {
+            if (initPoll) {
+              window.clearInterval(initPoll);
+              initPoll = null;
+            }
+          }
+
+          function getStaleInitError() {
+            var now = Date.now();
+            if (latestInitState && latestInitState.state === "failed") {
+              return "DuckDB initialization failed. Check backend logs for the reported error.";
+            }
+            if (latestInitState && latestInitState.state === "unavailable") {
+              return "DuckDB startup is unavailable. Check the backend configuration and logs.";
+            }
+            if (lastStatusOkAt > 0 && now - lastStatusOkAt >= INIT_STATUS_TIMEOUT_MS) {
+              return "DuckDB startup appears unreachable. The backend stopped responding to status checks for over 3 minutes.";
+            }
+            return null;
           }
 
           await startInitPolling();
@@ -495,25 +548,56 @@
           }
 
           var warmup = await warmupDuckdb();
-          if (!warmup || warmup.ok !== true) {
-            if (initPoll) window.clearInterval(initPoll);
-            setLoaderStep(2, "error");
-            var msg = warmup && warmup.error ? String(warmup.error) : "DuckDB initialization failed";
-            var el = document.getElementById("pulse-loader-error");
-            if (el) {
-              el.textContent = msg;
+          if (warmup && warmup.ok === true && warmup.pending !== true) {
+            if (root && warmup.durationSec != null) {
+              setLoaderMeta("DuckDB init completed in " + String(warmup.durationSec) + "s");
             }
-            return;
           }
 
-          if (initPoll) window.clearInterval(initPoll);
+          if (!warmup || warmup.ok !== true) {
+            if (!isRecoverableWarmupFailure(warmup)) {
+              stopInitPolling();
+              setLoaderStep(2, "error");
+              var warmupMsg = warmup && warmup.error ? String(warmup.error) : "DuckDB initialization failed";
+              var warmupEl = document.getElementById("pulse-loader-error");
+              if (warmupEl) {
+                warmupEl.textContent = warmupMsg;
+              }
+              return;
+            }
+
+            setLoaderMessage(
+              "DuckDB rebuild is still running in the backend. Pulse will open automatically when initialization completes."
+            );
+            setLoaderMeta("The local backend may briefly return 502 while startup continues. Growth under /tmp/pulse is expected.");
+          }
+
+          while (true) {
+            var current = latestInitState || (await pollInitStatusOnce());
+            if (current && (current.phase === "frontend_ready" || current.state === "ready")) {
+              break;
+            }
+
+            var staleError = getStaleInitError();
+            if (staleError) {
+              stopInitPolling();
+              setLoaderStep(2, "error");
+              var staleEl = document.getElementById("pulse-loader-error");
+              if (staleEl) {
+                staleEl.textContent = staleError;
+              }
+              return;
+            }
+
+            await new Promise(function (resolve) {
+              window.setTimeout(resolve, INIT_POLL_INTERVAL_MS);
+            });
+          }
+
+          stopInitPolling();
           setLoaderStep(1, "done");
           setLoaderStep(2, "done");
           setLoaderStep(3, "active");
-
-          if (root && warmup.durationSec != null) {
-            setLoaderMeta("DuckDB init completed in " + String(warmup.durationSec) + "s");
-          }
 
           // Optional: fetch a read-only status snapshot for display.
           try {

@@ -112,6 +112,139 @@ def _collect_user_activity_quality_report(conn: duckdb.DuckDBPyConnection) -> di
     return report
 
 
+def _build_serving_snapshot_tables(conn: duckdb.DuckDBPyConnection) -> list[str]:
+    created: list[str] = []
+
+    statements = {
+        "base_projects_metadata": """
+        CREATE OR REPLACE TABLE base_projects_metadata AS
+        SELECT
+          instance_name,
+          project_key,
+          projects_name AS project_name,
+          projects_ownerlogin AS project_owner_login,
+          projects_ownerdisplayname AS project_owner_display_name,
+          projects_creationtag_lastmodifiedby_login AS project_creation_login,
+          projects_versiontag_lastmodifiedby_login AS project_last_modified_by_login,
+          try_cast(projects_creationtag_lastmodifiedon AS TIMESTAMP) AS project_created_at,
+          try_cast(projects_versiontag_lastmodifiedon AS TIMESTAMP) AS project_updated_at,
+          projects_projecttype AS project_type,
+          projects_projectapptype AS project_app_type,
+          projects_tutorialproject AS tutorial_project,
+          projects_commitmode AS commit_mode,
+          CAST(NULL AS VARCHAR) AS extras
+        FROM base_projects_instance_metadata_history;
+        """,
+        "base_datasets_metadata": """
+        CREATE OR REPLACE TABLE base_datasets_metadata AS
+        SELECT
+          instance_name,
+          project_key,
+          datasets_name AS datasets_name,
+          datasets_smartname AS datasets_smartname,
+          datasets_type AS datasets_type,
+          datasets_managed AS datasets_managed,
+          datasets_versiontag_lastmodifiedby_login AS datasets_versiontag_lastmodifiedby_login,
+          try_cast(datasets_creationtag_lastmodifiedon AS TIMESTAMP) AS datasets_creationtag_lastmodifiedon,
+          try_cast(datasets_versiontag_lastmodifiedon AS TIMESTAMP) AS datasets_versiontag_lastmodifiedon,
+          datasets_featuregroup AS datasets_featuregroup,
+          coalesce(CAST(datasets_description AS VARCHAR), CAST(datasets_raw AS VARCHAR)) AS extras
+        FROM base_datasets_project_metadata_history;
+        """,
+        "base_recipes_metadata": """
+        CREATE OR REPLACE TABLE base_recipes_metadata AS
+        SELECT
+          instance_name,
+          project_key,
+          recipes_name AS recipes_name,
+          recipes_type AS recipes_type,
+          recipes_versiontag_lastmodifiedby_login AS recipes_versiontag_lastmodifiedby_login,
+          try_cast(recipes_creationtag_lastmodifiedon AS TIMESTAMP) AS recipes_creationtag_lastmodifiedon,
+          try_cast(recipes_versiontag_lastmodifiedon AS TIMESTAMP) AS recipes_versiontag_lastmodifiedon,
+          recipes_params_enginetype AS recipes_params_enginetype,
+          recipes_params_enginelabel AS recipes_params_enginelabel,
+          recipes_params_enginerecommended AS recipes_params_enginerecommended,
+          CAST(NULL AS VARCHAR) AS extras
+        FROM base_recipes_project_metadata_history;
+        """,
+        "base_scenarios_metadata": """
+        CREATE OR REPLACE TABLE base_scenarios_metadata AS
+        SELECT
+          instance_name,
+          project_key,
+          scenarios_id AS scenarios_id,
+          scenarios_name AS scenarios_name,
+          scenarios_type AS scenarios_type,
+          scenarios_runasuser AS scenarios_runasuser,
+          try_cast(scenarios_createdon AS TIMESTAMP) AS scenarios_createdon,
+          try_cast(scenarios_lastmodifiedon AS TIMESTAMP) AS scenarios_lastmodifiedon,
+          CAST(NULL AS VARCHAR) AS extras
+        FROM base_scenarios_project_metadata_history;
+        """,
+        "base_users_metadata": """
+        CREATE OR REPLACE TABLE base_users_metadata AS
+        SELECT * FROM base_users_instance_metadata_history;
+        """,
+        "base_api_services_metadata": """
+        CREATE OR REPLACE TABLE base_api_services_metadata AS
+        SELECT
+          instance_name,
+          project_key,
+          api_services_id,
+          CAST(api_services_raw AS VARCHAR) AS extras
+        FROM base_api_services_project_metadata_history;
+        """,
+        "base_agent_tools_metadata": """
+        CREATE OR REPLACE TABLE base_agent_tools_metadata AS
+        SELECT
+          instance_name,
+          project_key,
+          agent_tools_id,
+          CAST(agent_tools_raw AS VARCHAR) AS extras
+        FROM base_agent_tools_project_metadata_history;
+        """,
+        "base_insights_metadata": """
+        CREATE OR REPLACE TABLE base_insights_metadata AS
+        SELECT
+          instance_name,
+          project_key,
+          insights_id,
+          CAST(insights_raw AS VARCHAR) AS extras
+        FROM base_insights_project_metadata_history;
+        """,
+        "base_webapps_metadata": """
+        CREATE OR REPLACE TABLE base_webapps_metadata AS
+        SELECT
+          instance_name,
+          project_key,
+          webapps_id,
+          webapps_name,
+          webapps_type,
+          webapps_ownerlogin,
+          webapps_lastmodifiedby_login,
+          try_cast(webapps_createdon AS TIMESTAMP) AS webapps_createdon,
+          try_cast(webapps_lastmodifiedon AS TIMESTAMP) AS webapps_lastmodifiedon,
+          CAST(webapps_raw AS VARCHAR) AS details_json,
+          CAST(webapps_raw AS VARCHAR) AS extras
+        FROM base_webapps_project_metadata_history;
+        """,
+        "base_apps_metadata": """
+        CREATE OR REPLACE TABLE base_apps_metadata AS
+        SELECT
+          instance_name,
+          apps_appid,
+          CAST(apps_raw AS VARCHAR) AS extras
+        FROM base_apps_instance_metadata_history;
+        """,
+    }
+
+    for table_name, sql in statements.items():
+        conn.execute(sql)
+        created.append(table_name)
+
+    return created
+
+
 def _cleanup_stale_duckdb_files(*, base_dir: Path, max_age_hours: float = 24.0) -> None:
     """Remove old per-run DuckDB files (best-effort)."""
 
@@ -710,6 +843,9 @@ def run() -> dict:
 
         # Build object-level activity events (used for asset/product activity rollups).
         _build_fact_object_activity_events(setup.conn, ctx=ctx, base_dir=base_dir)
+
+        serving_snapshot_tables = _build_serving_snapshot_tables(setup.conn)
+        logger.info("Built serving snapshot tables: %s", serving_snapshot_tables)
 
         # Build the products registry mapping table.
         #

@@ -38,6 +38,57 @@ _EXPECTED_STARTUP_TABLES = {
     "final_build_development_activity_events",
 }
 
+_REQUIRED_GOLD_TABLE_GROUPS: tuple[tuple[str, ...], ...] = (
+    ("fact_dev_activity_events",),
+    ("base_object_activity_events", "fact_object_activity_events"),
+    ("dim_category_to_capability",),
+    ("base_projects_metadata", "base_projects_instance_metadata_history"),
+    ("base_datasets_metadata", "base_datasets_project_metadata_history"),
+    ("base_recipes_metadata", "base_recipes_project_metadata_history"),
+    ("base_scenarios_metadata", "base_scenarios_project_metadata_history"),
+    ("base_users_metadata", "base_users_instance_metadata_history"),
+    ("base_api_services_metadata", "base_api_services_project_metadata_history"),
+    ("base_agent_tools_metadata", "base_agent_tools_project_metadata_history"),
+    ("base_insights_metadata", "base_insights_project_metadata_history"),
+    ("base_api_endpoints_metadata",),
+    ("base_agents_metadata",),
+    ("base_dashboards_metadata",),
+    ("base_webapps_metadata",),
+    ("base_apps_metadata", "base_apps_instance_metadata_history", "base_dataiku_applications_metadata"),
+    ("base_dataiku_products_registry",),
+)
+
+
+def _select_required_gold_table_names(gold_paths: list[str]) -> set[str]:
+    available_names = {
+        inferred_name
+        for p in gold_paths
+        if PurePosixPath(str(p).lstrip("/")).parts
+        and PurePosixPath(str(p).lstrip("/")).parts[0].lstrip("/") == "gold"
+        and (inferred_name := _infer_gold_table_name(str(p).lstrip("/")))
+    }
+
+    selected: set[str] = set()
+    for group in _REQUIRED_GOLD_TABLE_GROUPS:
+        for candidate in group:
+            if candidate in available_names:
+                selected.add(candidate)
+                break
+
+    return selected
+
+
+def _infer_gold_table_name(path: str) -> str | None:
+    p = PurePosixPath(path)
+    parts = p.parts
+    if not parts or parts[0].lstrip("/") != "gold":
+        return None
+    if p.suffix.lower() in {".parquet", ".csv"}:
+        return p.stem
+    if len(parts) >= 2:
+        return parts[1]
+    return None
+
 
 def _set_status_callback(phase: str, message: str) -> None:
     callback = getattr(settings, "PULSE_INIT_STATUS_CALLBACK", None)
@@ -467,11 +518,6 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
 
                             path_listing_started = time.time()
                             logger.info("DuckDB ensure_database_ready: listing candidate GOLD paths")
-                            view_like_names = {
-                                p.stem
-                                for p in (Path(__file__).resolve().parents[1] / "datasets" / "views").glob("*.yaml")
-                            }
-
                             gold_paths = list_gold_paths(suffixes=(".csv", ".parquet"))
                             logger.info(
                                 "DuckDB ensure_database_ready: listed %s GOLD paths in %.3fs",
@@ -479,18 +525,11 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                                 time.time() - path_listing_started,
                             )
 
-                            allowed_names = {
-                                infer_table_name(str(p).lstrip("/"))
-                                for p in gold_paths
-                                if PurePosixPath(str(p).lstrip("/")).parts
-                                and PurePosixPath(str(p).lstrip("/")).parts[0].lstrip("/") == "gold"
-                                and infer_table_name(str(p).lstrip("/"))
-                                and infer_table_name(str(p).lstrip("/")) not in view_like_names
-                                and infer_table_name(str(p).lstrip("/")).startswith(("base_", "dim_", "fact_", "reg_"))
-                            }
+                            allowed_names = _select_required_gold_table_names(gold_paths)
                             logger.info(
-                                "DuckDB ensure_database_ready: %s allowed GOLD table names after filtering",
+                                "DuckDB ensure_database_ready: %s allowed GOLD table names after dashboard filtering: %s",
                                 len(allowed_names),
+                                sorted(allowed_names),
                             )
 
                             load_started = time.time()
@@ -519,11 +558,6 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         path_listing_started = time.time()
                         _set_status_callback("listing_gold", "Listing GOLD datasets from managed folder")
                         logger.info("DuckDB ensure_database_ready: listing candidate GOLD paths for replace run")
-                        view_like_names = {
-                            p.stem
-                            for p in (Path(__file__).resolve().parents[1] / "datasets" / "views").glob("*.yaml")
-                        }
-
                         gold_paths = list_gold_paths(suffixes=(".csv", ".parquet"))
                         logger.info(
                             "DuckDB ensure_database_ready: listed %s GOLD paths in %.3fs",
@@ -531,18 +565,11 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                             time.time() - path_listing_started,
                         )
 
-                        allowed_names = {
-                            infer_table_name(str(p).lstrip("/"))
-                            for p in gold_paths
-                            if PurePosixPath(str(p).lstrip("/")).parts
-                            and PurePosixPath(str(p).lstrip("/")).parts[0].lstrip("/") == "gold"
-                            and infer_table_name(str(p).lstrip("/"))
-                            and infer_table_name(str(p).lstrip("/")) not in view_like_names
-                            and infer_table_name(str(p).lstrip("/")).startswith(("base_", "dim_", "fact_", "reg_"))
-                        }
+                        allowed_names = _select_required_gold_table_names(gold_paths)
                         logger.info(
-                            "DuckDB ensure_database_ready: %s allowed GOLD table names after filtering",
+                            "DuckDB ensure_database_ready: %s allowed GOLD table names after dashboard filtering: %s",
                             len(allowed_names),
+                            sorted(allowed_names),
                         )
 
                         load_started = time.time()
