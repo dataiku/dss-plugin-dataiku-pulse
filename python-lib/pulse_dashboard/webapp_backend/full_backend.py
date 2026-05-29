@@ -8,6 +8,7 @@ from __future__ import annotations
 # `index.html`.
 
 import json
+from pathlib import Path
 import logging
 import re
 import sys
@@ -255,32 +256,50 @@ def _read_standard_project_variables() -> dict[str, Any]:
         return {}
 
 
-def _read_user_profile_exclude_consumer(standard_vars: dict[str, Any]) -> list[str]:
-    """Profiles excluded by the "no consumer" license filter.
+def _read_license_groups() -> dict[str, list[str]]:
+    """Read plugin-owned license grouping config from terminology.yaml.
 
-    Configured in DSS project variables:
-    - `standard.user_profile_exclude_consumer`: JSON list of strings
+    Expected keys:
+    - license_creator
+    - license_consumer
+    - license_admin
 
-    Fallback default if unset/invalid:
-    - ["READER", "AI_CONSUMER"]
+    Any user profile not explicitly mapped into one of the above groups is
+    treated as `license_other` by downstream consumers.
     """
 
-    default = ["READER", "AI_CONSUMER"]
-    raw = standard_vars.get("user_profile_exclude_consumer")
+    path = Path(__file__).resolve().parents[1] / "configs" / "terminology.yaml"
+    try:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        doc = {}
 
-    if isinstance(raw, list):
-        items = [str(v).strip() for v in raw if v is not None and str(v).strip()]
-        if items:
-            return [s.upper() for s in items]
-        return default
+    groups = doc.get("license_groups") if isinstance(doc, dict) else None
+    if not isinstance(groups, dict):
+        groups = {}
 
-    if isinstance(raw, str):
-        parts = [p.strip() for p in raw.split(",")]
-        parts = [p for p in parts if p]
-        if parts:
-            return [p.upper() for p in parts]
+    def _list(name: str) -> list[str]:
+        value = groups.get(name, [])
+        if not isinstance(value, list):
+            return []
+        return [str(item).strip().upper() for item in value if str(item).strip()]
 
-    return default
+    return {
+        "license_creator": _list("license_creator"),
+        "license_consumer": _list("license_consumer"),
+        "license_admin": _list("license_admin"),
+    }
+
+
+def _read_user_profile_exclude_consumer(_standard_vars: dict[str, Any]) -> list[str]:
+    """Profiles excluded by the `no_consumer` license filter.
+
+    This is derived from the plugin-owned `license_consumer` group defined in
+    `pulse_dashboard/configs/terminology.yaml`.
+    """
+
+    groups = _read_license_groups()
+    return groups.get("license_consumer", []) or ["READER", "AI_CONSUMER"]
 
 
 _WINDOW_TO_MONTHS = {
@@ -300,9 +319,56 @@ def _parse_window_months(value: str | None) -> int | None:
 
 def _parse_license_filter(value: str | None) -> str:
     value = (value or "").strip().lower()
-    if value in {"no_consumer", "exclude_consumer", "exclude-consumer"}:
-        return "no_consumer"
-    return "all_enabled"
+    allowed = {
+        "all_enabled",
+        "no_consumer",
+        "license_creator",
+        "license_consumer",
+        "license_admin",
+        "license_other",
+    }
+    aliases = {
+        "exclude_consumer": "no_consumer",
+        "exclude-consumer": "no_consumer",
+        "non_consumer": "no_consumer",
+        "non-consumer": "no_consumer",
+        "exclude_readers": "no_consumer",
+    }
+    normalized = aliases.get(value, value)
+    return normalized if normalized in allowed else "all_enabled"
+
+
+def _resolve_license_filter_clause(license_filter: str) -> tuple[str, list[str]]:
+    groups = _read_license_groups()
+    creator = groups.get("license_creator", [])
+    consumer = groups.get("license_consumer", [])
+    admin = groups.get("license_admin", [])
+    known = sorted({*creator, *consumer, *admin})
+
+    if license_filter == "no_consumer":
+        if not consumer:
+            return "", []
+        placeholders = _sql_placeholders(len(consumer))
+        return f" AND coalesce(upper(trim({{profile_expr}})), '') NOT IN ({placeholders})", list(consumer)
+
+    if license_filter in {"license_creator", "license_consumer", "license_admin"}:
+        target = groups.get(license_filter, [])
+        if not target:
+            return " AND 1 = 0", []
+        placeholders = _sql_placeholders(len(target))
+        return f" AND coalesce(upper(trim({{profile_expr}})), '') IN ({placeholders})", list(target)
+
+    if license_filter == "license_other":
+        if not known:
+            return "", []
+        placeholders = _sql_placeholders(len(known))
+        return f" AND coalesce(upper(trim({{profile_expr}})), '') NOT IN ({placeholders})", list(known)
+
+    return "", []
+
+
+def _format_license_filter_clause(template: str, *, profile_expr: str) -> str:
+    return template.format(profile_expr=profile_expr) if template else ""
 
 
 def _is_debug_enabled() -> bool:
@@ -408,8 +474,8 @@ def startup_flags():
     - `debug`: enabled when `standard.debug` is JSON boolean `true`.
 
     Config values:
-    - `userProfileExcludeConsumer`: resolved exclusion list for the "no_consumer" toggle,
-      read from `standard.user_profile_exclude_consumer`.
+    - `userProfileExcludeConsumer`: resolved exclusion list for the `no_consumer` toggle,
+      read from `pulse_dashboard/configs/terminology.yaml` `license_groups.license_consumer`.
 
     Note:
     - If we cannot resolve the default project / variables, we default to disabled.
@@ -428,6 +494,7 @@ def startup_flags():
                 },
                 "config": {
                     "userProfileExcludeConsumer": excluded_profiles,
+                    "licenseGroups": _read_license_groups(),
                 },
             }
         )
@@ -436,7 +503,7 @@ def startup_flags():
         return _ok(
             {
                 "flags": {"userActivity": True, "debug": False},
-                "config": {"userProfileExcludeConsumer": ["READER", "AI_CONSUMER"]},
+                "config": {"userProfileExcludeConsumer": ["READER", "AI_CONSUMER"], "licenseGroups": {"license_creator": [], "license_consumer": ["READER", "AI_CONSUMER"], "license_admin": []}},
             }
         )
 
@@ -3052,18 +3119,10 @@ def build_users_kpis():
         license_filter = _parse_license_filter(request.args.get("licenseFilter"))
         instance_name = _parse_instance_name(request.args.get("instance_name"))
 
-        exclude_params: list[Any] = []
-        exclude_sql = ""
-        exclude_sql_by_instance = ""
-        if license_filter == "no_consumer" and excluded_profiles:
-            placeholders = _sql_placeholders(len(excluded_profiles))
-            exclude_params = list(excluded_profiles)
-            exclude_sql = (
-                f" AND coalesce(upper(trim(users_userprofile)), '') NOT IN ({placeholders})"
-            )
-            exclude_sql_by_instance = (
-                f" AND coalesce(upper(trim(l.users_userprofile)), '') NOT IN ({placeholders})"
-            )
+        filter_sql_template, filter_params = _resolve_license_filter_clause(license_filter)
+        exclude_params: list[Any] = list(filter_params)
+        exclude_sql = _format_license_filter_clause(filter_sql_template, profile_expr="users_userprofile")
+        exclude_sql_by_instance = _format_license_filter_clause(filter_sql_template, profile_expr="l.users_userprofile")
 
         instance_sql = ""
         instance_params: list[Any] = []
@@ -3279,7 +3338,7 @@ def build_users_kpis():
                 "licenseFilter": license_filter,
                 "meta": {
                     "excludedProfiles": excluded_profiles,
-                    "excludedProfilesSource": "standard.user_profile_exclude_consumer",
+                    "excludedProfilesSource": "pulse_dashboard.configs.terminology_yaml.license_groups.license_consumer",
                 },
                 "kpis": row,
                 "byProfile": _df_records(by_profile_df),
@@ -3302,7 +3361,7 @@ def build_users_active_monthly():
     `base_users_instance_metadata_history`:
     - all_enabled: enabled users
     - no_consumer: enabled users excluding profiles from
-      `standard.user_profile_exclude_consumer` (default: READER, AI_CONSUMER)
+      `pulse_dashboard/configs/terminology.yaml` `license_groups.license_consumer`
 
     Query parameters:
     - window: this_month|last_3_months|last_12_months (default: last_3_months)
@@ -3333,13 +3392,9 @@ def build_users_active_monthly():
         next_month_expr = "(date_trunc('month', current_date) + INTERVAL 1 MONTH)::DATE"
 
         # Build profile exclusion SQL.
-        exclude_sql = ""
-        exclude_params: list[Any] = []
-        if license_filter == "no_consumer" and excluded_profiles:
-            exclude_sql = (
-                f" AND coalesce(upper(trim(u.users_userprofile)), '') NOT IN ({_sql_placeholders(len(excluded_profiles))})"
-            )
-            exclude_params = list(excluded_profiles)
+        filter_sql_template, filter_params = _resolve_license_filter_clause(license_filter)
+        exclude_sql = _format_license_filter_clause(filter_sql_template, profile_expr="u.users_userprofile")
+        exclude_params: list[Any] = list(filter_params)
 
         instance_sql = ""
         instance_params_aggregate: list[Any] = []
@@ -3449,7 +3504,7 @@ def build_users_active_monthly():
                 "instanceName": instance_name,
                 "meta": {
                     "excludedProfiles": excluded_profiles if license_filter == "no_consumer" else [],
-                    "excludedProfilesSource": "standard.user_profile_exclude_consumer",
+                    "excludedProfilesSource": "pulse_dashboard.configs.terminology_yaml.license_groups.license_consumer",
                 },
                 "byInstance": _df_records(by_instance_df),
                 "aggregate": _df_records(aggregate_df),
@@ -3726,13 +3781,9 @@ def build_users_stickiness():
         start_month_expr = f"(date_trunc('month', current_date) - INTERVAL {months - 1} MONTH)::DATE"
         next_month_expr = "(date_trunc('month', current_date) + INTERVAL 1 MONTH)::DATE"
 
-        exclude_sql = ""
-        exclude_params: list[Any] = []
-        if license_filter == "no_consumer" and excluded_profiles:
-            exclude_sql = (
-                f" AND coalesce(upper(trim(u.users_userprofile)), '') NOT IN ({_sql_placeholders(len(excluded_profiles))})"
-            )
-            exclude_params = list(excluded_profiles)
+        filter_sql_template, filter_params = _resolve_license_filter_clause(license_filter)
+        exclude_sql = _format_license_filter_clause(filter_sql_template, profile_expr="u.users_userprofile")
+        exclude_params: list[Any] = list(filter_params)
 
         instance_sql_users = ""
         instance_sql_activity = ""

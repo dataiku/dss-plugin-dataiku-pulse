@@ -10,3 +10,14 @@ products:
   - dashboard
   - web_application
   - dataiku_application
+
+license_groups:
+  license_creator:
+    - FULL_DESIGNER
+    - DATA_DESIGNER
+    - ADVANCED_ANALYTICS_DESIGNER
+  license_consumer:
+    - AI_CONSUMER
+    - READER
+  license_admin:
+    - TECHNICAL_ACCOUNT
