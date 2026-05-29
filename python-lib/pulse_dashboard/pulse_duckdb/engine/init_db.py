@@ -247,20 +247,22 @@ def _maybe_create_inventory_views(conn) -> None:
         )
 
     # Activity events: older view specs expect `base_object_activity_events`.
-    # Our curated base table name follows the `fact_*` convention.
-    # Ensure a VIEW exists (it may have been mistakenly loaded as a table).
-    try:
-        conn.execute('DROP TABLE IF EXISTS "base_object_activity_events";')
-    except Exception:
-        pass
+    # Our curated base table name follows the `fact_*` convention. Only create
+    # the compatibility view when the serving table is absent and the fact table
+    # is actually present.
+    if "base_object_activity_events" not in existing_objects and "fact_object_activity_events" in existing_objects:
+        try:
+            conn.execute('DROP TABLE IF EXISTS "base_object_activity_events";')
+        except Exception:
+            pass
 
-    conn.execute(
-        """
-        CREATE OR REPLACE VIEW base_object_activity_events AS
-        SELECT *
-        FROM fact_object_activity_events;
-        """.strip()
-    )
+        conn.execute(
+            """
+            CREATE OR REPLACE VIEW base_object_activity_events AS
+            SELECT *
+            FROM fact_object_activity_events;
+            """.strip()
+        )
 
 
 def _maybe_seed_demo_dev_activity(conn) -> dict:
