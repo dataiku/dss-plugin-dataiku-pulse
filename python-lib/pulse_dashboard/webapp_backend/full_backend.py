@@ -3435,6 +3435,36 @@ def build_users_kpis():
             instance_params,
         )
 
+        by_license_profile_group_df = _query_df(
+            (
+                "WITH latest AS (\n"
+                "  SELECT\n"
+                "    instance_name,\n"
+                "    lower(trim(users_login)) AS login_norm,\n"
+                "    coalesce(nullif(trim(users_userprofile), ''), 'UNKNOWN') AS user_profile,\n"
+                "    users_enabled,\n"
+                "    run_ts,\n"
+                "    ROW_NUMBER() OVER (\n"
+                "      PARTITION BY instance_name, lower(trim(users_login))\n"
+                "      ORDER BY run_ts DESC\n"
+                "    ) AS rn\n"
+                "  FROM base_users_instance_metadata_history\n"
+                "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
+                f"    {instance_sql}\n"  # nosec B608 (instance_sql uses placeholders)
+                ")\n"
+                "SELECT\n"
+                f"  {license_group_case_sql} AS license_group,\n"
+                "  user_profile AS profile,\n"
+                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE) AS enabled_users\n"
+                "FROM latest\n"
+                "WHERE rn = 1\n"
+                "GROUP BY 1, 2\n"
+                "HAVING COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE) > 0\n"
+                "ORDER BY license_group, enabled_users DESC, profile;"
+            ),
+            instance_params,
+        )
+
         by_instance_df = _query_df(
             (
                 "WITH latest AS (\n"
@@ -3497,6 +3527,36 @@ def build_users_kpis():
             item["contributor_rate_6m"] = (developing_users_6m_instance / enabled_users_instance) if enabled_users_instance else 0.0
             item["inactive_window_months"] = 6
 
+        license_group_definitions = {
+            "Creator Licenses": "Entitlements supporting creation and development workflows",
+            "Consumer Licenses": "Entitlements supporting consumption and viewing workflows",
+            "Admin Licenses": "Entitlements supporting administration and platform oversight",
+            "Other Licenses": "Other entitlement categories identified in the license profile data",
+        }
+
+        by_license_profile_group_rows = _df_records(by_license_profile_group_df)
+        grouped_license_profiles: dict[str, dict[str, Any]] = {}
+        for item in by_license_profile_group_rows:
+            group_name = str(item.get("license_group") or "Other Licenses")
+            profile_name = str(item.get("profile") or "UNKNOWN")
+            enabled_users = int(item.get("enabled_users") or 0)
+            if group_name not in grouped_license_profiles:
+                grouped_license_profiles[group_name] = {
+                    "license_group": group_name,
+                    "definition": license_group_definitions.get(group_name, "License for other actions"),
+                    "enabled_users": 0,
+                    "profiles": [],
+                }
+            grouped_license_profiles[group_name]["enabled_users"] += enabled_users
+            grouped_license_profiles[group_name]["profiles"].append(
+                {"profile": profile_name, "enabled_users": enabled_users}
+            )
+
+        grouped_license_profiles_rows = sorted(
+            grouped_license_profiles.values(),
+            key=lambda item: (-int(item.get("enabled_users") or 0), str(item.get("license_group") or "")),
+        )
+
         return _ok(
             {
                 "instanceName": instance_name,
@@ -3509,6 +3569,7 @@ def build_users_kpis():
                 "kpis": row,
                 "byProfile": _df_records(by_profile_df),
                 "byLicenseGroup": _df_records(by_license_group_df),
+                "byLicenseGroupProfiles": grouped_license_profiles_rows,
                 "byInstance": by_instance_rows,
             }
         )
