@@ -32,16 +32,21 @@ def update_default_node(self, plugin_handle):
 
 
 def install_plugin(self, remote_client):
-    # Only install if not found, if found and set to update, patch
+    # Only install if not found. If found and set to update, patch.
     pulse_found = False
     for plugin in remote_client.list_plugins():
         if plugin["id"] == "dataiku-pulse":
             pulse_found = True
+
+    # Plugin already installed and user didn't request a git refresh
+    if pulse_found and not self.config["update_github"]:
+        return
+
     if pulse_found and self.config["update_github"]:
         plugin_handle = remote_client.get_plugin(plugin_id="dataiku-pulse")
         git_update = plugin_handle.update_from_git(
-            repository_url = self.params["pulse_repo_url"],
-            checkout = self.params["pulse_repo_branch"]
+            repository_url=self.params["pulse_repo_url"],
+            checkout=self.params["pulse_repo_branch"],
         )
         r = git_update.wait_for_result()
         if not r["success"]:
@@ -53,25 +58,26 @@ def install_plugin(self, remote_client):
             raise Exception(r["messages"]["messages"])
         # Update the plugin config
         update_plugin_config(self, plugin_handle)
-    else:
-        plugin_install = remote_client.install_plugin_from_git(
-            repository_url = self.params["pulse_repo_url"],
-            checkout = self.params["pulse_repo_branch"],
-            subpath = None
-        )
-        r = plugin_install.wait_for_result()
-        r = plugin_install.get_result()
-        if r["messages"]["warning"] or r["messages"]["error"] or r["messages"]["fatal"]:
-            raise Exception(r["messages"]["messages"])
-        plugin_handle = remote_client.get_plugin(plugin_id="dataiku-pulse")
-        # create the code-env
-        code_env = plugin_handle.create_code_env()
-        r = code_env.wait_for_result()
-        r = code_env.get_result()
-        if r["messages"]["warning"] or r["messages"]["error"] or r["messages"]["fatal"]:
-            raise Exception(r["messages"]["messages"])
-        # Update the plugin config
-        update_plugin_config(self, plugin_handle)
+        return
+
+    plugin_install = remote_client.install_plugin_from_git(
+        repository_url=self.params["pulse_repo_url"],
+        checkout=self.params["pulse_repo_branch"],
+        subpath=None,
+    )
+    r = plugin_install.wait_for_result()
+    r = plugin_install.get_result()
+    if r["messages"]["warning"] or r["messages"]["error"] or r["messages"]["fatal"]:
+        raise Exception(r["messages"]["messages"])
+    plugin_handle = remote_client.get_plugin(plugin_id="dataiku-pulse")
+    # create the code-env
+    code_env = plugin_handle.create_code_env()
+    r = code_env.wait_for_result()
+    r = code_env.get_result()
+    if r["messages"]["warning"] or r["messages"]["error"] or r["messages"]["fatal"]:
+        raise Exception(r["messages"]["messages"])
+    # Update the plugin config
+    update_plugin_config(self, plugin_handle)
     return
 
 
@@ -173,7 +179,7 @@ def dashboard_scenrios(self, project_handle):
             r = scenario_handle.delete()
     # 
     macros = load_yaml(path="scenarios_yamls/dashboard.yaml")
-    for key in macros.get("recipes"):
+    for key in macros.get("recipes", []):
         # rebase and setup macro in step
         trigger = json.loads(macros["trigger"])
         step = json.loads(macros["step"])
