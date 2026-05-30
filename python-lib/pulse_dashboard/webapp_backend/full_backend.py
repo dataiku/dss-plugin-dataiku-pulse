@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import sys
 import threading
@@ -3845,6 +3846,172 @@ def build_users_leaderboard():
         logger.exception("users leaderboard failed")
         return _err(str(e), status=500)
 
+
+@bp.route("/api/build/users/creator-risk")
+def build_users_creator_risk():
+    """Return creator-license risk lists based on Pulse trailing 6-month guidance."""
+
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        instance_name = _parse_instance_name(request.args.get("instance_name"))
+        delinquent_page = max(1, int(request.args.get("delinquentPage") or 1))
+        underutilized_page = max(1, int(request.args.get("underutilizedPage") or 1))
+        page_size = 10
+        delinquent_offset = (delinquent_page - 1) * page_size
+        underutilized_offset = (underutilized_page - 1) * page_size
+
+        latest_instance_sql = ""
+        activity_instance_sql = ""
+        instance_params: list[Any] = []
+        if instance_name:
+            latest_instance_sql = " AND instance_name = ?"
+            activity_instance_sql = " AND instance_name = ?"
+            instance_params = [instance_name]
+
+        license_group_case_sql = _license_group_case_sql("l.user_profile")
+        six_month_start_expr = "(current_date - INTERVAL 6 MONTH)::DATE"
+
+        common_cte = (
+            "WITH latest AS (\n"  # nosec B608 (SQL fragments use validated internal expressions and placeholders)
+            "  SELECT\n"
+            "    instance_name,\n"
+            "    lower(trim(users_login)) AS login_norm,\n"
+            "    trim(users_login) AS login,\n"
+            "    coalesce(trim(users_displayname), trim(users_login)) AS display_name,\n"
+            "    coalesce(nullif(trim(users_userprofile), ''), 'UNKNOWN') AS user_profile,\n"
+            "    users_enabled,\n"
+            "    run_ts,\n"
+            "    ROW_NUMBER() OVER (\n"
+            "      PARTITION BY instance_name, lower(trim(users_login))\n"
+            "      ORDER BY run_ts DESC\n"
+            "    ) AS rn\n"
+            "  FROM base_users_instance_metadata_history\n"
+            "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
+            f"    {latest_instance_sql}\n"  # nosec B608 (instance filter uses placeholders)
+            "),\n"
+            "activity_6m AS (\n"
+            "  SELECT\n"
+            "    instance_name,\n"
+            "    lower(trim(login_norm)) AS login_norm,\n"
+            "    SUM(CASE WHEN day >= "
+            f"{six_month_start_expr}"  # nosec B608 (internal fixed date expression)
+            " THEN viewing_actions_count ELSE 0 END) AS viewing_6m,\n"
+            "    SUM(CASE WHEN day >= "
+            f"{six_month_start_expr}"  # nosec B608 (internal fixed date expression)
+            " THEN developing_actions_count ELSE 0 END) AS developing_6m,\n"
+            "    MAX(last_activity_at) AS last_activity_at\n"
+            "  FROM fact_user_activity_daily\n"
+            "  WHERE 1 = 1"
+            f"{activity_instance_sql}\n"  # nosec B608 (instance filter uses placeholders)
+            "  GROUP BY 1, 2\n"
+            "),\n"
+            "creator_latest AS (\n"
+            "  SELECT\n"
+            "    l.instance_name,\n"
+            "    l.login_norm,\n"
+            "    l.login,\n"
+            "    l.display_name,\n"
+            "    l.user_profile,\n"
+            "    l.users_enabled,\n"
+            "    coalesce(a.viewing_6m, 0) AS viewing_6m,\n"
+            "    coalesce(a.developing_6m, 0) AS developing_6m,\n"
+            "    a.last_activity_at AS last_activity_at\n"
+            "  FROM latest l\n"
+            "  LEFT JOIN activity_6m a ON a.instance_name = l.instance_name AND a.login_norm = l.login_norm\n"
+            "  WHERE l.rn = 1\n"
+            "    AND l.users_enabled IS TRUE\n"
+            f"    AND ({license_group_case_sql}) = 'Creator Licenses'\n"
+            ")\n"
+        )
+
+        delinquent_total_df = _query_df(
+            (
+                common_cte
+                + "SELECT COUNT(*) AS total_rows FROM creator_latest WHERE viewing_6m = 0 AND developing_6m = 0;"  # nosec B608
+            ),
+            [*instance_params, *instance_params],
+        )
+        delinquent_rows_df = _query_df(
+            (
+                common_cte
+                + "SELECT\n"  # nosec B608
+                + "  instance_name AS instanceName,\n"
+                + "  login,\n"
+                + "  login_norm AS loginNorm,\n"
+                + "  display_name AS displayName,\n"
+                + "  user_profile AS userProfile,\n"
+                + "  viewing_6m AS viewing6m,\n"
+                + "  developing_6m AS developing6m,\n"
+                + "  CAST(last_activity_at AS VARCHAR) AS lastActivityAt\n"
+                + "FROM creator_latest\n"
+                + "WHERE viewing_6m = 0 AND developing_6m = 0\n"
+                + "ORDER BY coalesce(last_activity_at, TIMESTAMP '1900-01-01') DESC, display_name, login\n"
+                + "LIMIT ? OFFSET ?;"
+            ),
+            [*instance_params, *instance_params, page_size, delinquent_offset],
+        )
+
+        under_total_df = _query_df(
+            (
+                common_cte
+                + "SELECT COUNT(*) AS total_rows FROM creator_latest WHERE viewing_6m > 0 AND (developing_6m::DOUBLE / viewing_6m::DOUBLE) < 0.05;"  # nosec B608
+            ),
+            [*instance_params, *instance_params],
+        )
+        under_rows_df = _query_df(
+            (
+                common_cte
+                + "SELECT\n"  # nosec B608
+                + "  instance_name AS instanceName,\n"
+                + "  login,\n"
+                + "  login_norm AS loginNorm,\n"
+                + "  display_name AS displayName,\n"
+                + "  user_profile AS userProfile,\n"
+                + "  viewing_6m AS viewing6m,\n"
+                + "  developing_6m AS developing6m,\n"
+                + "  (developing_6m::DOUBLE / viewing_6m::DOUBLE) AS developingToViewingRatio,\n"
+                + "  CAST(last_activity_at AS VARCHAR) AS lastActivityAt\n"
+                + "FROM creator_latest\n"
+                + "WHERE viewing_6m > 0 AND (developing_6m::DOUBLE / viewing_6m::DOUBLE) < 0.05\n"
+                + "ORDER BY developingToViewingRatio ASC, viewing_6m DESC, display_name, login\n"
+                + "LIMIT ? OFFSET ?;"
+            ),
+            [*instance_params, *instance_params, page_size, underutilized_offset],
+        )
+
+        delinquent_total = int((_df_records(delinquent_total_df)[0] if len(delinquent_total_df) else {}).get("total_rows") or 0)
+        under_total = int((_df_records(under_total_df)[0] if len(under_total_df) else {}).get("total_rows") or 0)
+
+        return _ok(
+            {
+                "instanceName": instance_name,
+                "meta": {
+                    "windowMonths": 6,
+                    "ratioThreshold": 0.05,
+                    "guidanceLabel": "Pulse guidance uses a fixed trailing 6-month review window for these risk signals.",
+                },
+                "delinquentCreators": {
+                    "page": delinquent_page,
+                    "pageSize": page_size,
+                    "totalRows": delinquent_total,
+                    "totalPages": max(1, math.ceil(delinquent_total / page_size)) if delinquent_total else 1,
+                    "rows": _df_records(delinquent_rows_df),
+                },
+                "underutilizedCreators": {
+                    "page": underutilized_page,
+                    "pageSize": page_size,
+                    "totalRows": under_total,
+                    "totalPages": max(1, math.ceil(under_total / page_size)) if under_total else 1,
+                    "rows": _df_records(under_rows_df),
+                },
+            }
+        )
+
+    except Exception as e:
+        logger.exception("users creator risk failed")
+        return _err(str(e), status=500)
 
 @bp.route("/api/build/users/segments")
 def build_users_segments():

@@ -1,99 +1,150 @@
-# Pulse Handoff
+# Handoff: Creator License Risk Cards
 
-## Current Checkpoint
-- Branch: `v3`
-- Latest pushed commit: `e38dcab5` — `Refine Pulse user filters and license overview copy`
-- Previous pushed baseline before this polish/fix series: `e024a9ef` — `Add Pulse license overview group metrics`
+  ## Current Situation
+  - The original request was to add two new creator-license risk cards:
+    1. **Delinquent creator-licensed users**
+       - no observed consuming or creating activity in the last 6 months
+       - show 10 at a time
+       - paginated
+       - include last observed activity date
+    2. **Low creation share creator-licensed users**
+       - creator-licensed users whose `developing_6m / viewing_6m < 5%`
+       - example: `5 creates / 20 consumes` is fine, `5 / 100` is flagged
+       - computed over Pulse’s fixed 6-month guidance window
+  - I implemented these cards on the **wrong page**:
+    - implemented on **Activity Overview**
+    - user clarified they belong on **License Overview**
 
-## What Changed
+  ## Important Product Decisions Already Confirmed
+  - These cards should live on **License Overview**
+  - They should remain **fixed to creator-licensed users**
+  - They should **not** change with the license-page `License Filter` dropdown
+  - They **should** respond to the selected instance filter
+  - The 6-month window is **Pulse guidance**, fixed and explicitly stated in the UI
 
-### License Grouping Configuration
-Pulse now defines license groupings in:
-- `python-lib/pulse_dashboard/configs/terminology.yaml`
+  ## What Was Implemented
+  ### Backend
+  Added endpoint:
+  - `python-lib/pulse_dashboard/webapp_backend/full_backend.py`
+  - route: `/api/build/users/creator-risk`
 
-Configured groups:
-- `license_creator`
-  - `FULL_DESIGNER`
-  - `DATA_DESIGNER`
-  - `ADVANCED_ANALYTICS_DESIGNER`
-- `license_consumer`
-  - `AI_CONSUMER`
-  - `READER`
-- `license_admin`
-  - `TECHNICAL_ACCOUNT`
-- Any profile not mapped above is treated as `Other Licenses`
+  Behavior:
+  - returns creator-license risk lists using current entitlement mapping
+  - uses trailing fixed 6-month activity window
+  - supports optional `instance_name`
+  - supports separate paging params:
+    - `delinquentPage`
+    - `underutilizedPage`
 
-### Backend Changes
-Updated:
-- `python-lib/pulse_dashboard/webapp_backend/full_backend.py`
+  Response shape includes:
+  - `meta`
+    - `windowMonths`
+    - `ratioThreshold`
+    - `guidanceLabel`
+  - `delinquentCreators`
+    - `page`
+    - `pageSize`
+    - `totalRows`
+    - `totalPages`
+    - `rows`
+  - `underutilizedCreators`
+    - `page`
+    - `pageSize`
+    - `totalRows`
+    - `totalPages`
+    - `rows`
 
-Current behavior now includes:
-- License Overview uses `licenseFilter` for entitlement/license-group filtering
-  - `all_enabled`
-  - `no_consumer`
-  - `license_creator`
-  - `license_consumer`
-  - `license_admin`
-  - `license_other`
-- Activity Overview uses its own `activityFilter`
-  - `license_creator`
-  - `license_consumer`
-- `/api/build/users/kpis` now accepts both `licenseFilter` and `activityFilter`
-  - `licenseFilter` scopes entitlement-oriented counts
-  - `activityFilter` scopes observed-activity counts
-- license-group KPI outputs from `/api/build/users/kpis`
-- grouped license distribution output via `byLicenseGroup`
-- backend classification logic based on `terminology.yaml`
-- fixed missing backend helpers/imports involved in license-group classification:
-  - `yaml` import
-  - `_sql_string_literals(...)`
+  Rules implemented:
+  - **Delinquent**
+    - current creator-licensed users
+    - enabled users only
+    - `viewing_6m = 0 AND developing_6m = 0`
+  - **Low creation share**
+    - current creator-licensed users
+    - enabled users only
+    - `viewing_6m > 0`
+    - `(developing_6m / viewing_6m) < 0.05`
 
-### UI Changes
-Frontend source updated in:
-- `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/src/App.js`
+  Returned row fields include:
+  - `instanceName`
+  - `login`
+  - `loginNorm`
+  - `displayName`
+  - `userProfile`
+  - `viewing6m`
+  - `developing6m`
+  - `developingToViewingRatio` (underutilized only)
+  - `lastActivityAt`
 
-Packaged build synced into:
-- `resource/pulse-dashboard/build/`
+  ## What Was Implemented on Frontend
+  External React source:
+  - `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/src/App.js`
 
-User Insights updates now in place:
-- `Activity Overview`
-  - `License Filter` renamed to `Activity filter`
-  - options reduced to `Creators` and `Consumers`
-  - page now sends `activityFilter` instead of reusing `licenseFilter`
-- `License Overview`
-  - `License Filter` now focuses on actual license-group choices
-  - removed `Non-Consumers` from the dropdown
-  - `Entitlement Summary` redesigned to feel closer to the Activity Overview KPI section
-  - duplicate sections removed:
-    - `Interpretation Notes`
-    - standalone `License Group Distribution`
-    - standalone `License Profile Distribution`
-  - license-group charts are now embedded into `Entitlement Summary`
-  - grouped totals now correctly classify users into:
-    - `Creator Licenses`
-    - `Consumer Licenses`
-    - `Admin Licenses`
-    - `Other Licenses`
+  Currently implemented:
+  - creator-risk fetch/state/effects on `UsersActivityPage`
+  - creator-risk cards rendered on **Activity Overview**
+  - cards have:
+    - pagination
+    - count summary (`Showing X–Y of N`)
+    - row click to set selected user
+    - guidance copy
+    - instance-aware fetch
 
-## Validation Completed
-- Backend compile check passed:
-  - `python -m py_compile python-lib/pulse_dashboard/webapp_backend/full_backend.py`
-- Frontend rebuilt successfully
-- Packaged frontend build synced into the plugin repo
-- Manual validation through backend restarts confirmed:
-  - `/api/build/users/kpis` returns non-zero all-instance entitlement totals
-  - license-group classification now reads the configured YAML mapping correctly
-- Current checkpoint committed and pushed to `origin/v3`
+  ## What Is Wrong Right Now
+  - The cards are on **Activity Overview**
+  - They should be moved to **License Overview**
+  - The current session ended while back in plan mode, so the move was **not implemented**
 
-## Important Notes For Resume
-- The React source is **outside** the main plugin repo at:
-  - `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/`
-- The packaged frontend build that DSS uses is inside this repo at:
-  - `resource/pulse-dashboard/build/`
-- Be careful not to sync the build into `dataiku-pulse.extras/resource/...`; the correct packaged location is the plugin repo `resource/pulse-dashboard/build/`
+  ## Latest Correct Plan
+  ### Goal
+  Move creator-license risk cards from `Activity Overview` to `License Overview`, keeping backend logic unchanged.
 
-## Likely Next Step
-When work resumes, the next likely area is polish rather than repair:
-- optional copy cleanup on `Entitlement Summary`
-- optional addition of true combined filters on one page (license entitlement + observed behavior together in the UI)
-- optional validation of combined-filter UX if both controls are introduced on one page
+  ### Required frontend changes
+  1. Remove from `UsersActivityPage`:
+     - creator-risk state
+     - creator-risk fetch effect
+     - creator-risk card section
+  2. Add to `UsersLicensePage` / `LicenseOverviewSection`:
+     - creator-risk state
+     - creator-risk fetch effect
+     - card rendering section
+  3. Keep these cards **independent of the license filter dropdown**
+  4. Keep them **scoped by selected instance**
+  5. Keep independent pagination for both cards
+  6. Keep row click behavior if practical on license page
+     - if license page does not already own user detail modal state, add minimal state needed
+
+  ### Placement on license page
+  Recommended placement:
+  - inside License Overview
+  - below entitlement summary and instance-specific entitlement subsection
+  - still clearly labeled as a fixed 6-month Pulse guidance signal
+
+  ## Validation That Was Already Done
+  - Backend compiled successfully with:
+    - `python -m py_compile python-lib/pulse_dashboard/webapp_backend/full_backend.py`
+  - Frontend built successfully
+  - Served assets were synced into:
+    - `resource/pulse-dashboard/build`
+
+  ## Relevant Files
+  - Backend endpoint:
+    - `python-lib/pulse_dashboard/webapp_backend/full_backend.py`
+  - Frontend source:
+    - `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/src/App.js`
+  - Served packaged assets:
+    - `resource/pulse-dashboard/build`
+
+  ## Recommended Next Prompt For New Session
+  Use something like:
+
+  > Move the creator-license risk cards from Activity Overview to License Overview. Keep the existing `/api/build/users/creator-risk` backend endpoint and logic
+  unchanged. The cards should stay fixed to creator-licensed users regardless of the License Filter dropdown, but should respond to the selected instance filter.
+  Remove the cards and their fetch/state from `UsersActivityPage`, add them to `UsersLicensePage` / `LicenseOverviewSection`, rebuild the external frontend, and
+  sync `resource/pulse-dashboard/build`.
+
+  ## Note
+  - There was also prior successful work on the License Overview entitlement redesign before this feature work.
+  - The main issue for this handoff is specifically:
+    - **backend is present**
+    - **frontend placement is wrong**
