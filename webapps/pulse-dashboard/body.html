@@ -126,6 +126,14 @@
         });
       }
 
+      function setLoaderSpinnerDone() {
+        var el = document.getElementById("pulse-loader-spinner");
+        if (!el) return;
+        el.style.animation = "none";
+        el.style.borderColor = "#bbf7d0";
+        el.style.borderTopColor = "#16a34a";
+      }
+
       async function waitForDataiku(timeoutMs) {
         var start = Date.now();
         while (Date.now() - start < timeoutMs) {
@@ -189,6 +197,34 @@
         if (el) {
           el.textContent = text || "";
         }
+      }
+
+      var pulseLoaderLiveMeta = {
+        dbPath: "",
+        startedAt: null,
+        durationSec: null,
+        error: "",
+        lastStatusAt: null,
+      };
+
+      function renderLoaderMetaFromState() {
+        var details = [];
+        if (pulseLoaderLiveMeta.dbPath) details.push(String(pulseLoaderLiveMeta.dbPath));
+
+        var overallElapsedSec = null;
+        if (pulseLoaderLiveMeta.startedAt != null) {
+          overallElapsedSec = Math.max(0, Date.now() / 1000 - Number(pulseLoaderLiveMeta.startedAt));
+        } else if (pulseLoaderLiveMeta.durationSec != null) {
+          overallElapsedSec = Number(pulseLoaderLiveMeta.durationSec);
+        }
+
+        if (overallElapsedSec != null) details.push("elapsed: " + formatElapsedSeconds(overallElapsedSec));
+        if (pulseLoaderLiveMeta.lastStatusAt != null) {
+          var sinceStatusSec = Math.max(0, Date.now() / 1000 - Number(pulseLoaderLiveMeta.lastStatusAt));
+          details.push("last update: " + formatElapsedSeconds(sinceStatusSec) + " ago");
+        }
+        if (pulseLoaderLiveMeta.error) details.push(String(pulseLoaderLiveMeta.error));
+        setLoaderMeta(details.join(" · "));
       }
 
       function setLoaderStep(step, state) {
@@ -299,7 +335,7 @@
           setLoaderStep(1, "done");
           if (phase === "frontend_ready") {
             setLoaderStep(2, "done");
-            setLoaderStep(3, "active");
+            setLoaderStep(3, "done");
           } else {
             setLoaderStep(2, "active");
             setLoaderStep(3, "pending");
@@ -330,28 +366,34 @@
 
         renderLoaderSubsteps(phase);
 
-        var details = [];
-        if (init.dbPath) details.push(String(init.dbPath));
-        var overallElapsedSec = null;
-        if (init.startedAt != null) {
-          overallElapsedSec = Math.max(0, Date.now() / 1000 - Number(init.startedAt));
-        } else if (init.durationSec != null) {
-          overallElapsedSec = Number(init.durationSec);
-        }
-        if (overallElapsedSec != null) details.push("elapsed: " + formatElapsedSeconds(overallElapsedSec));
-        if (init.error) details.push(String(init.error));
-        setLoaderMeta(details.join(" · "));
+        pulseLoaderLiveMeta.dbPath = init.dbPath ? String(init.dbPath) : "";
+        pulseLoaderLiveMeta.startedAt = init.startedAt != null ? Number(init.startedAt) : null;
+        pulseLoaderLiveMeta.durationSec = init.durationSec != null ? Number(init.durationSec) : null;
+        pulseLoaderLiveMeta.error = init.error ? String(init.error) : "";
+        pulseLoaderLiveMeta.lastStatusAt = Date.now() / 1000;
+        renderLoaderMetaFromState();
 
         var titleEl = document.getElementById("pulse-loader-title");
         if (titleEl) {
-          titleEl.textContent = isReloading ? "Welcome to Pulse" : "Pulse is getting things ready";
+          titleEl.textContent = phase === "frontend_ready"
+            ? "Pulse is ready"
+            : isReloading
+              ? "Welcome to Pulse"
+              : "Pulse is getting things ready";
         }
 
         var subtitleEl = document.getElementById("pulse-loader-subtitle");
         if (subtitleEl) {
-          subtitleEl.textContent = isReloading
-            ? "We are refreshing the analytics layer and will reopen the dashboard when it is ready."
-            : "Checking backend readiness, preparing data, and loading the dashboard.";
+          subtitleEl.textContent = phase === "frontend_ready"
+            ? "Analytics are loaded and the dashboard is about to open."
+            : isReloading
+              ? "Refreshing the analytics layer before opening the dashboard."
+              : "Checking backend readiness, preparing data, and loading the dashboard.";
+        }
+
+        if (phase === "frontend_ready") {
+          setLoaderMessage("Everything is loaded. Opening the Pulse dashboard now.");
+          setLoaderSpinnerDone();
         }
       }
 
@@ -435,11 +477,11 @@
               '<div style="min-height: 70vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%); font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; padding: 24px; box-sizing: border-box;">' +
               '<div style="width: 100%; max-width: 720px; background: rgba(255,255,255,0.92); border: 1px solid rgba(43,108,176,0.12); border-radius: 18px; box-shadow: 0 16px 40px rgba(31,41,55,0.10); padding: 32px;">' +
               '<div style="display: flex; align-items: center; gap: 14px;">' +
-              '<div style="width: 18px; height: 18px; border-radius: 999px; border: 3px solid #c7d7fe; border-top-color: #2b6cb0; animation: pulse-spin 1s linear infinite;"></div>' +
+              '<div id="pulse-loader-spinner" style="width: 18px; height: 18px; border-radius: 999px; border: 3px solid #c7d7fe; border-top-color: #2b6cb0; animation: pulse-spin 1s linear infinite;"></div>' +
               '<div id="pulse-loader-title" style="font-size: 24px; font-weight: 700; color: #153e75;">Pulse is getting things ready</div>' +
               '</div>' +
               '<div id="pulse-loader-subtitle" style="margin-top: 14px; font-size: 13px; line-height: 1.6; color: #64748b;">Checking the DuckDB startup state before the dashboard loads.</div>' +
-              '<div id="pulse-loader-message" style="margin-top: 10px; font-size: 15px; line-height: 1.6; color: #334155;">Checking the DuckDB startup state before the dashboard loads.</div>' +
+              '<div id="pulse-loader-message" style="margin-top: 10px; font-size: 15px; line-height: 1.6; color: #334155;">Checking the Pulse backend and preparing analytics data.</div>' +
               '<div style="margin-top: 18px; display: grid; gap: 10px;">' +
               '<div id="pulse-step-1" style="padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(148,163,184,0.18); background: #f8fafc; color: #1e293b;"><strong>Step 1:</strong> Connecting to the Pulse backend</div>' +
               '<div id="pulse-step-2" style="padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(148,163,184,0.18); background: #f8fafc; color: #1e293b;"><strong>Step 2:</strong> Rebuilding the Pulse analytics database</div>' +
@@ -454,10 +496,21 @@
           setLoaderStep(1, "active");
 
           var initPoll = null;
+          var liveMetaTimer = window.setInterval(function () {
+            renderLoaderMetaFromState();
+          }, 1000);
           async function startInitPolling() {
             var run = async function () {
-              var status = await fetchInitStatus();
-              renderInitStatus(status);
+              try {
+                var status = await fetchInitStatus();
+                renderInitStatus(status);
+              } catch (e) {
+                try {
+                  console.warn("Pulse: init-status polling failed", e);
+                } catch (ignore) {
+                  // ignore
+                }
+              }
             };
             await run();
             initPoll = window.setInterval(run, 1500);
@@ -497,6 +550,7 @@
           var warmup = await warmupDuckdb();
           if (!warmup || warmup.ok !== true) {
             if (initPoll) window.clearInterval(initPoll);
+            if (liveMetaTimer) window.clearInterval(liveMetaTimer);
             setLoaderStep(2, "error");
             var msg = warmup && warmup.error ? String(warmup.error) : "DuckDB initialization failed";
             var el = document.getElementById("pulse-loader-error");
@@ -507,13 +561,22 @@
           }
 
           if (initPoll) window.clearInterval(initPoll);
+          if (liveMetaTimer) window.clearInterval(liveMetaTimer);
           setLoaderStep(1, "done");
           setLoaderStep(2, "done");
-          setLoaderStep(3, "active");
+          setLoaderStep(3, "done");
+          setLoaderSpinnerDone();
+          setLoaderMessage("Everything is loaded. Opening the Pulse dashboard now.");
+          var titleEl = document.getElementById("pulse-loader-title");
+          if (titleEl) titleEl.textContent = "Pulse is ready";
+          var subtitleEl = document.getElementById("pulse-loader-subtitle");
+          if (subtitleEl) subtitleEl.textContent = "Analytics are loaded and the dashboard is about to open.";
 
           if (root && warmup.durationSec != null) {
             setLoaderMeta("DuckDB init completed in " + String(warmup.durationSec) + "s");
           }
+
+          await sleep(1000);
 
           // Optional: fetch a read-only status snapshot for display.
           try {

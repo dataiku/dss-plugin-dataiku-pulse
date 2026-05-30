@@ -492,6 +492,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                             from .gold_loader import list_gold_paths
 
                             path_listing_started = time.time()
+                            _set_status_callback("listing_gold", "Listing GOLD datasets from managed folder")
                             logger.info("DuckDB ensure_database_ready: listing candidate GOLD paths")
                             view_like_names = {
                                 p.stem
@@ -520,6 +521,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                             )
 
                             load_started = time.time()
+                            _set_status_callback("loading_gold", "Loading GOLD tables into DuckDB")
                             logger.info("DuckDB ensure_database_ready: loading GOLD tables replace=%s", False)
                             report = _load_gold_tables(
                                 conn,
