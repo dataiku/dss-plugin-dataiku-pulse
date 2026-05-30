@@ -304,6 +304,10 @@ def _ensure_or_repair_scenario(
     preset_name: str,
     run_as_user: str,
     hour: int,
+    frequency: str = "Daily",
+    repeat_frequency: int = 1,
+    step_config: Mapping[str, Any] | None = None,
+    admin_config: Mapping[str, Any] | None = None,
 ) -> InitStep:
     """Create or repair a step-based scenario with a runnable step."""
 
@@ -327,12 +331,28 @@ def _ensure_or_repair_scenario(
         raw["active"] = True
 
         del settings.raw_triggers[:]
-        settings.add_daily_trigger(
-            hour=hour,
-            minute=0,
-            repeat_every=1,
-            timezone="SERVER",
-        )
+        if str(frequency).lower() == "hourly":
+            settings.raw_triggers.append(
+                {
+                    "type": "temporal",
+                    "name": "Time-based",
+                    "delay": 5,
+                    "active": True,
+                    "params": {
+                        "repeatFrequency": int(repeat_frequency),
+                        "frequency": "Hourly",
+                        "minute": 0,
+                        "timezone": "SERVER",
+                    },
+                }
+            )
+        else:
+            settings.add_daily_trigger(
+                hour=hour,
+                minute=0,
+                repeat_every=int(repeat_frequency),
+                timezone="SERVER",
+            )
 
         del settings.raw_steps[:]
         settings.raw_steps.append(
@@ -349,13 +369,17 @@ def _ensure_or_repair_scenario(
                 "maxRetriesOnFail": 0,
                 "params": {
                     "runnableType": runnable_type,
-                    "config": {
-                        "pulse_primary": {
-                            "mode": "PRESET",
-                            "name": preset_name,
+                    "config": dict(
+                        step_config
+                        if step_config is not None
+                        else {
+                            "pulse_primary": {
+                                "mode": "PRESET",
+                                "name": preset_name,
+                            }
                         }
-                    },
-                    "adminConfig": {},
+                    ),
+                    "adminConfig": dict(admin_config or {}),
                     "proceedOnFailure": False,
                 },
             }
@@ -499,23 +523,49 @@ def initialize_workers(
                 )
             )
 
-        # Scenarios (default daily @ 5PM server)
+        # Scenarios: instance/project daily @ 5PM server, audit hourly, cleanup daily @ 5PM.
         scenario_defs = [
-            ("data_gather_instance", "pyrunnable_dataiku-pulse_data-gather-instance"),
-            ("data_gather_project", "pyrunnable_dataiku-pulse_data-gather-project"),
-            (
-                "data_gather_audit_logs",
-                "pyrunnable_dataiku-pulse_data-gather-audit-logs",
-            ),
+            {
+                "name": "data_gather_instance",
+                "runnable_type": "pyrunnable_dataiku-pulse_data-gather-instance",
+                "hour": 17,
+                "frequency": "Daily",
+            },
+            {
+                "name": "data_gather_project",
+                "runnable_type": "pyrunnable_dataiku-pulse_data-gather-project",
+                "hour": 17,
+                "frequency": "Daily",
+            },
+            {
+                "name": "data_gather_audit_logs",
+                "runnable_type": "pyrunnable_dataiku-pulse_data-gather-audit-logs",
+                "hour": 17,
+                "frequency": "Hourly",
+                "repeat_frequency": 1,
+            },
+            {
+                "name": "data_gather_cleanup",
+                "runnable_type": "pyrunnable_builtin-macros_clear-scenario-logs",
+                "hour": 17,
+                "frequency": "Daily",
+                "step_config": {"age": 3, "performDeletion": True},
+                "admin_config": {"allProjects": False},
+            },
         ]
-        for scn_name, runnable_type in scenario_defs:
+        for scenario_def in scenario_defs:
+            scn_name = str(scenario_def["name"])
             scn_step = _ensure_or_repair_scenario(
                 project,
                 name=scn_name,
-                runnable_type=runnable_type,
+                runnable_type=str(scenario_def["runnable_type"]),
                 preset_name=preset_name,
                 run_as_user=run_as_user,
-                hour=17,
+                hour=int(scenario_def.get("hour", 17)),
+                frequency=str(scenario_def.get("frequency", "Daily")),
+                repeat_frequency=int(scenario_def.get("repeat_frequency", 1)),
+                step_config=scenario_def.get("step_config"),
+                admin_config=scenario_def.get("admin_config"),
             )
             steps.append(
                 InitStep(
