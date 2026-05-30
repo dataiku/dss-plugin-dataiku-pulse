@@ -110,8 +110,9 @@ def main(df: pd.DataFrame) -> pd.DataFrame:
     if login_col is None:
         return pd.DataFrame()
 
-    out[login_col] = out[login_col].astype("string")
-    out = out[out[login_col].notna() & (out[login_col].str.len() > 0)]
+    login_values = out[login_col].astype("string")
+    out = out[login_values.notna() & (login_values.str.len() > 0)].copy()
+    login_values = login_values.loc[out.index]
 
     if out.shape[0] == 0:
         return pd.DataFrame()
@@ -177,7 +178,7 @@ def main(df: pd.DataFrame) -> pd.DataFrame:
     out["developing_actions_count"] = is_developing.astype("int64")
 
     # Normalize output columns before grouping.
-    out["login"] = out[login_col].astype("string")
+    out["login"] = login_values
 
     group_cols = ["instance_name", "timestamp", "login", "project_key"]
     for c in group_cols:
