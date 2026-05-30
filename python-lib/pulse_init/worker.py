@@ -497,7 +497,14 @@ def initialize_workers(
                 update_github=update_github,
                 force_skip_github=force_skip_github,
             )
-            steps.extend(plugin_steps)
+            steps.extend(
+                InitStep(
+                    step=f"worker:{worker_url}:{step.step}",
+                    status=step.status,
+                    message=step.message,
+                )
+                for step in plugin_steps
+            )
             if any(step.status == "error" for step in plugin_steps):
                 continue
         else:
