@@ -131,6 +131,9 @@ def normalize_silver(
 
     out = _ensure_required_columns(out, required_with_globals)
 
+    if out.columns.duplicated().any():
+        out = out.loc[:, ~out.columns.duplicated()]
+
     # Flatten + pack extras (must happen before casting)
     rows = [
         pack_extras(row=row, required_columns=required_with_globals)

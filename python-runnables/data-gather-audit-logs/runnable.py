@@ -422,7 +422,14 @@ class MyRunnable(Runnable):
 
                         parquet_name = f"audit_logs-{run_epoch_ms}-{chunk_idx}.parquet"
                         dq_name = f"audit_logs-{run_epoch_ms}-{chunk_idx}.dq.json.gz"
-                        event_date = pd.Timestamp(silver_df["timestamp"].max()).date() if "timestamp" in silver_df.columns else chunk_max_ts.date()
+                        if "timestamp" in silver_df.columns:
+                            event_ts = pd.to_datetime(silver_df["timestamp"].max(), utc=True, errors="coerce")
+                            if pd.isna(event_ts):
+                                event_date = chunk_max_ts.date()
+                            else:
+                                event_date = event_ts.date()
+                        else:
+                            event_date = chunk_max_ts.date()
 
                         silver_path = self._build_partition_dir(
                             layout=layout,
