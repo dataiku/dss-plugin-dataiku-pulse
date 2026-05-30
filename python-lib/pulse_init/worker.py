@@ -70,6 +70,7 @@ def _sync_plugin_from_hub(
     remote_client: Any,
     hub_params: Mapping[str, Any],
     preset_name: str,
+    run_as_user: str,
     update_github: bool,
     force_skip_github: bool,
 ) -> list[InitStep]:
@@ -90,9 +91,25 @@ def _sync_plugin_from_hub(
         ]
 
     plugin_id = "dataiku-pulse"
+    plugin_client = remote_client
+
+    if not force_skip_github:
+        try:
+            plugin_client = remote_client.get_user(run_as_user).get_client_as()
+            steps.append(
+                InitStep(step=f"remote:impersonate:{run_as_user}", status="ok")
+            )
+        except Exception as e:
+            return [
+                InitStep(
+                    step=f"remote:impersonate:{run_as_user}",
+                    status="error",
+                    message=repr(e),
+                )
+            ]
 
     try:
-        exists = _plugin_exists(remote_client, plugin_id)
+        exists = _plugin_exists(plugin_client, plugin_id)
     except Exception as e:
         return [
             InitStep(
@@ -119,7 +136,7 @@ def _sync_plugin_from_hub(
             steps.append(InitStep(step="remote:update_code_env", status="skipped"))
 
         elif not exists:
-            fut = remote_client.install_plugin_from_git(
+            fut = plugin_client.install_plugin_from_git(
                 repository_url=repo_url,
                 checkout=repo_branch,
                 subpath=None,
@@ -135,7 +152,7 @@ def _sync_plugin_from_hub(
                 ]
             steps.append(InitStep(step="remote:install_plugin", status="created"))
 
-            plugin_handle = remote_client.get_plugin(plugin_id=plugin_id)
+            plugin_handle = plugin_client.get_plugin(plugin_id=plugin_id)
             fut = plugin_handle.create_code_env()
             res = fut.wait_for_result()
             # Some DSS versions return messages under get_result
@@ -161,7 +178,7 @@ def _sync_plugin_from_hub(
             )
 
             if update_github:
-                plugin_handle = remote_client.get_plugin(plugin_id=plugin_id)
+                plugin_handle = plugin_client.get_plugin(plugin_id=plugin_id)
                 fut = plugin_handle.update_from_git(
                     repository_url=repo_url,
                     checkout=repo_branch,
@@ -494,6 +511,7 @@ def initialize_workers(
                 remote_client=client,
                 hub_params=hub_params,
                 preset_name=preset_name,
+                run_as_user=run_as_user,
                 update_github=update_github,
                 force_skip_github=force_skip_github,
             )
