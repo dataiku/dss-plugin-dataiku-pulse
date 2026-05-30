@@ -49,11 +49,13 @@ class MyRunnable(Runnable):
         )
 
         update_github = bool(self.config.get("update_github", False))
+        force_skip_github = bool(self.config.get("force_skip_github", False))
         force_scenarios = bool(self.config.get("force_scenarios", False))
 
         steps = initialize_workers(
             hub_params=param_set,
             update_github=update_github,
+            force_skip_github=force_skip_github,
             force_scenarios=force_scenarios,
         )
 

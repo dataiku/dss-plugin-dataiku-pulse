@@ -71,6 +71,7 @@ def _sync_plugin_from_hub(
     hub_params: Mapping[str, Any],
     preset_name: str,
     update_github: bool,
+    force_skip_github: bool,
 ) -> list[InitStep]:
     """Install/update plugin + code env + preset config on a remote DSS."""
 
@@ -102,7 +103,22 @@ def _sync_plugin_from_hub(
         ]
 
     try:
-        if not exists:
+        if force_skip_github:
+            if not exists:
+                return [
+                    InitStep(
+                        step="remote:plugin_sync",
+                        status="error",
+                        message="Plugin not found; please install by hand",
+                    )
+                ]
+
+            steps.append(InitStep(step="remote:install_plugin", status="skipped"))
+            steps.append(InitStep(step="remote:update_from_git", status="skipped"))
+            steps.append(InitStep(step="remote:create_code_env", status="skipped"))
+            steps.append(InitStep(step="remote:update_code_env", status="skipped"))
+
+        elif not exists:
             fut = remote_client.install_plugin_from_git(
                 repository_url=repo_url,
                 checkout=repo_branch,
@@ -396,6 +412,7 @@ def initialize_workers(
     *,
     hub_params: Mapping[str, Any],
     update_github: bool,
+    force_skip_github: bool,
     force_scenarios: bool,
 ) -> list[InitStep]:
     """Initialize and sync Pulse worker nodes."""
@@ -473,14 +490,16 @@ def initialize_workers(
 
         # Sync plugin remotely (skip when worker is hub)
         if not is_hub:
-            steps.extend(
-                _sync_plugin_from_hub(
-                    remote_client=client,
-                    hub_params=hub_params,
-                    preset_name=preset_name,
-                    update_github=update_github,
-                )
+            plugin_steps = _sync_plugin_from_hub(
+                remote_client=client,
+                hub_params=hub_params,
+                preset_name=preset_name,
+                update_github=update_github,
+                force_skip_github=force_skip_github,
             )
+            steps.extend(plugin_steps)
+            if any(step.status == "error" for step in plugin_steps):
+                continue
         else:
             steps.append(
                 InitStep(step=f"worker:{worker_url}:plugin_sync", status="skipped")

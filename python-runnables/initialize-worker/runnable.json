@@ -29,6 +29,13 @@
         },
         {
             "type": "BOOLEAN",
+            "name": "force_skip_github",
+            "label": "Force skip github",
+            "description": "Skip git install/update steps; requires manual plugin installation on workers.",
+            "defaultValue": false
+        },
+        {
+            "type": "BOOLEAN",
             "name": "force_scenarios",
             "label": "Check to force scenario runs.",
             "defaultValue": false
