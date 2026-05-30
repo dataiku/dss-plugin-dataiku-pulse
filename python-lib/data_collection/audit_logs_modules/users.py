@@ -97,7 +97,16 @@ def main(df: pd.DataFrame) -> pd.DataFrame:
 
     out = out[_is_truthy_ui_auth_source(out)]
 
-    login_col = _first_present(set(out.columns), ["message_login", "message_user", "login"])
+    login_col = _first_present(
+        set(out.columns),
+        [
+            "message_login",
+            "message_user",
+            "message_authUser",
+            "mdc_user",
+            "login",
+        ],
+    )
     if login_col is None:
         return pd.DataFrame()
 
