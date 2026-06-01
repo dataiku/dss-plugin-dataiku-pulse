@@ -186,6 +186,8 @@ def _metadata_summary_payload_from_queries(_query_df, *, summary_sql: str, by_ty
 
 _startup_init_lock = threading.Lock()
 _startup_init_started = False
+_startup_check_completed = False
+_backend_started_at = time.time()
 _startup_init_status: dict[str, Any] = {
     "state": "idle",
     "message": "Waiting to check DuckDB startup state",
@@ -193,7 +195,14 @@ _startup_init_status: dict[str, Any] = {
     "startedAt": None,
     "finishedAt": None,
     "durationSec": None,
+    "backendStartedAt": _backend_started_at,
     "dbPath": None,
+    "metadataPath": None,
+    "dbMtime": None,
+    "startupCheckPerformed": False,
+    "stale": False,
+    "staleReason": None,
+    "rebuildTriggeredBy": None,
     "report": None,
     "error": None,
 }
@@ -237,6 +246,7 @@ class RequestValidationError(ValueError):
 try:
     from pulse_dashboard import settings as pulse_settings  # type: ignore
     from pulse_dashboard.pulse_duckdb.engine import create_connection, ensure_database_ready, is_initialization_in_progress, query_df  # type: ignore
+    from pulse_dashboard.pulse_duckdb.engine.init_db import read_duckdb_metadata  # type: ignore
 except Exception:
     try:
         repo_root = Path(__file__).resolve().parents[2]
@@ -246,6 +256,7 @@ except Exception:
 
         from pulse_dashboard import settings as pulse_settings  # type: ignore
         from pulse_dashboard.pulse_duckdb.engine import create_connection, ensure_database_ready, is_initialization_in_progress, query_df  # type: ignore
+        from pulse_dashboard.pulse_duckdb.engine.init_db import read_duckdb_metadata  # type: ignore
     except Exception:
         logger.exception("Failed to import Pulse dashboard libraries")
         pulse_settings = None
@@ -253,9 +264,11 @@ except Exception:
         ensure_database_ready = None
         is_initialization_in_progress = None
         query_df = None
+        read_duckdb_metadata = None
 
 if pulse_settings is not None:
     setattr(pulse_settings, "PULSE_INIT_STATUS_CALLBACK", _update_startup_init_phase)
+    setattr(pulse_settings, "PULSE_BACKEND_STARTED_AT", _backend_started_at)
 
 
 @bp.route("/__ping", endpoint="pulse_dashboard_ping")
@@ -776,6 +789,8 @@ def startup_status():
 
 
 def _run_startup_duckdb_init() -> None:
+    global _startup_check_completed
+
     if ensure_database_ready is None:
         _startup_init_status.update(
             {
@@ -787,6 +802,7 @@ def _run_startup_duckdb_init() -> None:
             }
         )
         logger.warning("Pulse webapp startup init skipped: DuckDB engine unavailable")
+        _startup_check_completed = True
         return
 
     try:
@@ -844,6 +860,7 @@ def _run_startup_duckdb_init() -> None:
                 duration_sec,
                 report,
             )
+        _startup_check_completed = True
     except Exception:
         finished_at = time.time()
         duration_sec = None
@@ -863,10 +880,55 @@ def _run_startup_duckdb_init() -> None:
             }
         )
         logger.exception("Pulse webapp startup: DuckDB initialization failed")
+        _startup_check_completed = True
+
+
+def _safe_duckdb_metadata() -> dict[str, Any]:
+    if read_duckdb_metadata is None:
+        return {}
+    try:
+        payload = cast(dict[str, Any], read_duckdb_metadata())
+    except Exception:
+        logger.warning("Pulse webapp startup: failed reading DuckDB metadata", exc_info=True)
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _evaluate_startup_duckdb_state(duckdb_path: Path) -> dict[str, Any]:
+    metadata_path = Path(getattr(pulse_settings, "DUCKDB_METADATA_PATH", f"{duckdb_path}.meta.json"))
+    metadata = _safe_duckdb_metadata()
+    exists = duckdb_path.exists()
+    db_mtime = duckdb_path.stat().st_mtime if exists else None
+    tolerance_sec = float(getattr(pulse_settings, "PULSE_DUCKDB_STARTUP_STALE_TOLERANCE_SEC", 5.0) or 0.0)
+
+    stale = False
+    stale_reason = "missing"
+    if exists:
+        stale_reason = None
+        rebuild_on_restart = bool(getattr(pulse_settings, "PULSE_DUCKDB_REBUILD_ON_STARTUP_STALE", True))
+        if rebuild_on_restart and db_mtime is not None and db_mtime < (_backend_started_at - tolerance_sec):
+            stale = True
+            stale_reason = "older_than_backend_start"
+
+    return {
+        "exists": exists,
+        "dbMtime": db_mtime,
+        "metadataPath": str(metadata_path),
+        "metadata": metadata,
+        "stale": stale if exists else True,
+        "staleReason": stale_reason,
+    }
+
+
+def _delete_stale_duckdb(duckdb_path: Path, metadata_path: Path) -> None:
+    if duckdb_path.exists():
+        duckdb_path.unlink()
+    if metadata_path.exists():
+        metadata_path.unlink()
 
 
 def _maybe_schedule_startup_duckdb_init() -> None:
-    global _startup_init_started
+    global _startup_check_completed, _startup_init_started
 
     if pulse_settings is None or ensure_database_ready is None:
         _startup_init_status.update(
@@ -891,18 +953,60 @@ def _maybe_schedule_startup_duckdb_init() -> None:
         )
         return
     _startup_init_status["dbPath"] = str(duckdb_path)
-    if duckdb_path.exists():
+    startup_db_state = _evaluate_startup_duckdb_state(duckdb_path)
+    _startup_init_status.update(
+        {
+            "metadataPath": startup_db_state.get("metadataPath"),
+            "dbMtime": startup_db_state.get("dbMtime"),
+            "startupCheckPerformed": True,
+            "stale": bool(startup_db_state.get("stale", False)),
+            "staleReason": startup_db_state.get("staleReason"),
+        }
+    )
+
+    if _startup_check_completed:
+        return
+
+    if startup_db_state.get("exists") and not startup_db_state.get("stale"):
         _startup_init_status.update(
             {
                 "state": "ready",
                 "phase": "frontend_ready",
-                "message": "DuckDB file already present",
+                "message": "DuckDB file already present and fresh for this backend",
                 "finishedAt": time.time(),
                 "durationSec": 0.0,
                 "error": None,
             }
         )
+        _startup_check_completed = True
         return
+
+    if startup_db_state.get("exists") and startup_db_state.get("stale"):
+        try:
+            _delete_stale_duckdb(duckdb_path, Path(str(startup_db_state.get("metadataPath") or f"{duckdb_path}.meta.json")))
+            _startup_init_status["rebuildTriggeredBy"] = "startup_stale"
+            logger.info(
+                "Pulse webapp startup: deleted stale DuckDB at %s because %s",
+                duckdb_path,
+                startup_db_state.get("staleReason"),
+            )
+        except Exception as exc:
+            _startup_init_status.update(
+                {
+                    "state": "failed",
+                    "phase": "failed",
+                    "message": "Failed deleting stale DuckDB before startup rebuild",
+                    "finishedAt": time.time(),
+                    "error": str(exc),
+                    "stale": True,
+                    "staleReason": "delete_failed",
+                }
+            )
+            _startup_check_completed = True
+            logger.exception("Pulse webapp startup: failed deleting stale DuckDB at %s", duckdb_path)
+            return
+    else:
+        _startup_init_status["rebuildTriggeredBy"] = "missing"
 
     with _startup_init_lock:
         if _startup_init_started:

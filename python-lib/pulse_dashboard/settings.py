@@ -19,12 +19,19 @@ PORT = int(os.getenv("PULSE_PORT", "8995"))
 
 DUCKDB_DIR = Path(os.getenv("PULSE_DUCKDB_DIR", str(Path(tempfile.gettempdir()) / "pulse")))
 DUCKDB_PATH = Path(os.getenv("PULSE_DUCKDB_PATH", str(DUCKDB_DIR / "dataiku_pulse.db")))
+DUCKDB_METADATA_PATH = Path(os.getenv("PULSE_DUCKDB_METADATA_PATH", f"{DUCKDB_PATH}.meta.json"))
 
 DUCKDB_READ_ONLY = os.getenv("PULSE_DUCKDB_READ_ONLY", "0").lower() in ("1", "true", "yes")
 
 PULSE_AUTO_INIT_DUCKDB = os.getenv("PULSE_AUTO_INIT_DUCKDB", "1").lower() in ("1", "true", "yes")
 PULSE_AUTO_LOAD_GOLD_TABLES = os.getenv("PULSE_AUTO_LOAD_GOLD_TABLES", "1").lower() in ("1", "true", "yes")
 PULSE_AUTO_LOAD_REPLACE = os.getenv("PULSE_AUTO_LOAD_REPLACE", "0").lower() in ("1", "true", "yes")
+PULSE_DUCKDB_REBUILD_ON_STARTUP_STALE = os.getenv("PULSE_DUCKDB_REBUILD_ON_STARTUP_STALE", "1").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+PULSE_DUCKDB_STARTUP_STALE_TOLERANCE_SEC = float(os.getenv("PULSE_DUCKDB_STARTUP_STALE_TOLERANCE_SEC", "5"))
 
 
 def _resolve_default_project_key() -> str | None:
@@ -103,3 +110,4 @@ PULSE_HUB_INSTANCE_NAMES = os.getenv("PULSE_HUB_INSTANCE_NAMES", "")
 
 def ensure_duckdb_parent_dir() -> None:
     DUCKDB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    DUCKDB_METADATA_PATH.parent.mkdir(parents=True, exist_ok=True)

@@ -13,6 +13,7 @@ this module also includes a simple file lock to avoid concurrent rebuilds.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from contextlib import contextmanager
@@ -38,6 +39,45 @@ _EXPECTED_STARTUP_TABLES = {
     "dev_activity_capability_daily",
     "final_build_development_activity_events",
 }
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _duckdb_metadata_path() -> Path:
+    return Path(getattr(settings, "DUCKDB_METADATA_PATH", Path(f"{settings.DUCKDB_PATH}.meta.json")))
+
+
+def read_duckdb_metadata() -> dict[str, object]:
+    metadata_path = _duckdb_metadata_path()
+    if not metadata_path.exists():
+        return {}
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.warning("DuckDB metadata read failed at %s", metadata_path, exc_info=True)
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def write_duckdb_metadata(*, build_reason: str, backend_started_at: float | None = None) -> None:
+    metadata_path = _duckdb_metadata_path()
+    settings.ensure_duckdb_parent_dir()
+    now_iso = _utc_now_iso()
+    payload = read_duckdb_metadata()
+    payload.update(
+        {
+            "dbPath": str(settings.DUCKDB_PATH),
+            "metadataPath": str(metadata_path),
+            "lastRebuildAt": now_iso,
+            "buildReason": str(build_reason),
+        }
+    )
+    payload.setdefault("dbCreatedAt", now_iso)
+    if backend_started_at is not None:
+        payload["backendStartedAtSeen"] = float(backend_started_at)
+    metadata_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def _set_status_callback(phase: str, message: str) -> None:
@@ -633,6 +673,11 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         gold_tables_loaded,
                         reason,
                     )
+                    if ok:
+                        write_duckdb_metadata(
+                            build_reason=str(reason),
+                            backend_started_at=getattr(settings, "PULSE_BACKEND_STARTED_AT", None),
+                        )
                     _set_status_callback(
                         "frontend_ready" if ok else "failed",
                         "DuckDB initialization complete" if ok else "DuckDB initialization failed",
@@ -656,4 +701,3 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
         return {"ok": False, "initialized": False, "gold_loaded": False, "error": str(e)}
     finally:
         set_init_in_progress(False)
-
