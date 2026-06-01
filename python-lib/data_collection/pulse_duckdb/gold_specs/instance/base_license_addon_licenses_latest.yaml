@@ -1,0 +1,19 @@
+base_license_addon_licenses_latest:
+  description: >
+    Latest addon-license flags per instance and addon key.
+
+    This table keeps the newest boolean addon state for each
+    (instance_name, addon_key).
+
+  depends_on: []
+  build_order: 10
+
+  category: license
+  module: addon_licenses
+
+  template: latest_by_partition
+  base_table_name: base_license_addon_licenses_latest
+  view_table_name: v_license__addon_licenses
+  partition_keys:
+    - instance_name
+    - addon_key

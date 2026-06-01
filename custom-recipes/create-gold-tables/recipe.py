@@ -277,6 +277,23 @@ def _build_dim_category_to_capability(conn: duckdb.DuckDBPyConnection, *, base_d
     return "dim_category_to_capability"
 
 
+def _build_dim_addon_feature_flags(conn: duckdb.DuckDBPyConnection) -> str:
+    """Build global addon availability flags from latest instance addon rows."""
+
+    conn.execute(
+        """
+        CREATE OR REPLACE TABLE dim_addon_feature_flags AS
+        SELECT
+          addon_key,
+          BOOL_OR(COALESCE(addon_enabled, FALSE)) AS enabled_any_instance
+        FROM base_license_addon_licenses_latest
+        GROUP BY addon_key
+        ORDER BY addon_key;
+        """.strip()
+    )
+    return "dim_addon_feature_flags"
+
+
 def _load_object_activity_modules(base_dir: Path) -> list[str]:
     """Load object-activity modules from YAML.
 
@@ -673,8 +690,8 @@ def run() -> dict:
         gold_builder_path = Path(gold_builder_module.__file__).resolve()
         base_dir = gold_builder_path.parent / "gold_specs"
         spec_paths = sorted(
-            list((base_dir / "project").glob("base_*_history.yaml"))
-            + list((base_dir / "instance").glob("base_*_history.yaml"))
+            list((base_dir / "project").glob("base_*.yaml"))
+            + list((base_dir / "instance").glob("base_*.yaml"))
         )
 
         for spec_path in spec_paths:
@@ -695,6 +712,9 @@ def run() -> dict:
                     continue
 
             apply_gold_spec(setup.conn, spec)
+
+        if "base_license_addon_licenses_latest" in set(setup.conn.execute("SHOW TABLES").fetchdf()["name"].tolist()):
+            _build_dim_addon_feature_flags(setup.conn)
 
         # Build development activity dimension + event fact table.
         #

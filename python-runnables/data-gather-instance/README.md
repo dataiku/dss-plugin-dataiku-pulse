@@ -6,6 +6,7 @@ This runnable is intended to be packaged as a Dataiku plugin macro.
 
 - Loads plugin settings from the single macro parameter set: `plugin_config["pulse_primary"]`
 - Uses a local client (`dataiku.api_client()`) to discover all no-arg `client.list_*` methods on the current DSS instance
+- Executes curated custom instance calls such as `client.get_licensing_status()` through the same raw/silver pipeline
 - Uses a remote client (`dataikuapi.DSSClient`) to upload results to the hub/dashboard project managed folder
 - For each `list_*` method:
   - Uses `{category} = <method_name without the list_ prefix>`
@@ -58,6 +59,16 @@ At the end of this macro run:
   - `python-lib/data_collection/collection_exclusions/instance_project_inclusion.yaml`
 
 These are written once (using the same RAW/SILVER pattern) under the worker project key.
+
+## Custom instance calls
+
+The runnable also supports curated non-`list_*` instance methods.
+
+Current custom calls:
+- `get_licensing_status`: writes RAW licensing payload and splits SILVER outputs into:
+  - `category=license/module=license_status`
+  - `category=license/module=max_licenses`
+  - `category=license/module=addon_licenses`
 
 ## Method-specific rules
 

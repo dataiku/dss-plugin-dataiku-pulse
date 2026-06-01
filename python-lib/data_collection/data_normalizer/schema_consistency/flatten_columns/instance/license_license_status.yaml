@@ -1,0 +1,14 @@
+- instance_id
+- license_kind
+- license_id
+- has_license
+- valid
+- expired
+- community
+- fallback_profile
+- expires_on
+- licensee_company
+- licensee_name
+- standard_offer
+- emitted_by
+- emitted_on

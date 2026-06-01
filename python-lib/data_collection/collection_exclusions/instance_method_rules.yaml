@@ -27,3 +27,9 @@ methods:
     call_mode: auto
     cleanup_mode: none
     notes: Disabled by rule until safe handling for secrets-sensitive fields is defined.
+
+  get_licensing_status:
+    enabled: true
+    call_mode: auto
+    cleanup_mode: python_hook
+    notes: Normalize DSS licensing base payload into stable status, max-license, and addon columns.

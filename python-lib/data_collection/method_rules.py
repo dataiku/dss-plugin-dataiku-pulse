@@ -239,6 +239,7 @@ def collect_method_output(
 
         prefix = f"{layout.prefix_base(artifact_name)}_"
         raw_df = raw_to_dataframe(payload, prefix=prefix)
+        raw_df.attrs["pulse_raw_payload"] = payload
         raw_df = cleanup_dataframe(rule, raw_df, context)
         if raw_df.shape[0] == 0:
             return MethodCollectResult(method_name, context.scope, "empty_dataframe", 0, 0, int((time.time() - started) * 1000), rule_mode=rule.call_mode)

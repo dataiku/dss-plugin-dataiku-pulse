@@ -1,0 +1,19 @@
+base_license_max_licenses_latest:
+  description: >
+    Latest maximum license caps per instance and license profile.
+
+    This table preserves sub-license splits by keeping one row per
+    (instance_name, license_profile).
+
+  depends_on: []
+  build_order: 10
+
+  category: license
+  module: max_licenses
+
+  template: latest_by_partition
+  base_table_name: base_license_max_licenses_latest
+  view_table_name: v_license__max_licenses
+  partition_keys:
+    - instance_name
+    - license_profile

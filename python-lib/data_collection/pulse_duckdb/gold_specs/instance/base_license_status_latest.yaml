@@ -1,0 +1,17 @@
+base_license_status_latest:
+  description: >
+    Latest license status row per instance.
+
+    This table keeps the newest observed license status for each instance_name.
+
+  depends_on: []
+  build_order: 10
+
+  category: license
+  module: license_status
+
+  template: latest_by_partition
+  base_table_name: base_license_status_latest
+  view_table_name: v_license__license_status
+  partition_keys:
+    - instance_name
