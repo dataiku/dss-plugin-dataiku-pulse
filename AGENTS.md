@@ -107,7 +107,8 @@ bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/s
 Important rules for agents:
 - Make frontend source edits in `dataiku-pulse.extras/webapps/entry_point/frontend/`, not in `resource/pulse-dashboard/build/`.
 - Keep `webapps/pulse-dashboard/` in this plugin repo for backend/wrapper changes only.
-- After frontend edits, rebuild and sync so `dataiku-pulse/resource/pulse-dashboard/build/` is refreshed before handing work back.
+- After every frontend source change, immediately rebuild and sync so `dataiku-pulse/resource/pulse-dashboard/build/` is refreshed before handing work back.
+- Do not leave frontend-only edits applied in `dataiku-pulse.extras` without also syncing the compiled build into `dataiku-pulse` during the same task, unless the user explicitly asks not to.
 - The sync script in `dataiku-pulse.extras/scripts/` now targets the plugin repo (`dataiku-pulse`) by default.
 - Ignore or remove stale duplicate packaged builds under `dataiku-pulse.extras/resource/`; they are not the served source of truth.
 
