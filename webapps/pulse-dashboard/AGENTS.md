@@ -6,9 +6,11 @@ Scope: `webapps/pulse-dashboard/` and `resource/pulse-dashboard/`
 
 This webapp is packaged inside the plugin and is split into:
 
-- **Frontend**: React build output under `resource/pulse-dashboard/build/`
+- **Frontend (served output)**: React build output under `resource/pulse-dashboard/build/`
 - **Backend**: Dataiku webapp backend under `webapps/pulse-dashboard/backend.py`
 - **Shared backend helpers**: `python-lib/pulse_dashboard/`
+
+In this workspace, the editable frontend source does **not** live in this repo. It lives in `dataiku-pulse.extras` and must be built/synced into this plugin repo.
 
 ## Key conventions
 
@@ -35,11 +37,17 @@ This webapp is packaged inside the plugin and is split into:
 
 ## Frontend source (not in repo)
 
-The plugin repository intentionally stores only the built frontend under `resource/pulse-dashboard/build/`.
+The plugin repository intentionally stores only the built frontend under `resource/pulse-dashboard/build/`. Do not edit that build output directly.
 
 In this Code Studio workspace, the React source used to produce that build lives at:
 - `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/`
 
 Rebuild + sync flow:
 - Build: `bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/scripts/build_frontend.sh`
-- Sync into plugin: `scripts/sync_pulse_dashboard_build.sh /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/build`
+- Sync into plugin: `bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/scripts/sync_pulse_dashboard_build.sh /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/build`
+
+Practical rules:
+- Frontend feature/UI work happens in `dataiku-pulse.extras/webapps/entry_point/frontend/`.
+- Backend/wrapper work happens in `dataiku-pulse/webapps/pulse-dashboard/`.
+- The served packaged assets must end up in `dataiku-pulse/resource/pulse-dashboard/build/`.
+- A duplicate build under `dataiku-pulse.extras/resource/pulse-dashboard/` is not the served source of truth and should not be relied on.

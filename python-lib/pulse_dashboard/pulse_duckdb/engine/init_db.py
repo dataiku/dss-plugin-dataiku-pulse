@@ -22,6 +22,7 @@ from pathlib import Path, PurePosixPath
 import yaml
 
 from .create_conn import create_connection
+from .init_state import set_init_in_progress
 
 from ... import settings
 
@@ -424,6 +425,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
     _set_status_callback("waiting_lock", "Waiting for DuckDB init lock")
 
     try:
+        set_init_in_progress(True)
         logger.info("DuckDB ensure_database_ready: waiting for init lock at %s", settings.PULSE_DUCKDB_INIT_LOCK_PATH)
         with _duckdb_init_lock():
             _set_status_callback("preparing_db", "Init lock acquired; preparing local DuckDB")
@@ -652,3 +654,6 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
     except TimeoutError as e:
         logger.warning("DuckDB init lock timeout: %s", e)
         return {"ok": False, "initialized": False, "gold_loaded": False, "error": str(e)}
+    finally:
+        set_init_in_progress(False)
+

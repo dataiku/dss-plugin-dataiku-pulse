@@ -14,8 +14,9 @@ Most runtime code executes **inside DSS** and relies on `dataiku` / `dataikuapi`
   - `python-lib/pulse_init/`: initialization helpers for hub/worker bootstrap
 - `python-runnables/`: plugin runnables (`data-gather-*`, `initialize-*`) used by macros
 - `custom-recipes/`: plugin recipes (notably `create-gold-tables`)
-- `webapps/pulse-dashboard/`: DSS webapp wrapper + Flask backend
-- `resource/pulse-dashboard/build/`: committed **built** frontend assets (generated)
+- `webapps/pulse-dashboard/`: DSS webapp wrapper + Flask backend for the packaged plugin
+- `resource/pulse-dashboard/build/`: committed **built** frontend assets served by the plugin
+- `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/`: editable React source used to produce the packaged frontend
 - `code-env/python/spec/requirements.txt`: Dataiku code-env dependency spec
 
 **Scoped agent notes (must obey when editing within scope)**
@@ -91,22 +92,24 @@ python -m flask --app webapps/pulse-dashboard/backend.py run --port 8995
 
 ### Sync the React build into the plugin
 
-Do not hand-edit `resource/pulse-dashboard/build/`.
-To update packaged frontend assets from an already-built React app:
+Do not hand-edit `resource/pulse-dashboard/build/`. That folder is generated packaged output served by the plugin.
 
-```bash
-scripts/sync_pulse_dashboard_build.sh /abs/path/to/react/build
-```
-
-In this Code Studio workspace, the React source for the Pulse dashboard lives outside the plugin repo at:
+In this Code Studio workspace, the authoritative editable React source lives outside the plugin repo at:
 - `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/`
 
-Typical workflow:
+Canonical workflow:
 
 ```bash
 bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/scripts/build_frontend.sh
-scripts/sync_pulse_dashboard_build.sh /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/build
+bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/scripts/sync_pulse_dashboard_build.sh /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/build
 ```
+
+Important rules for agents:
+- Make frontend source edits in `dataiku-pulse.extras/webapps/entry_point/frontend/`, not in `resource/pulse-dashboard/build/`.
+- Keep `webapps/pulse-dashboard/` in this plugin repo for backend/wrapper changes only.
+- After frontend edits, rebuild and sync so `dataiku-pulse/resource/pulse-dashboard/build/` is refreshed before handing work back.
+- The sync script in `dataiku-pulse.extras/scripts/` now targets the plugin repo (`dataiku-pulse`) by default.
+- Ignore or remove stale duplicate packaged builds under `dataiku-pulse.extras/resource/`; they are not the served source of truth.
 
 When editing the external Pulse dashboard frontend source at `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/`, agents should automatically rebuild the frontend and sync the resulting build into `resource/pulse-dashboard/build/` before handing work back, unless the user explicitly asks not to.
 

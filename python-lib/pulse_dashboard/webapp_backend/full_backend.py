@@ -236,7 +236,7 @@ class RequestValidationError(ValueError):
 # In DSS, python-lib is automatically available; in local dev we add it to sys.path.
 try:
     from pulse_dashboard import settings as pulse_settings  # type: ignore
-    from pulse_dashboard.pulse_duckdb.engine import create_connection, ensure_database_ready, query_df  # type: ignore
+    from pulse_dashboard.pulse_duckdb.engine import create_connection, ensure_database_ready, is_initialization_in_progress, query_df  # type: ignore
 except Exception:
     try:
         repo_root = Path(__file__).resolve().parents[2]
@@ -245,12 +245,13 @@ except Exception:
             sys.path.insert(0, str(python_lib))
 
         from pulse_dashboard import settings as pulse_settings  # type: ignore
-        from pulse_dashboard.pulse_duckdb.engine import create_connection, ensure_database_ready, query_df  # type: ignore
+        from pulse_dashboard.pulse_duckdb.engine import create_connection, ensure_database_ready, is_initialization_in_progress, query_df  # type: ignore
     except Exception:
         logger.exception("Failed to import Pulse dashboard libraries")
         pulse_settings = None
         create_connection = None
         ensure_database_ready = None
+        is_initialization_in_progress = None
         query_df = None
 
 if pulse_settings is not None:
@@ -720,6 +721,21 @@ def startup_status():
     missing_expected: list[str] = []
 
     if exists and create_connection is not None:
+        if _duckdb_init_in_progress():
+            missing_expected = list(expected_objects)
+            return _ok(
+                {
+                    "duckdb": {
+                        "path": duckdb_path,
+                        "exists": exists,
+                        "sizeBytes": size_bytes,
+                        "initializing": True,
+                    },
+                    "ready": False,
+                    "expected": {"present": present_expected, "missing": missing_expected},
+                    "tables": tables,
+                }
+            )
         try:
             conn = create_connection(read_only=True)
             try:
@@ -1173,6 +1189,19 @@ def _safe_ident(name: str) -> str:
     return name
 
 
+def _duckdb_init_in_progress() -> bool:
+    if is_initialization_in_progress is None:
+        return False
+    try:
+        return bool(is_initialization_in_progress())
+    except Exception:
+        return False
+
+
+def _duckdb_busy_response(message: str = "DuckDB is initializing"):
+    return _ok({"ok": False, "busy": True, "initializing": True, "error": message}, status=503)
+
+
 def _require_duckdb_engine():
     if query_df is None or create_connection is None or ensure_database_ready is None:
         raise RuntimeError("pulse_duckdb not available")
@@ -1275,6 +1304,8 @@ def debug_duckdb_tables():
     _require_debug_access()
     _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
     _ensure_ready_if_enabled()
+    if _duckdb_init_in_progress():
+        return _duckdb_busy_response()
     conn = _create_connection(read_only=True)
     try:
         rows = conn.execute("PRAGMA show_tables;").fetchall()
@@ -1292,6 +1323,9 @@ def debug_duckdb_table(table_name: str):
     _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
     _ensure_ready_if_enabled()
     table_name = _safe_ident(table_name)
+
+    if _duckdb_init_in_progress():
+        return _duckdb_busy_response()
 
     conn = _create_connection(read_only=True)
     try:
