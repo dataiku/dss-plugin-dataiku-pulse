@@ -11,6 +11,11 @@
 - scenarios_markedastest
 - scenarios_running
 - enabled
+- addon_enabled
+- has_license
+- valid
+- expired
+- community
 - trial_exists
 - trial_valid
 - trial_expired

@@ -285,7 +285,7 @@ def _build_dim_addon_feature_flags(conn: duckdb.DuckDBPyConnection) -> str:
         CREATE OR REPLACE TABLE dim_addon_feature_flags AS
         SELECT
           addon_key,
-          BOOL_OR(COALESCE(addon_enabled, FALSE)) AS enabled_any_instance
+          BOOL_OR(COALESCE(try_cast(addon_enabled AS BOOLEAN), FALSE)) AS enabled_any_instance
         FROM base_license_addon_licenses_latest
         GROUP BY addon_key
         ORDER BY addon_key;
