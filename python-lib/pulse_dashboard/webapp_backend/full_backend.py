@@ -604,6 +604,35 @@ def startup_duckdb():
     if ensure_database_ready is None:
         return _err("pulse_duckdb not available", status=500)
 
+    if _duckdb_init_in_progress():
+        started_at = _startup_init_status.get("startedAt")
+        duration_sec = None
+        if started_at is not None:
+            try:
+                duration_sec = round(time.time() - float(started_at), 3)
+            except Exception:
+                duration_sec = None
+        _startup_init_status.update(
+            {
+                "state": "running",
+                "message": "DuckDB initialization is still running",
+                "finishedAt": None,
+                "durationSec": duration_sec,
+                "error": None,
+            }
+        )
+        return _ok(
+            {
+                "load": {
+                    "ok": True,
+                    "pending": True,
+                    "message": "DuckDB initialization is still running",
+                },
+                "durationSec": duration_sec,
+                "pending": True,
+            }
+        )
+
     started = time.time()
     _startup_init_status.update(
         {
