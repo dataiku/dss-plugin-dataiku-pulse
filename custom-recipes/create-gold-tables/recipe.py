@@ -102,7 +102,10 @@ def _inject_wide_license_sql(spec_path: Path, *, base_dir: Path) -> None:
             )
         )
 
-    wide_columns = "\n" + "\n".join(column_lines)
+    if column_lines:
+        column_lines[-1] = column_lines[-1].rstrip(",")
+
+    wide_columns = ",\n" + "\n".join(column_lines)
     text = spec_path.read_text(encoding="utf-8")
     if "{wide_columns}" not in text:
         return
