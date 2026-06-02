@@ -385,21 +385,56 @@ def _duckdb_init_lock():
     # `fcntl` is Unix-only; this codebase targets Linux.
     import fcntl
 
-    start = time.time()
-    with open(lock_path, "w") as f:
-        while True:
-            try:
-                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                if time.time() - start > settings.PULSE_DUCKDB_INIT_TIMEOUT_SEC:
-                    raise TimeoutError(f"Timed out waiting for init lock: {lock_path}")
-                time.sleep(0.1)
-
+    def _reset_stale_lock_file() -> bool:
         try:
-            yield
-        finally:
-            fcntl.flock(f, fcntl.LOCK_UN)
+            stale_after = float(getattr(settings, "PULSE_DUCKDB_INIT_LOCK_STALE_SEC", 600.0) or 0.0)
+            if stale_after <= 0:
+                return False
+            if not os.path.exists(lock_path):
+                return False
+            age_sec = time.time() - os.path.getmtime(lock_path)
+            if age_sec < stale_after:
+                return False
+            os.remove(lock_path)
+            logger.warning(
+                "DuckDB init lock: removed stale lock file %s after %.3fs",
+                lock_path,
+                age_sec,
+            )
+            return True
+        except FileNotFoundError:
+            return False
+        except Exception:
+            logger.warning("DuckDB init lock: failed stale-lock cleanup", exc_info=True)
+            return False
+
+    start = time.time()
+    while True:
+        with open(lock_path, "a+") as f:
+            while True:
+                try:
+                    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    waited = time.time() - start
+                    if _reset_stale_lock_file():
+                        break
+                    if waited > settings.PULSE_DUCKDB_INIT_TIMEOUT_SEC:
+                        raise TimeoutError(f"Timed out waiting for init lock: {lock_path}")
+                    time.sleep(0.1)
+            else:
+                continue
+
+            try:
+                os.utime(lock_path, None)
+            except Exception:
+                pass
+
+            try:
+                yield
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+            return
 
 
 def initialize_database() -> None:
