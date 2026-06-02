@@ -49,7 +49,7 @@ def _license_status_row(payload):
     license_content = base.get("licenseContent") or {}
     licensee = license_content.get("licensee") or {}
     properties = license_content.get("properties") or {}
-    return [{
+    row = {
         "instance_id": license_content.get("instanceId"),
         "license_kind": license_content.get("licenseKind"),
         "license_id": license_content.get("licenseId"),
@@ -64,7 +64,9 @@ def _license_status_row(payload):
         "standard_offer": properties.get("standardOffer"),
         "emitted_by": properties.get("emittedBy"),
         "emitted_on": properties.get("emittedOn"),
-    }]
+    }
+
+    return [row]
 
 
 def _to_bool(value):
@@ -118,7 +120,7 @@ def _camel_to_profile(key):
 
 def _max_license_rows(payload):
     properties = (((payload.get("base") or {}).get("licenseContent") or {}).get("properties") or {})
-    return [
+    rows = [
         {
             "license_profile": _camel_to_profile(key),
             "max_licenses": _to_int(value),
@@ -126,6 +128,18 @@ def _max_license_rows(payload):
         for key, value in properties.items()
         if key.startswith("max")
     ]
+
+    sublicense = ((payload.get("base") or {}).get("sublicense") or {})
+    sublicense_profile_limits = sublicense.get("profileLimits") or {}
+    rows.extend(
+        {
+            "license_profile": f"SUBLICENSE_{str(profile_name).strip()}",
+            "max_licenses": _to_int(limit),
+        }
+        for profile_name, limit in sublicense_profile_limits.items()
+        if str(profile_name).strip()
+    )
+    return rows
 
 
 def _addon_license_rows(payload):

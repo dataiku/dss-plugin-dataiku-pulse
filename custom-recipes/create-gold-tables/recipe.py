@@ -53,6 +53,62 @@ def _resolve_gold_folder_lookup() -> str:
 logger = logging.getLogger(__name__)
 
 
+def _load_license_profiles(base_dir: Path) -> list[str]:
+    """Load known license profiles for wide latest license columns."""
+
+    path = base_dir / "license_profiles.yaml"
+    if not path.exists():
+        return []
+
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError(f"Invalid license_profiles.yaml (expected YAML list): {path}")
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for value in raw:
+        if value is None:
+            continue
+        token = re.sub(r"[^a-z0-9]+", "_", str(value).strip().lower()).strip("_")
+        if not token or token in seen:
+            continue
+        seen.add(token)
+        out.append(token)
+    return out
+
+
+def _inject_wide_license_sql(spec_path: Path, *, base_dir: Path) -> None:
+    """Render wide license columns into the wide latest license spec."""
+
+    profiles = _load_license_profiles(base_dir)
+    if not profiles:
+        raise ValueError("license_profiles.yaml must define at least one known license profile")
+
+    column_lines: list[str] = []
+    for profile in profiles:
+        upper_profile = profile.upper()
+        column_lines.append(
+            "      MAX(CASE WHEN max_licenses.license_profile = '{profile}' THEN max_licenses.max_licenses END) AS max_licenses_{column},".format(
+                profile=upper_profile,
+                column=profile,
+            )
+        )
+        column_lines.append(
+            "      MAX(CASE WHEN max_licenses.license_profile = 'SUBLICENSE_{profile}' THEN max_licenses.max_licenses END) AS sublicense_{column},".format(
+                profile=upper_profile,
+                column=profile,
+            )
+        )
+
+    wide_columns = "\n" + "\n".join(column_lines)
+    text = spec_path.read_text(encoding="utf-8")
+    if "{wide_columns}" not in text:
+        return
+    spec_path.write_text(text.replace("{wide_columns}", wide_columns), encoding="utf-8")
+
+
 def _collect_user_activity_quality_report(conn: duckdb.DuckDBPyConnection) -> dict:
     report: dict[str, object] = {
         "daily_present": False,
@@ -695,6 +751,8 @@ def run() -> dict:
         )
 
         for spec_path in spec_paths:
+            if spec_path.name == "base_license_limits_wide_latest.yaml":
+                _inject_wide_license_sql(spec_path, base_dir=base_dir / "instance")
             spec = load_gold_spec(spec_path)
 
             # Ensure the upstream SILVER view exists.
