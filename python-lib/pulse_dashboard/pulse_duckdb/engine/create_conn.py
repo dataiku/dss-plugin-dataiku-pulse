@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 
 import duckdb
 
 from ...settings import DUCKDB_PATH, DUCKDB_READ_ONLY, ensure_duckdb_parent_dir
 from .init_state import is_initialization_in_progress
+
+
+def _resolve_temp_directory() -> str:
+    temp_dir = Path(tempfile.gettempdir()) / "pulse"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    return str(temp_dir)
 
 
 def _connect_config() -> dict[str, str]:
@@ -23,7 +30,7 @@ def _connect_config() -> dict[str, str]:
 
     config: dict[str, str] = {
         "threads": str(duckdb_threads),
-        "temp_directory": "/tmp/pulse",
+        "temp_directory": _resolve_temp_directory(),
     }
     if memory_limit_bytes > 0:
         memory_limit_gib = max(1, int((memory_limit_bytes * 0.8) / (1024**3)))
