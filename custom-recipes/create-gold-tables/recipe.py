@@ -112,6 +112,13 @@ def _inject_wide_license_sql(spec_path: Path, *, base_dir: Path) -> None:
     spec_path.write_text(text.replace("{wide_columns}", wide_columns), encoding="utf-8")
 
 
+def _has_required_tables(conn: duckdb.DuckDBPyConnection, table_names: list[str]) -> bool:
+    """Return True when all required DuckDB tables currently exist."""
+
+    existing_tables = {name for (name,) in conn.sql("SHOW TABLES").fetchall()}
+    return all(table_name in existing_tables for table_name in table_names)
+
+
 def _collect_user_activity_quality_report(conn: duckdb.DuckDBPyConnection) -> dict:
     report: dict[str, object] = {
         "daily_present": False,
@@ -755,6 +762,11 @@ def run() -> dict:
 
         for spec_path in spec_paths:
             if spec_path.name == "base_license_limits_wide_latest.yaml":
+                if not _has_required_tables(
+                    setup.conn,
+                    ["base_license_status_latest", "base_license_max_licenses_latest"],
+                ):
+                    continue
                 _inject_wide_license_sql(spec_path, base_dir=base_dir / "instance")
             spec = load_gold_spec(spec_path)
 
