@@ -296,28 +296,6 @@ def _maybe_seed_demo_dev_activity(conn) -> dict:
         if _ensure_table_exists(conn, table_name=table_name):
             created.append(table_name)
 
-    # Seed taxonomy if empty
-    try:
-        n = conn.execute('SELECT COUNT(*) FROM "dim_category_to_capability";').fetchone()[0]
-    except Exception:
-        n = 0
-    if int(n) == 0:
-        conn.execute(
-            """
-            INSERT INTO dim_category_to_capability (dataiku_category, capability, capability_order, category_order)
-            VALUES
-              ('Coding', 'Data Engineering', 1, 1),
-              ('Datasets', 'Data Engineering', 1, 2),
-              ('Visual Recipes', 'Data Engineering', 1, 3),
-              ('Machine Learning & Operations', 'Advanced Analytics & ML', 2, 1),
-              ('Generative AI & LLM', 'GenAI & LLM', 3, 1),
-              ('Scenarios', 'Automation & Orchestration', 4, 1),
-              ('API Services', 'APIs & Integration', 5, 1),
-              ('Web Applications', 'Applications & Delivery', 6, 1);
-            """
-        )
-        seeded.append("dim_category_to_capability")
-
     # Seed events if empty
     try:
         n = conn.execute('SELECT COUNT(*) FROM "fact_dev_activity_events";').fetchone()[0]

@@ -394,23 +394,6 @@ def _seed_relational_consistency(conn: duckdb.DuckDBPyConnection):
         ],
     )
 
-    # Capability taxonomy
-    conn.execute('DELETE FROM "dim_category_to_capability";')
-    conn.execute(
-        """
-        INSERT INTO dim_category_to_capability (dataiku_category, capability, capability_order, category_order)
-        VALUES
-          ('Coding', 'Data Engineering', 1, 1),
-          ('Datasets', 'Data Engineering', 1, 2),
-          ('Visual Recipes', 'Data Engineering', 1, 3),
-          ('Machine Learning & Operations', 'Advanced Analytics & ML', 2, 1),
-          ('Generative AI & LLM', 'GenAI & LLM', 3, 1),
-          ('Scenarios', 'Automation & Orchestration', 4, 1),
-          ('API Services', 'APIs & Integration', 5, 1),
-          ('Web Applications', 'Applications & Delivery', 6, 1);
-        """
-    )
-
     # Dev activity events
     conn.execute('DELETE FROM "fact_dev_activity_events";')
     rows = []
