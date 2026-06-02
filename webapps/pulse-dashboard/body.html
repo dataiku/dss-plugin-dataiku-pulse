@@ -547,7 +547,21 @@
             }
           }
 
-          var warmup = await warmupDuckdb();
+          async function waitForDuckdbReady() {
+            while (true) {
+              var warmup = await warmupDuckdb();
+              if (!warmup || warmup.ok !== true) {
+                return warmup;
+              }
+              if (warmup.pending === true || (warmup.load && warmup.load.pending === true)) {
+                await sleep(1500);
+                continue;
+              }
+              return warmup;
+            }
+          }
+
+          var warmup = await waitForDuckdbReady();
           if (!warmup || warmup.ok !== true) {
             if (initPoll) window.clearInterval(initPoll);
             if (liveMetaTimer) window.clearInterval(liveMetaTimer);

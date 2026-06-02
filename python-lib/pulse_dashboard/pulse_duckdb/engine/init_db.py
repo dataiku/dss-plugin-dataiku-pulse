@@ -701,6 +701,24 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                     if report is not None:
                         ok = ok and bool(report.get("ok", False))
 
+                    maintenance_report: dict[str, object] = {
+                        "checkpoint": False,
+                        "vacuum": False,
+                    }
+                    if ok:
+                        maintenance_started = time.time()
+                        _set_status_callback("finalizing_db", "Checkpointing and compacting DuckDB")
+                        logger.info("DuckDB ensure_database_ready: running FORCE CHECKPOINT")
+                        conn.execute("FORCE CHECKPOINT;")
+                        maintenance_report["checkpoint"] = True
+                        logger.info("DuckDB ensure_database_ready: running VACUUM")
+                        conn.execute("VACUUM;")
+                        maintenance_report["vacuum"] = True
+                        logger.info(
+                            "DuckDB ensure_database_ready: checkpoint/vacuum completed in %.3fs",
+                            time.time() - maintenance_started,
+                        )
+
                     logger.info(
                         "DuckDB ensure_database_ready: finished in %.3fs ok=%s gold_loaded=%s reason=%s",
                         time.time() - started,
@@ -724,6 +742,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         "reason": reason,
                         "report": report,
                         "seed_demo_dev_activity": seed_report,
+                        "maintenance": maintenance_report,
                         "views": views_report,
                     }
                 finally:

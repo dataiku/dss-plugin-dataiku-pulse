@@ -453,6 +453,72 @@ def _license_group_case_sql(profile_expr: str) -> str:
     return "CASE\n      " + when_sql + "\n      ELSE 'Other Licenses'\n    END"
 
 
+def _license_profile_normalize_sql(profile_expr: str) -> str:
+    return f"upper(regexp_replace(coalesce(trim({profile_expr}), 'UNKNOWN'), '[^A-Za-z0-9]+', '', 'g'))"
+
+
+def _truthy_license_feature(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    normalized = str(value).strip().lower()
+    return normalized in {"true", "t", "1", "yes", "y", "enabled"}
+
+
+def _license_status_display_value(field_name: str, raw_value: Any) -> str | None:
+    if raw_value is None:
+        return None
+
+    text = str(raw_value).strip()
+    if not text:
+        return None
+
+    if field_name in {"valid", "expired", "has_license", "community"}:
+        lowered = text.lower()
+        if lowered in {"true", "t", "1", "yes", "y"}:
+            return "True"
+        if lowered in {"false", "f", "0", "no", "n"}:
+            return "False"
+        return text
+
+    if field_name == "expires_on":
+        if text.isdigit():
+            try:
+                ts = int(text)
+                if ts > 10_000_000_000:
+                    ts = ts // 1000
+                return time.strftime("%Y-%m-%d", time.gmtime(ts))
+            except Exception:
+                return text
+        return text
+
+    if field_name == "emitted_on":
+        if len(text) == 8 and text.isdigit():
+            return f"{text[0:4]}-{text[4:6]}-{text[6:8]}"
+        return text
+
+    return text
+
+
+def _addon_service_label(addon_key: Any) -> str:
+    text = str(addon_key or "").strip()
+    if not text:
+        return "Unknown Add-on"
+
+    custom_labels = {
+        "advancedGovern": "Advanced Govern",
+        "advancedLLMMesh": "Advanced LLM Mesh",
+        "stories": "Stories",
+    }
+    if text in custom_labels:
+        return custom_labels[text]
+
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+    spaced = spaced.replace("_", " ").replace("-", " ")
+    return " ".join(part.capitalize() for part in spaced.split())
+
+
 
 
 def _is_debug_enabled() -> bool:
@@ -1442,11 +1508,35 @@ def debug_duckdb_tables():
     conn = _create_connection(read_only=True)
     try:
         rows = conn.execute("PRAGMA show_tables;").fetchall()
+        table_names = sorted([str(r[0]) for r in rows])
+        table_stats: list[dict[str, Any]] = []
+
+        for table_name in table_names:
+            safe_table_name = _safe_ident(table_name)
+            columns_df = conn.execute(f'PRAGMA table_info("{safe_table_name}");').df()  # nosec B608 (table_name is validated)
+            row_count_row = conn.execute(f'SELECT COUNT(*) AS n FROM "{safe_table_name}";').fetchone()  # nosec B608 (table_name is validated)
+            size_row = conn.execute(
+                """
+                SELECT estimated_size
+                FROM duckdb_tables()
+                WHERE schema_name = 'main' AND table_name = ?
+                LIMIT 1;
+                """,
+                [safe_table_name],
+            ).fetchone()
+
+            table_stats.append(
+                {
+                    "table": table_name,
+                    "columnCount": int(len(columns_df.index)),
+                    "rowCount": int(row_count_row[0]) if row_count_row else 0,
+                    "estimatedSizeBytes": int(size_row[0]) if size_row and size_row[0] is not None else None,
+                }
+            )
     finally:
         conn.close()
 
-    tables = sorted([str(r[0]) for r in rows])
-    return _ok({"tables": tables})
+    return _ok({"tables": table_names, "tableStats": table_stats})
 
 
 @bp.route("/api/debug/duckdb/table/<table_name>")
@@ -3546,6 +3636,175 @@ def build_users_kpis():
         row["inactive_window_months"] = 6
         row["active_window_months"] = [6, 12]
 
+        license_status_df = _query_df(
+            (
+                "SELECT *\n"
+                "FROM base_license_status_latest\n"
+                "WHERE instance_name IS NOT NULL"
+                f"{instance_sql}\n"  # nosec B608 (instance_sql uses placeholders)
+                "ORDER BY instance_name;"
+            ),
+            instance_params,
+        )
+        license_status_rows = _df_records(license_status_df)
+
+        def _most_common_license_value(field_name: str) -> dict[str, Any] | None:
+            counts: dict[tuple[str, str], dict[str, Any]] = {}
+            for status_row in license_status_rows:
+                raw_value = status_row.get(field_name)
+                display_value = _license_status_display_value(field_name, raw_value)
+                if not display_value:
+                    continue
+                key = (display_value.lower(), display_value)
+                bucket = counts.setdefault(
+                    key,
+                    {"value": display_value, "count": 0},
+                )
+                bucket["count"] += 1
+
+            if not counts:
+                return None
+
+            return sorted(
+                counts.values(),
+                key=lambda item: (-int(item.get("count") or 0), str(item.get("value") or "")),
+            )[0]
+
+        license_status_summary: dict[str, Any] = {
+            "instanceCount": len(license_status_rows),
+            "mode": "single_instance" if instance_name else "most_common",
+            "fields": {},
+            "features": [],
+        }
+
+        for field_name in [
+            "license_kind",
+            "has_license",
+            "valid",
+            "expired",
+            "community",
+            "fallback_profile",
+            "expires_on",
+            "licensee_company",
+            "licensee_name",
+            "standard_offer",
+            "emitted_by",
+            "emitted_on",
+        ]:
+            field_summary = _most_common_license_value(field_name)
+            if field_summary is not None:
+                license_status_summary["fields"][field_name] = field_summary
+
+        expires_field = cast(dict[str, Any] | None, license_status_summary["fields"].get("expires_on"))
+        if expires_field and expires_field.get("value"):
+            expires_on_value = str(expires_field.get("value") or "").strip()
+            days_remaining_row = _query_df(
+                (
+                    "SELECT date_diff('day', current_date, try_cast(? AS DATE)) AS days_left;"
+                ),
+                [expires_on_value],
+            )
+            days_left = None
+            if len(days_remaining_row):
+                days_left = days_remaining_row.iloc[0].get("days_left")
+            if days_left is not None:
+                license_status_summary["fields"]["days_left"] = {
+                    "value": int(days_left),
+                    "count": int(expires_field.get("count") or 0),
+                }
+
+        excluded_feature_columns = {
+            "instance_name",
+            "instance_id",
+            "license_id",
+            "license_kind",
+            "has_license",
+            "valid",
+            "expired",
+            "community",
+            "fallback_profile",
+            "expires_on",
+            "licensee_company",
+            "licensee_name",
+            "standard_offer",
+            "emitted_by",
+            "emitted_on",
+            "run_ts",
+        }
+        feature_counts: dict[str, int] = {}
+        for status_row in license_status_rows:
+            for key, value in status_row.items():
+                if key in excluded_feature_columns:
+                    continue
+                if _truthy_license_feature(value):
+                    feature_counts[key] = feature_counts.get(key, 0) + 1
+
+        curated_feature_fields = [
+            ("community", "Community Edition"),
+            ("standard_offer", "Standard Offer"),
+            ("fallback_profile", "Fallback Profile"),
+        ]
+        curated_features: list[dict[str, Any]] = []
+        for field_name, label in curated_feature_fields:
+            field_summary = cast(dict[str, Any] | None, license_status_summary["fields"].get(field_name))
+            if not field_summary:
+                continue
+            value = str(field_summary.get("value") or "").strip()
+            if not value:
+                continue
+            if field_name == "community" and value.lower() != "true":
+                continue
+            curated_features.append(
+                {
+                    "key": field_name,
+                    "label": label if field_name == "community" else f"{label}: {value}",
+                    "count": int(field_summary.get("count") or 0),
+                }
+            )
+
+        dynamic_features = [
+            {
+                "key": key,
+                "label": key.replace("_", " ").strip().title(),
+                "count": count,
+            }
+            for key, count in sorted(feature_counts.items(), key=lambda item: (-item[1], item[0]))
+        ]
+        license_status_summary["features"] = curated_features or dynamic_features
+
+        addon_license_df = _query_df(
+            (
+                "SELECT addon_key, addon_enabled\n"
+                "FROM base_license_addon_licenses_latest\n"
+                "WHERE instance_name IS NOT NULL"
+                f"{instance_sql}\n"  # nosec B608 (instance_sql uses placeholders)
+                "ORDER BY addon_key;"
+            ),
+            instance_params,
+        )
+        addon_license_rows = _df_records(addon_license_df)
+        addon_counts: dict[str, dict[str, Any]] = {}
+        for addon_row in addon_license_rows:
+            if not _truthy_license_feature(addon_row.get("addon_enabled")):
+                continue
+            addon_key = str(addon_row.get("addon_key") or "").strip()
+            if not addon_key:
+                continue
+            entry = addon_counts.setdefault(
+                addon_key,
+                {
+                    "key": addon_key,
+                    "label": _addon_service_label(addon_key),
+                    "count": 0,
+                },
+            )
+            entry["count"] += 1
+
+        license_status_summary["addonServices"] = [
+            addon
+            for addon in sorted(addon_counts.values(), key=lambda item: (-int(item.get("count") or 0), str(item.get("label") or "")))
+        ]
+
         by_profile_df = _query_df(
             (
                 "WITH latest AS (\n"
@@ -3603,6 +3862,49 @@ def build_users_kpis():
             instance_params,
         )
 
+        profile_normalized_expr = _license_profile_normalize_sql("user_profile")
+        max_license_profile_df = _query_df(
+            (
+                "WITH instance_scope AS (\n"
+                "  SELECT DISTINCT instance_name\n"
+                "  FROM base_users_instance_metadata_history\n"
+                "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
+                f"    {instance_sql}\n"  # nosec B608 (instance_sql uses placeholders)
+                "),\n"
+                "normalized_max AS (\n"
+                "  SELECT\n"
+                "    m.instance_name,\n"
+                "    coalesce(nullif(trim(m.license_profile), ''), 'UNKNOWN') AS profile,\n"
+                f"    {_license_profile_normalize_sql('m.license_profile')} AS profile_norm,\n"
+                "    try_cast(m.max_licenses AS BIGINT) AS max_licenses\n"
+                "  FROM base_license_max_licenses_latest m\n"
+                "  INNER JOIN instance_scope s ON s.instance_name = m.instance_name\n"
+                "  WHERE try_cast(m.max_licenses AS BIGINT) IS NOT NULL\n"
+                "),\n"
+                "ranked AS (\n"
+                "  SELECT\n"
+                "    profile_norm,\n"
+                "    profile,\n"
+                "    max_licenses,\n"
+                "    COUNT(*) AS instance_count,\n"
+                "    ROW_NUMBER() OVER (\n"
+                "      PARTITION BY profile_norm\n"
+                "      ORDER BY COUNT(*) DESC, max_licenses DESC, profile ASC\n"
+                "    ) AS rn\n"
+                "  FROM normalized_max\n"
+                "  GROUP BY 1, 2, 3\n"
+                ")\n"
+                "SELECT\n"
+                "  profile_norm,\n"
+                "  profile AS profile_from_max,\n"
+                "  max_licenses,\n"
+                "  instance_count\n"
+                "FROM ranked\n"
+                "WHERE rn = 1;"
+            ),
+            instance_params,
+        )
+
         by_license_profile_group_df = _query_df(
             (
                 "WITH latest AS (\n"
@@ -3623,10 +3925,11 @@ def build_users_kpis():
                 "SELECT\n"
                 f"  {license_group_case_sql} AS license_group,\n"
                 "  user_profile AS profile,\n"
+                f"  {profile_normalized_expr} AS profile_norm,\n"
                 "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE) AS enabled_users\n"
                 "FROM latest\n"
                 "WHERE rn = 1\n"
-                "GROUP BY 1, 2\n"
+                "GROUP BY 1, 2, 3\n"
                 "HAVING COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE) > 0\n"
                 "ORDER BY license_group, enabled_users DESC, profile;"
             ),
@@ -3702,12 +4005,25 @@ def build_users_kpis():
             "Other Licenses": "Other entitlement categories identified in the license profile data",
         }
 
+        max_license_profile_rows = _df_records(max_license_profile_df)
+        max_license_by_profile_norm = {
+            str(item.get("profile_norm") or ""): {
+                "profile_from_max": item.get("profile_from_max"),
+                "max_licenses": int(item.get("max_licenses") or 0),
+                "instance_count": int(item.get("instance_count") or 0),
+            }
+            for item in max_license_profile_rows
+            if str(item.get("profile_norm") or "")
+        }
+
         by_license_profile_group_rows = _df_records(by_license_profile_group_df)
         grouped_license_profiles: dict[str, dict[str, Any]] = {}
         for item in by_license_profile_group_rows:
             group_name = str(item.get("license_group") or "Other Licenses")
             profile_name = str(item.get("profile") or "UNKNOWN")
+            profile_norm = str(item.get("profile_norm") or "")
             enabled_users = int(item.get("enabled_users") or 0)
+            max_license_entry = max_license_by_profile_norm.get(profile_norm, {})
             if group_name not in grouped_license_profiles:
                 grouped_license_profiles[group_name] = {
                     "license_group": group_name,
@@ -3717,7 +4033,13 @@ def build_users_kpis():
                 }
             grouped_license_profiles[group_name]["enabled_users"] += enabled_users
             grouped_license_profiles[group_name]["profiles"].append(
-                {"profile": profile_name, "enabled_users": enabled_users}
+                {
+                    "profile": profile_name,
+                    "enabled_users": enabled_users,
+                    "max_licenses": max_license_entry.get("max_licenses"),
+                    "max_licenses_profile": max_license_entry.get("profile_from_max"),
+                    "max_licenses_instance_count": max_license_entry.get("instance_count"),
+                }
             )
 
         grouped_license_profiles_rows = sorted(
@@ -3735,6 +4057,7 @@ def build_users_kpis():
                     "excludedProfilesSource": "pulse_dashboard.configs.terminology_yaml.license_groups.license_consumer",
                 },
                 "kpis": row,
+                "licenseStatusSummary": license_status_summary,
                 "byProfile": _df_records(by_profile_df),
                 "byLicenseGroup": _df_records(by_license_group_df),
                 "byLicenseGroupProfiles": grouped_license_profiles_rows,
