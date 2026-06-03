@@ -1,6 +1,13 @@
 final_build_products_catalog:
   description: >
     This document describes the DuckDB view(s) needed to power **Build → Products → Catalog**.
+
+    This catalog view is downstream of the live `base_product_index` view in
+    DuckDB. In environments where the config-driven product registry builder
+    succeeds, `base_product_index` is generated dynamically from
+    `python-lib/pulse_dashboard/configs/product_structure.yaml`; otherwise the
+    static fallback definition in `datasets/views/base_product_index.yaml` may
+    be used instead.
   depends_on: []
   build_order: 1120
   sql: |

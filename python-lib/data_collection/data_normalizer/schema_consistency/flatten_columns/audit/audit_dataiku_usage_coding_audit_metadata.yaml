@@ -1,0 +1,4 @@
+# Audit Log Event Mapping - Overlay Extender
+# Add column names here (lowercase, underscores)
+
+- code_studio_object_id

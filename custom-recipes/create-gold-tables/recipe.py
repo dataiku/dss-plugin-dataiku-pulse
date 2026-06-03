@@ -451,9 +451,13 @@ def _object_activity_branch_sql(*, module: str, view_name: str) -> str:
     elif module == "webapps":
         object_type = "web_application"
         # `webapp_id` is not guaranteed to be a top-level SILVER column (it may be packed into extras).
-        # Prefer extracting from authvia, with callpath as fallback.
+        # Prefer the normalized SILVER `webapp_id` when present, then authvia, with
+        # callpath as a last resort. Some webapp audit events expose action-like
+        # callpath segments (for example `view` or `save`) rather than the canonical
+        # DSS webapp id, so callpath should not win over a parsed/normalized id.
         object_key_expr = (
             "COALESCE("
+            "NULLIF(CAST(e.webapp_id AS VARCHAR), ''), "
             "NULLIF(regexp_extract(e.authvia, 'ticket:Standard webapp backend: [^.]+\\.([^, ]+)', 1), ''), "
             "NULLIF(regexp_extract(e.callpath, '/webapps/([^/?]+)', 1), '')"
             ")"

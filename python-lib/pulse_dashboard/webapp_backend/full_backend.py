@@ -56,6 +56,10 @@ def _non_empty_sql(column_sql: str) -> str:
     return f"CASE WHEN {column_sql} IS NOT NULL AND length(trim(CAST({column_sql} AS VARCHAR))) > 0 THEN 1 ELSE 0 END"
 
 
+def _non_empty_value_sql(column_sql: str) -> str:
+    return f"NULLIF(trim(CAST({column_sql} AS VARCHAR)), '')"
+
+
 def _non_empty_value(value: Any) -> bool:
     if value is None:
         return False
@@ -2471,7 +2475,10 @@ def consumption_products_details():
               product_type AS productType,
               product_key AS productKey,
               product_name AS productName,
-              owner_login AS ownerLogin
+              owner_login AS ownerLogin,
+              product_subtype AS productSubtype,
+              created_at AS createdAt,
+              updated_at AS updatedAt
             FROM final_build_products_catalog
             WHERE product_id = ?
             LIMIT 1;
@@ -2501,7 +2508,9 @@ def consumption_products_details():
                 "SELECT\n"
                 "  COUNT(*) AS events,\n"
                 "  COUNT(DISTINCT login) AS active_users,\n"
-                "  MAX(timestamp) AS last_activity_at\n"
+                "  MAX(timestamp) AS last_activity_at,\n"
+                "  CASE WHEN COUNT(*) >= 5 THEN 1 ELSE 0 END AS repeat_use_status,\n"
+                "  CASE WHEN COUNT(DISTINCT login) >= 2 THEN 1 ELSE 0 END AS collaborative_status\n"
                 "FROM v_object_activity_events\n"
                 f"WHERE {where};"  # nosec B608 (where uses placeholders)
             ),
@@ -2543,14 +2552,48 @@ def consumption_products_details():
                 continue
             activity_daily_rows.append({"label": label, "value": r.get("value")})
 
+        total_events = int(totals.get("events") or 0)
+        active_users = int(totals.get("active_users") or 0)
+        repeat_use_status = total_events >= 5
+        collaborative_status = active_users >= 2
+        adoption_tier = (
+            "Tier 1 · 1 user"
+            if active_users == 1
+            else "Tier 2 · 2+ users, <5 events"
+            if active_users >= 2 and total_events < 5
+            else "Tier 3 · 2+ users, 5+ events"
+            if active_users >= 2 and total_events >= 5
+            else "Unclassified"
+        )
+        breadth_score = min(active_users / 5.0, 1.0) * 100 if active_users > 0 else 0.0
+        repeat_score = (100.0 if repeat_use_status else (total_events / 5.0) * 100) if total_events > 0 else 0.0
+        collaboration_score = (100.0 if collaborative_status else (active_users / 2.0) * 100) if active_users > 0 else 0.0
+        concentration_score = max(0.0, 100.0 - (total_events / max(total_events, 10)) * 100) if total_events > 0 else 0.0
+        maturity_components = {
+            "breadthScore": round(min(breadth_score, 100.0), 1),
+            "repeatScore": round(min(repeat_score, 100.0), 1),
+            "collaborationScore": round(min(collaboration_score, 100.0), 1),
+            "concentrationScore": round(min(concentration_score, 100.0), 1),
+        }
+        maturity_score = round(sum(maturity_components.values()) / len(maturity_components), 1)
+        maturity_tier = "scaled" if maturity_score >= 75 else "growing" if maturity_score >= 45 else "emerging"
+
         return _ok(
             {
                 "windowDays": days,
                 "product": row,
                 "totals": {
-                    "events": int(totals.get("events") or 0),
-                    "activeUsers": int(totals.get("active_users") or 0),
+                    "events": total_events,
+                    "activeUsers": active_users,
                     "lastActivityAt": totals.get("last_activity_at"),
+                    "repeatUseStatus": repeat_use_status,
+                    "collaborativeStatus": collaborative_status,
+                },
+                "adoptionTier": adoption_tier,
+                "maturity": {
+                    "score": maturity_score,
+                    "tier": maturity_tier,
+                    "components": maturity_components,
                 },
                 "activityDaily": activity_daily_rows,
                 "topUsers": _df_records(top_users_df),
@@ -2663,22 +2706,207 @@ def consumption_products_summary():
         )
         totals = _df_records(totals_df)[0] if len(totals_df.index) else {}
 
+        totals_detail_sql = "".join(
+            [
+                "WITH product_stats AS (\n",
+                "  SELECT\n",
+                "    concat_ws('|', e.instance_name, e.project_key, e.object_type, e.object_key) AS product_id,\n",
+                "    COUNT(*) AS events,\n",
+                "    COUNT(DISTINCT e.login) AS active_users\n",
+                "  FROM v_object_activity_events e\n",
+                where,
+                idx_where_sql,
+                "\n  GROUP BY 1\n",
+                "),\n",
+                "user_product_stats AS (\n",
+                "  SELECT\n",
+                "    e.login,\n",
+                "    COUNT(*) AS events,\n",
+                "    COUNT(DISTINCT concat_ws('|', e.instance_name, e.project_key, e.object_type, e.object_key)) AS active_products\n",
+                "  FROM v_object_activity_events e\n",
+                where,
+                idx_where_sql,
+                "\n  GROUP BY 1\n",
+                "),\n",
+                "product_rollup AS (\n",
+                "  SELECT\n",
+                "    avg(active_users) AS avg_users_per_product,\n",
+                "    COUNT(*) FILTER (WHERE active_users >= 2) AS collaborative_products,\n",
+                "    COUNT(*) FILTER (WHERE active_users = 1) AS single_user_products,\n",
+                "    COUNT(*) FILTER (WHERE active_users >= 2 AND events < 5) AS multi_user_light_products,\n",
+                "    COUNT(*) FILTER (WHERE events >= 5) AS repeat_products,\n",
+                "    COUNT(*) FILTER (WHERE active_users >= 2 AND events >= 5) AS adopted_products,\n",
+                "    MAX(events) AS top_product_events\n",
+                "  FROM product_stats\n",
+                "),\n",
+                "product_concentration AS (\n",
+                "  SELECT\n",
+                "    COALESCE(SUM(events) FILTER (WHERE product_rank = 1), 0) AS top1_product_events,\n",
+                "    COALESCE(SUM(events) FILTER (WHERE product_rank <= 5), 0) AS top5_product_events\n",
+                "  FROM (\n",
+                "    SELECT\n",
+                "      events,\n",
+                "      ROW_NUMBER() OVER (ORDER BY events DESC, product_id) AS product_rank\n",
+                "    FROM product_stats\n",
+                "  ) ranked_products\n",
+                "),\n",
+                "user_rollup AS (\n",
+                "  SELECT\n",
+                "    avg(active_products) AS avg_products_per_user,\n",
+                "    MAX(active_products) AS top_user_products\n",
+                "  FROM user_product_stats\n",
+                "),\n",
+                "user_concentration AS (\n",
+                "  SELECT\n",
+                "    COALESCE(SUM(events) FILTER (WHERE user_rank = 1), 0) AS top1_user_events,\n",
+                "    COALESCE(SUM(events) FILTER (WHERE user_rank <= 5), 0) AS top5_user_events\n",
+                "  FROM (\n",
+                "    SELECT\n",
+                "      events,\n",
+                "      ROW_NUMBER() OVER (ORDER BY events DESC, login) AS user_rank\n",
+                "    FROM user_product_stats\n",
+                "  ) ranked_users\n",
+                ")\n",
+                "SELECT\n",
+                "  p.avg_users_per_product,\n",
+                "  p.collaborative_products,\n",
+                "  p.single_user_products,\n",
+                "  p.multi_user_light_products,\n",
+                "  p.repeat_products,\n",
+                "  p.adopted_products,\n",
+                "  p.top_product_events,\n",
+                "  pc.top1_product_events,\n",
+                "  pc.top5_product_events,\n",
+                "  u.avg_products_per_user,\n",
+                "  u.top_user_products,\n",
+                "  uc.top1_user_events,\n",
+                "  uc.top5_user_events\n",
+                "FROM product_rollup p\n",
+                "CROSS JOIN product_concentration pc\n",
+                "CROSS JOIN user_rollup u\n",
+                "CROSS JOIN user_concentration uc;",
+            ]
+        )
+        totals_detail_df = _query_df(
+            totals_detail_sql,  # nosec B608
+            [*params, *idx_where_params, *params, *idx_where_params],
+        )
+        totals_detail = _df_records(totals_detail_df)[0] if len(totals_detail_df.index) else {}
+
+        total_events = int(totals.get("events") or 0)
+        top1_product_events = int(totals_detail.get("top1_product_events") or 0)
+        top5_product_events = int(totals_detail.get("top5_product_events") or 0)
+        top1_user_events = int(totals_detail.get("top1_user_events") or 0)
+        top5_user_events = int(totals_detail.get("top5_user_events") or 0)
+
+        breadth_ratio = (
+            float(totals_detail.get("avg_users_per_product") or 0.0) / float(totals.get("active_users") or 0)
+            if int(totals.get("active_users") or 0) > 0
+            else 0.0
+        )
+        repeat_ratio = (
+            int(totals_detail.get("repeat_products") or 0) / int(totals.get("active_products") or 0)
+            if int(totals.get("active_products") or 0) > 0
+            else 0.0
+        )
+        collaboration_ratio = (
+            int(totals_detail.get("collaborative_products") or 0) / int(totals.get("active_products") or 0)
+            if int(totals.get("active_products") or 0) > 0
+            else 0.0
+        )
+        concentration_health = max(
+            0.0,
+            1.0 - ((top5_product_events + top5_user_events) / (2 * total_events) if total_events > 0 else 0.0),
+        )
+
+        maturity_components = {
+            "breadthScore": round(breadth_ratio * 100, 1),
+            "repeatScore": round(repeat_ratio * 100, 1),
+            "collaborationScore": round(collaboration_ratio * 100, 1),
+            "concentrationScore": round(concentration_health * 100, 1),
+        }
+        maturity_score = round(sum(maturity_components.values()) / len(maturity_components), 1)
+        if maturity_score >= 75:
+            maturity_tier = "scaled"
+        elif maturity_score >= 45:
+            maturity_tier = "growing"
+        else:
+            maturity_tier = "emerging"
+
         lifecycle = {}
 
         by_type_df = _query_df(
             (
-                "SELECT\n"  # nosec B608 (where/idx_where_sql use placeholders)
-                "  object_type AS label,\n"
-                "  COUNT(*) AS events,\n"
-                "  COUNT(DISTINCT login) AS active_users,\n"
-                "  COUNT(DISTINCT object_key) AS active_products\n"
-                "FROM v_object_activity_events e\n"
+                "WITH product_stats AS (\n"
+                "  SELECT\n"
+                "    e.object_type AS product_type,\n"
+                "    e.instance_name,\n"
+                "    e.project_key,\n"
+                "    e.object_key AS product_key,\n"
+                "    COUNT(*) AS events,\n"
+                "    COUNT(DISTINCT e.login) AS active_users\n"
+                "  FROM v_object_activity_events e\n"  # nosec B608 (where/idx_where_sql use placeholders)
                 + where
                 + idx_where_sql
-                + "\nGROUP BY 1\n"
-                "ORDER BY events DESC;"
+                + "\n  GROUP BY 1,2,3,4\n"
+                "),\n"
+                "type_rollup AS (\n"
+                "  SELECT\n"
+                "    product_type AS label,\n"
+                "    SUM(events) AS events,\n"
+                "    COUNT(DISTINCT product_key) AS active_products,\n"
+                "    COUNT(*) FILTER (WHERE active_users >= 2 AND events >= 5) AS adoption_count,\n"
+                "    AVG(active_users) AS avg_users_per_product,\n"
+                "    MAX(active_users) AS max_users_on_product\n"
+                "  FROM product_stats\n"
+                "  GROUP BY 1\n"
+                "),\n"
+                "type_user_rollup AS (\n"
+                "  SELECT\n"
+                "    e.object_type AS label,\n"
+                "    COUNT(DISTINCT e.login) AS active_users\n"
+                "  FROM v_object_activity_events e\n"  # nosec B608 (where/idx_where_sql use placeholders)
+                + where
+                + idx_where_sql
+                + "\n  GROUP BY 1\n"
+                "),\n"
+                "type_maturity AS (\n"
+                "  SELECT\n"
+                "    product_type AS label,\n"
+                "    AVG(maturity_score) AS avg_maturity_score,\n"
+                "    MAX(maturity_score) AS max_maturity_score\n"
+                "  FROM (\n"
+                "    SELECT\n"
+                "      product_type,\n"
+                "      25.0 * (\n"
+                "        LEAST(active_users / 5.0, 1.0) +\n"
+                "        CASE WHEN events >= 5 THEN 1.0 ELSE events / 5.0 END +\n"
+                "        CASE WHEN active_users >= 2 THEN 1.0 ELSE active_users / 2.0 END +\n"
+                "        CASE\n"
+                "          WHEN events <= 0 THEN 0.0\n"
+                "          ELSE GREATEST(0.0, 1.0 - (events / GREATEST(events, 10.0)))\n"
+                "        END\n"
+                "      ) AS maturity_score\n"
+                "    FROM product_stats\n"
+                "  ) scored\n"
+                "  GROUP BY 1\n"
+                ")\n"
+                "SELECT\n"
+                "  tr.label,\n"
+                "  tr.events,\n"
+                "  COALESCE(tur.active_users, 0) AS active_users,\n"
+                "  tr.active_products,\n"
+                "  tr.avg_users_per_product,\n"
+                "  tr.max_users_on_product,\n"
+                "  COALESCE(tm.avg_maturity_score, 0) AS avg_maturity_score,\n"
+                "  COALESCE(tm.max_maturity_score, 0) AS max_maturity_score,\n"
+                "  tr.adoption_count\n"
+                "FROM type_rollup tr\n"
+                "LEFT JOIN type_user_rollup tur ON tur.label = tr.label\n"
+                "LEFT JOIN type_maturity tm ON tm.label = tr.label\n"
+                "ORDER BY tr.events DESC;"  # nosec B608 (where/idx_where_sql use placeholders)
             ),
-            [*params, *idx_where_params],
+            [*params, *idx_where_params, *params, *idx_where_params],
         )
 
         activity_daily_df = _query_df(
@@ -2714,6 +2942,10 @@ def consumption_products_summary():
                 "idx AS (\n"
                 "  SELECT instance_name, project_key, product_type, product_key, product_name, owner_login\n"
                 "  FROM base_product_index\n"
+                "),\n"
+                "catalog AS (\n"
+                "  SELECT instance_name, project_key, product_type, product_key, product_name\n"
+                "  FROM final_build_products_catalog\n"
                 ")\n"
                 "SELECT\n"  # nosec B608 (where/idx_where_sql use placeholders)
                 "  md5(concat_ws('|', act.instance_name, act.project_key, act.product_type, act.product_key)) AS productId,\n"
@@ -2721,7 +2953,7 @@ def consumption_products_summary():
                 "  act.project_key AS projectKey,\n"
                 "  act.product_type AS productType,\n"
                 "  act.product_key AS productKey,\n"
-                "  idx.product_name AS productName,\n"
+                f"  COALESCE({_non_empty_value_sql('idx.product_name')}, {_non_empty_value_sql('catalog.product_name')}, act.product_key) AS productName,\n"
                 "  idx.owner_login AS ownerLogin,\n"
                 "  act.events AS events,\n"
                 "  act.active_users AS activeUsers,\n"
@@ -2732,6 +2964,11 @@ def consumption_products_summary():
                 " AND idx.project_key = act.project_key\n"
                 " AND idx.product_type = act.product_type\n"
                 " AND idx.product_key = act.product_key\n"
+                "LEFT JOIN catalog\n"
+                "  ON catalog.instance_name = act.instance_name\n"
+                " AND catalog.project_key = act.project_key\n"
+                " AND catalog.product_type = act.product_type\n"
+                " AND catalog.product_key = act.product_key\n"
                 "ORDER BY events DESC NULLS LAST, lastActivityAt DESC NULLS LAST\n"
                 "LIMIT 50;"
             ),
@@ -2752,27 +2989,22 @@ def consumption_products_summary():
                     "events": int(totals.get("events") or 0),
                     "activeUsers": int(totals.get("active_users") or 0),
                     "activeProducts": int(totals.get("active_products") or 0),
-                    "avgUsersPerProduct": 0.0,
-                    "collaborativeProducts": 0,
-                    "repeatProducts": 0,
-                    "singleUserProducts": 0,
-                    "multiUserLightProducts": 0,
-                    "adoptedProducts": 0,
-                    "topProductEvents": 0,
-                    "topUserProducts": 0,
-                    "avgProductsPerUser": 0.0,
-                    "top1ProductEvents": 0,
-                    "top5ProductEvents": 0,
-                    "top1UserEvents": 0,
-                    "top5UserEvents": 0,
-                    "maturityScore": 0.0,
-                    "maturityTier": "emerging",
-                    "maturityComponents": {
-                        "breadthScore": 0.0,
-                        "repeatScore": 0.0,
-                        "collaborationScore": 0.0,
-                        "concentrationScore": 0.0,
-                    },
+                    "avgUsersPerProduct": float(totals_detail.get("avg_users_per_product") or 0.0),
+                    "collaborativeProducts": int(totals_detail.get("collaborative_products") or 0),
+                    "repeatProducts": int(totals_detail.get("repeat_products") or 0),
+                    "singleUserProducts": int(totals_detail.get("single_user_products") or 0),
+                    "multiUserLightProducts": int(totals_detail.get("multi_user_light_products") or 0),
+                    "adoptedProducts": int(totals_detail.get("adopted_products") or 0),
+                    "topProductEvents": int(totals_detail.get("top_product_events") or 0),
+                    "topUserProducts": int(totals_detail.get("top_user_products") or 0),
+                    "avgProductsPerUser": float(totals_detail.get("avg_products_per_user") or 0.0),
+                    "top1ProductEvents": top1_product_events,
+                    "top5ProductEvents": top5_product_events,
+                    "top1UserEvents": top1_user_events,
+                    "top5UserEvents": top5_user_events,
+                    "maturityScore": maturity_score,
+                    "maturityTier": maturity_tier,
+                    "maturityComponents": maturity_components,
                 },
                 "byType": _df_records(by_type_df),
                 "activityDaily": activity_daily_rows,
@@ -2825,6 +3057,24 @@ def consumption_products_lifecycle_summary():
             params.extend(projects)
 
         event_where_sql = " WHERE " + " AND ".join(filters)
+
+        product_params: list[Any] = []
+        product_filters = ["p.created_at IS NOT NULL"]
+        if types:
+            product_filters.append(f"p.product_type IN ({','.join(['?'] * len(types))})")
+            product_params.extend(types)
+        else:
+            product_filters.append(
+                "p.product_type IN ('api_endpoint','agent','dashboard','web_application','dataiku_application')"
+            )
+        if instances:
+            product_filters.append(f"p.instance_name IN ({','.join(['?'] * len(instances))})")
+            product_params.extend(instances)
+        if projects:
+            product_filters.append(f"p.project_key IN ({','.join(['?'] * len(projects))})")
+            product_params.extend(projects)
+
+        product_where_sql = " WHERE " + " AND ".join(product_filters)
         sql = (
             "WITH product_events AS (\n"
             "  SELECT\n"
@@ -2847,17 +3097,36 @@ def consumption_products_lifecycle_summary():
             "  FROM product_events pe\n"
             "  WINDOW w AS (PARTITION BY instance_name, project_key, product_type, product_key ORDER BY event_day ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)\n"
             "),\n"
-            "users_by_product AS (\n"
+            "users_by_product_day AS (\n"
             "  SELECT\n"
             "    e.instance_name,\n"
             "    e.project_key,\n"
             "    e.object_type AS product_type,\n"
             "    e.object_key AS product_key,\n"
             "    CAST(date_trunc('day', e.timestamp) AS DATE) AS event_day,\n"
-            "    COUNT(DISTINCT e.login) AS cumulative_users\n"
+            "    COUNT(DISTINCT e.login) AS daily_users\n"
             "  FROM v_object_activity_events e\n"
             f"  {event_where_sql}\n"  # nosec B608 (event_where_sql is built from placeholders and allowlisted literals)
             "  GROUP BY 1,2,3,4,5\n"
+            "),\n"
+            "users_by_product AS (\n"
+            "  SELECT\n"
+            "    d.instance_name,\n"
+            "    d.project_key,\n"
+            "    d.product_type,\n"
+            "    d.product_key,\n"
+            "    d.event_day,\n"
+            "    (\n"
+            "      SELECT COUNT(DISTINCT e2.login)\n"
+            "      FROM v_object_activity_events e2\n"
+            "      WHERE e2.instance_name = d.instance_name\n"
+            "        AND e2.project_key = d.project_key\n"
+            "        AND e2.object_type = d.product_type\n"
+            "        AND e2.object_key = d.product_key\n"
+            "        AND CAST(date_trunc('day', e2.timestamp) AS DATE) <= d.event_day\n"
+            "        AND e2.timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+            "    ) AS cumulative_users\n"
+            "  FROM users_by_product_day d\n"
             "),\n"
             "firsts AS (\n"
             "  SELECT\n"
@@ -2882,6 +3151,7 @@ def consumption_products_lifecycle_summary():
             "   AND u.product_type = p.product_type\n"
             "   AND u.product_key = p.product_key\n"
             "   AND u.event_day = m.event_day\n"
+            f"  {product_where_sql}\n"
             "  GROUP BY 1,2,3,4,5,6\n"
             "),\n"
             "durations AS (\n"
@@ -2891,7 +3161,6 @@ def consumption_products_lifecycle_summary():
             "    datediff('day', CAST(created_at AS DATE), CAST(multi_user_at AS DATE)) AS days_to_multi_user,\n"
             "    datediff('day', CAST(created_at AS DATE), CAST(repeat_use_at AS DATE)) AS days_to_repeat_use\n"
             "  FROM firsts\n"
-            "  WHERE created_at IS NOT NULL\n"
             ")\n"
             "SELECT\n"
             "  COUNT(*) AS products_with_created_at,\n"
@@ -2907,7 +3176,7 @@ def consumption_products_lifecycle_summary():
             "FROM durations;"
         )
 
-        df = _query_df(sql, [*params, *params])
+        df = _query_df(sql, [*params, *params, days, *product_params])
 
         row = _df_records(df)[0] if len(df.index) else {}
         return _ok(

@@ -1,6 +1,15 @@
 base_product_index:
   description: >
     This view normalizes **product** inventory (deliverables/end-products) into a single unioned index, similar to `base_asset_index` but **products-only**.
+
+    In environments where the config-driven product registry builder succeeds,
+    the live `base_product_index` view is generated dynamically from
+    `python-lib/pulse_dashboard/configs/product_structure.yaml` and this static
+    YAML spec is skipped.
+
+    This file therefore acts as a fallback/static definition for legacy or
+    partial environments where the dynamic builder is unavailable or cannot
+    create the view successfully.
   depends_on:
     - base_projects_metadata
     - base_api_endpoints_metadata
