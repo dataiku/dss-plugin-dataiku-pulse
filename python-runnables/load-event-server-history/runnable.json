@@ -26,7 +26,15 @@
 
     For the full list and for more details, see the documentation: https://doc.dataiku.com/dss/latest/plugins/reference/params.html
     */
-    "params": [],
+    "params": [
+        {
+            "name": "folder_id",
+            "label": "Event Server Folder ID",
+            "type": "STRING",
+            "description": "The folder id which can be found in the URL bar",
+            "mandatory": true
+        }
+    ],
 
     /* list of required permissions on the project to see/run the runnable */
     "permissions": [],
