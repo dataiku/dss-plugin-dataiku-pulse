@@ -18,9 +18,6 @@
 - dataiku_category
 
 - callpath
-- clientip
-- originalip
-- xforwardedfor
 
 - timestamp
 - date

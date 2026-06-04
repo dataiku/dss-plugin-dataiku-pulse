@@ -56,6 +56,15 @@ def parse_webapps_extras(value: Any) -> tuple[str | None, str | None]:
         if not isinstance(payload, dict):
             return (None, None)
 
+        nested_extras = payload.get("extras")
+        if isinstance(nested_extras, str) and nested_extras.strip():
+            try:
+                nested_payload = json.loads(nested_extras)
+            except Exception:
+                nested_payload = None
+            if isinstance(nested_payload, dict):
+                payload = {**nested_payload, **payload}
+
         project_key = payload.get("projectkey")
         webapp_id = payload.get("webappid")
         project_key = str(project_key).strip() if project_key is not None else None
@@ -114,7 +123,7 @@ def main(df: pd.DataFrame) -> pd.DataFrame:
     if "authvia" in merged.columns:
         merged["authvia"] = merged["authvia"].fillna("")
         merged["authvia"] = merged["authvia"].apply(normalize_authvia)
-        merged[["project_key_source_call_temp", "webapp_id_temp"]] = pd.DataFrame(
+        merged[["project_key_source_call_temp", "webappid_source_call_temp"]] = pd.DataFrame(
             merged["authvia"].apply(parse_authvia).tolist(),
             index=merged.index,
         )
@@ -125,30 +134,11 @@ def main(df: pd.DataFrame) -> pd.DataFrame:
             merged["project_key_source_call_temp"]
         )
 
-        if "webapp_id" not in merged.columns:
-            merged["webapp_id"] = None
-        merged["webapp_id"] = merged["webapp_id"].fillna(merged["webapp_id_temp"])
+        if "webappid_source_call" not in merged.columns:
+            merged["webappid_source_call"] = None
+        merged["webappid_source_call"] = merged["webappid_source_call"].fillna(merged["webappid_source_call_temp"])
 
-        merged = merged.drop(columns=["project_key_source_call_temp", "webapp_id_temp"], errors="ignore")
+        merged = merged.drop(columns=["project_key_source_call_temp", "webappid_source_call_temp"], errors="ignore")
 
-    if "dataiku_category" in merged.columns and "extras" in merged.columns:
-        webapps_mask = merged["dataiku_category"].astype("string").str.lower() == "webapps"
-        if webapps_mask.any():
-            parsed = pd.DataFrame(
-                merged.loc[webapps_mask, "extras"].apply(parse_webapps_extras).tolist(),
-                index=merged.loc[webapps_mask].index,
-                columns=["extras_project_key", "extras_webapp_id"],
-            )
-            merged.loc[webapps_mask, "project_key"] = parsed["extras_project_key"].combine_first(
-                merged.loc[webapps_mask, "project_key"]
-            )
-
-            webapp_id_series = parsed["extras_webapp_id"]
-
-            if "webapp_id" not in merged.columns:
-                merged["webapp_id"] = None
-            merged.loc[webapps_mask, "webapp_id"] = webapp_id_series.combine_first(
-                merged.loc[webapps_mask, "webapp_id"]
-            )
 
     return merged
