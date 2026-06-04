@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import logging
+from pathlib import PurePosixPath
 from typing import Any
 
 import dataiku
 from dataiku.runnables import Runnable
 
 logger = logging.getLogger(__name__)
+
+GENERIC_ROOT = "generic"
 
 
 class LoadEventServerHistoryRunnable(Runnable):
@@ -24,7 +27,7 @@ class LoadEventServerHistoryRunnable(Runnable):
             raise ValueError(f"Missing required parameter: {label}")
         return value
 
-    def _open_managed_folder(self, folder_id: str):
+    def _open_managed_folder(self, folder_id: str) -> tuple[dataiku.Folder, str, list[str], list[str]]:
         try:
             folder = dataiku.Folder(
                 lookup=folder_id,
@@ -42,19 +45,28 @@ class LoadEventServerHistoryRunnable(Runnable):
             partitions = folder.list_partitions() or []
         except Exception as exc:
             raise ValueError(
-                f"Managed folder {resolved_folder_id!r} was resolved but could not be listed. "
+                f"Managed folder {resolved_folder_id!r} was resolved but could not list partitions. "
                 "Check managed folder permissions and accessibility."
             ) from exc
 
-        return folder, resolved_folder_id, partitions
+        try:
+            paths = [str(path) for path in folder.list_paths_in_partition("NP")]
+        except Exception as exc:
+            raise ValueError(
+                f"Managed folder {resolved_folder_id!r} was resolved but could not list paths recursively. "
+                "Check managed folder permissions and accessibility."
+            ) from exc
+
+        return folder, resolved_folder_id, partitions, paths
 
     @staticmethod
-    def _extract_available_nodes(partitions: list[str]) -> list[str]:
+    def _discover_available_nodes(paths: list[str]) -> list[str]:
         available_nodes = sorted(
             {
-                partition.split("|", 1)[0].strip()
-                for partition in partitions
-                if partition and partition.split("|", 1)[0].strip()
+                parts[1]
+                for path in paths
+                for parts in [PurePosixPath(str(path).lstrip("/")).parts]
+                if len(parts) >= 2 and parts[0] == GENERIC_ROOT and parts[1]
             }
         )
         return available_nodes
@@ -71,29 +83,50 @@ class LoadEventServerHistoryRunnable(Runnable):
             instance_name,
         )
 
-        folder, resolved_folder_id, partitions = self._open_managed_folder(folder_id)
-        available_nodes = self._extract_available_nodes(partitions)
-        node_found = node_id in available_nodes
+        _, resolved_folder_id, partitions, paths = self._open_managed_folder(folder_id)
+        generic_root_exists = any(
+            PurePosixPath(path.lstrip("/")).parts[:1] == (GENERIC_ROOT,)
+            for path in paths
+        )
+        if not generic_root_exists:
+            raise ValueError(
+                f"Managed folder {resolved_folder_id!r} does not contain the expected {GENERIC_ROOT!r} root."
+            )
 
-        if node_found:
-            status = "found"
-            message = f"Event-server node {node_id!r} is available in managed folder {resolved_folder_id!r}."
-        else:
-            status = "missing"
-            message = f"Event-server node {node_id!r} was not found in managed folder {resolved_folder_id!r}."
+        available_nodes = self._discover_available_nodes(paths)
+        if not available_nodes:
+            raise ValueError(
+                f"Managed folder {resolved_folder_id!r} contains {GENERIC_ROOT!r} paths but no discoverable node directories."
+            )
+
+        node_found = node_id in available_nodes
+        if not node_found:
+            available_nodes_text = ", ".join(available_nodes) or "<none>"
+            raise ValueError(
+                f"Event-server node {node_id!r} was not found under {GENERIC_ROOT!r} in managed folder {resolved_folder_id!r}. "
+                f"Available nodes: {available_nodes_text}"
+            )
+
+        message = (
+            f"Event-server node {node_id!r} is available under {GENERIC_ROOT!r} "
+            f"in managed folder {resolved_folder_id!r}."
+        )
 
         return {
             "rows": [
                 {
-                    "status": status,
+                    "status": "found",
                     "folder_id": folder_id,
                     "resolved_folder_id": resolved_folder_id,
                     "instance_name": instance_name,
                     "requested_node_id": node_id,
                     "node_found": node_found,
+                    "generic_root": GENERIC_ROOT,
+                    "generic_root_found": generic_root_exists,
                     "available_node_count": len(available_nodes),
                     "available_nodes": ", ".join(available_nodes),
                     "partition_count": len(partitions),
+                    "path_count": len(paths),
                     "message": message,
                 }
             ]
