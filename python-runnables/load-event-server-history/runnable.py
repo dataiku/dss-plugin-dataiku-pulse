@@ -610,7 +610,7 @@ class MyRunnable(Runnable):
                 "0",
                 (
                     f"folder_id={folder_id}; resolved_folder_id={resolved_folder_id}; node_id={node_id}; "
-                    f"instance_name={instance_name}; node_found=true; matched_path_count={len(matching_paths)}; "
+                    f"instance_name={instance_name}; node_found=true; selected_node_count=1; matched_path_count={len(matching_paths)}; "
                     f"candidate_gz_file_count={len(candidate_files)}; filtered_gz_file_count=0; "
                     f"requested_start_date={(start_date.isoformat() if start_date else '')}; "
                     f"requested_end_date={(end_date.isoformat() if end_date else '')}; history_cursor_update=disabled"
@@ -745,7 +745,7 @@ class MyRunnable(Runnable):
             str(sum(item.wrote_groups for item in processor_results)),
             (
                 f"folder_id={folder_id}; resolved_folder_id={resolved_folder_id}; node_id={node_id}; "
-                f"instance_name={instance_name}; node_found=true; matched_partition_count={len(selected_partitions)}; "
+                f"instance_name={instance_name}; node_found=true; selected_node_count=1; matched_partition_count={len(selected_partitions)}; "
                 f"matched_path_count={len(matching_paths)}; candidate_gz_file_count={len(candidate_files)}; "
                 f"filtered_gz_file_count={len(filtered_candidate_files)}; files_scanned={stats.files_scanned}; "
                 f"files_failed={stats.files_failed}; files_empty={stats.files_empty}; chunks_processed={stats.chunks_processed}; "
