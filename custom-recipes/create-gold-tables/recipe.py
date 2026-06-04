@@ -457,7 +457,7 @@ def _object_activity_branch_sql(*, module: str, view_name: str) -> str:
         # DSS webapp id, so callpath should not win over a parsed/normalized id.
         object_key_expr = (
             "COALESCE("
-            "NULLIF(CAST(e.webapp_id AS VARCHAR), ''), "
+            "NULLIF(CAST(e.webappid AS VARCHAR), ''), "
             "NULLIF(regexp_extract(e.authvia, 'ticket:Standard webapp backend: [^.]+\\.([^, ]+)', 1), ''), "
             "NULLIF(regexp_extract(e.callpath, '/webapps/([^/?]+)', 1), '')"
             ")"
