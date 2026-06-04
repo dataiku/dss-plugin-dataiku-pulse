@@ -427,7 +427,7 @@ def _create_event_mapping_module_view(
     SELECT
       *,
       make_date(CAST(year AS INTEGER), CAST(month AS INTEGER), CAST(day AS INTEGER)) AS partition_date
-    FROM read_parquet('{glob}', hive_partitioning = true);
+    FROM read_parquet('{glob}', hive_partitioning = true, union_by_name = true);
     """.strip()  # nosec B608 (view_name is plugin-controlled; glob is derived from storage context)
 
     try:
