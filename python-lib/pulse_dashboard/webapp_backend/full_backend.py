@@ -2706,84 +2706,86 @@ def consumption_products_summary():
         )
         totals = _df_records(totals_df)[0] if len(totals_df.index) else {}
 
-        totals_detail_sql = (
-            "WITH product_stats AS (\n"
-            "  SELECT\n"
-            "    concat_ws('|', e.instance_name, e.project_key, e.object_type, e.object_key) AS product_id,\n"
-            "    COUNT(*) AS events,\n"
-            "    COUNT(DISTINCT e.login) AS active_users\n"
-            "  FROM v_object_activity_events e\n"
-            + where
-            + idx_where_sql
-            + "\n  GROUP BY 1\n"
-            + "),\n"
-            + "user_product_stats AS (\n"
-            + "  SELECT\n"
-            + "    e.login,\n"
-            + "    COUNT(*) AS events,\n"
-            + "    COUNT(DISTINCT concat_ws('|', e.instance_name, e.project_key, e.object_type, e.object_key)) AS active_products\n"
-            + "  FROM v_object_activity_events e\n"
-            + where
-            + idx_where_sql
-            + "\n  GROUP BY 1\n"
-            + "),\n"
-            + "product_rollup AS (\n"
-            + "  SELECT\n"
-            + "    avg(active_users) AS avg_users_per_product,\n"
-            + "    COUNT(*) FILTER (WHERE active_users >= 2) AS collaborative_products,\n"
-            + "    COUNT(*) FILTER (WHERE active_users = 1) AS single_user_products,\n"
-            + "    COUNT(*) FILTER (WHERE active_users >= 2 AND events < 5) AS multi_user_light_products,\n"
-            + "    COUNT(*) FILTER (WHERE events >= 5) AS repeat_products,\n"
-            + "    COUNT(*) FILTER (WHERE active_users >= 2 AND events >= 5) AS adopted_products,\n"
-            + "    MAX(events) AS top_product_events\n"
-            + "  FROM product_stats\n"
-            + "),\n"
-            + "product_concentration AS (\n"
-            + "  SELECT\n"
-            + "    COALESCE(SUM(events) FILTER (WHERE product_rank = 1), 0) AS top1_product_events,\n"
-            + "    COALESCE(SUM(events) FILTER (WHERE product_rank <= 5), 0) AS top5_product_events\n"
-            + "  FROM (\n"
-            + "    SELECT\n"
-            + "      events,\n"
-            + "      ROW_NUMBER() OVER (ORDER BY events DESC, product_id) AS product_rank\n"
-            + "    FROM product_stats\n"
-            + "  ) ranked_products\n"
-            + "),\n"
-            + "user_rollup AS (\n"
-            + "  SELECT\n"
-            + "    avg(active_products) AS avg_products_per_user,\n"
-            + "    MAX(active_products) AS top_user_products\n"
-            + "  FROM user_product_stats\n"
-            + "),\n"
-            + "user_concentration AS (\n"
-            + "  SELECT\n"
-            + "    COALESCE(SUM(events) FILTER (WHERE user_rank = 1), 0) AS top1_user_events,\n"
-            + "    COALESCE(SUM(events) FILTER (WHERE user_rank <= 5), 0) AS top5_user_events\n"
-            + "  FROM (\n"
-            + "    SELECT\n"
-            + "      events,\n"
-            + "      ROW_NUMBER() OVER (ORDER BY events DESC, login) AS user_rank\n"
-            + "    FROM user_product_stats\n"
-            + "  ) ranked_users\n"
-            + ")\n"
-            + "SELECT\n"
-            + "  p.avg_users_per_product,\n"
-            + "  p.collaborative_products,\n"
-            + "  p.single_user_products,\n"
-            + "  p.multi_user_light_products,\n"
-            + "  p.repeat_products,\n"
-            + "  p.adopted_products,\n"
-            + "  p.top_product_events,\n"
-            + "  pc.top1_product_events,\n"
-            + "  pc.top5_product_events,\n"
-            + "  u.avg_products_per_user,\n"
-            + "  u.top_user_products,\n"
-            + "  uc.top1_user_events,\n"
-            + "  uc.top5_user_events\n"
-            + "FROM product_rollup p\n"
-            + "CROSS JOIN product_concentration pc\n"
-            + "CROSS JOIN user_rollup u\n"
-            + "CROSS JOIN user_concentration uc;"
+        totals_detail_sql = "".join(
+            [
+                "WITH product_stats AS (\n",
+                "  SELECT\n",
+                "    concat_ws('|', e.instance_name, e.project_key, e.object_type, e.object_key) AS product_id,\n",
+                "    COUNT(*) AS events,\n",
+                "    COUNT(DISTINCT e.login) AS active_users\n",
+                "  FROM v_object_activity_events e\n",
+                where,
+                idx_where_sql,
+                "\n  GROUP BY 1\n",
+                "),\n",
+                "user_product_stats AS (\n",
+                "  SELECT\n",
+                "    e.login,\n",
+                "    COUNT(*) AS events,\n",
+                "    COUNT(DISTINCT concat_ws('|', e.instance_name, e.project_key, e.object_type, e.object_key)) AS active_products\n",
+                "  FROM v_object_activity_events e\n",
+                where,
+                idx_where_sql,
+                "\n  GROUP BY 1\n",
+                "),\n",
+                "product_rollup AS (\n",
+                "  SELECT\n",
+                "    avg(active_users) AS avg_users_per_product,\n",
+                "    COUNT(*) FILTER (WHERE active_users >= 2) AS collaborative_products,\n",
+                "    COUNT(*) FILTER (WHERE active_users = 1) AS single_user_products,\n",
+                "    COUNT(*) FILTER (WHERE active_users >= 2 AND events < 5) AS multi_user_light_products,\n",
+                "    COUNT(*) FILTER (WHERE events >= 5) AS repeat_products,\n",
+                "    COUNT(*) FILTER (WHERE active_users >= 2 AND events >= 5) AS adopted_products,\n",
+                "    MAX(events) AS top_product_events\n",
+                "  FROM product_stats\n",
+                "),\n",
+                "product_concentration AS (\n",
+                "  SELECT\n",
+                "    COALESCE(SUM(events) FILTER (WHERE product_rank = 1), 0) AS top1_product_events,\n",
+                "    COALESCE(SUM(events) FILTER (WHERE product_rank <= 5), 0) AS top5_product_events\n",
+                "  FROM (\n",
+                "    SELECT\n",
+                "      events,\n",
+                "      ROW_NUMBER() OVER (ORDER BY events DESC, product_id) AS product_rank\n",
+                "    FROM product_stats\n",
+                "  ) ranked_products\n",
+                "),\n",
+                "user_rollup AS (\n",
+                "  SELECT\n",
+                "    avg(active_products) AS avg_products_per_user,\n",
+                "    MAX(active_products) AS top_user_products\n",
+                "  FROM user_product_stats\n",
+                "),\n",
+                "user_concentration AS (\n",
+                "  SELECT\n",
+                "    COALESCE(SUM(events) FILTER (WHERE user_rank = 1), 0) AS top1_user_events,\n",
+                "    COALESCE(SUM(events) FILTER (WHERE user_rank <= 5), 0) AS top5_user_events\n",
+                "  FROM (\n",
+                "    SELECT\n",
+                "      events,\n",
+                "      ROW_NUMBER() OVER (ORDER BY events DESC, login) AS user_rank\n",
+                "    FROM user_product_stats\n",
+                "  ) ranked_users\n",
+                ")\n",
+                "SELECT\n",
+                "  p.avg_users_per_product,\n",
+                "  p.collaborative_products,\n",
+                "  p.single_user_products,\n",
+                "  p.multi_user_light_products,\n",
+                "  p.repeat_products,\n",
+                "  p.adopted_products,\n",
+                "  p.top_product_events,\n",
+                "  pc.top1_product_events,\n",
+                "  pc.top5_product_events,\n",
+                "  u.avg_products_per_user,\n",
+                "  u.top_user_products,\n",
+                "  uc.top1_user_events,\n",
+                "  uc.top5_user_events\n",
+                "FROM product_rollup p\n",
+                "CROSS JOIN product_concentration pc\n",
+                "CROSS JOIN user_rollup u\n",
+                "CROSS JOIN user_concentration uc;",
+            ]
         )
         totals_detail_df = _query_df(
             totals_detail_sql,  # nosec B608
@@ -4393,24 +4395,43 @@ def build_users_active_monthly():
             instance_params_by_instance = [instance_name, instance_name]
             instances_filter_sql = " AND instance_name = ?"
 
+        latest_users_cte = (
+            "latest_users AS (\n"
+            "  SELECT\n"
+            "    instance_name,\n"
+            "    lower(trim(users_login)) AS login_norm,\n"
+            "    users_enabled,\n"
+            "    users_userprofile,\n"
+            "    ROW_NUMBER() OVER (\n"
+            "      PARTITION BY instance_name, lower(trim(users_login))\n"
+            "      ORDER BY run_ts DESC\n"
+            "    ) AS rn\n"
+            "  FROM base_users_instance_metadata_history\n"
+            "  WHERE users_login IS NOT NULL\n"
+            "    AND length(trim(users_login)) > 0\n"
+            "),\n"
+        )
+
         # By-instance series.
         by_instance_df = _query_df(
             (
                 "WITH months AS (\n"  # nosec B608 (SQL fragments are static)
                 f"  SELECT * FROM generate_series({start_month_expr}, ({next_month_expr} - INTERVAL 1 DAY)::DATE, INTERVAL 1 MONTH) AS t(month_start)\n"  # nosec B608 (month expr is internal)
                 "),\n"
+                f"{latest_users_cte}"
                 "activity AS (\n"
                 "  SELECT\n"
                 "    date_trunc('month', a.day) AS month_start,\n"
                 "    a.instance_name,\n"
                 "    a.login_norm\n"
                 "  FROM fact_user_activity_daily a\n"
-                "  JOIN base_users_instance_metadata_history u\n"
+                "  JOIN latest_users u\n"
                 "    ON u.instance_name = a.instance_name\n"
-                "   AND lower(trim(u.users_login)) = a.login_norm\n"
+                "   AND u.login_norm = a.login_norm\n"
                 "  WHERE "
                 f"    a.day >= {start_month_expr}\n"  # nosec B608 (month expr is internal)
                 f"    AND a.day < {next_month_expr}\n"  # nosec B608 (month expr is internal)
+                "    AND u.rn = 1\n"
                 "    AND u.users_enabled IS TRUE\n"
                 f"    {exclude_sql}\n"  # nosec B608 (exclude_sql uses placeholders)
                 f"    {instance_sql}\n"  # nosec B608 (instance_sql uses placeholders)
@@ -4447,17 +4468,19 @@ def build_users_active_monthly():
                 "WITH months AS (\n"  # nosec B608 (SQL fragments are static)
                 f"  SELECT * FROM generate_series({start_month_expr}, ({next_month_expr} - INTERVAL 1 DAY)::DATE, INTERVAL 1 MONTH) AS t(month_start)\n"  # nosec B608 (month expr is internal)
                 "),\n"
+                f"{latest_users_cte}"
                 "activity AS (\n"
                 "  SELECT\n"
                 "    date_trunc('month', a.day) AS month_start,\n"
                 "    a.login_norm\n"
                 "  FROM fact_user_activity_daily a\n"
-                "  JOIN base_users_instance_metadata_history u\n"
+                "  JOIN latest_users u\n"
                 "    ON u.instance_name = a.instance_name\n"
-                "   AND lower(trim(u.users_login)) = a.login_norm\n"
+                "   AND u.login_norm = a.login_norm\n"
                 "  WHERE "
                 f"    a.day >= {start_month_expr}\n"  # nosec B608 (month expr is internal)
                 f"    AND a.day < {next_month_expr}\n"  # nosec B608 (month expr is internal)
+                "    AND u.rn = 1\n"
                 "    AND u.users_enabled IS TRUE\n"
                 f"    {exclude_sql}\n"  # nosec B608 (exclude_sql uses placeholders)
                 f"    {instance_sql}\n"  # nosec B608 (instance_sql uses placeholders)
