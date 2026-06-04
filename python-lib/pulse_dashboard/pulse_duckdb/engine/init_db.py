@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from typing import cast
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
@@ -135,6 +136,49 @@ def _ensure_table_exists(conn, *, table_name: str) -> bool:
     sql = _load_base_spec_sql(table_name)
     conn.execute(sql)
     return True
+
+
+def _maybe_create_license_views(conn) -> dict[str, object]:
+    """Create compatibility views for license base tables.
+
+    Recent data changes can leave the dashboard with raw license source views
+    available without the materialized `base_license_*_latest` tables expected
+    by web endpoints. Create the missing compatibility views only when needed.
+    """
+
+    table_rows = conn.execute(
+        """
+        SELECT table_name, table_type
+        FROM information_schema.tables
+        WHERE table_schema='main'
+          AND table_name IN (
+            'base_license_status_latest',
+            'base_license_max_licenses_latest',
+            'base_license_addon_licenses_latest',
+            'v_license__license_status',
+            'v_license__max_licenses',
+            'v_license__addon_licenses'
+          )
+        """,
+    ).fetchall()
+
+    existing = {str(name): str(table_type) for name, table_type in table_rows}
+    created: list[str] = []
+
+    mappings = [
+        ("base_license_status_latest", "v_license__license_status"),
+        ("base_license_max_licenses_latest", "v_license__max_licenses"),
+        ("base_license_addon_licenses_latest", "v_license__addon_licenses"),
+    ]
+
+    for target_name, source_name in mappings:
+        if target_name in existing or source_name not in existing:
+            continue
+
+        conn.execute(f'CREATE VIEW "{target_name}" AS SELECT * FROM "{source_name}";')  # nosec B608
+        created.append(target_name)
+
+    return {"ok": True, "created": created}
 
 
 def _object_type(conn, name: str) -> str | None:
@@ -658,6 +702,15 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         time.time() - inventory_started,
                     )
 
+                    license_started = time.time()
+                    _set_status_callback("license_views", "Creating license compatibility views")
+                    license_report = _maybe_create_license_views(conn)
+                    logger.info(
+                        "DuckDB ensure_database_ready: license compatibility views ready in %.3fs created=%s",
+                        time.time() - license_started,
+                        len(cast(list[object], license_report.get("created", []))),
+                    )
+
                     seed_started = time.time()
                     _set_status_callback("seeding_demo", "Seeding demo activity data if needed")
                     seed_report = _maybe_seed_demo_dev_activity(conn)
@@ -719,6 +772,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         "gold_loaded": gold_tables_loaded,
                         "reason": reason,
                         "report": report,
+                        "license_views": license_report,
                         "seed_demo_dev_activity": seed_report,
                         "maintenance": maintenance_report,
                         "views": views_report,
