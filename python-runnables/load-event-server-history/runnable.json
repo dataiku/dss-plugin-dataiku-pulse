@@ -1,7 +1,7 @@
 {
     "meta": {
         "label": "Load Event Server History",
-        "description": "Import historical event-server files from a managed folder for one node or all discovered nodes.",
+        "description": "Import historical event-server files from a managed folder for a single node with an explicit Pulse instance-name mapping.",
         "icon": "fas fa-history",
         "category": "Dataiku PULSE Insights: Data Gather"
     },
@@ -29,28 +29,18 @@
             "mandatory": true
         },
         {
-            "type": "SELECT",
-            "name": "import_scope",
-            "label": "Import Scope",
-            "mandatory": true,
-            "defaultValue": "all_nodes",
-            "selectChoices": [
-                {
-                    "value": "all_nodes",
-                    "label": "All discovered nodes"
-                },
-                {
-                    "value": "single_node",
-                    "label": "Single node"
-                }
-            ]
+            "type": "STRING",
+            "name": "node_id",
+            "label": "Event Server Node ID",
+            "description": "Exact event-server node directory name to import, for example node-mazzei_designer.",
+            "mandatory": true
         },
         {
             "type": "STRING",
-            "name": "node_id",
-            "label": "Node ID",
-            "description": "Required only when importing a single node.",
-            "mandatory": false
+            "name": "instance_name",
+            "label": "Instance Name Mapping",
+            "description": "Pulse instance name to map this node to, for example mazzei_designer.",
+            "mandatory": true
         },
         {
             "type": "DATE",
