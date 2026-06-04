@@ -22,6 +22,7 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
+        raise Exception(self.config, self.plugin_config)
         """
         Do stuff here. Can return a string or raise an exception.
         The progress_callback is a function expecting 1 value: current progress
