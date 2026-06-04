@@ -439,7 +439,23 @@ def _create_event_mapping_module_view(
     return view_name
 
 
-def _object_activity_branch_sql(*, module: str, view_name: str) -> str:
+def _view_columns(conn: duckdb.DuckDBPyConnection, table_name: str) -> set[str]:
+    rows = conn.execute(
+        (
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'main' AND table_name = ?"
+        ),
+        [table_name],
+    ).fetchall()
+    return {str(row[0]).lower() for row in rows}
+
+
+def _object_activity_branch_sql(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    module: str,
+    view_name: str,
+) -> str:
     # Start simple: derive object ids from available columns.
     # These regexes can be refined as we observe real callpaths.
     if module in {"datasets", "dataset"}:
@@ -450,6 +466,12 @@ def _object_activity_branch_sql(*, module: str, view_name: str) -> str:
         object_key_expr = "NULLIF(regexp_extract(callpath, '/recipes/([^/?]+)', 1), '')"
     elif module == "webapps":
         object_type = "web_application"
+        view_columns = _view_columns(conn, view_name)
+        normalized_webapp_expr = (
+            "NULLIF(CAST(e.webappid AS VARCHAR), '')"
+            if "webappid" in view_columns
+            else "NULL"
+        )
         # `webapp_id` is not guaranteed to be a top-level SILVER column (it may be packed into extras).
         # Prefer the normalized SILVER `webapp_id` when present, then authvia, with
         # callpath as a last resort. Some webapp audit events expose action-like
@@ -457,7 +479,7 @@ def _object_activity_branch_sql(*, module: str, view_name: str) -> str:
         # DSS webapp id, so callpath should not win over a parsed/normalized id.
         object_key_expr = (
             "COALESCE("
-            "NULLIF(CAST(e.webappid AS VARCHAR), ''), "
+            f"{normalized_webapp_expr}, "
             "NULLIF(regexp_extract(e.authvia, 'ticket:Standard webapp backend: [^.]+\\.([^, ]+)', 1), ''), "
             "NULLIF(regexp_extract(e.callpath, '/webapps/([^/?]+)', 1), '')"
             ")"
@@ -520,7 +542,7 @@ def _build_fact_object_activity_events(
         created = _create_event_mapping_module_view(conn, ctx=ctx, module=mod, view_name=view_name)
         if not created:
             continue
-        branches.append(_object_activity_branch_sql(module=_slug(mod), view_name=view_name))
+        branches.append(_object_activity_branch_sql(conn, module=_slug(mod), view_name=view_name))
 
     if not branches:
         return ""
