@@ -52,12 +52,4 @@ def create_connection(read_only: bool | None = None) -> duckdb.DuckDBPyConnectio
     if effective_read_only and is_initialization_in_progress():
         effective_read_only = False
 
-    if DUCKDB_PATH.exists() and not effective_read_only:
-        try:
-            with duckdb.connect(str(DUCKDB_PATH), read_only=True, config=_connect_config()) as probe_conn:
-                probe_conn.execute("SELECT 1")
-            effective_read_only = True
-        except duckdb.ConnectionException:
-            pass
-
     return duckdb.connect(str(DUCKDB_PATH), read_only=effective_read_only, config=_connect_config())
