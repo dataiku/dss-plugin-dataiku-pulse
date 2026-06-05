@@ -330,6 +330,69 @@ def _normalize_history_chunk_shape(chunk: pd.DataFrame) -> tuple[pd.DataFrame, d
     return out, stats
 
 
+def _cleanup_history_processor_output(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+
+    duplicate_pairs = {
+        "msgtypebase": ["msgtypebase_x", "msgtypebase_y"],
+    }
+
+    for canonical_name, variants in duplicate_pairs.items():
+        present = [column for column in variants if column in out.columns]
+        if not present:
+            continue
+        merged = _first_non_empty_series([out[column] for column in present], index=out.index)
+        out[canonical_name] = merged
+        out = out.drop(columns=present, errors="ignore")
+
+    raw_drop_columns = {
+        "clientevent",
+        "message",
+        "mdc",
+        "servertimestamp",
+        "origaddress",
+        "date",
+    }
+    out = out.drop(columns=[column for column in out.columns if str(column).lower() in raw_drop_columns], errors="ignore")
+
+    source_prefixes = ("clientevent_",)
+    keep_source_columns = {
+        "clientevent_msgtype",
+        "clientevent_audittopic",
+        "clientevent_authsource",
+        "clientevent_authuser",
+        "clientevent_projectkey",
+    }
+    source_columns_to_drop = [
+        column
+        for column in out.columns
+        if str(column).lower().startswith(source_prefixes) and str(column).lower() not in keep_source_columns
+    ]
+    out = out.drop(columns=source_columns_to_drop, errors="ignore")
+
+    canonical_fill_pairs = {
+        "msgtype": ["msgtype", "clientevent_msgtype"],
+        "audittopic": ["audittopic", "clientevent_audittopic"],
+        "authsource": ["authsource", "clientevent_authsource"],
+        "authuser": ["authuser", "clientevent_authuser"],
+        "project_key": ["project_key", "projectkey", "clientevent_projectkey"],
+    }
+
+    for canonical_name, variants in canonical_fill_pairs.items():
+        sources = [out[column] for column in variants if column in out.columns]
+        if not sources:
+            continue
+        merged = _first_non_empty_series(sources, index=out.index)
+        out[canonical_name] = merged
+
+    out = out.drop(
+        columns=[column for column in keep_source_columns if column in out.columns],
+        errors="ignore",
+    )
+
+    return out
+
+
 class MyRunnable(Runnable):
     def __init__(self, project_key: str, config: dict[str, Any], plugin_config: dict[str, Any]):
         self.project_key = project_key
@@ -719,9 +782,10 @@ class MyRunnable(Runnable):
             for module_name, grp in out_df.groupby("dataiku_category"):
                 flatten_category = proc_name
                 flatten_module = str(module_name)
+                cleaned_grp = _cleanup_history_processor_output(grp)
 
                 silver_df = normalize_silver(
-                    df=grp,
+                    df=cleaned_grp,
                     instance_name=instance_name,
                     run_ts=run_ts,
                     category=flatten_category,

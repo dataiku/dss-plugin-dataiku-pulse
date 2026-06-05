@@ -1,0 +1,7 @@
+# TODO: define required flat columns for event_mapping (audit-level)
+# File naming convention: {category}_{module}.yaml
+# Category: event_mapping
+# Module: administration
+# Section: audit
+
+# Add column names here (lowercase, underscores)
