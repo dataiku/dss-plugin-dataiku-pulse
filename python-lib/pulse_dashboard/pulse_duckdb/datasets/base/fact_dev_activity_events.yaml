@@ -13,9 +13,6 @@ fact_dev_activity_events:
           CAST(NULL AS VARCHAR) AS msgtypebase,
           CAST(NULL AS VARCHAR) AS dataiku_category,
           CAST(NULL AS VARCHAR) AS project_key,
-          CAST(NULL AS VARCHAR) AS severity,
-          CAST(NULL AS VARCHAR) AS topic,
-          CAST(NULL AS VARCHAR) AS audittopic,
           CAST(NULL AS VARCHAR) AS callpath,
           CAST(NULL AS VARCHAR) AS extras,
           CAST(NULL AS TIMESTAMP) AS run_timestamp
