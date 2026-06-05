@@ -491,6 +491,15 @@ class MyRunnable(Runnable):
 
                 dq = check_silver_dq(silver_df)
                 if dq.ok:
+                    logger.info(
+                        "History import writing silver output: source_node=%s mapped_instance=%s processor=%s module=%s rows=%s path=%s",
+                        self.config.get("node_id"),
+                        instance_name,
+                        flatten_category,
+                        flatten_module,
+                        int(silver_df.shape[0]),
+                        silver_path,
+                    )
                     upload_parquet(
                         target=target,
                         output_path=silver_path,
@@ -509,6 +518,16 @@ class MyRunnable(Runnable):
                         instance_name=instance_name,
                         event_date=event_date,
                     ) / parquet_name
+                    logger.warning(
+                        "History import writing silver_fail output: source_node=%s mapped_instance=%s processor=%s module=%s rows=%s path=%s dq_errors=%s",
+                        self.config.get("node_id"),
+                        instance_name,
+                        flatten_category,
+                        flatten_module,
+                        int(silver_df.shape[0]),
+                        fail_path,
+                        dq.errors,
+                    )
                     upload_parquet(
                         target=target,
                         output_path=fail_path,
@@ -626,6 +645,16 @@ class MyRunnable(Runnable):
 
         target = ensure_output_folder(param_set=self.param_set, remote_client=ctx.remote_client)
         layout = OutputLayout(base_dir=Path("partitioned_data"), module="audit_metadata")
+        logger.info(
+            "History import resolved output target: target_project=%s target_folder=%s target_connection=%s source_folder_id=%s source_resolved_folder_id=%s source_node=%s mapped_instance=%s",
+            target.project_key,
+            target.folder_lookup,
+            target.connection_name,
+            folder_id,
+            resolved_folder_id,
+            node_id,
+            instance_name,
+        )
 
         processor_names = _load_processor_names()
         processors, processor_messages = _load_processors(processor_names)
