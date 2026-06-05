@@ -205,6 +205,7 @@ class MyRunnable(Runnable):
         self.config = config or {}
         self.plugin_config = plugin_config or {}
         self.param_set = self.plugin_config.get("pulse_primary", {}) or {}
+        self._logged_history_shape = False
 
     def get_progress_target(self):
         return None
@@ -405,6 +406,13 @@ class MyRunnable(Runnable):
             return stats, rows_written
 
         chunk, normalization_stats = _normalize_history_chunk_shape(chunk)
+        if not self._logged_history_shape:
+            self._logged_history_shape = True
+            logger.info(
+                "History chunk input columns sample: total_columns=%s columns=%s",
+                len(chunk.columns),
+                sorted(str(column) for column in chunk.columns),
+            )
         if any(normalization_stats.values()):
             logger.info(
                 "History chunk normalized: chunk_idx=%s flattened_message_rows=%s client_event_backfill_rows=%s topic_backfill_rows=%s timestamp_backfill_rows=%s",
