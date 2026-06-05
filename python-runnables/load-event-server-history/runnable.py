@@ -99,6 +99,106 @@ def _load_processors(names: list[str]) -> tuple[dict[str, Any], dict[str, str]]:
     return processors, messages
 
 
+def _first_non_empty_series(series_list: list[pd.Series], *, index: pd.Index) -> pd.Series:
+    if not series_list:
+        return pd.Series(pd.NA, index=index, dtype="object")
+
+    out = pd.Series(pd.NA, index=index, dtype="object")
+    for series in series_list:
+        normalized = series.reindex(index).astype("object")
+        mask = out.isna() & normalized.notna()
+        if mask.any():
+            out.loc[mask] = normalized.loc[mask]
+    return out
+
+
+def _series_has_values(series: pd.Series) -> pd.Series:
+    if series.dtype == "object":
+        as_str = series.astype("string")
+        return series.notna() & as_str.fillna("").str.strip().ne("")
+    return series.notna()
+
+
+def _normalize_history_chunk_shape(chunk: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
+    out = chunk.copy()
+    stats = {
+        "message_flattened_rows": 0,
+        "message_backfilled_from_client_event_rows": 0,
+        "topic_backfilled_rows": 0,
+        "timestamp_backfilled_from_server_timestamp_rows": 0,
+    }
+
+    if "message" in out.columns:
+        message_series = out["message"]
+        message_mask = message_series.apply(lambda value: isinstance(value, dict))
+        if bool(message_mask.any()):
+            normalized_message = pd.json_normalize(message_series.where(message_mask, None)).add_prefix("message_")
+            normalized_message.index = out.index
+            for column in normalized_message.columns:
+                if column not in out.columns:
+                    out[column] = normalized_message[column]
+                else:
+                    existing = out[column]
+                    fill_mask = ~_series_has_values(existing) & _series_has_values(normalized_message[column])
+                    if bool(fill_mask.any()):
+                        out.loc[fill_mask, column] = normalized_message.loc[fill_mask, column]
+            stats["message_flattened_rows"] = int(message_mask.sum())
+
+    client_event_columns = [column for column in out.columns if column.startswith("clientEvent.")]
+    backfilled_message_rows = pd.Series(False, index=out.index)
+    for column in client_event_columns:
+        suffix = column.split(".", 1)[1].strip()
+        if not suffix:
+            continue
+        message_column = f"message_{suffix}"
+        source = out[column]
+        if message_column not in out.columns:
+            out[message_column] = source
+            backfilled_message_rows = backfilled_message_rows | _series_has_values(source)
+            continue
+
+        fill_mask = ~_series_has_values(out[message_column]) & _series_has_values(source)
+        if bool(fill_mask.any()):
+            out.loc[fill_mask, message_column] = source.loc[fill_mask]
+            backfilled_message_rows = backfilled_message_rows | fill_mask
+
+    stats["message_backfilled_from_client_event_rows"] = int(backfilled_message_rows.sum())
+
+    if "topic" not in out.columns:
+        topic_sources = []
+        if "clientEvent.auditTopic" in out.columns:
+            topic_sources.append(out["clientEvent.auditTopic"])
+        if "message_auditTopic" in out.columns:
+            topic_sources.append(out["message_auditTopic"])
+        topic_series = _first_non_empty_series(topic_sources, index=out.index)
+        out["topic"] = topic_series
+        stats["topic_backfilled_rows"] = int(_series_has_values(topic_series).sum())
+    else:
+        existing_topic = out["topic"]
+        topic_sources = []
+        if "clientEvent.auditTopic" in out.columns:
+            topic_sources.append(out["clientEvent.auditTopic"])
+        if "message_auditTopic" in out.columns:
+            topic_sources.append(out["message_auditTopic"])
+        topic_series = _first_non_empty_series(topic_sources, index=out.index)
+        fill_mask = ~_series_has_values(existing_topic) & _series_has_values(topic_series)
+        if bool(fill_mask.any()):
+            out.loc[fill_mask, "topic"] = topic_series.loc[fill_mask]
+            stats["topic_backfilled_rows"] = int(fill_mask.sum())
+
+    if "timestamp" not in out.columns:
+        timestamp_series = out["serverTimestamp"] if "serverTimestamp" in out.columns else pd.Series(pd.NA, index=out.index)
+        out["timestamp"] = timestamp_series
+        stats["timestamp_backfilled_from_server_timestamp_rows"] = int(_series_has_values(timestamp_series).sum())
+    elif "serverTimestamp" in out.columns:
+        fill_mask = ~_series_has_values(out["timestamp"]) & _series_has_values(out["serverTimestamp"])
+        if bool(fill_mask.any()):
+            out.loc[fill_mask, "timestamp"] = out.loc[fill_mask, "serverTimestamp"]
+            stats["timestamp_backfilled_from_server_timestamp_rows"] = int(fill_mask.sum())
+
+    return out, stats
+
+
 class MyRunnable(Runnable):
     def __init__(self, project_key: str, config: dict[str, Any], plugin_config: dict[str, Any]):
         self.project_key = project_key
@@ -303,6 +403,17 @@ class MyRunnable(Runnable):
         rows_written = 0
         if chunk is None or chunk.shape[0] == 0:
             return stats, rows_written
+
+        chunk, normalization_stats = _normalize_history_chunk_shape(chunk)
+        if any(normalization_stats.values()):
+            logger.info(
+                "History chunk normalized: chunk_idx=%s flattened_message_rows=%s client_event_backfill_rows=%s topic_backfill_rows=%s timestamp_backfill_rows=%s",
+                chunk_idx,
+                normalization_stats["message_flattened_rows"],
+                normalization_stats["message_backfilled_from_client_event_rows"],
+                normalization_stats["topic_backfilled_rows"],
+                normalization_stats["timestamp_backfilled_from_server_timestamp_rows"],
+            )
 
         stats = HistoryProcessingStats(
             rows_read=stats.rows_read + int(chunk.shape[0]),
