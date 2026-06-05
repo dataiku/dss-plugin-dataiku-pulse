@@ -143,6 +143,7 @@ def _normalize_history_chunk_shape(chunk: pd.DataFrame) -> tuple[pd.DataFrame, d
     out = chunk.copy()
     stats = {
         "message_flattened_rows": 0,
+        "client_event_flattened_rows": 0,
         "message_backfilled_from_client_event_rows": 0,
         "topic_backfilled_rows": 0,
         "timestamp_backfilled_from_server_timestamp_rows": 0,
@@ -165,10 +166,36 @@ def _normalize_history_chunk_shape(chunk: pd.DataFrame) -> tuple[pd.DataFrame, d
                         out.loc[fill_mask, column] = normalized_message.loc[fill_mask, column]
             stats["message_flattened_rows"] = int(message_mask.sum())
 
-    client_event_columns = [column for column in out.columns if column.startswith("clientEvent.")]
+    if "clientEvent" in out.columns:
+        client_event_series = out["clientEvent"]
+        client_event_mask = client_event_series.apply(lambda value: isinstance(value, dict))
+        if bool(client_event_mask.any()):
+            normalized_client_event = pd.json_normalize(client_event_series.where(client_event_mask, None)).add_prefix(
+                "clientEvent_"
+            )
+            normalized_client_event.index = out.index
+            for column in normalized_client_event.columns:
+                if column not in out.columns:
+                    out[column] = normalized_client_event[column]
+                else:
+                    existing = out[column]
+                    fill_mask = ~_series_has_values(existing) & _series_has_values(normalized_client_event[column])
+                    if bool(fill_mask.any()):
+                        out.loc[fill_mask, column] = normalized_client_event.loc[fill_mask, column]
+            stats["client_event_flattened_rows"] = int(client_event_mask.sum())
+
+    client_event_columns = [
+        column
+        for column in out.columns
+        if str(column).startswith("clientEvent.") or str(column).startswith("clientEvent_")
+    ]
     backfilled_message_rows = pd.Series(False, index=out.index)
     for column in client_event_columns:
-        suffix = column.split(".", 1)[1].strip()
+        column_str = str(column)
+        if column_str.startswith("clientEvent."):
+            suffix = column_str.split(".", 1)[1].strip()
+        else:
+            suffix = column_str.split("_", 1)[1].strip()
         if not suffix:
             continue
         message_column = f"message_{suffix}"
