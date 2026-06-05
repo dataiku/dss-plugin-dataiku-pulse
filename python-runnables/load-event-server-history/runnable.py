@@ -780,17 +780,29 @@ class MyRunnable(Runnable):
                 continue
 
             for module_name, grp in out_df.groupby("dataiku_category"):
-                flatten_category = proc_name
-                flatten_module = str(module_name)
+                output_category = proc_name
+                output_module = str(module_name)
                 cleaned_grp = _cleanup_history_processor_output(grp)
+
+                normalize_category = output_category
+                normalize_module = output_module
+                normalize_variant = None
+                normalize_base = None
+                if proc_name == "event_mapping":
+                    normalize_category = "audit_dataiku_usage"
+                    normalize_module = "audit_metadata"
+                    normalize_variant = str(module_name)
+                    normalize_base = ("audit_dataiku_usage", "audit_metadata")
 
                 silver_df = normalize_silver(
                     df=cleaned_grp,
                     instance_name=instance_name,
                     run_ts=run_ts,
-                    category=flatten_category,
-                    module=flatten_module,
+                    category=normalize_category,
+                    module=normalize_module,
                     todo_section="audit",
+                    flatten_base=normalize_base,
+                    flatten_variant=normalize_variant,
                 )
 
                 parquet_name = f"audit_logs-history-{run_epoch_ms}-{chunk_idx}.parquet"
@@ -804,16 +816,16 @@ class MyRunnable(Runnable):
                 silver_path = self._build_partition_dir(
                     layout=layout,
                     layer="silver",
-                    proc_name=flatten_category,
-                    module_name=flatten_module,
+                    proc_name=output_category,
+                    module_name=output_module,
                     instance_name=instance_name,
                     event_date=event_date,
                 ) / parquet_name
                 silver_fail_reason_path = self._build_partition_dir(
                     layout=layout,
                     layer="silver_fail",
-                    proc_name=flatten_category,
-                    module_name=flatten_module,
+                    proc_name=output_category,
+                    module_name=output_module,
                     instance_name=instance_name,
                     event_date=event_date,
                 ) / dq_name
@@ -824,8 +836,8 @@ class MyRunnable(Runnable):
                         "History import writing silver output: source_node=%s mapped_instance=%s processor=%s module=%s rows=%s path=%s",
                         self.config.get("node_id"),
                         instance_name,
-                        flatten_category,
-                        flatten_module,
+                        output_category,
+                        output_module,
                         int(silver_df.shape[0]),
                         silver_path,
                     )
@@ -842,8 +854,8 @@ class MyRunnable(Runnable):
                     fail_path = self._build_partition_dir(
                         layout=layout,
                         layer="silver_fail",
-                        proc_name=flatten_category,
-                        module_name=flatten_module,
+                        proc_name=output_category,
+                        module_name=output_module,
                         instance_name=instance_name,
                         event_date=event_date,
                     ) / parquet_name
@@ -851,8 +863,8 @@ class MyRunnable(Runnable):
                         "History import writing silver_fail output: source_node=%s mapped_instance=%s processor=%s module=%s rows=%s path=%s dq_errors=%s",
                         self.config.get("node_id"),
                         instance_name,
-                        flatten_category,
-                        flatten_module,
+                        output_category,
+                        output_module,
                         int(silver_df.shape[0]),
                         fail_path,
                         dq.errors,
