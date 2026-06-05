@@ -18,4 +18,4 @@ fact_dev_activity_events:
           CAST(NULL AS TIMESTAMP) AS run_timestamp
     WHERE 1=0;
   example_data: |
-    INSERT INTO "fact_dev_activity_events" (timestamp, instance_name, login, msgtype, msgtypebase, dataiku_category, project_key, severity, topic, audittopic, callpath, extras) VALUES (TIMESTAMP '2026-03-23 12:00:00', 'dss-prod', 'alice', 'msgtype_example', 'msgtypebase_example', 'dataiku_category_example', 'FIN', 'severity_example', 'topic_example', 'audittopic_example', 'callpath_example', 'extras_example');
+    INSERT INTO "fact_dev_activity_events" (timestamp, instance_name, login, msgtype, msgtypebase, dataiku_category, project_key, callpath, extras) VALUES (TIMESTAMP '2026-03-23 12:00:00', 'dss-prod', 'alice', 'msgtype_example', 'msgtypebase_example', 'dataiku_category_example', 'FIN', callpath_example', 'extras_example');
