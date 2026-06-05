@@ -719,13 +719,6 @@ class MyRunnable(Runnable):
             for module_name, grp in out_df.groupby("dataiku_category"):
                 flatten_category = proc_name
                 flatten_module = str(module_name)
-                flatten_variant = None
-                flatten_base = None
-                if proc_name == "event_mapping":
-                    flatten_category = "audit_dataiku_usage"
-                    flatten_module = "audit_metadata"
-                    flatten_variant = str(module_name)
-                    flatten_base = ("audit_dataiku_usage", "audit_metadata")
 
                 silver_df = normalize_silver(
                     df=grp,
@@ -734,8 +727,6 @@ class MyRunnable(Runnable):
                     category=flatten_category,
                     module=flatten_module,
                     todo_section="audit",
-                    flatten_base=flatten_base,
-                    flatten_variant=flatten_variant,
                 )
 
                 parquet_name = f"audit_logs-history-{run_epoch_ms}-{chunk_idx}.parquet"
