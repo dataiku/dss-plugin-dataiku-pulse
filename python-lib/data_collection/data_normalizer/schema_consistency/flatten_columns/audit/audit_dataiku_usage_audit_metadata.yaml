@@ -8,10 +8,6 @@
 - authsource
 - authvia
 
-- severity
-- logger
-- topic
-- audittopic
 - msgtype
 - msgtypebase
 - dataiku_category

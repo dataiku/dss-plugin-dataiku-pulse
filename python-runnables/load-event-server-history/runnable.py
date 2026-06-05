@@ -399,7 +399,6 @@ class MyRunnable(Runnable):
         self.config = config or {}
         self.plugin_config = plugin_config or {}
         self.param_set = self.plugin_config.get("pulse_primary", {}) or {}
-        self._logged_history_shape = False
 
     def get_progress_target(self):
         return None
@@ -600,47 +599,6 @@ class MyRunnable(Runnable):
             return stats, rows_written
 
         chunk, normalization_stats = _normalize_history_chunk_shape(chunk)
-        if not self._logged_history_shape:
-            self._logged_history_shape = True
-            logger.info(
-                "History chunk input columns sample: total_columns=%s columns=%s",
-                len(chunk.columns),
-                sorted(str(column) for column in chunk.columns),
-            )
-        if any(normalization_stats.values()):
-            logger.info(
-                "History chunk normalized: chunk_idx=%s flattened_message_rows=%s client_event_backfill_rows=%s topic_backfill_rows=%s timestamp_backfill_rows=%s message_msgtype_backfill_rows=%s",
-                chunk_idx,
-                normalization_stats["message_flattened_rows"],
-                normalization_stats["message_backfilled_from_client_event_rows"],
-                normalization_stats["topic_backfilled_rows"],
-                normalization_stats["timestamp_backfilled_from_server_timestamp_rows"],
-                normalization_stats["message_msgtype_backfilled_rows"],
-            )
-        if chunk_idx == 1 or chunk_idx % 500 == 0:
-            topic_counts = (
-                chunk["topic"].astype("string").fillna("<null>").value_counts(dropna=False).head(5).to_dict()
-                if "topic" in chunk.columns
-                else {}
-            )
-            msgtype_counts = (
-                chunk["message_msgType"].astype("string").fillna("<null>").value_counts(dropna=False).head(5).to_dict()
-                if "message_msgType" in chunk.columns
-                else {}
-            )
-            auth_source_counts = (
-                chunk["message_authSource"].astype("string").fillna("<null>").value_counts(dropna=False).head(5).to_dict()
-                if "message_authSource" in chunk.columns
-                else {}
-            )
-            logger.info(
-                "History chunk profile: chunk_idx=%s topic_counts=%s message_msgType_counts=%s message_authSource_counts=%s",
-                chunk_idx,
-                topic_counts,
-                msgtype_counts,
-                auth_source_counts,
-            )
-
         stats = HistoryProcessingStats(
             rows_read=stats.rows_read + int(chunk.shape[0]),
             rows_missing_timestamp=stats.rows_missing_timestamp,
@@ -832,15 +790,6 @@ class MyRunnable(Runnable):
 
                 dq = check_silver_dq(silver_df)
                 if dq.ok:
-                    logger.info(
-                        "History import writing silver output: source_node=%s mapped_instance=%s processor=%s module=%s rows=%s path=%s",
-                        self.config.get("node_id"),
-                        instance_name,
-                        output_category,
-                        output_module,
-                        int(silver_df.shape[0]),
-                        silver_path,
-                    )
                     upload_parquet(
                         target=target,
                         output_path=silver_path,
@@ -859,16 +808,6 @@ class MyRunnable(Runnable):
                         instance_name=instance_name,
                         event_date=event_date,
                     ) / parquet_name
-                    logger.warning(
-                        "History import writing silver_fail output: source_node=%s mapped_instance=%s processor=%s module=%s rows=%s path=%s dq_errors=%s",
-                        self.config.get("node_id"),
-                        instance_name,
-                        output_category,
-                        output_module,
-                        int(silver_df.shape[0]),
-                        fail_path,
-                        dq.errors,
-                    )
                     upload_parquet(
                         target=target,
                         output_path=fail_path,
@@ -986,16 +925,6 @@ class MyRunnable(Runnable):
 
         target = ensure_output_folder(param_set=self.param_set, remote_client=ctx.remote_client)
         layout = OutputLayout(base_dir=Path("partitioned_data"), module="audit_metadata")
-        logger.info(
-            "History import resolved output target: target_project=%s target_folder=%s target_connection=%s source_folder_id=%s source_resolved_folder_id=%s source_node=%s mapped_instance=%s",
-            target.project_key,
-            target.folder_lookup,
-            target.connection_name,
-            folder_id,
-            resolved_folder_id,
-            node_id,
-            instance_name,
-        )
 
         processor_names = _load_processor_names()
         processors, processor_messages = _load_processors(processor_names)
