@@ -119,6 +119,26 @@ def _series_has_values(series: pd.Series) -> pd.Series:
     return series.notna()
 
 
+def _collect_alias_sources(df: pd.DataFrame, candidate_names: list[str]) -> list[pd.Series]:
+    sources: list[pd.Series] = []
+    normalized_lookup = {str(column).replace(".", "").replace("_", "").lower(): column for column in df.columns}
+
+    seen_columns: set[Any] = set()
+    for candidate in candidate_names:
+        if candidate in df.columns and candidate not in seen_columns:
+            sources.append(df[candidate])
+            seen_columns.add(candidate)
+            continue
+
+        normalized_candidate = str(candidate).replace(".", "").replace("_", "").lower()
+        matched_column = normalized_lookup.get(normalized_candidate)
+        if matched_column is not None and matched_column not in seen_columns:
+            sources.append(df[matched_column])
+            seen_columns.add(matched_column)
+
+    return sources
+
+
 def _normalize_history_chunk_shape(chunk: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
     out = chunk.copy()
     stats = {
@@ -165,22 +185,26 @@ def _normalize_history_chunk_shape(chunk: pd.DataFrame) -> tuple[pd.DataFrame, d
 
     stats["message_backfilled_from_client_event_rows"] = int(backfilled_message_rows.sum())
 
+    topic_sources = _collect_alias_sources(
+        out,
+        [
+            "topic",
+            "clientEvent.auditTopic",
+            "clientEvent_auditTopic",
+            "clientevent.auditTopic",
+            "clientevent_auditTopic",
+            "message_auditTopic",
+            "message.auditTopic",
+            "auditTopic",
+            "audittopic",
+        ],
+    )
     if "topic" not in out.columns:
-        topic_sources = []
-        if "clientEvent.auditTopic" in out.columns:
-            topic_sources.append(out["clientEvent.auditTopic"])
-        if "message_auditTopic" in out.columns:
-            topic_sources.append(out["message_auditTopic"])
         topic_series = _first_non_empty_series(topic_sources, index=out.index)
         out["topic"] = topic_series
         stats["topic_backfilled_rows"] = int(_series_has_values(topic_series).sum())
     else:
         existing_topic = out["topic"]
-        topic_sources = []
-        if "clientEvent.auditTopic" in out.columns:
-            topic_sources.append(out["clientEvent.auditTopic"])
-        if "message_auditTopic" in out.columns:
-            topic_sources.append(out["message_auditTopic"])
         topic_series = _first_non_empty_series(topic_sources, index=out.index)
         fill_mask = ~_series_has_values(existing_topic) & _series_has_values(topic_series)
         if bool(fill_mask.any()):
@@ -197,19 +221,19 @@ def _normalize_history_chunk_shape(chunk: pd.DataFrame) -> tuple[pd.DataFrame, d
             out.loc[fill_mask, "timestamp"] = out.loc[fill_mask, "serverTimestamp"]
             stats["timestamp_backfilled_from_server_timestamp_rows"] = int(fill_mask.sum())
 
-    msgtype_sources: list[pd.Series] = []
-    for column_name in [
-        "message.msgType",
-        "message_msgType",
-        "clientEvent.msgType",
-        "clientEvent_msgType",
-        "msgType",
-        "msgtype",
-        "clientevent.msgType",
-        "clientevent_msgType",
-    ]:
-        if column_name in out.columns:
-            msgtype_sources.append(out[column_name])
+    msgtype_sources = _collect_alias_sources(
+        out,
+        [
+            "message_msgType",
+            "message.msgType",
+            "clientEvent.msgType",
+            "clientEvent_msgType",
+            "clientevent.msgType",
+            "clientevent_msgType",
+            "msgType",
+            "msgtype",
+        ],
+    )
 
     if "message_msgType" not in out.columns:
         msgtype_series = _first_non_empty_series(msgtype_sources, index=out.index)
@@ -221,6 +245,60 @@ def _normalize_history_chunk_shape(chunk: pd.DataFrame) -> tuple[pd.DataFrame, d
         if bool(fill_mask.any()):
             out.loc[fill_mask, "message_msgType"] = msgtype_series.loc[fill_mask]
             stats["message_msgtype_backfilled_rows"] = int(fill_mask.sum())
+
+    canonical_backfills = {
+        "message_msgTypeBase": [
+            "message_msgTypeBase",
+            "message.msgTypeBase",
+            "clientEvent.msgTypeBase",
+            "clientEvent_msgTypeBase",
+            "clientevent.msgTypeBase",
+            "clientevent_msgTypeBase",
+            "msgTypeBase",
+            "msgtypebase",
+        ],
+        "message_authSource": [
+            "message_authSource",
+            "message.authSource",
+            "clientEvent.authSource",
+            "clientEvent_authSource",
+            "clientevent.authSource",
+            "clientevent_authSource",
+            "authSource",
+            "authsource",
+        ],
+        "message_authUser": [
+            "message_authUser",
+            "message.authUser",
+            "clientEvent.authUser",
+            "clientEvent_authUser",
+            "clientevent.authUser",
+            "clientevent_authUser",
+            "authUser",
+            "authuser",
+        ],
+        "message_projectKey": [
+            "message_projectKey",
+            "message.projectKey",
+            "clientEvent.projectKey",
+            "clientEvent_projectKey",
+            "clientevent.projectKey",
+            "clientevent_projectKey",
+            "projectKey",
+            "projectkey",
+        ],
+    }
+
+    for canonical_name, aliases in canonical_backfills.items():
+        canonical_sources = _collect_alias_sources(out, aliases)
+        if canonical_name not in out.columns:
+            out[canonical_name] = _first_non_empty_series(canonical_sources, index=out.index)
+            continue
+
+        canonical_series = _first_non_empty_series(canonical_sources, index=out.index)
+        fill_mask = ~_series_has_values(out[canonical_name]) & _series_has_values(canonical_series)
+        if bool(fill_mask.any()):
+            out.loc[fill_mask, canonical_name] = canonical_series.loc[fill_mask]
 
     return out, stats
 
@@ -448,6 +526,29 @@ class MyRunnable(Runnable):
                 normalization_stats["topic_backfilled_rows"],
                 normalization_stats["timestamp_backfilled_from_server_timestamp_rows"],
                 normalization_stats["message_msgtype_backfilled_rows"],
+            )
+        if chunk_idx == 1 or chunk_idx % 500 == 0:
+            topic_counts = (
+                chunk["topic"].astype("string").fillna("<null>").value_counts(dropna=False).head(5).to_dict()
+                if "topic" in chunk.columns
+                else {}
+            )
+            msgtype_counts = (
+                chunk["message_msgType"].astype("string").fillna("<null>").value_counts(dropna=False).head(5).to_dict()
+                if "message_msgType" in chunk.columns
+                else {}
+            )
+            auth_source_counts = (
+                chunk["message_authSource"].astype("string").fillna("<null>").value_counts(dropna=False).head(5).to_dict()
+                if "message_authSource" in chunk.columns
+                else {}
+            )
+            logger.info(
+                "History chunk profile: chunk_idx=%s topic_counts=%s message_msgType_counts=%s message_authSource_counts=%s",
+                chunk_idx,
+                topic_counts,
+                msgtype_counts,
+                auth_source_counts,
             )
 
         stats = HistoryProcessingStats(
