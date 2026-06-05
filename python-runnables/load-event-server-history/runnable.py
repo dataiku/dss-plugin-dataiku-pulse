@@ -126,6 +126,7 @@ def _normalize_history_chunk_shape(chunk: pd.DataFrame) -> tuple[pd.DataFrame, d
         "message_backfilled_from_client_event_rows": 0,
         "topic_backfilled_rows": 0,
         "timestamp_backfilled_from_server_timestamp_rows": 0,
+        "message_msgtype_backfilled_rows": 0,
     }
 
     if "message" in out.columns:
@@ -195,6 +196,31 @@ def _normalize_history_chunk_shape(chunk: pd.DataFrame) -> tuple[pd.DataFrame, d
         if bool(fill_mask.any()):
             out.loc[fill_mask, "timestamp"] = out.loc[fill_mask, "serverTimestamp"]
             stats["timestamp_backfilled_from_server_timestamp_rows"] = int(fill_mask.sum())
+
+    msgtype_sources: list[pd.Series] = []
+    for column_name in [
+        "message.msgType",
+        "message_msgType",
+        "clientEvent.msgType",
+        "clientEvent_msgType",
+        "msgType",
+        "msgtype",
+        "clientevent.msgType",
+        "clientevent_msgType",
+    ]:
+        if column_name in out.columns:
+            msgtype_sources.append(out[column_name])
+
+    if "message_msgType" not in out.columns:
+        msgtype_series = _first_non_empty_series(msgtype_sources, index=out.index)
+        out["message_msgType"] = msgtype_series
+        stats["message_msgtype_backfilled_rows"] = int(_series_has_values(msgtype_series).sum())
+    else:
+        msgtype_series = _first_non_empty_series(msgtype_sources, index=out.index)
+        fill_mask = ~_series_has_values(out["message_msgType"]) & _series_has_values(msgtype_series)
+        if bool(fill_mask.any()):
+            out.loc[fill_mask, "message_msgType"] = msgtype_series.loc[fill_mask]
+            stats["message_msgtype_backfilled_rows"] = int(fill_mask.sum())
 
     return out, stats
 
@@ -415,12 +441,13 @@ class MyRunnable(Runnable):
             )
         if any(normalization_stats.values()):
             logger.info(
-                "History chunk normalized: chunk_idx=%s flattened_message_rows=%s client_event_backfill_rows=%s topic_backfill_rows=%s timestamp_backfill_rows=%s",
+                "History chunk normalized: chunk_idx=%s flattened_message_rows=%s client_event_backfill_rows=%s topic_backfill_rows=%s timestamp_backfill_rows=%s message_msgtype_backfill_rows=%s",
                 chunk_idx,
                 normalization_stats["message_flattened_rows"],
                 normalization_stats["message_backfilled_from_client_event_rows"],
                 normalization_stats["topic_backfilled_rows"],
                 normalization_stats["timestamp_backfilled_from_server_timestamp_rows"],
+                normalization_stats["message_msgtype_backfilled_rows"],
             )
 
         stats = HistoryProcessingStats(
