@@ -456,6 +456,10 @@ def _object_activity_branch_sql(
     module: str,
     view_name: str,
 ) -> str:
+    view_columns = _view_columns(conn, view_name)
+    ip_sources = [col for col in ("clientip", "originalip") if col in view_columns]
+    ip_address_expr = "COALESCE(" + ", ".join(ip_sources) + ")" if ip_sources else "NULL"
+
     # Start simple: derive object ids from available columns.
     # These regexes can be refined as we observe real callpaths.
     if module in {"datasets", "dataset"}:
@@ -466,7 +470,6 @@ def _object_activity_branch_sql(
         object_key_expr = "NULLIF(regexp_extract(callpath, '/recipes/([^/?]+)', 1), '')"
     elif module == "webapps":
         object_type = "web_application"
-        view_columns = _view_columns(conn, view_name)
         normalized_webapp_expr = (
             "NULLIF(CAST(e.webappid AS VARCHAR), '')"
             if "webappid" in view_columns
@@ -512,7 +515,7 @@ def _object_activity_branch_sql(
         "  NULL AS instance_url,\n"
         "  NULL AS group_names,\n"
         "  NULL AS session_id,\n"
-        "  COALESCE(clientip, originalip) AS ip_address,\n"
+        f"  {ip_address_expr} AS ip_address,\n"  # nosec B608 (expression is derived from allowlisted column names)
         "  NULL AS user_agent,\n"
         "  extras AS details_json,\n"
         "  try_cast(run_ts AS TIMESTAMP) AS run_timestamp,\n"
