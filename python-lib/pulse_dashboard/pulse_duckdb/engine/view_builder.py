@@ -129,6 +129,12 @@ def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
             return "NULL"
         return _sql_ident(str(expr).strip())
 
+    def _non_empty_ident(expr: str | None) -> str:
+        ident = _maybe_col(expr)
+        if ident == "NULL":
+            return "NULL"
+        return f"NULLIF(TRIM(CAST({ident} AS VARCHAR)), '')"
+
     for (
         product_type,
         source_table,
@@ -175,7 +181,7 @@ def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
                     history_rows,
                 )
                 source_table = "base_webapps_metadata"
-                owner_col = "webapps_ownerlogin"
+                owner_col = None
                 last_modified_by_col = "webapps_lastmodifiedby_login"
                 created_at_col = "webapps_createdon"
                 updated_at_col = "webapps_lastmodifiedon"
@@ -201,6 +207,13 @@ def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
 
         where = str(where_sql).strip() if where_sql not in (None, "", "null") else "1=1"
 
+        owner_expr = _maybe_col(owner_col)
+        if product_type == "web_application":
+            owner_expr = _first_non_null_sql(
+                _non_empty_ident(owner_col),
+                _non_empty_ident(last_modified_by_col),
+            )
+
         branch = (
             "SELECT\n"
             f"  {_sql_ident(str(instance_name_col))} AS instance_name,\n"  # nosec B608 (identifiers are validated)
@@ -209,7 +222,7 @@ def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
             f"  {_sql_ident(str(key_col))} AS product_key,\n"  # nosec B608 (identifiers are validated)
             f"  {_sql_ident(str(name_col))} AS product_name,\n"  # nosec B608 (identifiers are validated)
             f"  {_maybe_col(subtype_col)} AS product_subtype,\n"  # nosec B608 (identifiers are validated)
-            f"  {_maybe_col(owner_col)} AS owner_login,\n"  # nosec B608 (identifiers are validated)
+            f"  {owner_expr} AS owner_login,\n"  # nosec B608 (identifiers are validated)
             f"  {_maybe_col(last_modified_by_col)} AS last_modified_by_login,\n"  # nosec B608 (identifiers are validated)
             f"  try_cast({_maybe_col(created_at_col)} AS TIMESTAMP) AS created_at,\n"  # nosec B608 (identifiers are validated)
             f"  try_cast({_maybe_col(updated_at_col)} AS TIMESTAMP) AS updated_at\n"  # nosec B608 (identifiers are validated)

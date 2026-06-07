@@ -60,6 +60,16 @@ def _non_empty_value_sql(column_sql: str) -> str:
     return f"NULLIF(trim(CAST({column_sql} AS VARCHAR)), '')"
 
 
+def _high_signal_product_name_sql(column_sql: str) -> str:
+    return (
+        "CASE "
+        f"WHEN {column_sql} IS NULL THEN NULL "
+        f"WHEN length(trim(CAST({column_sql} AS VARCHAR))) < 5 THEN NULL "
+        f"WHEN lower(trim(CAST({column_sql} AS VARCHAR))) IN ('view', 'demo', 'test', 'dash', 'prez') THEN NULL "
+        f"ELSE trim(CAST({column_sql} AS VARCHAR)) END"
+    )
+
+
 def _non_empty_value(value: Any) -> bool:
     if value is None:
         return False
@@ -2972,8 +2982,8 @@ def consumption_products_summary():
                 "  act.project_key AS projectKey,\n"
                 "  act.product_type AS productType,\n"
                 "  act.product_key AS productKey,\n"
-                f"  COALESCE({_non_empty_value_sql('idx_exact.product_name')}, {_non_empty_value_sql('catalog_exact.product_name')}, {_non_empty_value_sql('idx_any.product_name')}, {_non_empty_value_sql('catalog_any.product_name')}, act.product_key) AS productName,\n"
-                "  COALESCE(idx_exact.owner_login, idx_any.owner_login) AS ownerLogin,\n"
+                f"  COALESCE({_high_signal_product_name_sql('idx_exact.product_name')}, {_high_signal_product_name_sql('catalog_exact.product_name')}, {_high_signal_product_name_sql('idx_any.product_name')}, {_high_signal_product_name_sql('catalog_any.product_name')}, {_non_empty_value_sql('idx_exact.product_name')}, {_non_empty_value_sql('catalog_exact.product_name')}, {_non_empty_value_sql('idx_any.product_name')}, {_non_empty_value_sql('catalog_any.product_name')}, act.product_key) AS productName,\n"
+                f"  COALESCE({_non_empty_value_sql('idx_exact.owner_login')}, {_non_empty_value_sql('idx_any.owner_login')}) AS ownerLogin,\n"
                 "  act.events AS events,\n"
                 "  act.active_users AS activeUsers,\n"
                 "  act.last_activity_at AS lastActivityAt\n"

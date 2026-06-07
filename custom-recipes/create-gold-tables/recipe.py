@@ -480,6 +480,8 @@ def _object_activity_branch_sql(
     def _first_non_empty(*exprs: str) -> str:
         return "COALESCE(" + ", ".join(exprs) + ")"
 
+    row_filter = "authuser IS NOT NULL"
+
     if module in {"datasets", "dataset"}:
         object_type = "dataset"
         object_key_expr = "NULLIF(regexp_extract(callpath, '/datasets/([^/?]+)', 1), '')"
@@ -510,7 +512,9 @@ def _object_activity_branch_sql(
             _json_text('$.insightid'),
             _json_text('$.dashboardInsightId'),
         )
-        object_type = "dashboard" if dashboard_key_expr != "NULL" else "insight"
+        object_type = (
+            f"CASE WHEN {dashboard_key_expr} IS NOT NULL THEN 'dashboard' ELSE 'insight' END"
+        )
         object_key_expr = _clean_identifier(_first_non_empty(dashboard_key_expr, insight_key_expr))
     elif module == "apis":
         object_type = "api_service"
@@ -524,6 +528,7 @@ def _object_activity_branch_sql(
                 _json_text('$.serviceid'),
             )
         )
+        row_filter = f"{row_filter} AND {object_key_expr} IS NOT NULL"
     elif module == "application_designer":
         object_type = "dataiku_application"
         object_key_expr = _clean_identifier(
@@ -533,13 +538,14 @@ def _object_activity_branch_sql(
                 _json_text('$.applicationid'),
                 _json_text('$.appId'),
                 _json_text('$.appid'),
-                _null_if_empty("CASE WHEN project_key IS NOT NULL AND project_key <> '' THEN concat('PROJECT_', project_key) END"),
-                _null_if_empty("CASE WHEN regexp_extract(callpath, '/projects/([^/?]+)', 1) <> '' THEN concat('PROJECT_', regexp_extract(callpath, '/projects/([^/?]+)', 1)) END"),
-                _null_if_empty("CASE WHEN authvia IS NOT NULL AND regexp_extract(authvia, 'ticket:[^:]+:([^., ]+)', 1) <> '' THEN concat('PROJECT_', regexp_extract(authvia, 'ticket:[^:]+:([^., ]+)', 1)) END"),
                 _json_text('$.projectKey'),
                 _json_text('$.projectkey'),
                 _null_if_empty("project_key")
             )
+        )
+        row_filter = (
+            f"{row_filter} AND {object_key_expr} IS NOT NULL"
+            " AND msgtype <> 'application-open'"
         )
     else:
         object_type = module
@@ -578,7 +584,7 @@ def _object_activity_branch_sql(
             f"FROM {view_name} e\n",
             "LEFT JOIN dim_category_to_capability m\n",
             "  ON m.dataiku_category = e.dataiku_category\n",
-            "WHERE authuser IS NOT NULL",
+            f"WHERE {row_filter}",
         ]
     )
 
