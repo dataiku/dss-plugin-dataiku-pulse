@@ -1,6 +1,6 @@
 # Dataiku Pulse
 
-**Version:** 3.0.12
+**Version:** 3.0.13
 
 Dataiku Pulse is a cross-instance observability and analytics layer for **Dataiku DSS**. It helps teams understand **what is being built, what is being used, and how platform activity is evolving over time** across one or more DSS environments.
 
@@ -109,12 +109,18 @@ bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/w
 scripts/sync_pulse_dashboard_build.sh /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/build
 ```
 
-## Additional Documentation
+## Documentation
 
-More detailed documentation lives under `docs/`:
+The v3 documentation set lives under `docs/`:
 
-- Installation guide: `docs/install.md`
-- Taxonomy guide: `docs/taxonomy.md`
 - Architecture overview: `docs/architecture.md`
+- Taxonomy guide: `docs/taxonomy.md`
+- Installation guide: `docs/install.md`
 
-Legacy infrastructure/process notes may also exist under `docs/infrastructure/`.
+A good reading order for new users is:
+
+1. `docs/architecture.md`
+2. `docs/taxonomy.md`
+3. `docs/install.md`
+
+Legacy infrastructure/process notes may also exist under the older extras documentation workspace.

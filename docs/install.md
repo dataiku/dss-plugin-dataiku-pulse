@@ -1,11 +1,239 @@
 # Install
 
-Placeholder for V3 installation documentation.
+This guide describes the v3 installation model for Dataiku Pulse.
 
-This document should explain:
+Pulse v3 is installed as a Dataiku plugin and deployed using a **hub-and-spoke model**:
 
-- plugin installation prerequisites
-- hub and worker setup expectations
-- required managed folders and project settings
-- initialization flow
-- post-install validation steps
+- the **hub** hosts the shared Pulse dashboard project, centralized storage flow, and web application
+- one or more **spokes** provide worker-side collection from local Dataiku instances
+
+This document covers both:
+
+- **installation requirements**
+- **installation and initialization steps**
+
+## Requirements
+
+Before installing Pulse, make sure the target environment satisfies the following prerequisites.
+
+### Platform access
+
+For the initial Pulse installation, you must be a **Dataiku Platform Admin** on the primary hub instance.
+
+This is required because the setup involves platform-level actions such as:
+
+- installing the Pulse plugin
+- building the plugin code environment
+- configuring plugin settings
+- creating and managing the Pulse hub project
+- creating the Pulse web application
+- running initialization macros
+- optionally provisioning worker-side setup across connected instances
+
+In practice, the initial install should be performed by a user with full administrative access on the hub instance.
+
+### Access to connected instances
+
+Pulse can collect metadata and usage data from multiple Dataiku instances.
+
+For each spoke instance you want to connect, you need one of the following:
+
+- **full admin access** on that instance
+- an **admin-issued API key** with sufficient permissions
+
+These credentials are used so the hub can configure and coordinate worker-side collection.
+
+At minimum, connected-instance access must allow Pulse to:
+
+- read instance and project metadata
+- read audit and usage information
+- perform the setup needed for worker-side Pulse operation
+
+### Blob storage connection
+
+Pulse stores collected outputs in shared storage and uses those files to support downstream modeling and analytics.
+
+You need a blob storage connection that is:
+
+- accessible from the Pulse runtime environment
+- configured in Dataiku
+- allowed to read and write Pulse-managed data
+
+This shared storage is used for the centralized ingestion path that sits between spoke-side collection and hub-side modeling.
+
+### Parquet runtime support
+
+Pulse relies on Parquet files in its data flow.
+
+Because of that, customers must ensure that the **Hadoop/Spark add-on tarball packages** matching their Dataiku release are installed in the environment.
+
+This is an important runtime prerequisite for Pulse v3 and should be validated before installation, especially in customer-managed deployments.
+
+### Code environment readiness
+
+Pulse requires its plugin code environment to build successfully on the hub instance.
+
+Before proceeding, confirm that:
+
+- the plugin code environment can be created
+- the environment has access to the dependencies required by the plugin
+- the instance can use the storage and file-format capabilities Pulse depends on
+
+### Cloud storage notes
+
+Pulse uses shared storage and Parquet-backed data exchanges across its ingestion and modeling flow.
+
+General expectations:
+
+- **AWS** and **Azure** typically work with their supported credential models when the Dataiku runtime has proper access
+- **GCS** may require additional IAM and runtime credential validation depending on the customer environment
+
+If the deployment uses GCS, validate access before installation so Pulse can read and write its managed files successfully.
+
+## Installation Steps
+
+### 1. Install the plugin
+
+1. Log in to Dataiku as an administrative user on the hub instance.
+2. Navigate to **Waffle → Plugins**.
+3. Install the Pulse plugin from the appropriate source.
+4. Build the plugin code environment.
+
+At this point, the Pulse plugin is available to the instance, but the dashboard project and worker topology are not yet initialized.
+
+### 2. Configure plugin settings
+
+After the plugin is installed, open the **Plugin Settings** page.
+
+Create and populate the required parameter set used by the Pulse deployment.
+
+### Primary parameter set
+
+Create a parameter set named:
+
+```text
+primary
+```
+
+Use lowercase naming.
+
+Populate the configuration needed for:
+
+- the hub project
+- dashboard host information
+- shared blob storage
+- the worker project key
+- the list of connected worker instances
+- the API keys or access details required for those instances
+- optional host-specific behavior such as certificate handling or execution parallelism
+
+The exact values depend on the customer topology, but the core idea remains the same:
+
+- one central hub configuration
+- one worker project pattern applied across connected instances
+
+### 3. Create the Pulse dashboard project
+
+Create the Dataiku project that will host the Pulse hub experience.
+
+This project becomes the main Pulse hub project and is where you will:
+
+- initialize dashboard-side objects
+- run Pulse macros
+- host the Pulse web application
+- manage centralized analytics outputs
+
+### 4. Create the Pulse web application
+
+Pulse v3 no longer requires creating separate Code Studio Streamlit objects.
+
+The dashboard is now packaged directly inside the plugin as the Pulse web application.
+
+To add it:
+
+1. Open the Pulse hub project.
+2. Go to the **Web Applications** tab.
+3. Select **New**.
+4. Choose **Visual Web App**.
+5. Select **Dataiku Pulse Dashboard**.
+
+This creates the Pulse dashboard webapp directly from the plugin-provided object.
+
+### 5. Run Pulse initialization macros
+
+After the hub project and web application are in place, initialize Pulse from the hub project macros.
+
+Look for the Pulse initialization macros and run the setup sequence needed for your deployment.
+
+This setup is responsible for establishing the Pulse operating model, including:
+
+- hub-side dashboard and storage initialization
+- worker-side project setup on connected instances
+- creation of the assets needed for collection and refresh flows
+
+Depending on the environment, the first full collection and modeling cycle may take some time to complete.
+
+### 6. Validate worker and hub setup
+
+After initialization, validate that:
+
+- the hub project was created and configured as expected
+- worker-side setup exists on each connected spoke instance
+- shared storage is reachable
+- collection outputs begin landing successfully
+- the dashboard web application opens correctly
+
+It is normal for the dashboard to be sparsely populated until the first collection cycle and downstream modeling steps complete.
+
+### 7. Confirm end-to-end readiness
+
+Before declaring the installation complete, verify the full Pulse chain:
+
+- plugin installed and code environment built
+- plugin settings configured
+- Pulse hub project created
+- Pulse web application created from **Visual Web App → Dataiku Pulse Dashboard**
+- initialization macros completed
+- connected instances reachable with the configured access
+- shared storage working
+- Parquet support available through the required Hadoop/Spark add-on tarball packages
+
+Once those checks pass and the first data refresh completes, Pulse is ready for use.
+
+## Notes for v3
+
+A few installation expectations changed in v3 compared with older material.
+
+### No separate Code Studio Streamlit setup
+
+Older setup patterns may reference manually created Code Studio or Streamlit dashboard objects.
+
+That is no longer part of the v3 installation flow.
+
+The supported v3 approach is to create the dashboard directly as a plugin-provided web application from the project’s **Web Applications** tab.
+
+### Webapp is plugin-packaged
+
+The React and Flask dashboard experience is now bundled with the Pulse plugin.
+
+Operationally, this means the dashboard is deployed as a plugin webapp rather than as a separate custom application object outside the plugin flow.
+
+### Parquet support is a hard prerequisite
+
+Because Pulse v3 relies on Parquet-backed processing, the Hadoop/Spark add-on tarball packages that ship with each Dataiku release must be present in the environment.
+
+This should be treated as part of the baseline installation checklist.
+
+## Summary
+
+To install Pulse v3 successfully:
+
+- use a hub instance where you have platform-admin access
+- install the plugin and build its code environment
+- configure hub, storage, and spoke connection settings
+- create the Pulse hub project
+- create the dashboard via **Web Applications → New → Visual Web App → Dataiku Pulse Dashboard**
+- run the initialization macros
+- confirm connected-instance access, shared storage, and Parquet runtime readiness
+
+Once initialized, Pulse begins operating as a centralized hub with worker-side collection across connected Dataiku instances.
