@@ -6,6 +6,12 @@ Dataiku Pulse is a cross-instance observability and analytics layer for **Dataik
 
 Pulse is designed to give a clear operational view of the platform: products, assets, users, usage patterns, metadata coverage, and administrative signals. It is meant to make large DSS estates easier to understand, govern, and improve.
 
+## Documentation Quick Links
+
+- Architecture: `docs/architecture.md`
+- Taxonomy: `docs/taxonomy.md`
+- Installation: `docs/install.md`
+
 ## Intent
 
 Pulse exists to answer a few recurring platform questions:
