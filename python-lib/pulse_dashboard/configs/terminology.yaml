@@ -1,13 +1,22 @@
 assets:
+  - analysis
   - project
   - dataset
+  - knowledge_bank
+  - managed_folder
   - recipe
   - scenario
+  - sql_notebook
 
 products:
+  - agent_tool
+  - api_service
   - api_endpoint
   - agent
   - dashboard
+  - insight
+  - retrieval_augmented_llm
+  - saved_model
   - web_application
   - dataiku_application
 

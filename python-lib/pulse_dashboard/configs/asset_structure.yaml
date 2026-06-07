@@ -37,3 +37,43 @@ scenario:
   last_modified_by_login: scenario_run_as_login
   created_at: scenario_created_at
   updated_at: scenario_updated_at
+
+managed_folder:
+  table: base_managed_folders_project_metadata_history
+  object_key: managed_folders_id
+  object_name: managed_folders_name
+  object_subtype: [managed_folders_type, managed_folders_params_connection]
+  owner_login: null
+  last_modified_by_login: null
+  created_at: null
+  updated_at: null
+
+sql_notebook:
+  table: base_sql_notebooks_project_metadata_history
+  object_key: sql_notebooks_id
+  object_name: sql_notebooks_name
+  object_subtype: [sql_notebooks_language, sql_notebooks_connectiondisplayname, sql_notebooks_connection]
+  owner_login: null
+  last_modified_by_login: null
+  created_at: sql_notebooks_createdon
+  updated_at: sql_notebooks_lastmodifiedon
+
+analysis:
+  table: base_analyses_project_metadata_history
+  object_key: analyses_analysisid
+  object_name: analyses_analysisname
+  object_subtype: analyses_inputdataset
+  owner_login: null
+  last_modified_by_login: null
+  created_at: null
+  updated_at: null
+
+knowledge_bank:
+  table: base_knowledge_banks_project_metadata_history
+  object_key: knowledge_banks_id
+  object_name: knowledge_banks_name
+  object_subtype: [knowledge_banks_retrievertype, knowledge_banks_vectorstoretype, knowledge_banks_embeddingllmid]
+  owner_login: knowledge_banks_creationtag_lastmodifiedby_login
+  last_modified_by_login: knowledge_banks_versiontag_lastmodifiedby_login
+  created_at: knowledge_banks_creationtag_lastmodifiedon
+  updated_at: knowledge_banks_versiontag_lastmodifiedon

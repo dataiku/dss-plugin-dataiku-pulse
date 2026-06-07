@@ -1,6 +1,6 @@
 # Dataiku Pulse
 
-**Version:** 3.0.11
+**Version:** 3.0.12
 
 Pulse is an administrative dashboard for **Dataiku DSS** that provides centralized visibility into platform metadata and usage across one or more Dataiku instances.
 
@@ -135,4 +135,3 @@ They are disabled by default. To enable them, set a project *standard* variable 
 ```json
 { "debug": true }
 ```
-

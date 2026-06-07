@@ -1,0 +1,16 @@
+# Defines how DSS dashboards map into the generic product index
+product_type: dashboard
+source_table: base_dashboards_project_metadata_history
+
+instance_name_col: instance_name
+project_key_col: project_key
+key_col: dashboards_id
+name_col: dashboards_name
+subtype_col: null
+
+owner_col: dashboards_owner
+last_modified_by_col: dashboards_lastmodifiedby_login
+created_at_col: dashboards_createdon
+updated_at_col: dashboards_lastmodifiedon
+
+where_sql: null

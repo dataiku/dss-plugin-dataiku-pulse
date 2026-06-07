@@ -1377,9 +1377,9 @@ _OBJECT_EXTRAS_SOURCES: dict[str, dict[str, object]] = {
 
 # Map product catalog types to the activity-event object_type.
 _PRODUCT_TO_EVENT_OBJECT_TYPE = {
-    "api_service": "api_endpoint",
-    "insight": "dashboard",
-    "agent_tool": "agent",
+    "api_service": "api_service",
+    "insight": "insight",
+    "agent_tool": "agent_tool",
 }
 
 

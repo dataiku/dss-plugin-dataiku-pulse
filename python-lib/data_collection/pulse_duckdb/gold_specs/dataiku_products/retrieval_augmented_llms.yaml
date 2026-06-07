@@ -1,0 +1,16 @@
+# Defines how DSS retrieval augmented LLMs map into the generic product index
+product_type: retrieval_augmented_llm
+source_table: base_retrieval_augmented_llms_project_metadata_history
+
+instance_name_col: instance_name
+project_key_col: project_key
+key_col: retrieval_augmented_llms_id
+name_col: retrieval_augmented_llms_id
+subtype_col: retrieval_augmented_llms_activeversion
+
+owner_col: null
+last_modified_by_col: null
+created_at_col: null
+updated_at_col: null
+
+where_sql: null

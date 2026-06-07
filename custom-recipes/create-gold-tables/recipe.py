@@ -503,8 +503,15 @@ def _object_activity_branch_sql(
             )
         )
     elif module == "charts_dashboard":
-        object_type = "dashboard"
-        object_key_expr = "NULLIF(regexp_extract(callpath, '/dashboards/([^/?]+)', 1), '')"
+        dashboard_key_expr = _null_if_empty("regexp_extract(callpath, '/dashboards/([^/?]+)', 1)")
+        insight_key_expr = _first_non_empty(
+            _null_if_empty("regexp_extract(callpath, '/insights/([^/?]+)', 1)"),
+            _json_text('$.insightId'),
+            _json_text('$.insightid'),
+            _json_text('$.dashboardInsightId'),
+        )
+        object_type = "dashboard" if dashboard_key_expr != "NULL" else "insight"
+        object_key_expr = _clean_identifier(_first_non_empty(dashboard_key_expr, insight_key_expr))
     elif module == "apis":
         object_type = "api_service"
         object_key_expr = _clean_identifier(
@@ -526,9 +533,9 @@ def _object_activity_branch_sql(
                 _json_text('$.applicationid'),
                 _json_text('$.appId'),
                 _json_text('$.appid'),
-                _null_if_empty("CASE WHEN project_key IS NOT NULL THEN concat('PROJECT_', project_key) END"),
-                _null_if_empty("concat('PROJECT_', regexp_extract(callpath, '/projects/([^/?]+)', 1))"),
-                _null_if_empty("CASE WHEN authvia IS NOT NULL THEN concat('PROJECT_', regexp_extract(authvia, 'ticket:[^:]+:([^., ]+)', 1)) END"),
+                _null_if_empty("CASE WHEN project_key IS NOT NULL AND project_key <> '' THEN concat('PROJECT_', project_key) END"),
+                _null_if_empty("CASE WHEN regexp_extract(callpath, '/projects/([^/?]+)', 1) <> '' THEN concat('PROJECT_', regexp_extract(callpath, '/projects/([^/?]+)', 1)) END"),
+                _null_if_empty("CASE WHEN authvia IS NOT NULL AND regexp_extract(authvia, 'ticket:[^:]+:([^., ]+)', 1) <> '' THEN concat('PROJECT_', regexp_extract(authvia, 'ticket:[^:]+:([^., ]+)', 1)) END"),
                 _json_text('$.projectKey'),
                 _json_text('$.projectkey'),
                 _null_if_empty("project_key")

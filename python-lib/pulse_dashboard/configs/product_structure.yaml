@@ -47,3 +47,23 @@ dataiku_application:
   last_modified_by_login: last_modified_by_login
   created_at: created_at
   updated_at: updated_at
+
+saved_model:
+  table: base_saved_models_project_metadata_history
+  product_key: saved_models_id
+  product_name: saved_models_name
+  product_subtype: [saved_models_type, saved_models_backendtype, saved_models_predictiontype]
+  owner_login: null
+  last_modified_by_login: null
+  created_at: saved_models_createdon
+  updated_at: saved_models_lastmodifiedon
+
+retrieval_augmented_llm:
+  table: base_retrieval_augmented_llms_project_metadata_history
+  product_key: retrieval_augmented_llms_id
+  product_name: retrieval_augmented_llms_id
+  product_subtype: retrieval_augmented_llms_activeversion
+  owner_login: null
+  last_modified_by_login: null
+  created_at: null
+  updated_at: null
