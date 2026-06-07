@@ -209,10 +209,7 @@ def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
 
         owner_expr = _maybe_col(owner_col)
         if product_type == "web_application":
-            owner_expr = _first_non_null_sql(
-                _non_empty_ident(owner_col),
-                _non_empty_ident(last_modified_by_col),
-            )
+            owner_expr = f"COALESCE({_non_empty_ident(owner_col)}, {_non_empty_ident(last_modified_by_col)})"
 
         branch = (
             "SELECT\n"
