@@ -116,6 +116,14 @@ def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
     skipped: list[dict] = []
     branches: list[str] = []
 
+    def _table_row_count(name: str) -> int:
+        if not _table_exists(conn, name=name):
+            return 0
+        row = conn.execute(
+            f"SELECT COUNT(*) FROM {_sql_ident(name)};"  # nosec B608 (name is validated via information_schema)
+        ).fetchone()
+        return int(row[0]) if row and row[0] is not None else 0
+
     def _maybe_col(expr: str | None) -> str:
         if not expr or not str(expr).strip() or str(expr).strip().lower() == "null":
             return "NULL"
@@ -155,6 +163,22 @@ def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
                 }
             )
             continue
+
+        if product_type == "web_application" and source_table == "base_webapps_project_metadata_history":
+            history_rows = _table_row_count(source_table)
+            snapshot_rows = _table_row_count("base_webapps_metadata")
+            if snapshot_rows > history_rows:
+                logger.info(
+                    "base_product_index: using base_webapps_metadata instead of %s for web_application (%s snapshot rows > %s history rows)",
+                    source_table,
+                    snapshot_rows,
+                    history_rows,
+                )
+                source_table = "base_webapps_metadata"
+                owner_col = "webapps_ownerlogin"
+                last_modified_by_col = "webapps_lastmodifiedby_login"
+                created_at_col = "webapps_createdon"
+                updated_at_col = "webapps_lastmodifiedon"
 
         if not _table_exists(conn, name=source_table):
             skipped.append({"product_type": product_type, "source_table": source_table, "reason": "missing_table"})

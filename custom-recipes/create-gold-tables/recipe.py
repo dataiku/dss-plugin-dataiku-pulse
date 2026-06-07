@@ -460,8 +460,26 @@ def _object_activity_branch_sql(
     ip_sources = [col for col in ("clientip", "originalip") if col in view_columns]
     ip_address_expr = "COALESCE(" + ", ".join(ip_sources) + ")" if ip_sources else "NULL"
 
-    # Start simple: derive object ids from available columns.
-    # These regexes can be refined as we observe real callpaths.
+    def _has_column(name: str) -> bool:
+        return name.lower() in view_columns
+
+    def _null_if_empty(expr: str) -> str:
+        return f"NULLIF(TRIM(CAST({expr} AS VARCHAR)), '')"
+
+    def _clean_identifier(expr: str) -> str:
+        return (
+            "CASE "
+            f"WHEN {expr} IS NULL THEN NULL "
+            f"WHEN regexp_matches({expr}, '^\{{[^{{}}]+\}}$') THEN NULL "
+            f"ELSE {expr} END"
+        )
+
+    def _json_text(path: str) -> str:
+        return _null_if_empty(f"json_extract_string(e.extras, '{path}')")
+
+    def _first_non_empty(*exprs: str) -> str:
+        return "COALESCE(" + ", ".join(exprs) + ")"
+
     if module in {"datasets", "dataset"}:
         object_type = "dataset"
         object_key_expr = "NULLIF(regexp_extract(callpath, '/datasets/([^/?]+)', 1), '')"
@@ -470,62 +488,91 @@ def _object_activity_branch_sql(
         object_key_expr = "NULLIF(regexp_extract(callpath, '/recipes/([^/?]+)', 1), '')"
     elif module == "webapps":
         object_type = "web_application"
-        normalized_webapp_expr = (
-            "NULLIF(CAST(e.webappid AS VARCHAR), '')"
-            if "webappid" in view_columns
-            else "NULL"
+        normalized_webapp_expr = _null_if_empty("e.webappid") if _has_column("webappid") else "NULL"
+        callpath_webapp_expr = _null_if_empty("regexp_extract(e.callpath, '/webapps/([^/?]+)', 1)")
+        authvia_webapp_expr = _null_if_empty(
+            "regexp_extract(e.authvia, 'ticket:Standard webapp backend: [^.]+\\.([^, ]+)', 1)"
         )
-        # `webapp_id` is not guaranteed to be a top-level SILVER column (it may be packed into extras).
-        # Prefer the normalized SILVER `webapp_id` when present, then authvia, with
-        # callpath as a last resort. Some webapp audit events expose action-like
-        # callpath segments (for example `view` or `save`) rather than the canonical
-        # DSS webapp id, so callpath should not win over a parsed/normalized id.
-        object_key_expr = (
-            "COALESCE("
-            f"{normalized_webapp_expr}, "
-            "NULLIF(regexp_extract(e.authvia, 'ticket:Standard webapp backend: [^.]+\\.([^, ]+)', 1), ''), "
-            "NULLIF(regexp_extract(e.callpath, '/webapps/([^/?]+)', 1), '')"
-            ")"
+        extras_webapp_expr = _json_text('$.webappid')
+        object_key_expr = _clean_identifier(
+            _first_non_empty(
+                normalized_webapp_expr,
+                authvia_webapp_expr,
+                extras_webapp_expr,
+                callpath_webapp_expr,
+            )
         )
     elif module == "charts_dashboard":
         object_type = "dashboard"
         object_key_expr = "NULLIF(regexp_extract(callpath, '/dashboards/([^/?]+)', 1), '')"
     elif module == "apis":
-        object_type = "api_endpoint"
-        object_key_expr = "NULLIF(regexp_extract(callpath, '/api[-_]?endpoints/([^/?]+)', 1), '')"
+        object_type = "api_service"
+        object_key_expr = _clean_identifier(
+            _first_non_empty(
+                _null_if_empty("regexp_extract(callpath, '/api[-_]?services/([^/?]+)', 1)"),
+                _null_if_empty("regexp_extract(callpath, '/api[-_]?endpoints/([^/?]+)', 1)"),
+                _json_text('$.serviceId'),
+                _json_text('$.apiServiceId'),
+                _json_text('$.apiserviceid'),
+                _json_text('$.serviceid'),
+            )
+        )
     elif module == "application_designer":
         object_type = "dataiku_application"
-        object_key_expr = "NULLIF(regexp_extract(callpath, '/applications/([^/?]+)', 1), '')"
+        object_key_expr = _clean_identifier(
+            _first_non_empty(
+                _null_if_empty("regexp_extract(callpath, '/applications/([^/?]+)', 1)"),
+                _json_text('$.applicationId'),
+                _json_text('$.applicationid'),
+                _json_text('$.appId'),
+                _json_text('$.appid'),
+                _null_if_empty("CASE WHEN project_key IS NOT NULL THEN concat('PROJECT_', project_key) END"),
+                _null_if_empty("concat('PROJECT_', regexp_extract(callpath, '/projects/([^/?]+)', 1))"),
+                _null_if_empty("CASE WHEN authvia IS NOT NULL THEN concat('PROJECT_', regexp_extract(authvia, 'ticket:[^:]+:([^., ]+)', 1)) END"),
+                _json_text('$.projectKey'),
+                _json_text('$.projectkey'),
+                _null_if_empty("project_key")
+            )
+        )
     else:
         object_type = module
         object_key_expr = "NULL"
 
-    return (
-        "SELECT\n"
-        "  try_cast(COALESCE(timestamp, date) AS TIMESTAMP) AS timestamp,\n"
-        "  instance_name,\n"
-        "  COALESCE(authuser, user) AS login,\n"
-        "  msgtype AS event_name,\n"
-        "  e.dataiku_category AS event_category,\n"
-        "  m.capability AS canonical_capability,\n"
-        "  project_key,\n"
-        f"  '{object_type}' AS object_type,\n"  # nosec B608 (object_type is derived from allowlisted module)
-        f"  {object_key_expr} AS object_key,\n"  # nosec B608 (expression is hardcoded per module)
-        f"  {object_key_expr} AS object_name,\n"  # nosec B608 (expression is hardcoded per module)
-        "  NULL AS instance_url,\n"
-        "  NULL AS group_names,\n"
-        "  NULL AS session_id,\n"
-        f"  {ip_address_expr} AS ip_address,\n"  # nosec B608 (expression is derived from allowlisted column names)
-        "  NULL AS user_agent,\n"
-        "  extras AS details_json,\n"
-        "  try_cast(run_ts AS TIMESTAMP) AS run_timestamp,\n"
-        "  CAST(year AS INTEGER) AS year,\n"
-        "  CAST(month AS INTEGER) AS month,\n"
-        "  CAST(day AS INTEGER) AS day\n"
-        f"FROM {view_name} e\n"  # nosec B608 (view_name is generated by this recipe)
-        "LEFT JOIN dim_category_to_capability m\n"
-        "  ON m.dataiku_category = e.dataiku_category\n"
-        "WHERE authuser IS NOT NULL"
+    project_key_expr = (
+        "COALESCE(project_key, regexp_extract(callpath, '/projects/([^/?]+)', 1), "
+        "json_extract_string(extras, '$.projectKey'), json_extract_string(extras, '$.projectkey'))"
+        if object_type == "dataiku_application"
+        else "project_key"
+    )
+
+    return "".join(
+        [
+            "SELECT\n",
+            "  try_cast(COALESCE(timestamp, date) AS TIMESTAMP) AS timestamp,\n",
+            "  instance_name,\n",
+            "  COALESCE(authuser, user) AS login,\n",
+            "  msgtype AS event_name,\n",
+            "  e.dataiku_category AS event_category,\n",
+            "  m.capability AS canonical_capability,\n",
+            f"  {project_key_expr} AS project_key,\n",
+            f"  '{object_type}' AS object_type,\n",
+            f"  {object_key_expr} AS object_key,\n",
+            f"  {object_key_expr} AS object_name,\n",
+            "  NULL AS instance_url,\n",
+            "  NULL AS group_names,\n",
+            "  NULL AS session_id,\n",
+            f"  {ip_address_expr} AS ip_address,\n",
+            "  NULL AS user_agent,\n",
+            "  extras AS details_json,\n",
+            "  try_cast(run_ts AS TIMESTAMP) AS run_timestamp,\n",
+            "  CAST(year AS INTEGER) AS year,\n",
+            "  CAST(month AS INTEGER) AS month,\n",
+            "  CAST(day AS INTEGER) AS day\n",
+            f"FROM {view_name} e\n",
+            "LEFT JOIN dim_category_to_capability m\n",
+            "  ON m.dataiku_category = e.dataiku_category\n",
+            "WHERE authuser IS NOT NULL",
+        ]
     )
 
 

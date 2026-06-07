@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -39,7 +40,21 @@ def parse_authvia(s: Any) -> tuple[str | None, str | None]:
             project_key = part.split(".", 1)[0]
     except Exception:
         return (None, None)
-    return (project_key, webapp_id)
+    return (_clean_identifier(project_key), _clean_identifier(webapp_id))
+
+
+_PLACEHOLDER_PATTERN = re.compile(r"^\{[^{}]+\}$")
+
+
+def _clean_identifier(value: Any) -> str | None:
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    if not cleaned:
+        return None
+    if _PLACEHOLDER_PATTERN.match(cleaned):
+        return None
+    return cleaned
 
 
 def parse_webapps_extras(value: Any) -> tuple[str | None, str | None]:
@@ -65,14 +80,8 @@ def parse_webapps_extras(value: Any) -> tuple[str | None, str | None]:
             if isinstance(nested_payload, dict):
                 payload = {**nested_payload, **payload}
 
-        project_key = payload.get("projectkey")
-        webapp_id = payload.get("webappid")
-        project_key = str(project_key).strip() if project_key is not None else None
-        webapp_id = str(webapp_id).strip() if webapp_id is not None else None
-        if project_key == "":
-            project_key = None
-        if webapp_id == "":
-            webapp_id = None
+        project_key = _clean_identifier(payload.get("projectkey"))
+        webapp_id = _clean_identifier(payload.get("webappid"))
         return (project_key, webapp_id)
     except Exception:
         return (None, None)
