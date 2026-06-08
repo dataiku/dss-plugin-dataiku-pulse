@@ -94,10 +94,10 @@ If the deployment uses GCS, validate access before installation so Pulse can rea
 
 ### 1. Install the plugin
 
-1. Log in to Dataiku as an administrative user on the hub instance.
+1. Log in to Dataiku as an administrative user on the hub (primary) instance.
 2. Navigate to **Waffle → Plugins**.
-3. Install the Pulse plugin from the appropriate source.
-4. Build the plugin code environment.
+3. Install the Pulse plugin from the appropriate source (either from GitHub or Local).
+4. Build the plugin code environment (Can support containers or local only).
 
 At this point, the Pulse plugin is available to the instance, but the dashboard project and worker topology are not yet initialized.
 
@@ -107,34 +107,42 @@ After the plugin is installed, open the **Plugin Settings** page.
 
 Create and populate the required parameter set used by the Pulse deployment.
 
-### Primary parameter set
+### Primary parameter set `PULSE Dashboard`
 
-Create a parameter set named:
+While the name does not "matter", we typically recommend something simple such as `primary`, create a parameter set named:
 
 ```text
 primary
 ```
 
-Use lowercase naming.
-
 Populate the configuration needed for:
 
-- the hub project
-- dashboard host information
-- shared blob storage
-- the worker project key
-- the list of connected worker instances
-- the API keys or access details required for those instances
-- optional host-specific behavior such as certificate handling or execution parallelism
-
-The exact values depend on the customer topology, but the core idea remains the same:
-
-- one central hub configuration
-- one worker project pattern applied across connected instances
+- GitHub Repository Information
+  - Either Internal URL or Public (Dataiku) URL
+  - Version/Branch name
+- Dashboard (Hub) Information
+  - The Hub Project Key
+  - The Hub URL host information
+  - The Hub Admin level API Key
+  - Shared blob storage
+  - If GCS, HMAC information
+- Worker (Spoke) Information
+  - The Worker Project Key
+  - Worker Hosts (Can add 1 or Many)
+    - URL per hosts (can/should include Hub host)
+    - Admin level API Key per host
+    - Production / Development
+    - Parameter Set Name (Can be null, ask TAM for custom host setup)
+  - Dataiku user to own Projects and Scenarios
+  - Ignore SSL Certs for API calls
+  - Run Project information collection in parallel, how many cores
+- Debug
+  - Most items can be ignored
+  - If not using an Event-Server, you may want to select to backup Audit Logs
 
 ### 3. Create the Pulse dashboard project
 
-Create the Dataiku project that will host the Pulse hub experience.
+Create the Dataiku project that will host the Pulse hub experience (making sure to match the project key used in the plugin settings).
 
 This project becomes the main Pulse hub project and is where you will:
 
@@ -143,47 +151,46 @@ This project becomes the main Pulse hub project and is where you will:
 - host the Pulse web application
 - manage centralized analytics outputs
 
-### 4. Create the Pulse web application
+### 4. Run Pulse initialization macros
 
-Pulse v3 no longer requires creating separate Code Studio Streamlit objects.
+After the hub project is in place, initialize Pulse from the hub project macros.
 
-The dashboard is now packaged directly inside the plugin as the Pulse web application.
-
-To add it:
-
-1. Open the Pulse hub project.
-2. Go to the **Web Applications** tab.
-3. Select **New**.
-4. Choose **Visual Web App**.
-5. Select **Dataiku Pulse Dashboard**.
-
-This creates the Pulse dashboard webapp directly from the plugin-provided object.
-
-### 5. Run Pulse initialization macros
-
-After the hub project and web application are in place, initialize Pulse from the hub project macros.
-
-Look for the Pulse initialization macros and run the setup sequence needed for your deployment.
+From the "3 parallel dots", select Macros, then look for the `Dataiku Pulse Insights: initialize` category.
 
 This setup is responsible for establishing the Pulse operating model, including:
 
-- hub-side dashboard and storage initialization
-- worker-side project setup on connected instances
-- creation of the assets needed for collection and refresh flows
+- Initialize Dashboard
+  - typically ran only once during setup
+  - hub-side dashboard and storage initialization
+  - creation of the assets needed for collection and refresh flows
+- Initialize Worker Host(s)
+  - Ran each time new hosts or versions are updated
+  - worker-side project setup on connected instances
+  - Can force GitHub updates, skip GitHub, or force run scenarios now
 
 Depending on the environment, the first full collection and modeling cycle may take some time to complete.
 
-### 6. Validate worker and hub setup
+### 5. Validate worker and hub setup
 
 After initialization, validate that:
 
 - the hub project was created and configured as expected
 - worker-side setup exists on each connected spoke instance
-- shared storage is reachable
-- collection outputs begin landing successfully
-- the dashboard web application opens correctly
+- collection outputs begin landing successfully (if enabled)
 
-It is normal for the dashboard to be sparsely populated until the first collection cycle and downstream modeling steps complete.
+### 6. Create the Pulse web application
+
+Pulse v3 the dashboard is now packaged directly inside the plugin as the Pulse web application.
+
+To add it:
+
+1. Open the Pulse hub project.
+2. Go to the **Webapps** tab.
+3. Select **NEW WEBAPP**.
+4. Choose **Visual Webapp**.
+5. Select **Dataiku Pulse Dashboard**.
+
+This creates the Pulse dashboard webapp directly from the plugin-provided object.
 
 ### 7. Confirm end-to-end readiness
 
