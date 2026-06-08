@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import base64
 import logging
+import platform
+from pathlib import Path
 
+import duckdb
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -12,6 +15,35 @@ from ..helpers import yaml_loader
 
 
 logger = logging.getLogger(__name__)
+
+
+def _load_bundled_azure_extension(conn) -> None:
+    if platform.system().lower() != "linux" or platform.machine().lower() not in {"x86_64", "amd64"}:
+        raise RuntimeError("Bundled DuckDB azure extension is only available for linux_amd64")
+
+    plugin_root = Path(__file__).resolve().parents[4]
+    ext_root = plugin_root / "resource" / "duckdb_extensions"
+    ext_file = ext_root / f"v{duckdb.__version__}" / "linux_amd64" / "azure.duckdb_extension"
+
+    logger.info("Checking bundled azure at %s (exists=%s)", ext_file.as_posix(), ext_file.exists())
+
+    if not ext_file.exists():
+        raise FileNotFoundError(
+            "DuckDB azure extension not available. Online INSTALL failed and bundled resource file not found. "
+            "Ensure `resource/duckdb_extensions/v<duckdb_version>/linux_amd64/azure.duckdb_extension` is packaged "
+            "with the plugin."
+        )
+
+    try:
+        conn.execute(f"LOAD '{ext_file.as_posix()}'")
+        logger.info("DuckDB azure loaded from bundled file")
+        return
+    except Exception:
+        logger.warning("Failed to LOAD bundled azure by path; trying directory-based load", exc_info=True)
+
+    conn.execute(f"SET extension_directory='{ext_root.as_posix()}'")
+    conn.execute("LOAD azure")
+    logger.info("DuckDB azure loaded from bundled extension_directory")
 
 
 def _load_queries(ctx: StorageContext) -> dict:
@@ -171,7 +203,23 @@ def configure_storage(conn, *, ctx: StorageContext) -> dict:
     else:
         raise ValueError(f"Unknown storage provider: {ctype}")
 
-    conn.execute(blob_module)
+    try:
+        conn.execute(blob_module)
+    except Exception as exc:
+        if ctype != "Azure":
+            logger.exception("DuckDB storage extension configuration failed")
+            raise RuntimeError(f"Failed to configure {ctype} blob storage") from exc
+
+        logger.warning(
+            "DuckDB Azure extension setup failed; trying bundled fallback",
+            exc_info=True,
+        )
+        try:
+            _load_bundled_azure_extension(conn)
+        except Exception as fallback_exc:
+            logger.exception("DuckDB Azure bundled extension fallback failed")
+            raise RuntimeError(f"Failed to configure {ctype} blob storage") from fallback_exc
+
     conn.execute(blob_credentials)
 
     return {"provider": ctype, "credential_mode": credential_mode}
