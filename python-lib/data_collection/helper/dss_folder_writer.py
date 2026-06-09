@@ -18,6 +18,8 @@ from dataikuapi.dssclient import DSSClient
 
 logger = logging.getLogger(__name__)
 
+_FOLDER_HANDLE_CACHE: dict[tuple[Any, str, str, str | None, str | None, str | None], Any] = {}
+
 from .output_layout import as_posix_relative
 
 
@@ -63,8 +65,19 @@ def _ensure_partitioning_settings(folder_handle: Any, *, folder_lookup: str) -> 
         )
         settings.save()
     except Exception:
-        # Partitioning is best-effort; avoid blocking uploads.
+        logger.debug("Failed to enforce partitioning settings for folder %s", folder_lookup, exc_info=True)
         return
+
+
+def _folder_cache_key(target: DSSFolderTarget) -> tuple[Any, str, str, str | None, str | None, str | None]:
+    return (
+        id(target.client) if target.client is not None else None,
+        target.project_key,
+        target.folder_lookup,
+        target.connection_name,
+        target.host,
+        target.api_key,
+    )
 
 
 def _get_or_create_local_folder(target: DSSFolderTarget) -> dataiku.Folder:
@@ -170,11 +183,20 @@ def _get_or_create_folder(target: DSSFolderTarget):
     are partially configured.
     """
 
+    cache_key = _folder_cache_key(target)
+    cached = _FOLDER_HANDLE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     if target.client is not None:
-        return _get_or_create_remote_folder(target)
+        folder = _get_or_create_remote_folder(target)
+        _FOLDER_HANDLE_CACHE[cache_key] = folder
+        return folder
 
     if target.host and target.api_key:
-        return _get_or_create_remote_folder(target)
+        folder = _get_or_create_remote_folder(target)
+        _FOLDER_HANDLE_CACHE[cache_key] = folder
+        return folder
 
     if target.host and not target.api_key:
         logger.warning(
@@ -184,7 +206,9 @@ def _get_or_create_folder(target: DSSFolderTarget):
             target.folder_lookup,
         )
 
-    return _get_or_create_local_folder(target)
+    folder = _get_or_create_local_folder(target)
+    _FOLDER_HANDLE_CACHE[cache_key] = folder
+    return folder
 
 
 

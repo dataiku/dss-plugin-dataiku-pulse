@@ -25,6 +25,7 @@ import yaml
 
 from .create_conn import create_connection
 from .init_state import set_init_in_progress
+from shared_duckdb.bootstrap import prepare_duckdb as shared_prepare_duckdb
 
 from ... import settings
 
@@ -519,6 +520,17 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
         settings.PULSE_SOURCE_PROJECT_KEY,
         settings.PULSE_GOLD_TABLES_FOLDER_ID or settings.PULSE_GOLD_TABLES_FOLDER_NAME,
     )
+
+    bootstrap_result = shared_prepare_duckdb(
+        project_key=settings.PULSE_SOURCE_PROJECT_KEY,
+        folder_lookup=settings.PULSE_GOLD_TABLES_FOLDER_ID or settings.PULSE_GOLD_TABLES_FOLDER_NAME,
+        read_only=False,
+        reset=False,
+        db_path=settings.DUCKDB_PATH,
+        purpose="dashboard",
+        configure_storage_access=True,
+    )
+    bootstrap_result.conn.close()
     _set_status_callback("waiting_lock", "Waiting for DuckDB init lock")
 
     try:

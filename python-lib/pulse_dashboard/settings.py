@@ -11,6 +11,8 @@ import os
 import tempfile
 from pathlib import Path
 
+from data_collection.pulse_duckdb.constants import db_path as shared_db_path
+
 
 APP_NAME = os.getenv("PULSE_APP_NAME", "dataiku_pulse")
 
@@ -18,8 +20,6 @@ HOST = os.getenv("PULSE_HOST", "127.0.0.1")  # nosec B104 (local dev default; DS
 PORT = int(os.getenv("PULSE_PORT", "8995"))
 
 DUCKDB_DIR = Path(os.getenv("PULSE_DUCKDB_DIR", str(Path(tempfile.gettempdir()) / "pulse")))
-DUCKDB_PATH = Path(os.getenv("PULSE_DUCKDB_PATH", str(DUCKDB_DIR / "dataiku_pulse.db")))
-DUCKDB_METADATA_PATH = Path(os.getenv("PULSE_DUCKDB_METADATA_PATH", f"{DUCKDB_PATH}.meta.json"))
 
 DUCKDB_READ_ONLY = os.getenv("PULSE_DUCKDB_READ_ONLY", "0").lower() in ("1", "true", "yes")
 
@@ -76,6 +76,13 @@ PULSE_SOURCE_PROJECT_KEY = os.getenv(
     "PULSE_SOURCE_PROJECT_KEY",
     _resolve_default_project_key() or "DATAIKU_PULSE_DASHBOARD",
 )
+DUCKDB_PATH = Path(
+    os.getenv(
+        "PULSE_DUCKDB_PATH",
+        str(shared_db_path(project_key=PULSE_SOURCE_PROJECT_KEY, purpose="dashboard")),
+    )
+)
+DUCKDB_METADATA_PATH = Path(os.getenv("PULSE_DUCKDB_METADATA_PATH", f"{DUCKDB_PATH}.meta.json"))
 PULSE_GOLD_TABLES_FOLDER_ID = os.getenv("PULSE_GOLD_TABLES_FOLDER_ID", "")
 PULSE_GOLD_TABLES_FOLDER_NAME = os.getenv("PULSE_GOLD_TABLES_FOLDER_NAME", "gold_data")
 

@@ -38,7 +38,7 @@ def _resolve_gold_folder_lookup() -> str:
 
     try:
         out_names = get_output_names_for_role("gold_tables_folder")
-    except Exception:
+    except RuntimeError:
         out_names = []
 
     if out_names:
@@ -51,6 +51,12 @@ def _resolve_gold_folder_lookup() -> str:
 
 
 logger = logging.getLogger(__name__)
+
+
+def _list_table_names(conn: duckdb.DuckDBPyConnection) -> set[str]:
+    """Return the current DuckDB table names."""
+
+    return {name for (name,) in conn.sql("SHOW TABLES").fetchall()}
 
 
 def _load_license_profiles(base_dir: Path) -> list[str]:
@@ -115,7 +121,7 @@ def _inject_wide_license_sql(spec_path: Path, *, base_dir: Path) -> None:
 def _has_required_tables(conn: duckdb.DuckDBPyConnection, table_names: list[str]) -> bool:
     """Return True when all required DuckDB tables currently exist."""
 
-    existing_tables = {name for (name,) in conn.sql("SHOW TABLES").fetchall()}
+    existing_tables = _list_table_names(conn)
     return all(table_name in existing_tables for table_name in table_names)
 
 
@@ -127,7 +133,7 @@ def _collect_user_activity_quality_report(conn: duckdb.DuckDBPyConnection) -> di
         "project": {},
     }
 
-    tables = {name for (name,) in conn.sql("SHOW TABLES").fetchall()}
+    tables = _list_table_names(conn)
 
     if "fact_user_activity_daily" in tables:
         row = conn.execute(
@@ -398,12 +404,14 @@ def _create_event_mapping_module_view(
 ) -> str:
     """Create a DuckDB view over SILVER event_mapping parquet for one module.
 
-    Note: This intentionally does not rely on `create_silver_view()` because that
-    helper currently assumes S3-only paths.
+    Note: This intentionally does not rely on `create_silver_view()` because this
+    helper also enables `union_by_name` for event_mapping parquet.
     """
 
     if not ctx.bucket_or_container:
         raise ValueError("Missing bucket/container")
+    if not ctx.blob_header:
+        raise ValueError(f"Unsupported connection type: {ctx.connection_type}")
 
     root = ctx.folder_root.strip("/")
     if root:
@@ -411,14 +419,7 @@ def _create_event_mapping_module_view(
 
     # Partitioned SILVER path:
     # silver/category=event_mapping/module=<module>/instance_name=*/year=*/month=*/day=*/*.parquet
-    if ctx.connection_type == "EC2":
-        base = f"s3://{ctx.bucket_or_container}/{root}silver"
-    elif ctx.connection_type == "Azure":
-        base = f"az://{ctx.bucket_or_container}/{root}silver"
-    elif ctx.connection_type == "GCS":
-        base = f"gs://{ctx.bucket_or_container}/{root}silver"
-    else:
-        raise ValueError(f"Unsupported connection type: {ctx.connection_type}")
+    base = f"{ctx.blob_header}://{ctx.bucket_or_container}/{root}silver"
 
     glob = f"{base}/category=event_mapping/module={module}/instance_name=*/year=*/month=*/day=*/*.parquet"
 
@@ -618,8 +619,6 @@ def _build_fact_object_activity_events(
         "CREATE OR REPLACE VIEW \"base_object_activity_events\" AS SELECT * FROM fact_object_activity_events;"
     )
     return "fact_object_activity_events"
-    conn.execute(sql)
-    return "fact_object_activity_events"
 
 
 def _build_fact_dev_activity_events(
@@ -804,14 +803,8 @@ def run() -> dict:
     base_tables: list[str] = []
     storage_info: dict = {}
 
-    # Mirror legacy `settings.py` blob header mapping.
-    if ctx.connection_type == "EC2":
-        blob_header = "s3"
-    elif ctx.connection_type == "Azure":
-        blob_header = "az"
-    elif ctx.connection_type == "GCS":
-        blob_header = "gs"
-    else:
+    blob_header = ctx.blob_header
+    if not blob_header:
         raise ValueError(f"Unsupported connection type: {ctx.connection_type}")
 
     # This recipe assumes GOLD and `partitioned_data` share the same connection.
@@ -872,7 +865,9 @@ def run() -> dict:
 
             apply_gold_spec(setup.conn, spec)
 
-        if "base_license_addon_licenses_latest" in set(setup.conn.execute("SHOW TABLES").fetchdf()["name"].tolist()):
+        current_tables = _list_table_names(setup.conn)
+
+        if "base_license_addon_licenses_latest" in current_tables:
             _build_dim_addon_feature_flags(setup.conn)
 
         # Build development activity dimension + event fact table.
@@ -970,23 +965,10 @@ def run() -> dict:
         #
         # - `base_*`: existing contract
         # - `fact_*`: event-level facts (may be partitioned)
-        base_tables = [
-            name
-            for (name,) in setup.conn.sql("SHOW TABLES").fetchall()
-            if name.startswith("base_")
-        ]
-
-        dim_tables = [
-            name
-            for (name,) in setup.conn.sql("SHOW TABLES").fetchall()
-            if name.startswith("dim_")
-        ]
-
-        fact_tables = [
-            name
-            for (name,) in setup.conn.sql("SHOW TABLES").fetchall()
-            if name.startswith("fact_")
-        ]
+        current_tables = _list_table_names(setup.conn)
+        base_tables = sorted(name for name in current_tables if name.startswith("base_"))
+        dim_tables = sorted(name for name in current_tables if name.startswith("dim_"))
+        fact_tables = sorted(name for name in current_tables if name.startswith("fact_"))
 
         unloaded_tables = (
             base_tables

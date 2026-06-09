@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -87,6 +88,12 @@ def parse_webapps_extras(value: Any) -> tuple[str | None, str | None]:
         return (None, None)
 
 
+@lru_cache(maxsize=1)
+def _load_mapping_df() -> pd.DataFrame:
+    path = Path(__file__).resolve().parent
+    return pd.read_csv(path / "mapping.csv")
+
+
 def main(df: pd.DataFrame) -> pd.DataFrame:
     """Map audit log msg types to Dataiku categories.
 
@@ -100,8 +107,7 @@ def main(df: pd.DataFrame) -> pd.DataFrame:
     - attempts to infer `project_key` and `webapp_id` from `authvia`
     """
 
-    path = Path(__file__).resolve().parent
-    mapping_df = pd.read_csv(path / "mapping.csv")
+    mapping_df = _load_mapping_df()
 
     out = df.copy()
 
@@ -148,6 +154,5 @@ def main(df: pd.DataFrame) -> pd.DataFrame:
         merged["webappid_source_call"] = merged["webappid_source_call"].fillna(merged["webappid_source_call_temp"])
 
         merged = merged.drop(columns=["project_key_source_call_temp", "webappid_source_call_temp"], errors="ignore")
-
 
     return merged
