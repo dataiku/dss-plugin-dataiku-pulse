@@ -179,6 +179,22 @@ def _maybe_create_license_views(conn) -> dict[str, object]:
         conn.execute(f'CREATE VIEW "{target_name}" AS SELECT * FROM "{source_name}";')  # nosec B608
         created.append(target_name)
 
+    if (
+        "base_license_addon_licenses_latest" not in existing
+        and "v_license__addon_licenses" not in existing
+    ):
+        conn.execute(
+            '''
+            CREATE VIEW "base_license_addon_licenses_latest" AS
+            SELECT
+              CAST(NULL AS VARCHAR) AS instance_name,
+              CAST(NULL AS VARCHAR) AS addon_key,
+              CAST(NULL AS BOOLEAN) AS addon_enabled
+            WHERE 1 = 0;
+            '''
+        )
+        created.append("base_license_addon_licenses_latest")
+
     return {"ok": True, "created": created}
 
 
