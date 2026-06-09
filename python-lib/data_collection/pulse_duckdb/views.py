@@ -37,14 +37,16 @@ def create_silver_view(
 ) -> str:
     """Create a view over SILVER parquet for a given `{category,module}`."""
 
-    if ctx.connection_type != "EC2":
-        raise ValueError(f"Only EC2/S3 is implemented currently (got {ctx.connection_type})")
-
     if not ctx.bucket_or_container:
         raise ValueError("Missing bucket/container")
+    if not ctx.blob_header:
+        raise ValueError(f"Unsupported connection type: {ctx.connection_type}")
 
     view_name = view_name or default_view_name(category=category, module=module)
-    base_path = f"s3://{ctx.bucket_or_container}/{ctx.folder_root.strip('/')}/silver"
+    root = ctx.folder_root.strip("/")
+    if root:
+        root = f"{root}/"
+    base_path = f"{ctx.blob_header}://{ctx.bucket_or_container}/{root}silver"
 
     glob = f"{base_path}/category={category}/module={module}/instance_name=*/year=*/month=*/day=*/*.parquet"
 
@@ -59,7 +61,8 @@ def create_silver_view(
       ) AS partition_date
     FROM read_parquet(
       '{glob}',
-      hive_partitioning = true
+      hive_partitioning = true,
+      union_by_name = true
     );
     """.strip()  # nosec B608 (view_name and glob are plugin-controlled)
 

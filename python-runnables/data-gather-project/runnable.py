@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -20,6 +21,9 @@ from data_collection.helper import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 class MyRunnable(Runnable):
     """Project metadata collection runnable."""
 
@@ -31,7 +35,8 @@ class MyRunnable(Runnable):
 
         self.do_parallel = bool(self.param_set.get("do_parallel", True))
         default_cores = max((os.cpu_count() or 2) - 1, 1)
-        self.n_jobs = int(self.param_set.get("cores", default_cores))
+        safe_default_cores = min(default_cores, 4)
+        self.n_jobs = max(1, int(self.param_set.get("cores", safe_default_cores)))
         self.batch_size = int(self.param_set.get("batch_size", 25))
 
     def get_progress_target(self):
@@ -70,6 +75,35 @@ class MyRunnable(Runnable):
         version_tag = project.get("versionTag") or {}
         creation_tag = project.get("creationTag") or {}
         return version_tag.get("lastModifiedOn") or creation_tag.get("lastModifiedOn")
+
+    def _resolve_success_cursor_ts(self, client: Any, *, project_keys: list[str]) -> pd.Timestamp | None:
+        if not project_keys:
+            return None
+
+        projects = client.list_projects()
+        if not projects:
+            return None
+
+        key_set = set(project_keys)
+        max_ts: pd.Timestamp | None = None
+        floor_dt = pd.Timestamp("2015-01-01", tz="UTC")
+
+        for project in projects:
+            project_key = project.get("projectKey")
+            if project_key not in key_set:
+                continue
+
+            raw_ts = self._extract_last_modified_on(project)
+            dt = pd.to_datetime(raw_ts, utc=True, errors="coerce")
+            if pd.isna(dt):
+                continue
+            dt = dt.floor("s")
+            if dt < floor_dt:
+                dt = floor_dt
+            if max_ts is None or dt > max_ts:
+                max_ts = dt
+
+        return max_ts
 
     def _resolve_project_keys(self, client: Any, *, since: pd.Timestamp) -> list[str]:
         projects = client.list_projects()
@@ -139,8 +173,21 @@ class MyRunnable(Runnable):
             output_folder_target=target,
         )
 
-        if project_keys:
-            self._update_projects_delta(ctx.local_client, pd.Timestamp.utcnow().floor("s").isoformat())
+        successful_project_keys = [
+            project_key
+            for project_key, project_result in result.per_project.items()
+            if project_result.collected
+        ]
+        success_cursor_ts = self._resolve_success_cursor_ts(
+            ctx.local_client,
+            project_keys=successful_project_keys,
+        )
+        if success_cursor_ts is not None:
+            self._update_projects_delta(ctx.local_client, success_cursor_ts.isoformat())
+        elif project_keys:
+            logger.warning(
+                "Skipping projects cursor update because no project produced successful collections"
+            )
 
         status_counts: dict[str, int] = {}
         total_methods = 0

@@ -2381,10 +2381,17 @@ def build_products_type_metrics():
 _CONSUMPTION_PRODUCT_OBJECT_TYPES = (
     "api_endpoint",
     "agent",
+    "agent_tool",
+    "api_service",
     "dashboard",
+    "insight",
+    "retrieval_augmented_llm",
+    "saved_model",
     "web_application",
     "dataiku_application",
 )
+
+_CONSUMPTION_PRODUCT_OBJECT_TYPES_SQL = ",".join(f"'{t}'" for t in _CONSUMPTION_PRODUCT_OBJECT_TYPES)
 
 
 def _parse_string_list_param(value: str | None) -> list[str]:
@@ -3086,7 +3093,7 @@ def consumption_products_lifecycle_summary():
             params.extend(types)
         else:
             filters.append(
-                "e.object_type IN ('api_endpoint','agent','dashboard','web_application','dataiku_application')"
+                f"e.object_type IN ({_CONSUMPTION_PRODUCT_OBJECT_TYPES_SQL})"
             )
         if instances:
             filters.append(f"e.instance_name IN ({','.join(['?'] * len(instances))})")
@@ -3104,7 +3111,7 @@ def consumption_products_lifecycle_summary():
             product_params.extend(types)
         else:
             product_filters.append(
-                "p.product_type IN ('api_endpoint','agent','dashboard','web_application','dataiku_application')"
+                f"p.product_type IN ({_CONSUMPTION_PRODUCT_OBJECT_TYPES_SQL})"
             )
         if instances:
             product_filters.append(f"p.instance_name IN ({','.join(['?'] * len(instances))})")
@@ -4564,7 +4571,7 @@ def build_users_active_monthly():
 
 @bp.route("/api/build/users/leaderboard")
 def build_users_leaderboard():
-    """Return leaderboards for viewing and developing activity."""
+    """Return leaderboards for consuming and creating activity."""
 
     try:
         _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
@@ -4586,6 +4593,18 @@ def build_users_leaderboard():
             params = [days]
 
         instance_name = _parse_instance_name(request.args.get("instance_name"))
+        activity_filter = _parse_activity_filter(request.args.get("activityFilter"))
+
+        standard = _read_standard_project_variables()
+        excluded_profiles = _read_user_profile_exclude_consumer(standard)
+
+        activity_filter_sql = ""
+        activity_filter_params: list[Any] = []
+        if activity_filter == "license_consumer" and excluded_profiles:
+            activity_filter_sql = (
+                f" AND coalesce(upper(trim(users_userprofile)), '') NOT IN ({_sql_placeholders(len(excluded_profiles))})"
+            )
+            activity_filter_params = list(excluded_profiles)
 
         if instance_name:
             where.append("instance_name = ?")
@@ -4593,7 +4612,31 @@ def build_users_leaderboard():
 
         where_sql = " WHERE " + " AND ".join(where)
 
-        # We join to final_users_directory to get the best available display fields.
+        directory_cte = (
+            "directory AS (\n"
+            "  SELECT\n"
+            "    login_norm,\n"
+            "    display_name,\n"
+            "    email,\n"
+            "    user_profile,\n"
+            "    enabled\n"
+            "  FROM (\n"
+            "    SELECT\n"
+            "      login_norm,\n"
+            "      display_name,\n"
+            "      email,\n"
+            "      user_profile,\n"
+            "      enabled,\n"
+            "      ROW_NUMBER() OVER (\n"
+            "        PARTITION BY login_norm\n"
+            "        ORDER BY enabled DESC, run_ts DESC, instance_name\n"
+            "      ) AS rn\n"
+            "    FROM final_users_directory\n"
+            "  ) ranked\n"
+            "  WHERE rn = 1\n"
+            ")\n"
+        )
+
         base_sql = (
             "WITH agg AS (\n"
             "  SELECT\n"
@@ -4605,8 +4648,21 @@ def build_users_leaderboard():
             "  FROM fact_user_activity_daily\n"
             f"  {where_sql}\n"  # nosec B608 (where_sql uses placeholders)
             "  GROUP BY 1\n"
-            ")\n"
+            "),\n"
+            + directory_cte
         )
+
+        activity_predicates = []
+        if activity_filter == "license_creator":
+            activity_predicates.append("coalesce(a.developing, 0) > 0")
+        elif activity_filter == "license_consumer":
+            activity_predicates.append("coalesce(a.viewing, 0) > 0")
+            if activity_filter_sql:
+                activity_predicates.append(f"1 = 1{activity_filter_sql}")
+
+        activity_filter_clause = ""
+        if activity_predicates:
+            activity_filter_clause = "WHERE " + " AND ".join(activity_predicates) + "\n"
 
         viewing_df = _query_df(
             (
@@ -4622,11 +4678,12 @@ def build_users_leaderboard():
                 + "  a.instances AS instances,\n"
                 + "  a.last_activity_at AS lastActivityAt\n"
                 + "FROM agg a\n"
-                + "LEFT JOIN final_users_directory u ON u.login_norm = a.login_norm\n"
+                + "LEFT JOIN directory u ON u.login_norm = a.login_norm\n"
+                + activity_filter_clause
                 + "ORDER BY value DESC NULLS LAST\n"
                 + "LIMIT 50;"
             ),
-            params,
+            [*params, *activity_filter_params],
         )
 
         developing_df = _query_df(
@@ -4643,15 +4700,17 @@ def build_users_leaderboard():
                 + "  a.instances AS instances,\n"
                 + "  a.last_activity_at AS lastActivityAt\n"
                 + "FROM agg a\n"
-                + "LEFT JOIN final_users_directory u ON u.login_norm = a.login_norm\n"
+                + "LEFT JOIN directory u ON u.login_norm = a.login_norm\n"
+                + activity_filter_clause
                 + "ORDER BY value DESC NULLS LAST\n"
                 + "LIMIT 50;"
             ),
-            params,
+            [*params, *activity_filter_params],
         )
 
         payload: dict[str, Any] = {
             "instanceName": instance_name,
+            "activityFilter": activity_filter,
             "viewing": _df_records(viewing_df),
             "developing": _df_records(developing_df),
         }

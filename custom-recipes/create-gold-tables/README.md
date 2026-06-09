@@ -60,14 +60,19 @@ The code derives the managed folder backing store from Dataiku and sets DuckDB s
 
 ## DuckDB path controls
 
-DuckDB file location defaults to `/tmp/duckdb/pulse.duckdb`.
+DuckDB files default under `/tmp/duckdb/` using a unique per-run filename such as
+`pulse_<project>_<user>_<timestamp>_<token>.duckdb`.
 
 You can override it with:
 
-- `PULSE_DUCKDB_PATH`: explicit file path to the DuckDB file
-- `PULSE_DUCKDB_DIR`: directory for DuckDB files (filename stays `pulse.duckdb` unless project isolation is used)
+- `PULSE_DUCKDB_DIR`: directory for per-run DuckDB files
+
+Notes:
+- This recipe currently generates the DuckDB file path internally and does not read `PULSE_DUCKDB_PATH`.
+- Old per-run DuckDB files in the target directory are cleaned up on a best-effort basis.
 
 ## Notes
 
 - DuckDB extension installation may require outbound network access on first run (e.g. `INSTALL httpfs`).
 - This recipe assumes the GOLD output managed folder and `partitioned_data` share the same underlying connection.
+- `unload_behavior=dataiku` materializes tables through pandas before upload, so it is more memory-intensive than `unload_behavior=duckdb`.

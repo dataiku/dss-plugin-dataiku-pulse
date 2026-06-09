@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
 import pandas as pd
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -27,6 +31,12 @@ def _read_project_var_ts(client: Any, *, project_key: str, var_name: str) -> pd.
             return None
         return dt
     except Exception:
+        logger.debug(
+            "Failed reading project variable timestamp %s for project %s",
+            var_name,
+            project_key,
+            exc_info=True,
+        )
         return None
 
 
@@ -39,7 +49,12 @@ def _write_project_var(client: Any, *, project_key: str, var_name: str, value: s
         variables["local"] = local
         project.set_variables(variables)
     except Exception:
-        # Best-effort; do not fail macro
+        logger.warning(
+            "Failed writing project variable %s for project %s",
+            var_name,
+            project_key,
+            exc_info=True,
+        )
         return
 
 
