@@ -1,10 +1,49 @@
 from __future__ import annotations
 
+import logging
+import warnings
 from dataclasses import dataclass
 from typing import Any, Mapping
 
 import dataiku
 from dataikuapi.dssclient import DSSClient
+
+logger = logging.getLogger(__name__)
+
+_LOGGING_QUIET_MODE_APPLIED = False
+
+
+def configure_pulse_runtime_logging() -> None:
+    """Reduce noisy HTTP/TLS logging emitted by shared client libraries.
+
+    This intentionally suppresses only low-level transport chatter while
+    preserving Pulse application logs and genuine warnings/errors.
+    """
+
+    global _LOGGING_QUIET_MODE_APPLIED
+    if _LOGGING_QUIET_MODE_APPLIED:
+        return
+
+    try:
+        from urllib3.exceptions import InsecureRequestWarning
+
+        warnings.filterwarnings("ignore", category=InsecureRequestWarning)
+    except Exception:
+        logger.debug("Could not configure urllib3 warning suppression", exc_info=True)
+
+    noisy_loggers = [
+        "urllib3",
+        "urllib3.connectionpool",
+        "requests",
+        "requests.packages.urllib3",
+        "requests.packages.urllib3.connectionpool",
+    ]
+    for logger_name in noisy_loggers:
+        ext_logger = logging.getLogger(logger_name)
+        ext_logger.setLevel(logging.WARNING)
+        ext_logger.propagate = True
+
+    _LOGGING_QUIET_MODE_APPLIED = True
 
 
 @dataclass(frozen=True)
@@ -38,6 +77,8 @@ def get_param_set(plugin_config: Mapping[str, Any] | None) -> dict[str, Any]:
 
 def build_context(*, plugin_config: Mapping[str, Any] | None) -> PulseMacroContext:
     """Build a macro context with local + remote clients."""
+
+    configure_pulse_runtime_logging()
 
     param_set = get_param_set(plugin_config)
 
