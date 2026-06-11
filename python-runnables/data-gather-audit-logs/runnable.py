@@ -265,6 +265,7 @@ class MyRunnable(Runnable):
             max_files,
             chunk_size,
         )
+        logger.info("Audit raw backup enabled=%s", backup_raw)
 
         for path in files[:max_files]:
             files_scanned += 1
@@ -352,6 +353,7 @@ class MyRunnable(Runnable):
                         event_date=event_date,
                         file_name=f"audit_logs-{run_epoch_ms}-{chunk_idx}.json.gz",
                     )
+                    logger.info("Writing audit raw backup to %s", raw_backup_path.as_posix())
                     upload_json_gzip(
                         target=target,
                         output_path=raw_backup_path,
@@ -503,8 +505,17 @@ class MyRunnable(Runnable):
                         pending_cursor_ts = chunk_max_ts
 
         if not wrote_any:
+            if backup_raw:
+                logger.info(
+                    "Audit raw backup was enabled, but no eligible rows remained after timestamp and delta filtering"
+                )
             logger.info("No new audit rows found after %s", last_update)
             return "No new audit rows"
+
+        if backup_raw and stats.raw_backups_written == 0:
+            logger.info(
+                "Audit raw backup was enabled, but no chunk reached the raw backup write step"
+            )
 
         if pending_cursor_ts is not None and pd.notna(pending_cursor_ts):
             logger.info("Updating audit cursor to %s", pending_cursor_ts.isoformat())

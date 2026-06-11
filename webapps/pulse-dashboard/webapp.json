@@ -1,7 +1,7 @@
 {
   "meta": {
     "label": "Dataiku Pulse Dashboard",
-    "description": "Description",
+    "description": "Interactive Pulse dashboard for exploring platform activity, usage trends, builds, and DuckDB-backed analytics.",
     "icon": "icon-bar-chart"
   },
   "baseType": "STANDARD",
