@@ -6,7 +6,7 @@ class MyRunnable(Runnable):
 
     def __init__(self, project_key, config, plugin_config):
         """
-        :param project_key: the project in which the runnable executes
+        :param project_key: the project in which the runnable executes 
         :param config: the dict of the configuration of the object
         :param plugin_config: contains the plugin settings
         """
