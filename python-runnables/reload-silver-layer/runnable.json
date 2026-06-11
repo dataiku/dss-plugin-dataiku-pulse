@@ -1,0 +1,25 @@
+{
+    "meta": {
+        "label": "Reload Silver Layer",
+        "description": "Discover raw files that can be replayed into silver outputs without recollection.",
+        "icon": "fas fa-sync-alt",
+        "category": "Dataiku PULSE Insights: Data Gather"
+    },
+    "impersonate": false,
+    "permissions": ["ADMIN"],
+    "requiresGlobalAdmin": true,
+    "resultType": "HTML",
+    "resultLabel": "DISCOVERY SUMMARY",
+    "extension": "txt",
+    "mimeType": "text/plain",
+    "macroRoles": [],
+    "params": [
+        {
+            "type": "PRESET",
+            "name": "pulse_primary",
+            "label": "Choose PULSE Primary Configuration",
+            "parameterSetId": "params-dashboard-instance",
+            "mandatory": true
+        }
+    ]
+}
