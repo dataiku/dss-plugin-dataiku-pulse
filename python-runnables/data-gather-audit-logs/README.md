@@ -9,10 +9,11 @@ This runnable is intended to be packaged as a Dataiku plugin macro.
   - If `PULSE_AUDIT_LOGS_USE_CACHED` is truthy, uses the static test folder `python/audit_data/`
 - Uses a delta cursor `local.audit_log_delta` stored in the *worker project* variables (the project where the macro runs)
 - Uses that delta first to select the smallest likely set of `audit.log*` files by Linux `mtime` (newest-first, with one older boundary file when needed), then applies the row-level timestamp filter inside those files
+- Builds one shared prepared audit DataFrame per chunk for downstream processors by filtering to `topic == "generic"` and flattening `message` once
 - Expands the audit `message` JSON into `message_*` columns
 - Runs a configurable list of processors from:
   - `python-lib/data_collection/audit_logs_modules/modules.yaml`
-- Applies lightweight processor-specific prefilters before invoking each processor, to avoid unnecessary work on obviously irrelevant audit rows
+- Applies lightweight processor-specific prefilters after the shared generic-only chunk preparation, to avoid unnecessary work on obviously irrelevant audit rows
 
 Currently supported processor:
 - `event_mapping` (maps `message_msgType` to `dataiku_category` using `mapping.csv`)

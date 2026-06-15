@@ -145,11 +145,6 @@ def _prefilter_processor_input(*, proc_name: str, chunk: pd.DataFrame) -> pd.Dat
         return pd.DataFrame()
 
     if proc_name == "event_mapping":
-        if "topic" in chunk.columns:
-            filtered = chunk[chunk["topic"] == "generic"]
-            if filtered.shape[0] == 0:
-                return filtered
-            chunk = filtered
         if "message_msgType" in chunk.columns:
             filtered = chunk[chunk["message_msgType"].notna()].copy()
             if filtered.shape[0] == 0:
@@ -197,6 +192,24 @@ def _prefilter_processor_input(*, proc_name: str, chunk: pd.DataFrame) -> pd.Dat
         return filtered.copy()
 
     return chunk
+
+
+def _prepare_generic_audit_chunk(*, chunk: pd.DataFrame, instance_name: str) -> pd.DataFrame:
+    prepared = chunk
+    if "topic" in prepared.columns:
+        prepared = prepared[prepared["topic"] == "generic"].copy()
+    if prepared.shape[0] == 0:
+        return prepared
+
+    if "message" in prepared.columns:
+        jdf = pd.json_normalize(prepared["message"]).add_prefix("message_").reset_index(drop=True)
+        drop_cols = [col for col in ["message", "mdc"] if col in prepared.columns]
+        prepared = prepared.drop(columns=drop_cols).reset_index(drop=True)
+        prepared = pd.concat([prepared, jdf], axis=1)
+
+    prepared["date"] = prepared["timestamp"].dt.date
+    prepared["instance_name"] = instance_name
+    return prepared
 
 
 @dataclass(frozen=True)
@@ -497,19 +510,14 @@ class MyRunnable(Runnable):
                 if pd.notna(chunk_max_ts) and (max_ts_seen is None or chunk_max_ts > max_ts_seen):
                     max_ts_seen = chunk_max_ts
 
-                if "message" in chunk.columns:
-                    jdf = pd.json_normalize(chunk["message"]).add_prefix("message_").reset_index(drop=True)
-                    drop_cols = [col for col in ["message", "mdc"] if col in chunk.columns]
-                    chunk = chunk.drop(columns=drop_cols).reset_index(drop=True)
-                    chunk = pd.concat([chunk, jdf], axis=1)
-
-                chunk["date"] = chunk["timestamp"].dt.date
-                chunk["instance_name"] = instance_name
+                prepared_chunk = _prepare_generic_audit_chunk(chunk=chunk, instance_name=instance_name)
+                if prepared_chunk.shape[0] == 0:
+                    continue
 
                 chunk_success = True
 
                 if backup_raw:
-                    event_date = chunk["timestamp"].max().date()
+                    event_date = chunk_max_ts.date()
                     raw_backup_path = self._build_raw_backup_path(
                         layout=layout,
                         instance_name=instance_name,
@@ -562,7 +570,7 @@ class MyRunnable(Runnable):
                         chunk_success = False
                         continue
 
-                    proc_input = _prefilter_processor_input(proc_name=proc_name, chunk=chunk)
+                    proc_input = _prefilter_processor_input(proc_name=proc_name, chunk=prepared_chunk)
                     if proc_input is None or not isinstance(proc_input, pd.DataFrame) or proc_input.shape[0] == 0:
                         continue
 
