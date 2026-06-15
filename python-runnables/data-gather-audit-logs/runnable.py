@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import tempfile
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -212,6 +213,16 @@ def _prepare_generic_audit_chunk(*, chunk: pd.DataFrame, instance_name: str) -> 
     return prepared
 
 
+def _stage_event_mapping_output(*, staging_dir: Path, module_name: str, event_date, chunk_idx: int, df: pd.DataFrame) -> Path:
+    module_slug = str(module_name).strip().replace("/", "_")
+    event_day = event_date.isoformat()
+    out_dir = staging_dir / module_slug / event_day
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"chunk-{chunk_idx}.parquet"
+    df.to_parquet(out_path, index=False, engine="pyarrow", compression="snappy")
+    return out_path
+
+
 @dataclass(frozen=True)
 class ProcessorResult:
     name: str
@@ -362,6 +373,8 @@ class MyRunnable(Runnable):
         processor_results_by_name: dict[str, dict[str, int]] = defaultdict(
             lambda: {"rows_in": 0, "rows_out": 0, "wrote_groups": 0}
         )
+        staged_event_mapping_partitions: dict[tuple[str, object], list[Path]] = defaultdict(list)
+        staging_dir = Path(tempfile.mkdtemp(prefix="pulse_audit_stage_"))
 
         chunk_idx = 0
         wrote_any = False
@@ -651,14 +664,24 @@ class MyRunnable(Runnable):
                         dq = check_silver_dq(silver_df)
                         if dq.ok:
                             try:
-                                upload_parquet(
-                                    target=target,
-                                    output_path=silver_path,
-                                    output_base_dir=layout.base_dir,
-                                    df=silver_df,
-                                    compression="snappy",
-                                )
-                                processor_results_by_name[proc_name]["wrote_groups"] += 1
+                                if proc_name == "event_mapping":
+                                    staged_path = _stage_event_mapping_output(
+                                        staging_dir=staging_dir,
+                                        module_name=str(module_name),
+                                        event_date=event_date,
+                                        chunk_idx=chunk_idx,
+                                        df=silver_df,
+                                    )
+                                    staged_event_mapping_partitions[(str(module_name), event_date)].append(staged_path)
+                                else:
+                                    upload_parquet(
+                                        target=target,
+                                        output_path=silver_path,
+                                        output_base_dir=layout.base_dir,
+                                        df=silver_df,
+                                        compression="snappy",
+                                    )
+                                    processor_results_by_name[proc_name]["wrote_groups"] += 1
                             except Exception as exc:
                                 chunk_success = False
                                 logger.exception(
@@ -768,6 +791,52 @@ class MyRunnable(Runnable):
                 "Audit raw backup was enabled, but no chunk reached the raw backup write step"
             )
 
+        final_event_mapping_upload_failures = 0
+        for (module_name, event_date), staged_paths in sorted(
+            staged_event_mapping_partitions.items(), key=lambda item: (str(item[0][1]), str(item[0][0]))
+        ):
+            if not staged_paths:
+                continue
+            try:
+                combined_df = pd.concat((pd.read_parquet(path) for path in staged_paths), ignore_index=True)
+                parquet_name = f"audit_logs-{run_epoch_ms}-{str(module_name)}.parquet"
+                silver_path = self._build_partition_dir(
+                    layout=layout,
+                    layer="silver",
+                    proc_name="event_mapping",
+                    module_name=str(module_name),
+                    instance_name=instance_name,
+                    event_date=event_date,
+                ) / parquet_name
+                upload_parquet(
+                    target=target,
+                    output_path=silver_path,
+                    output_base_dir=layout.base_dir,
+                    df=combined_df,
+                    compression="snappy",
+                )
+                processor_results_by_name["event_mapping"]["wrote_groups"] += 1
+            except Exception as exc:
+                final_event_mapping_upload_failures += 1
+                processor_messages.setdefault("event_mapping::__final_write__", repr(exc))
+                logger.exception(
+                    "Final staged event_mapping upload failed for module=%s date=%s",
+                    module_name,
+                    event_date,
+                )
+                pending_cursor_ts = None
+
+        try:
+            for path in staging_dir.rglob("*"):
+                if path.is_file():
+                    path.unlink()
+            for path in sorted(staging_dir.rglob("*"), reverse=True):
+                if path.is_dir():
+                    path.rmdir()
+            staging_dir.rmdir()
+        except Exception:
+            logger.debug("Failed cleaning audit staging dir %s", staging_dir, exc_info=True)
+
         if pending_cursor_ts is not None and pd.notna(pending_cursor_ts):
             logger.info("Updating audit cursor to %s", pending_cursor_ts.isoformat())
             self._update_audit_delta(ctx.local_client, pending_cursor_ts.isoformat())
@@ -824,6 +893,7 @@ class MyRunnable(Runnable):
                 f"write_failures={stats.write_failures}; "
                 f"raw_write_failures={stats.raw_write_failures}; "
                 f"silver_write_failures={stats.silver_write_failures}; "
+                f"final_event_mapping_upload_failures={final_event_mapping_upload_failures}; "
                 f"silver_fail_groups={stats.silver_fail_groups}; "
                 f"processor_failures={processor_failures}; "
                 f"cursor_from={last_update.isoformat()}; "

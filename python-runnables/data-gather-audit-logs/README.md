@@ -14,6 +14,7 @@ This runnable is intended to be packaged as a Dataiku plugin macro.
 - Runs a configurable list of processors from:
   - `python-lib/data_collection/audit_logs_modules/modules.yaml`
 - Applies lightweight processor-specific prefilters after the shared generic-only chunk preparation, to avoid unnecessary work on obviously irrelevant audit rows
+- Stages `event_mapping` chunk outputs locally under `/tmp` and uploads coalesced final parquet files per `module/day`, to avoid excessive tiny managed-folder writes
 
 Currently supported processor:
 - `event_mapping` (maps `message_msgType` to `dataiku_category` using `mapping.csv`)
