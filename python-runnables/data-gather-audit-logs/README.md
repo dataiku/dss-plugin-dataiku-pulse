@@ -8,9 +8,11 @@ This runnable is intended to be packaged as a Dataiku plugin macro.
 - Locates DSS audit logs (`DATA_DIR/run/audit/audit.log*`) using `client.get_instance_info()` without changing process working directory
   - If `PULSE_AUDIT_LOGS_USE_CACHED` is truthy, uses the static test folder `python/audit_data/`
 - Uses a delta cursor `local.audit_log_delta` stored in the *worker project* variables (the project where the macro runs)
+- Uses that delta first to select the smallest likely set of `audit.log*` files by Linux `mtime` (newest-first, with one older boundary file when needed), then applies the row-level timestamp filter inside those files
 - Expands the audit `message` JSON into `message_*` columns
 - Runs a configurable list of processors from:
   - `python-lib/data_collection/audit_logs_modules/modules.yaml`
+- Applies lightweight processor-specific prefilters before invoking each processor, to avoid unnecessary work on obviously irrelevant audit rows
 
 Currently supported processor:
 - `event_mapping` (maps `message_msgType` to `dataiku_category` using `mapping.csv`)
@@ -60,6 +62,9 @@ Plugin settings used (under `pulse_primary`):
 - Updated only to the max `timestamp` from chunks that completed successfully across all configured processors.
 
 Additional behavior:
+- Candidate audit files are selected newest-first from `audit.log*` using the cursor as an `mtime` boundary, with a safety fallback to include the newest file and at most one older boundary file.
+- Older selected files may stop early once a parsed chunk is fully before the cursor, to avoid scanning an entire boundary file when only its newest tail could contain new rows.
 - RAW backups now use hive-style partitions (`instance_name=.../year=.../month=.../day=...`).
 - SILVER and RAW partitions now use event time (max timestamp in the written group/chunk), not macro run time.
-- Result output includes summary diagnostics for dropped rows, scanned files/chunks, DQ failures, and cursor movement.
+- Result output includes summary diagnostics for dropped rows, scanned files/chunks, early-stopped files/chunks, DQ failures, and cursor movement.
+- Upload failures to the managed folder are handled per write so a single S3/object-store reset does not abort the whole job; failed chunks do not advance the cursor.

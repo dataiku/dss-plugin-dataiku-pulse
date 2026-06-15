@@ -70,6 +70,11 @@ Current custom calls:
   - `category=license/module=max_licenses`
   - `category=license/module=addon_licenses`
 
+For `module=max_licenses`, the runnable now prefers structured license limits from
+`payload["base"]["profileLimits"]` and uses `licensed.licensedLimit` per profile.
+If that structure is absent, it falls back to legacy parsing from
+`payload["base"]["licenseContent"]["properties"]`.
+
 ## Method-specific rules
 
 Some DSS methods need special call arguments or small cleanup steps before persistence.
