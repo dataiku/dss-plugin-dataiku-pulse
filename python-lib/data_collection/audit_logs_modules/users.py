@@ -89,6 +89,11 @@ def main(df: pd.DataFrame) -> pd.DataFrame:
 
     out = df.copy()
 
+    if "topic" in out.columns:
+        out = out[out["topic"] == "generic"]
+        if out.shape[0] == 0:
+            return pd.DataFrame()
+
     # Best-effort base filters (match legacy intent)
     if "message_scenarioId" in out.columns:
         out = out[out["message_scenarioId"].isna()]

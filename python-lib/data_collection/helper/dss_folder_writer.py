@@ -4,6 +4,7 @@ import gzip
 import io
 import json
 import logging
+import time
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -21,6 +22,45 @@ logger = logging.getLogger(__name__)
 _FOLDER_HANDLE_CACHE: dict[tuple[Any, str, str, str | None, str | None, str | None], Any] = {}
 
 from .output_layout import as_posix_relative
+
+
+def _is_transient_upload_error(exc: Exception) -> bool:
+    text = repr(exc).lower()
+    markers = (
+        "connection reset",
+        "socketexception",
+        "sdkclientexception",
+        "could not parse xml response",
+        "read timed out",
+        "connection timed out",
+        "broken pipe",
+        "connection aborted",
+    )
+    return any(marker in text for marker in markers)
+
+
+def _run_with_upload_retry(*, rel_path: str, fn) -> None:
+    attempts = 2
+    delay_seconds = 1.0
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            fn()
+            return
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= attempts or not _is_transient_upload_error(exc):
+                raise
+            logger.warning(
+                "Managed folder upload failed for %s on attempt %s/%s with transient error; retrying in %.1fs",
+                rel_path,
+                attempt,
+                attempts,
+                delay_seconds,
+            )
+            time.sleep(delay_seconds)
+    if last_exc is not None:
+        raise last_exc
 
 
 @dataclass(frozen=True)
@@ -255,13 +295,13 @@ def upload_bytes(
 
     # Local in-instance handle: `dataiku.Folder`
     if hasattr(folder, "upload_stream"):
-        folder.upload_stream(rel_path, content)
+        _run_with_upload_retry(rel_path=rel_path, fn=lambda: folder.upload_stream(rel_path, content))
         return
 
     # Remote handle: `dataikuapi.dss.managedfolder.DSSManagedFolder`
     if hasattr(folder, "put_file"):
         remote_path = rel_path if rel_path.startswith("/") else f"/{rel_path}"
-        folder.put_file(remote_path, io.BytesIO(content))
+        _run_with_upload_retry(rel_path=remote_path, fn=lambda: folder.put_file(remote_path, io.BytesIO(content)))
         return
 
     raise TypeError(f"Unsupported folder handle type: {type(folder)!r}")
