@@ -85,6 +85,8 @@ def _to_bool(value):
 def _to_int(value):
     if value is None or value == "":
         return None
+    if isinstance(value, str) and value.strip().lower() == "unlimited":
+        return None
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -119,17 +121,50 @@ def _camel_to_profile(key):
 
 
 def _max_license_rows(payload):
-    properties = (((payload.get("base") or {}).get("licenseContent") or {}).get("properties") or {})
-    rows = [
-        {
-            "license_profile": _camel_to_profile(key),
-            "max_licenses": _to_int(value),
-        }
-        for key, value in properties.items()
-        if key.startswith("max")
-    ]
+    base = payload.get("base") or {}
+    profile_limits = base.get("profileLimits") or {}
+    rows = []
 
-    sublicense = ((payload.get("base") or {}).get("sublicense") or {})
+    if isinstance(profile_limits, dict) and profile_limits:
+        for profile_name, profile_payload in profile_limits.items():
+            profile_payload = profile_payload or {}
+            licensed = profile_payload.get("licensed") or {}
+            resolved_profile = (
+                licensed.get("profile")
+                or profile_payload.get("profile")
+                or str(profile_name).strip()
+            )
+            if not str(resolved_profile).strip():
+                continue
+            rows.append(
+                {
+                    "license_profile": str(resolved_profile).strip(),
+                    "max_licenses": _to_int(licensed.get("licensedLimit")),
+                }
+            )
+    else:
+        properties = ((base.get("licenseContent") or {}).get("properties") or {})
+        rows.extend(
+            {
+                "license_profile": _camel_to_profile(key),
+                "max_licenses": _to_int(value),
+            }
+            for key, value in properties.items()
+            if key.startswith("max")
+        )
+
+        profile_prefix = "users.profiles."
+        profile_suffix = ".max"
+        rows.extend(
+            {
+                "license_profile": str(key)[len(profile_prefix) : -len(profile_suffix)].strip(),
+                "max_licenses": _to_int(value),
+            }
+            for key, value in properties.items()
+            if key.startswith(profile_prefix) and key.endswith(profile_suffix)
+        )
+
+    sublicense = (base.get("sublicense") or {})
     sublicense_profile_limits = sublicense.get("profileLimits") or {}
     rows.extend(
         {
@@ -139,7 +174,21 @@ def _max_license_rows(payload):
         for profile_name, limit in sublicense_profile_limits.items()
         if str(profile_name).strip()
     )
-    return rows
+
+    deduped_rows: list[dict[str, object]] = []
+    seen_profiles: set[str] = set()
+    for row in rows:
+        profile = str(row.get("license_profile") or "").strip()
+        if not profile or profile in seen_profiles:
+            continue
+        seen_profiles.add(profile)
+        deduped_rows.append(
+            {
+                "license_profile": profile,
+                "max_licenses": row.get("max_licenses"),
+            }
+        )
+    return deduped_rows
 
 
 def _addon_license_rows(payload):

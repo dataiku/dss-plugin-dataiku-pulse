@@ -111,9 +111,6 @@ def main(df: pd.DataFrame) -> pd.DataFrame:
 
     out = df.copy()
 
-    if "topic" in out.columns:
-        out = out[out["topic"] == "generic"].reset_index(drop=True)
-
     merged = pd.merge(
         out,
         mapping_df,
