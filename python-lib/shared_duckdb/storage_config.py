@@ -9,7 +9,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from .context import StorageContext
-from .extensions import ensure_provider_extensions
+from .extensions import duckdb_version, ensure_provider_extensions
 from . import yaml_loader
 
 
@@ -113,6 +113,58 @@ def gcp_credentials(ctx: StorageContext):
     )
 
 
+def _render_azure_shared_key_queries(ctx: StorageContext) -> list[tuple[str, str]]:
+    info = ctx.connection_handle.get_info()
+    params = info.get("params", {})
+    queries = _load_queries()
+    account_name = params["storageAccount"]
+    access_key = params["accessKey"]
+    return [
+        (
+            "provider_config_access_key",
+            yaml_loader.render_query(
+                queries["blob_setup"]["azure_access_key_headers"],
+                account_name=account_name,
+                access_key=access_key,
+            ),
+        ),
+        (
+            "connection_string",
+            yaml_loader.render_query(
+                queries["blob_setup"]["azure_connection_string_headers"],
+                account_name=account_name,
+                access_key=access_key,
+            ),
+        ),
+    ]
+
+
+def _configure_azure_shared_key(conn, ctx: StorageContext) -> dict:
+    errors: list[str] = []
+    for variant_name, query in _render_azure_shared_key_queries(ctx):
+        try:
+            conn.execute(query)
+            logger.info("Configured Azure DuckDB secret using variant=%s", variant_name)
+            return {
+                "provider": "Azure",
+                "credential_mode": "SHARED_KEY",
+                "secret_variant": variant_name,
+            }
+        except Exception as exc:
+            logger.info(
+                "Azure shared-key secret creation failed for variant=%s duckdb_version=%s",
+                variant_name,
+                duckdb_version(),
+                exc_info=True,
+            )
+            errors.append(f"{variant_name}: {exc}")
+
+    raise RuntimeError(
+        "Azure shared-key secret creation failed "
+        f"for duckdb_version={duckdb_version()} after trying variants: {' | '.join(errors)}"
+    )
+
+
 def configure_storage(conn, *, ctx: StorageContext) -> dict:
     ctype = ctx.connection_type
     extension_source = ensure_provider_extensions(conn, ctype)
@@ -126,9 +178,17 @@ def configure_storage(conn, *, ctx: StorageContext) -> dict:
     if ctype == "EC2":
         credential_mode = (ctx.connection_handle.get_info().get("params") or {}).get("credentialsMode")
         blob_credentials = aws_credentials(ctx)
+        conn.execute(blob_credentials)
+        return {"provider": ctype, "credential_mode": credential_mode, "extension_source": extension_source}
     elif ctype == "Azure":
         credential_mode = (ctx.connection_handle.get_info().get("params") or {}).get("authType")
+        if credential_mode == "SHARED_KEY":
+            storage_info = _configure_azure_shared_key(conn, ctx)
+            storage_info["extension_source"] = extension_source
+            return storage_info
         blob_credentials = azure_credentials(ctx)
+        conn.execute(blob_credentials)
+        return {"provider": ctype, "credential_mode": credential_mode, "extension_source": extension_source}
     elif ctype == "GCS":
         blob_credentials = gcp_credentials(ctx)
         if not blob_credentials:
@@ -142,6 +202,3 @@ def configure_storage(conn, *, ctx: StorageContext) -> dict:
         return {"provider": "GCS", "credential_mode": "hmac", "extension_source": extension_source}
     else:
         raise ValueError(f"Unknown storage provider: {ctype}")
-
-    conn.execute(blob_credentials)
-    return {"provider": ctype, "credential_mode": credential_mode, "extension_source": extension_source}
