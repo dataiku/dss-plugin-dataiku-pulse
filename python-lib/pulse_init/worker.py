@@ -301,6 +301,10 @@ def _extract_bundle_id(import_result: Any) -> str | None:
     return None
 
 
+def _read_bundle_bytes(bundle_path: Path) -> bytes:
+    return bundle_path.read_bytes()
+
+
 def _list_project_bundle_ids(project: Any) -> list[str]:
     bundle_ids: list[str] = []
     try:
@@ -337,6 +341,15 @@ def _activate_project_bundle(project: Any, bundle_id: str | None) -> InitStep:
         )
 
     try:
+        project.preload_bundle(bundle_id)
+    except Exception as e:
+        return InitStep(
+            step="bundle_preload",
+            status="error",
+            message=repr(e),
+        )
+
+    try:
         project.activate_bundle(bundle_id)
         return InitStep(
             step="bundle_activate",
@@ -368,12 +381,29 @@ def _import_automation_project_bundle(
             )
         ]
 
+    bundle_bytes = _read_bundle_bytes(bundle_path)
+
     try:
-        with bundle_path.open("rb") as stream:
-            import_result = client.import_project_bundle(project_key, stream)
-        steps.append(
-            InitStep(step="project_import", status="created", message=project_key)
-        )
+        existing_project_keys = client.list_project_keys() or []
+    except Exception as e:
+        return None, [
+            InitStep(step="project_check", status="error", message=repr(e))
+        ]
+
+    project_exists = project_key in existing_project_keys
+
+    try:
+        if project_exists:
+            project = client.get_project(project_key)
+            import_result = project.import_bundle_from_stream(bundle_bytes)
+            steps.append(
+                InitStep(step="project_import", status="updated", message=project_key)
+            )
+        else:
+            import_result = client.create_project_from_bundle_archive(bundle_bytes)
+            steps.append(
+                InitStep(step="project_import", status="created", message=project_key)
+            )
     except Exception as e:
         return None, [
             InitStep(step="project_import", status="error", message=repr(e))
@@ -389,9 +419,11 @@ def _import_automation_project_bundle(
             InitStep(step="project_attach", status="error", message=repr(e))
         ]
 
-    activate_step = _activate_project_bundle(project, _extract_bundle_id(import_result))
-    steps.append(activate_step)
-    if activate_step.status == "error":
+    preload_or_activate_step = _activate_project_bundle(
+        project, _extract_bundle_id(import_result)
+    )
+    steps.append(preload_or_activate_step)
+    if preload_or_activate_step.status == "error":
         return None, steps
 
     return project, steps
