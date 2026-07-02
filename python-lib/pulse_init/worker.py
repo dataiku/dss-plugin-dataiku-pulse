@@ -286,32 +286,18 @@ def _get_local_bundle_path() -> Path:
     )
 
 
-def _extract_bundle_id(import_result: Any) -> str | None:
-    if isinstance(import_result, Mapping):
-        for key in (
-            "bundleId",
-            "bundle_id",
-            "importedBundleId",
-            "imported_bundle_id",
-            "id",
-        ):
-            value = import_result.get(key)
-            if value:
-                return str(value)
-    return None
-
-
 def _read_bundle_bytes(bundle_path: Path) -> bytes:
     return bundle_path.read_bytes()
 
 
-def _list_project_bundle_ids(project: Any) -> list[str]:
+def _list_imported_bundle_ids(project: Any) -> list[str]:
     bundle_ids: list[str] = []
     try:
-        bundles = project.list_bundles() or []
+        imported = project.list_imported_bundles() or {}
     except Exception:
         return bundle_ids
 
+    bundles = imported.get("bundles") or []
     for bundle in bundles:
         if isinstance(bundle, str):
             bundle_ids.append(bundle)
@@ -325,43 +311,45 @@ def _list_project_bundle_ids(project: Any) -> list[str]:
     return bundle_ids
 
 
-def _activate_project_bundle(project: Any, bundle_id: str | None) -> InitStep:
+def _activate_project_bundle(project: Any, bundle_id: str) -> list[InitStep]:
+    steps: list[InitStep] = []
     if not bundle_id:
-        bundle_ids = _list_project_bundle_ids(project)
-        if len(bundle_ids) == 1:
-            bundle_id = bundle_ids[0]
-        elif bundle_ids:
-            bundle_id = sorted(bundle_ids)[-1]
-
-    if not bundle_id:
-        return InitStep(
-            step="bundle_activate",
-            status="error",
-            message="Could not determine imported bundle id to activate",
-        )
+        return [
+            InitStep(
+                step="bundle_activate",
+                status="error",
+                message="Could not determine imported bundle id to activate",
+            )
+        ]
 
     try:
         project.preload_bundle(bundle_id)
-    except Exception as e:
-        return InitStep(
-            step="bundle_preload",
-            status="error",
-            message=repr(e),
+        steps.append(
+            InitStep(step="bundle_preload", status="created", message=bundle_id)
         )
+    except Exception as e:
+        return [
+            InitStep(
+                step="bundle_preload",
+                status="error",
+                message=repr(e),
+            )
+        ]
 
     try:
         project.activate_bundle(bundle_id)
-        return InitStep(
-            step="bundle_activate",
-            status="created",
-            message=bundle_id,
+        steps.append(
+            InitStep(step="bundle_activate", status="created", message=bundle_id)
         )
+        return steps
     except Exception as e:
-        return InitStep(
-            step="bundle_activate",
-            status="error",
-            message=repr(e),
-        )
+        return [
+            InitStep(
+                step="bundle_activate",
+                status="error",
+                message=repr(e),
+            )
+        ]
 
 
 def _import_automation_project_bundle(
@@ -390,20 +378,22 @@ def _import_automation_project_bundle(
             InitStep(step="project_check", status="error", message=repr(e))
         ]
 
-    project_exists = project_key in existing_project_keys
+    if project_key in existing_project_keys:
+        try:
+            project = client.get_project(project_key)
+            return project, [
+                InitStep(step=f"project:{project_key}", status="already_exists")
+            ]
+        except Exception as e:
+            return None, [
+                InitStep(step=f"project:{project_key}", status="error", message=repr(e))
+            ]
 
     try:
-        if project_exists:
-            project = client.get_project(project_key)
-            import_result = project.import_bundle_from_stream(bundle_bytes)
-            steps.append(
-                InitStep(step="project_import", status="updated", message=project_key)
-            )
-        else:
-            import_result = client.create_project_from_bundle_archive(bundle_bytes)
-            steps.append(
-                InitStep(step="project_import", status="created", message=project_key)
-            )
+        client.create_project_from_bundle_archive(bundle_bytes)
+        steps.append(
+            InitStep(step="project_import", status="created", message=project_key)
+        )
     except Exception as e:
         return None, [
             InitStep(step="project_import", status="error", message=repr(e))
@@ -411,19 +401,29 @@ def _import_automation_project_bundle(
 
     try:
         project = client.get_project(project_key)
-        steps.append(
-            InitStep(step="project_attach", status="ok", message=project_key)
-        )
+        steps.append(InitStep(step="project_attach", status="ok", message=project_key))
     except Exception as e:
         return None, steps + [
             InitStep(step="project_attach", status="error", message=repr(e))
         ]
 
-    preload_or_activate_step = _activate_project_bundle(
-        project, _extract_bundle_id(import_result)
+    bundle_ids = _list_imported_bundle_ids(project)
+    if not bundle_ids:
+        return None, steps + [
+            InitStep(
+                step="bundle_lookup",
+                status="error",
+                message=f"No imported bundles found after project creation: {project.list_imported_bundles()!r}",
+            )
+        ]
+
+    steps.append(
+        InitStep(step="bundle_lookup", status="ok", message=bundle_ids[0])
     )
-    steps.append(preload_or_activate_step)
-    if preload_or_activate_step.status == "error":
+
+    activation_steps = _activate_project_bundle(project, bundle_ids[0])
+    steps.extend(activation_steps)
+    if any(step.status == "error" for step in activation_steps):
         return None, steps
 
     return project, steps
