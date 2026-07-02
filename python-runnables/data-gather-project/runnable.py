@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from dateutil.relativedelta import relativedelta
 from dataiku.runnables import ResultTable, Runnable
 
 from data_collection.data_collection.collect_all_projects import collect_all_projects
@@ -43,10 +44,13 @@ class MyRunnable(Runnable):
         return None
 
     def _resolve_projects_default_ts(self) -> pd.Timestamp:
-        default_raw = self.param_set.get("pulse_default_projects_delta", "2026-01-01 00:00:00.000000")
+        fallback_dt = pd.Timestamp.now(tz="UTC") - relativedelta(months=3)
+        default_raw = self.param_set.get("pulse_default_projects_delta")
+        if not default_raw:
+            return fallback_dt
         default_dt = pd.to_datetime(default_raw, utc=True, errors="coerce")
         if pd.isna(default_dt):
-            return pd.Timestamp("2026-01-01", tz="UTC")
+            return fallback_dt
         return default_dt
 
     def _read_projects_delta(self, client: Any) -> pd.Timestamp:

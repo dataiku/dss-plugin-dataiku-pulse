@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from dateutil.relativedelta import relativedelta
 from dataiku.runnables import ResultTable, Runnable
 
 from data_collection.audit_logs_modules.audit_paths import resolve_audit_logs_dir
@@ -266,7 +267,7 @@ class MyRunnable(Runnable):
         return bool(self.param_set.get("pulse_audit_logs_debug", False))
 
     def _resolve_audit_start_ts(self) -> pd.Timestamp:
-        default_dt = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=1)
+        default_dt = pd.Timestamp.now(tz="UTC") - relativedelta(months=3)
         raw = self.param_set.get("pulse_audit_logs_delta")
         if raw:
             dt = pd.to_datetime(raw, utc=True, errors="coerce")
