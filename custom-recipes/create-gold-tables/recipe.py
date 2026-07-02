@@ -467,6 +467,9 @@ def _object_activity_branch_sql(
     def _null_if_empty(expr: str) -> str:
         return f"NULLIF(TRIM(CAST({expr} AS VARCHAR)), '')"
 
+    def _path_capture(expr: str, pattern: str) -> str:
+        return _null_if_empty(f"regexp_extract({expr}, '{pattern}')")
+
     def _clean_identifier(expr: str) -> str:
         return (
             "CASE "
@@ -485,16 +488,16 @@ def _object_activity_branch_sql(
 
     if module in {"datasets", "dataset"}:
         object_type = "dataset"
-        object_key_expr = "NULLIF(regexp_extract(callpath, '/datasets/([^/?]+)', 1), '')"
+        object_key_expr = _path_capture("callpath", "/datasets/([^/?]+)")
     elif module in {"visual_recipes", "misc_recipes", "prepare"}:
         object_type = "recipe"
-        object_key_expr = "NULLIF(regexp_extract(callpath, '/recipes/([^/?]+)', 1), '')"
+        object_key_expr = _path_capture("callpath", "/recipes/([^/?]+)")
     elif module == "webapps":
         object_type = "web_application"
         normalized_webapp_expr = _null_if_empty("e.webappid") if _has_column("webappid") else "NULL"
-        callpath_webapp_expr = _null_if_empty("regexp_extract(e.callpath, '/webapps/([^/?]+)', 1)")
+        callpath_webapp_expr = _path_capture("e.callpath", "/webapps/([^/?]+)")
         authvia_webapp_expr = _null_if_empty(
-            "regexp_extract(e.authvia, 'ticket:Standard webapp backend: [^.]+\\.([^, ]+)', 1)"
+            "regexp_extract(e.authvia, 'ticket:Standard webapp backend: [^.]+\\.([^, ]+)')"
         )
         extras_webapp_expr = _json_text('$.webappid')
         object_key_expr = _clean_identifier(
@@ -506,9 +509,9 @@ def _object_activity_branch_sql(
             )
         )
     elif module == "charts_dashboard":
-        dashboard_key_expr = _null_if_empty("regexp_extract(callpath, '/dashboards/([^/?]+)', 1)")
+        dashboard_key_expr = _path_capture("callpath", "/dashboards/([^/?]+)")
         insight_key_expr = _first_non_empty(
-            _null_if_empty("regexp_extract(callpath, '/insights/([^/?]+)', 1)"),
+            _path_capture("callpath", "/insights/([^/?]+)"),
             _json_text('$.insightId'),
             _json_text('$.insightid'),
             _json_text('$.dashboardInsightId'),
@@ -521,8 +524,8 @@ def _object_activity_branch_sql(
         object_type = "api_service"
         object_key_expr = _clean_identifier(
             _first_non_empty(
-                _null_if_empty("regexp_extract(callpath, '/api[-_]?services/([^/?]+)', 1)"),
-                _null_if_empty("regexp_extract(callpath, '/api[-_]?endpoints/([^/?]+)', 1)"),
+                _path_capture("callpath", "/api[-_]?services/([^/?]+)"),
+                _path_capture("callpath", "/api[-_]?endpoints/([^/?]+)"),
                 _json_text('$.serviceId'),
                 _json_text('$.apiServiceId'),
                 _json_text('$.apiserviceid'),
@@ -534,7 +537,7 @@ def _object_activity_branch_sql(
         object_type = "dataiku_application"
         object_key_expr = _clean_identifier(
             _first_non_empty(
-                _null_if_empty("regexp_extract(callpath, '/applications/([^/?]+)', 1)"),
+                _path_capture("callpath", "/applications/([^/?]+)"),
                 _json_text('$.applicationId'),
                 _json_text('$.applicationid'),
                 _json_text('$.appId'),
@@ -553,7 +556,7 @@ def _object_activity_branch_sql(
         object_key_expr = "NULL"
 
     project_key_expr = (
-        "COALESCE(project_key, regexp_extract(callpath, '/projects/([^/?]+)', 1), "
+        f"COALESCE(project_key, {_path_capture('callpath', '/projects/([^/?]+)')}, "
         "json_extract_string(extras, '$.projectKey'), json_extract_string(extras, '$.projectkey'))"
         if object_type == "dataiku_application"
         else "project_key"

@@ -1,6 +1,6 @@
 # Dataiku Pulse
 
-**Version:** 3.0.15
+**Version:** 3.0.16
 
 Dataiku Pulse is a cross-instance observability and analytics layer for **Dataiku DSS**. It helps teams understand **what is being built, what is being used, and how platform activity is evolving over time** across one or more DSS environments.
 
