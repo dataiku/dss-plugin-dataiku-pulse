@@ -55,13 +55,14 @@ Plugin settings used (under `pulse_primary`):
 - `pulse_project_url` / `pulse_project_api`: remote target used to upload to the hub (can be the same DSS)
 - `pulse_audit_logs_debug`: use static logs for development (default false)
 - `pulse_backup_audit_logs`: write raw audit backup (default false)
-- `pulse_audit_logs_delta`: default delta cursor if variable missing
+- `pulse_audit_logs_delta`: default delta cursor if variable missing; if not set, Pulse falls back to **3 calendar months before the current UTC time**
 
 ## Delta cursor
 
 - Worker project resolution: `client.get_default_project().project_key`
 - Cursor variable: `local.audit_log_delta`
 - Updated only to the max `timestamp` from chunks that completed successfully across all configured processors.
+- If the variable is missing and `pulse_audit_logs_delta` is not configured, the runnable starts from **3 calendar months before the current UTC time**.
 
 Additional behavior:
 - Candidate audit files are selected newest-first from `audit.log*` using the cursor as an `mtime` boundary, with a safety fallback to include the newest file and at most one older boundary file.
