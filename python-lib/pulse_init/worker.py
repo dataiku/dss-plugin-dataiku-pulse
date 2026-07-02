@@ -290,13 +290,14 @@ def _read_bundle_bytes(bundle_path: Path) -> bytes:
     return bundle_path.read_bytes()
 
 
-def _list_project_bundle_ids(project: Any) -> list[str]:
+def _list_imported_bundle_ids(project: Any) -> list[str]:
     bundle_ids: list[str] = []
     try:
-        bundles = project.list_bundles() or []
+        imported = project.list_imported_bundles() or {}
     except Exception:
         return bundle_ids
 
+    bundles = imported.get("bundles") or []
     for bundle in bundles:
         if isinstance(bundle, str):
             bundle_ids.append(bundle)
@@ -406,13 +407,13 @@ def _import_automation_project_bundle(
             InitStep(step="project_attach", status="error", message=repr(e))
         ]
 
-    bundle_ids = _list_project_bundle_ids(project)
-    if len(bundle_ids) != 1:
+    bundle_ids = _list_imported_bundle_ids(project)
+    if not bundle_ids:
         return None, steps + [
             InitStep(
                 step="bundle_lookup",
                 status="error",
-                message=f"Expected exactly one bundle after project creation, found {bundle_ids}",
+                message=f"No imported bundles found after project creation: {project.list_imported_bundles()!r}",
             )
         ]
 
