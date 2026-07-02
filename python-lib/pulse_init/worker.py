@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import logging
 import calendar
+import json
+import zipfile
 from pathlib import Path
+from io import BytesIO
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping
@@ -305,6 +308,37 @@ def _read_bundle_bytes(bundle_path: Path) -> bytes:
     return bundle_path.read_bytes()
 
 
+def _extract_bundle_id_from_archive(bundle_bytes: bytes) -> str | None:
+    metadata_paths = (
+        "bundle.json",
+        "desc.json",
+        "metadata.json",
+    )
+
+    try:
+        with zipfile.ZipFile(BytesIO(bundle_bytes)) as archive:
+            for member_name in archive.namelist():
+                normalized = member_name.strip("/")
+                base_name = normalized.rsplit("/", 1)[-1]
+                if base_name not in metadata_paths:
+                    continue
+                try:
+                    metadata = json.loads(archive.read(member_name).decode("utf-8"))
+                except Exception:
+                    continue
+                bundle_id = _extract_bundle_id(metadata)
+                if bundle_id:
+                    return bundle_id
+                for key in ("bundleVersion", "bundle_version", "version"):
+                    value = metadata.get(key)
+                    if value:
+                        return str(value)
+    except Exception:
+        return None
+
+    return None
+
+
 def _list_project_bundle_ids(project: Any) -> list[str]:
     bundle_ids: list[str] = []
     try:
@@ -419,9 +453,10 @@ def _import_automation_project_bundle(
             InitStep(step="project_attach", status="error", message=repr(e))
         ]
 
-    preload_or_activate_step = _activate_project_bundle(
-        project, _extract_bundle_id(import_result)
+    bundle_id = _extract_bundle_id(import_result) or _extract_bundle_id_from_archive(
+        bundle_bytes
     )
+    preload_or_activate_step = _activate_project_bundle(project, bundle_id)
     steps.append(preload_or_activate_step)
     if preload_or_activate_step.status == "error":
         return None, steps
