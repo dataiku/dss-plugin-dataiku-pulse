@@ -126,11 +126,12 @@
                     "label": "Node Classification",
                     "type": "SELECT",
                     "selectChoices" : [
-                        { "value": "prod", "label": "Production"},
-                        { "value": "dev",  "label": "Development"}
+                        { "value": "automation", "label": "Automation"},
+                        { "value": "designer",  "label": "Designer"}
                     ],
-                    "defaultValue": "prod",
-                    "mandatory": true
+                    "defaultValue": "automation",
+                    "mandatory": true,
+                    "description": "Choose the Dataiku Node Classification that matches the node Type (critical for project setup)."
                 },
                 {
                     "name": "preset_name",
@@ -172,14 +173,6 @@
             "mandatory": true,
             "defaultValue": 2,
             "visibilityCondition": "model.do_parallel"
-        },
-        {
-            "name": "monitor_os",
-            "label": "Enable Scenarios for OS Monitoring",
-            "type": "BOOLEAN",
-            "description": "",
-            "mandatory": true,
-            "defaultValue": false
         },
         {
             "name": "debug_separator",

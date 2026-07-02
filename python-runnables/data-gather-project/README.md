@@ -64,7 +64,8 @@ The macro supports incremental collection of projects using a cursor stored in t
 - Worker project resolution: `client.get_default_project().project_key`
 - Variable name: `local.projects_delta`
 - If the variable does not exist, the macro uses plugin setting `pulse_default_projects_delta`
-- If `pulse_projects_delta_debug` is true, the macro always uses `pulse_default_projects_delta` (ignores the variable)
+- If `pulse_default_projects_delta` is missing or invalid, the macro falls back to **3 calendar months before the current UTC time**
+- If `pulse_projects_delta_debug` is true, the macro always uses `pulse_default_projects_delta` when valid; otherwise it uses the same 3-month fallback
 
 Timestamp used for filtering:
 - Primary: `versionTag.lastModifiedOn`
