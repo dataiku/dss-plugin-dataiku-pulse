@@ -79,7 +79,7 @@ PULSE_SOURCE_PROJECT_KEY = os.getenv(
 DUCKDB_PATH = Path(
     os.getenv(
         "PULSE_DUCKDB_PATH",
-        str(shared_db_path(project_key=PULSE_SOURCE_PROJECT_KEY, purpose="dashboard")),
+        str(DUCKDB_DIR / shared_db_path(project_key=PULSE_SOURCE_PROJECT_KEY, purpose="dashboard").name),
     )
 )
 DUCKDB_METADATA_PATH = Path(os.getenv("PULSE_DUCKDB_METADATA_PATH", f"{DUCKDB_PATH}.meta.json"))
