@@ -1,10 +1,36 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Iterable, Sequence
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+# Sanity window for converted timestamps: values outside are almost always
+# unit-detection mistakes (s vs ms vs ns) and would poison downstream
+# partitioning/rollups, so they are nulled instead of stored.
+_TS_SANITY_MIN = pd.Timestamp("1990-01-01", tz="UTC")
+
+
+def _ts_sanity_max() -> pd.Timestamp:
+    return pd.Timestamp(datetime.now(timezone.utc)) + pd.DateOffset(years=10)
+
+
+def _apply_ts_sanity(dt: pd.Series, *, col: str) -> pd.Series:
+    out_of_range = dt.notna() & ((dt < _TS_SANITY_MIN) | (dt > _ts_sanity_max()))
+    count = int(out_of_range.sum())
+    if count:
+        logger.warning(
+            "cast_datetime_columns: nulling %s out-of-range timestamps in %r "
+            "(outside [1990-01-01, now+10y])",
+            count,
+            col,
+        )
+        dt = dt.mask(out_of_range)
+    return dt
 
 
 def _detect_epoch_unit(values: pd.Series) -> str:
@@ -35,14 +61,14 @@ def cast_datetime_columns(
         # If it's already datetime-like, normalize timezone + floor.
         if pd.api.types.is_datetime64_any_dtype(series):
             dt = pd.to_datetime(series, utc=True, errors="coerce")
-            out[col] = dt.dt.floor("s")
+            out[col] = _apply_ts_sanity(dt.dt.floor("s"), col=col)
             continue
 
         # Numeric epoch
         if pd.api.types.is_numeric_dtype(series):
             unit = _detect_epoch_unit(series)
             dt = pd.to_datetime(series, unit=unit, utc=True, errors="coerce")
-            out[col] = dt.dt.floor("s")
+            out[col] = _apply_ts_sanity(dt.dt.floor("s"), col=col)
             continue
 
         # Try string parse first.
@@ -54,7 +80,7 @@ def cast_datetime_columns(
             unit = _detect_epoch_unit(series)
             dt = pd.to_datetime(pd.to_numeric(series, errors="coerce"), unit=unit, utc=True, errors="coerce")
 
-        out[col] = dt.dt.floor("s")
+        out[col] = _apply_ts_sanity(dt.dt.floor("s"), col=col)
 
     return out
 

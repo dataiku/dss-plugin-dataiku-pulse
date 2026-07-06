@@ -9,10 +9,10 @@
 - used_pct
 - calltime
 - osversion
-- project_versiontag_versionnumber
-- project_creationtag_versionnumber
-- dataset_versiontag_versionnumber
-- dataset_creationtag_versionnumber
+- projects_versiontag_versionnumber
+- projects_creationtag_versionnumber
+- datasets_versiontag_versionnumber
+- datasets_creationtag_versionnumber
 - recipes_maxrunningactivities
 - recipes_versiontag_versionnumber
 - recipes_creationtag_versionnumber

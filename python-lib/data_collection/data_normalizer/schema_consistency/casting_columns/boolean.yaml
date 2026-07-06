@@ -1,8 +1,8 @@
 # Known boolean-like columns (lowercase)
 
-- project_tutorialproject
-- dataset_managed
-- dataset_featuregroup
+- projects_tutorialproject
+- datasets_managed
+- datasets_featuregroup
 - recipes_neverrecomputeexistingpartitions
 - recipes_redispatchpartitioning
 - recipes_params_enginerecommended

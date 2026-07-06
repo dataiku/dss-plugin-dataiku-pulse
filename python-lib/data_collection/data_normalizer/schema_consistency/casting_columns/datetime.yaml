@@ -9,10 +9,10 @@
 - first_commit_date
 - last_commit_date
 - creationtag_lastmodifiedon
-- project_versiontag_lastmodifiedon
-- project_creationtag_lastmodifiedon
-- dataset_versiontag_lastmodifiedon
-- dataset_creationtag_lastmodifiedon
+- projects_versiontag_lastmodifiedon
+- projects_creationtag_lastmodifiedon
+- datasets_versiontag_lastmodifiedon
+- datasets_creationtag_lastmodifiedon
 - recipes_versiontag_lastmodifiedon
 - recipes_creationtag_lastmodifiedon
 - agents_versions_versiontag_lastmodifiedon
