@@ -16,7 +16,7 @@ Most runtime code executes **inside DSS** and relies on `dataiku` / `dataikuapi`
 - `custom-recipes/`: plugin recipes (notably `create-gold-tables`)
 - `webapps/pulse-dashboard/`: DSS webapp wrapper + Flask backend for the packaged plugin
 - `resource/pulse-dashboard/build/`: committed **built** frontend assets served by the plugin
-- `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/`: editable React source used to produce the packaged frontend
+- `frontend/`: authoritative home for the React source (not yet populated — the legacy source lives in the external Code Studio workspace until the one-time copy in `frontend/README.md` is done)
 - `code-env/python/spec/requirements.txt`: Dataiku code-env dependency spec
 
 **Scoped agent notes (must obey when editing within scope)**
@@ -187,5 +187,5 @@ Guidelines:
 
 ## Repo safety notes
 
-- `resource/pulse-dashboard/build/` is generated output; update via `scripts/sync_pulse_dashboard_build.sh`.
+- `resource/pulse-dashboard/build/` is generated output; update via `bash scripts/build_frontend.sh` (requires `frontend/` to be populated).
 - Treat minified files under `resource/` as non-source.

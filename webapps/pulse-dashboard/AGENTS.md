@@ -10,7 +10,7 @@ This webapp is packaged inside the plugin and is split into:
 - **Backend**: Dataiku webapp backend under `webapps/pulse-dashboard/backend.py`
 - **Shared backend helpers**: `python-lib/pulse_dashboard/`
 
-In this workspace, the editable frontend source does **not** live in this repo. It lives in `dataiku-pulse.extras` and must be built/synced into this plugin repo.
+The authoritative frontend source home is `frontend/` at the repo root. Until the one-time vendoring copy is done (see `frontend/README.md`), the legacy source lives only in an external Code Studio workspace; `resource/pulse-dashboard/build/` is the packaged output either way.
 
 ## Key conventions
 
@@ -18,7 +18,7 @@ In this workspace, the editable frontend source does **not** live in this repo. 
 - `webapps/pulse-dashboard/body.html` is a loader HTML (not a symlink).
   - It loads `resource/pulse-dashboard/build/asset-manifest.json` from plugin resources and injects the hashed JS/CSS entrypoints.
 - The React build is copied into the plugin under `resource/pulse-dashboard/build/`.
-  - Use `scripts/sync_pulse_dashboard_build.sh <abs/path/to/build>` to refresh.
+  - Use `bash scripts/build_frontend.sh` to rebuild and sync it (requires `frontend/` to be populated).
 
 ## Notes
 
@@ -35,19 +35,14 @@ In this workspace, the editable frontend source does **not** live in this repo. 
   - `/api/build/assets/details` and `/api/build/products/details` (modal drilldown details)
   - `/api/build/users/*` (users activity + drilldowns)
 
-## Frontend source (not in repo)
+## Frontend source
 
-The plugin repository intentionally stores only the built frontend under `resource/pulse-dashboard/build/`. Do not edit that build output directly.
+Do not edit `resource/pulse-dashboard/build/` directly — it is generated packaged output.
 
-In this Code Studio workspace, the React source used to produce that build lives at:
-- `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/`
-
-Rebuild + sync flow:
-- Build: `bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/scripts/build_frontend.sh`
-- Sync into plugin: `bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/scripts/sync_pulse_dashboard_build.sh /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/build`
+The authoritative source home is `frontend/` at the repo root. It is not yet populated: the React source must be copied in once from the legacy Code Studio workspace (`/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/`); `frontend/README.md` documents that one-time step.
 
 Practical rules:
-- Frontend feature/UI work happens in `dataiku-pulse.extras/webapps/entry_point/frontend/`.
-- Backend/wrapper work happens in `dataiku-pulse/webapps/pulse-dashboard/`.
-- The served packaged assets must end up in `dataiku-pulse/resource/pulse-dashboard/build/`.
-- A duplicate build under `dataiku-pulse.extras/resource/pulse-dashboard/` is not the served source of truth and should not be relied on.
+- Frontend feature/UI work happens in `frontend/` (or, until it is vendored, in the legacy workspace — then re-run the vendoring copy).
+- After every frontend source change, run `bash scripts/build_frontend.sh` to rebuild and sync `resource/pulse-dashboard/build/`.
+- Backend/wrapper work happens in `webapps/pulse-dashboard/`.
+- Any build under `dataiku-pulse.extras/` is not the served source of truth and should not be relied on.
