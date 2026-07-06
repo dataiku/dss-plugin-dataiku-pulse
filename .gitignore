@@ -1,6 +1,13 @@
 # DSS-instance-local plugin install state — never commit
 state.json
 
+# DSS runtime artifacts (present when the plugin dir lives on a DSS instance)
+.journal
+.mainlock
+.wlock
+.ts
+.dss-meta
+
 # Frontend build artifacts
 frontend/node_modules/
 frontend/build/
@@ -10,3 +17,16 @@ __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
+.coverage
+.htmlcov
+.ruff_cache
+
+# Editor / OS / assistant scratch
+.DS_Store
+.idea
+.codex
+
+# Local development artifacts
+.pulse-logs/
+docs/feature-requests/
+docs/future-improvements/
