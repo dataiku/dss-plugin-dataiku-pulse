@@ -46,7 +46,6 @@ fsspec==2026.3.0
 joblib==1.5.3
 tqdm==4.67.3
 python-dotenv==1.2.2
-gunicorn==26.0.0
 pydantic==2.13.4
 pydantic-settings==2.14.1
 requests==2.34.2
@@ -57,11 +56,5 @@ scipy==1.17.1
 # =========================
 SQLAlchemy==2.0.49
 
-# =========================
-# Dev / Debugging
-# =========================
-rich==15.0.0
-ruff==0.15.14
-pytest==9.0.3
-black==26.5.1
-nbformat==5.10.4
+# Dev/debugging tools (pytest, ruff, black, rich, nbformat) intentionally live
+# in tests/requirements-dev.txt — NOT in the production code-env.
