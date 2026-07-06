@@ -6,6 +6,12 @@ from typing import Any
 
 import dataiku
 
+from .notifications import (
+    build_failure_reporter,
+    ensure_failure_reporter,
+    resolve_email_channel_id,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -201,6 +207,47 @@ def ensure_scenario_gold_refresh(
         )
 
 
+def ensure_scenario_failure_reporter(
+    project: Any,
+    *,
+    scenario_name: str,
+    reporter: dict | None,
+    remove: bool = False,
+) -> InitStep:
+    """Upsert (or remove) ONLY the Pulse failure reporter on an existing scenario.
+
+    `ensure_scenario_gold_refresh` is create-once-never-modify, so the reporter
+    is retrofitted separately: triggers, steps and user-added reporters are
+    never touched. No-op with a skip when the scenario does not exist.
+    """
+
+    step_name = f"scenario:{scenario_name}:reporter"
+
+    try:
+        scenario_id = None
+        for s in project.list_scenarios() or []:
+            if s.get("name") == scenario_name:
+                scenario_id = s.get("id")
+                break
+        if not scenario_id:
+            return InitStep(
+                step=step_name,
+                status="skipped",
+                message=f"scenario {scenario_name!r} not found",
+            )
+
+        scenario = project.get_scenario(scenario_id)
+        settings = scenario.get_settings()
+        outcome = ensure_failure_reporter(
+            settings, reporter=(None if remove else reporter)
+        )
+        if outcome != "unchanged":
+            settings.save()
+        return InitStep(step=step_name, status=outcome)
+    except Exception as e:
+        return InitStep(step=step_name, status="error", message=repr(e))
+
+
 def initialize_dashboard(
     *,
     project_key: str,
@@ -208,6 +255,9 @@ def initialize_dashboard(
     gold_folder_name: str = "gold_data",
     recipe_name: str = "create_gold_tables",
     scenario_name: str = "gold_data_refresh",
+    notification_email: str | None = None,
+    notification_channel_id: str | None = None,
+    instance_url: str | None = None,
 ) -> list[InitStep]:
     """Initialize the hub (dashboard) project.
 
@@ -279,5 +329,63 @@ def initialize_dashboard(
                 message="gold folder missing; scenario not created",
             )
         )
+
+    # Failure notification reporter (retrofit onto the existing scenario).
+    email = str(notification_email or "").strip()
+    if not email:
+        steps.append(
+            ensure_scenario_failure_reporter(
+                project, scenario_name=scenario_name, reporter=None, remove=True
+            )
+        )
+        steps.append(
+            InitStep(
+                step="hub:notifications",
+                status="skipped",
+                message="notification_email not set; Pulse reporters are removed",
+            )
+        )
+        return steps
+
+    channel_id, channel_kind, skip_reason = resolve_email_channel_id(
+        client, preferred_channel_id=(str(notification_channel_id or "").strip() or None)
+    )
+    if channel_id is None:
+        steps.append(
+            InitStep(step="hub:notifications", status="skipped", message=skip_reason)
+        )
+        return steps
+
+    label = str(instance_url or "").strip()
+    for prefix in ("https://", "http://"):
+        if label.startswith(prefix):
+            label = label[len(prefix):]
+    label = label.rstrip("/") or "hub"
+
+    reporter, build_skip_reason = build_failure_reporter(
+        channel_id=channel_id,
+        channel_type=channel_kind or "",
+        recipient=email,
+        scenario_name=scenario_name,
+        project_key=project_key,
+        instance_label=label,
+        instance_url=instance_url,
+    )
+    if reporter is None:
+        steps.append(
+            InitStep(
+                step="hub:notifications", status="skipped", message=build_skip_reason
+            )
+        )
+        return steps
+
+    steps.append(
+        InitStep(step="hub:notifications", status="ok", message=f"channel={channel_id}")
+    )
+    steps.append(
+        ensure_scenario_failure_reporter(
+            project, scenario_name=scenario_name, reporter=reporter
+        )
+    )
 
     return steps

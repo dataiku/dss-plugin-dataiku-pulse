@@ -8,7 +8,23 @@ from typing import Any, Mapping
 import dataiku
 import dataikuapi
 
+from .notifications import (
+    build_failure_reporter,
+    ensure_failure_reporter,
+    resolve_email_channel_id,
+)
+
 logger = logging.getLogger(__name__)
+
+
+def _instance_label(url: str) -> str:
+    """Human-readable instance label for notification subjects."""
+
+    label = str(url or "").strip()
+    for prefix in ("https://", "http://"):
+        if label.startswith(prefix):
+            label = label[len(prefix):]
+    return label.rstrip("/")
 
 
 @dataclass(frozen=True)
@@ -34,8 +50,14 @@ def _resolve_primary_preset_name(local_client: Any) -> tuple[str, str | None]:
             parameter_set_name="params-dashboard-instance"
         )
         names = pdi_ps.list_preset_names() or []
-        if names:
+        if len(names) == 1:
             return str(names[0]), None
+        if names:
+            return (
+                str(names[0]),
+                f"Multiple presets exist in params-dashboard-instance ({', '.join(map(str, names))}); "
+                f"using {names[0]!r}. Set 'Parameter Set' per worker host to override.",
+            )
         return (
             "primary",
             "No preset found in params-dashboard-instance; using 'primary'",
@@ -341,8 +363,16 @@ def _ensure_or_repair_scenario(
     repeat_frequency: int = 1,
     step_config: Mapping[str, Any] | None = None,
     admin_config: Mapping[str, Any] | None = None,
-) -> InitStep:
-    """Create or repair a step-based scenario with a runnable step."""
+    reporter: Mapping[str, Any] | None = None,
+    remove_reporter: bool = False,
+) -> list[InitStep]:
+    """Create or repair a step-based scenario with a runnable step.
+
+    `reporter` (built by `build_failure_reporter`) is upserted into the
+    scenario's reporters; `remove_reporter=True` removes a stale Pulse
+    reporter instead (notifications disabled). With neither, existing
+    reporters are left untouched. User-added reporters are never modified.
+    """
 
     try:
         existing_id = None
@@ -418,11 +448,32 @@ def _ensure_or_repair_scenario(
             }
         )
 
+        reporter_step: InitStep | None = None
+        if reporter is not None or remove_reporter:
+            # A reporter problem must never fail scenario creation/repair.
+            try:
+                outcome = ensure_failure_reporter(
+                    settings,
+                    reporter=(dict(reporter) if reporter is not None else None),
+                )
+                reporter_step = InitStep(
+                    step=f"scenario:{name}:reporter", status=outcome
+                )
+            except Exception as e:
+                reporter_step = InitStep(
+                    step=f"scenario:{name}:reporter",
+                    status="error",
+                    message=repr(e),
+                )
+
         settings.save()
-        return InitStep(step=f"scenario:{name}", status=status)
+        steps = [InitStep(step=f"scenario:{name}", status=status)]
+        if reporter_step is not None:
+            steps.append(reporter_step)
+        return steps
 
     except Exception as e:
-        return InitStep(step=f"scenario:{name}", status="error", message=repr(e))
+        return [InitStep(step=f"scenario:{name}", status="error", message=repr(e))]
 
 
 def initialize_workers(
@@ -451,6 +502,11 @@ def initialize_workers(
     run_as_user = str(_safe_get(hub_params, "pulse_dataiku_user", "admin"))
     ignore_certs = bool(_safe_get(hub_params, "ignore_certs", False))
 
+    notification_email = str(_safe_get(hub_params, "notification_email", "") or "").strip()
+    notification_channel_id = (
+        str(_safe_get(hub_params, "notification_channel_id", "") or "").strip() or None
+    )
+
     worker_hosts = _safe_get(hub_params, "worker_hosts", []) or []
 
     now_ts = datetime.now(timezone.utc).isoformat()
@@ -459,6 +515,18 @@ def initialize_workers(
     for worker in worker_hosts:
         worker_url = str(_safe_get(worker, "worker_url", ""))
         worker_api = _safe_get(worker, "worker_api")
+
+        # Per-worker preset override (the parameter-set subparam was
+        # previously ignored).
+        worker_preset_name = str(_safe_get(worker, "preset_name", "") or "").strip() or preset_name
+        if worker_preset_name != preset_name:
+            steps.append(
+                InitStep(
+                    step=f"worker:{worker_url}:preset_name",
+                    status="ok",
+                    message=worker_preset_name,
+                )
+            )
 
         if not worker_url:
             steps.append(
@@ -510,7 +578,7 @@ def initialize_workers(
             plugin_steps = _sync_plugin_from_hub(
                 remote_client=client,
                 hub_params=hub_params,
-                preset_name=preset_name,
+                preset_name=worker_preset_name,
                 run_as_user=run_as_user,
                 update_github=update_github,
                 force_skip_github=force_skip_github,
@@ -567,6 +635,62 @@ def initialize_workers(
                 )
             )
 
+        # Failure-notification channel: resolved once per worker instance.
+        # A skip (no email configured, 0 or several candidate channels, old
+        # DSS, non-mail channel) must NOT fail init — scenarios are still
+        # created, only without a Pulse reporter.
+        notif_reporter_factory = None
+        remove_reporter = False
+        if not notification_email:
+            remove_reporter = True
+            steps.append(
+                InitStep(
+                    step=f"worker:{worker_url}:notifications",
+                    status="skipped",
+                    message="notification_email not set; Pulse reporters are removed",
+                )
+            )
+        else:
+            try:
+                channel_id, channel_kind, skip_reason = resolve_email_channel_id(
+                    client, preferred_channel_id=notification_channel_id
+                )
+            except Exception as e:  # defensive: resolution must never fail init
+                channel_id, channel_kind, skip_reason = None, None, repr(e)
+            if channel_id is None:
+                steps.append(
+                    InitStep(
+                        step=f"worker:{worker_url}:notifications",
+                        status="skipped",
+                        message=skip_reason,
+                    )
+                )
+            else:
+                def notif_reporter_factory(
+                    scenario_name: str,
+                    *,
+                    _channel_id=channel_id,
+                    _channel_kind=channel_kind,
+                    _worker_url=worker_url,
+                ):
+                    return build_failure_reporter(
+                        channel_id=_channel_id,
+                        channel_type=_channel_kind,
+                        recipient=notification_email,
+                        scenario_name=scenario_name,
+                        project_key=worker_key,
+                        instance_label=_instance_label(_worker_url),
+                        instance_url=_worker_url,
+                    )
+
+                steps.append(
+                    InitStep(
+                        step=f"worker:{worker_url}:notifications",
+                        status="ok",
+                        message=f"channel={channel_id}",
+                    )
+                )
+
         # Scenarios: instance/project daily @ 5PM server, audit hourly, cleanup daily @ 5PM.
         scenario_defs = [
             {
@@ -599,25 +723,43 @@ def initialize_workers(
         ]
         for scenario_def in scenario_defs:
             scn_name = str(scenario_def["name"])
-            scn_step = _ensure_or_repair_scenario(
+
+            reporter = None
+            reporter_skip_step: InitStep | None = None
+            if notif_reporter_factory is not None:
+                reporter, build_skip_reason = notif_reporter_factory(scn_name)
+                if reporter is None:
+                    reporter_skip_step = InitStep(
+                        step=f"worker:{worker_url}:scenario:{scn_name}:reporter",
+                        status="skipped",
+                        message=build_skip_reason,
+                    )
+
+            scn_steps = _ensure_or_repair_scenario(
                 project,
                 name=scn_name,
                 runnable_type=str(scenario_def["runnable_type"]),
-                preset_name=preset_name,
+                preset_name=worker_preset_name,
                 run_as_user=run_as_user,
                 hour=int(scenario_def.get("hour", 17)),
                 frequency=str(scenario_def.get("frequency", "Daily")),
                 repeat_frequency=int(scenario_def.get("repeat_frequency", 1)),
                 step_config=scenario_def.get("step_config"),
                 admin_config=scenario_def.get("admin_config"),
+                reporter=reporter,
+                remove_reporter=remove_reporter,
             )
-            steps.append(
+            scn_step = scn_steps[0]
+            steps.extend(
                 InitStep(
-                    step=f"worker:{worker_url}:{scn_step.step}",
-                    status=scn_step.status,
-                    message=scn_step.message,
+                    step=f"worker:{worker_url}:{s.step}",
+                    status=s.status,
+                    message=s.message,
                 )
+                for s in scn_steps
             )
+            if reporter_skip_step is not None:
+                steps.append(reporter_skip_step)
 
             if force_scenarios and scn_step.status in {"created", "repaired"}:
                 try:

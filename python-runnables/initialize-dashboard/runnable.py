@@ -54,8 +54,18 @@ class MyRunnable(Runnable):
         )
         connection_name = param_set.get("pulse_folder_connection")
 
+        from data_collection.contracts import run_startup_validation
+
+        contracts_summary = run_startup_validation(param_set=dict(param_set))
+
         steps = initialize_dashboard(
-            project_key=hub_project_key, connection_name=connection_name
+            project_key=hub_project_key,
+            connection_name=connection_name,
+            notification_email=param_set.get("notification_email"),
+            notification_channel_id=param_set.get("notification_channel_id"),
+            instance_url=param_set.get("pulse_project_url"),
         )
 
-        return _steps_to_result_table(steps)
+        rt = _steps_to_result_table(steps)
+        rt.add_record(["contracts", "info", contracts_summary])
+        return rt

@@ -182,6 +182,26 @@
             "defaultValue": false
         },
         {
+            "name": "notification_separator",
+            "label": "",
+            "description": "<hr color='#000000' size='3' noshade><h3>Failure Notifications</h3>",
+            "type": "SEPARATOR"
+        },
+        {
+            "name": "notification_email",
+            "label": "Notification email",
+            "type": "STRING",
+            "description": "Recipient for failure notifications on every Pulse-created scenario. Leave empty to disable (existing Pulse reporters are removed on the next init run).",
+            "mandatory": false
+        },
+        {
+            "name": "notification_channel_id",
+            "label": "Notification messaging channel id",
+            "type": "STRING",
+            "description": "Messaging channel id to send with. If empty, the single email channel on each target instance is auto-selected (skipped with a warning when there are 0 or several).",
+            "mandatory": false
+        },
+        {
             "name": "debug_separator",
             "labe": "",
             "description": "<hr color='#000000' size='3' noshade><h3>Debug</h3>",
