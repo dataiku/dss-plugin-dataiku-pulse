@@ -4,18 +4,20 @@ import importlib
 import logging
 import tempfile
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import pandas as pd
 from dataiku.runnables import ResultTable, Runnable
 
 from data_collection.audit_logs_modules.audit_paths import resolve_audit_logs_dir
+from data_collection.audit_logs_modules.file_selection import select_candidate_audit_files
 from data_collection.data_collection.instance import get_instance_name
 from data_collection.data_normalizer import check_silver_dq, normalize_silver
 from data_collection.helper import (
+    CursorClamp,
     CursorSpec,
     OutputLayout,
     PulseMacroContext,
@@ -31,54 +33,28 @@ from data_collection.helper import (
 logger = logging.getLogger(__name__)
 
 
-def _select_candidate_audit_files(
-    file_list: list[Path],
-    *,
-    cursor_ts: pd.Timestamp,
-    max_files: int,
-) -> tuple[list[Path], int, pd.Timestamp | None, pd.Timestamp | None]:
-    file_entries: list[tuple[Path, float]] = []
-    for path in file_list:
+def _iter_json_chunks(path: Path, *, chunk_size: int, on_error) -> "Iterator[pd.DataFrame]":
+    """Yield chunks from a JSON-lines file, reporting read failures via `on_error`.
+
+    A malformed file (or a malformed line mid-file) must not abort the whole
+    gather run: the caller counts the failure and clamps the cursor so the file
+    re-qualifies on the next run.
+    """
+
+    try:
+        reader = pd.read_json(path, lines=True, chunksize=chunk_size)
+    except Exception as exc:  # noqa: BLE001 - any read failure is handled by the caller
+        on_error(exc)
+        return
+    while True:
         try:
-            if path.exists():
-                file_entries.append((path, path.stat().st_mtime))
-        except Exception:
-            continue
-
-    if not file_entries:
-        return [], 0, None, None
-
-    cursor_epoch = cursor_ts.timestamp()
-    sorted_entries = sorted(file_entries, key=lambda item: item[1], reverse=True)
-    selected_entries: list[tuple[Path, float]] = []
-    boundary_added = False
-
-    for path, mtime_epoch in sorted_entries:
-        if len(selected_entries) >= max_files:
-            break
-
-        if mtime_epoch >= cursor_epoch:
-            selected_entries.append((path, mtime_epoch))
-            continue
-
-        if not selected_entries:
-            selected_entries.append((path, mtime_epoch))
-            boundary_added = True
-            continue
-
-        if not boundary_added:
-            selected_entries.append((path, mtime_epoch))
-            boundary_added = True
-        break
-
-    if not selected_entries:
-        selected_entries.append(sorted_entries[0])
-
-    selected_paths = [path for path, _ in selected_entries]
-    selected_mtimes = [pd.Timestamp.fromtimestamp(mtime_epoch, tz="UTC") for _, mtime_epoch in selected_entries]
-    newest_mtime = max(selected_mtimes) if selected_mtimes else None
-    oldest_mtime = min(selected_mtimes) if selected_mtimes else None
-    return selected_paths, len(sorted_entries), oldest_mtime, newest_mtime
+            chunk = next(reader)
+        except StopIteration:
+            return
+        except Exception as exc:  # noqa: BLE001 - any read failure is handled by the caller
+            on_error(exc)
+            return
+        yield chunk
 
 
 def _parse_timestamp(series: pd.Series) -> pd.Series:
@@ -245,6 +221,7 @@ class ChunkProcessingStats:
     write_failures: int = 0
     raw_write_failures: int = 0
     silver_write_failures: int = 0
+    file_read_failures: int = 0
 
 
 class MyRunnable(Runnable):
@@ -286,9 +263,9 @@ class MyRunnable(Runnable):
             local_mode=self._is_local_debug(),
         )
 
-    def _update_audit_delta(self, client: Any, value: str) -> None:
+    def _update_audit_delta(self, client: Any, value: str) -> bool:
         worker_project_key = resolve_worker_project_key(client, fallback_project_key=self.project_key)
-        update_cursor_ts(
+        return update_cursor_ts(
             client=client,
             project_key=worker_project_key,
             spec=CursorSpec(variable_name="audit_log_delta"),
@@ -341,6 +318,10 @@ class MyRunnable(Runnable):
         ctx: PulseMacroContext = build_context(plugin_config=self.plugin_config)
         self.param_set = ctx.param_set
 
+        from data_collection.contracts import run_startup_validation
+
+        contracts_summary = run_startup_validation(param_set=dict(self.param_set))
+
         repo_root = Path(__file__).resolve().parents[2]
         audit_dir = resolve_audit_logs_dir(client=ctx.local_client, repo_root=repo_root)
         logger.info("Resolved audit log directory: %s", audit_dir)
@@ -362,11 +343,32 @@ class MyRunnable(Runnable):
         backup_raw = bool(self.param_set.get("pulse_backup_audit_logs", False))
 
         available_files = [path for path in audit_dir.iterdir() if path.is_file() and path.name.startswith("audit.log")]
-        files, available_file_count, selected_oldest_mtime, selected_newest_mtime = _select_candidate_audit_files(
+        selection = select_candidate_audit_files(
             available_files,
             cursor_ts=last_update,
             max_files=max_files,
         )
+        files = selection.paths
+        available_file_count = selection.available_count
+        selected_oldest_mtime = selection.oldest_selected_mtime
+        selected_newest_mtime = selection.newest_selected_mtime
+
+        cursor_clamp = CursorClamp()
+        if selection.excluded_eligible_count > 0:
+            logger.warning(
+                "max_files=%s truncated the eligible audit file set: %s eligible files excluded "
+                "(oldest excluded mtime=%s). Cursor will be clamped so they re-qualify next run; "
+                "consider raising pulse_audit_logs_max_files.",
+                max_files,
+                selection.excluded_eligible_count,
+                selection.oldest_excluded_eligible_mtime,
+            )
+            cursor_clamp.record_failure(
+                selection.oldest_excluded_eligible_mtime,
+                reason=(
+                    f"max_files truncation excluded {selection.excluded_eligible_count} eligible files"
+                ),
+            )
 
         processor_names = _load_processor_names()
         processors, processor_messages = _load_processors(processor_names)
@@ -379,11 +381,11 @@ class MyRunnable(Runnable):
         chunk_idx = 0
         wrote_any = False
         max_ts_seen: pd.Timestamp | None = None
-        pending_cursor_ts: pd.Timestamp | None = None
         stats = ChunkProcessingStats()
         files_scanned = 0
         chunks_scanned = 0
         processor_failures = 0
+        flatten_missing_total = 0
 
         logger.info(
             "Starting audit gather for %s with last_update=%s, max_files=%s, chunk_size=%s, available_files=%s, selected_files=%s",
@@ -407,36 +409,25 @@ class MyRunnable(Runnable):
             files_scanned += 1
             stop_current_file_early = False
             allow_early_stop = file_idx > 0
+            file_max_success_ts: pd.Timestamp | None = None
+            file_read_errors: list[Exception] = []
             logger.info("Reading audit log file %s", path)
-            for chunk in pd.read_json(path, lines=True, chunksize=chunk_size):
+            for chunk in _iter_json_chunks(
+                path, chunk_size=chunk_size, on_error=file_read_errors.append
+            ):
                 chunks_scanned += 1
                 chunk_idx += 1
 
                 if chunk is None or chunk.shape[0] == 0:
                     continue
 
-                stats = ChunkProcessingStats(
-                    rows_read=stats.rows_read + int(chunk.shape[0]),
-                    rows_missing_timestamp=stats.rows_missing_timestamp,
-                    rows_invalid_timestamp=stats.rows_invalid_timestamp,
-                    rows_before_cursor=stats.rows_before_cursor,
-                    raw_backups_written=stats.raw_backups_written,
-                    silver_fail_groups=stats.silver_fail_groups,
-                    chunks_all_before_cursor=stats.chunks_all_before_cursor,
-                    files_stopped_early=stats.files_stopped_early,
-                )
+                stats = replace(stats, rows_read=stats.rows_read + int(chunk.shape[0]))
 
                 if "timestamp" not in chunk.columns:
                     logger.warning("Chunk %s missing timestamp column in %s", chunk_idx, path.name)
-                    stats = ChunkProcessingStats(
-                        rows_read=stats.rows_read,
+                    stats = replace(
+                        stats,
                         rows_missing_timestamp=stats.rows_missing_timestamp + int(chunk.shape[0]),
-                        rows_invalid_timestamp=stats.rows_invalid_timestamp,
-                        rows_before_cursor=stats.rows_before_cursor,
-                        raw_backups_written=stats.raw_backups_written,
-                        silver_fail_groups=stats.silver_fail_groups,
-                        chunks_all_before_cursor=stats.chunks_all_before_cursor,
-                        files_stopped_early=stats.files_stopped_early,
                     )
                     continue
 
@@ -447,15 +438,9 @@ class MyRunnable(Runnable):
                 chunk = chunk.copy()
                 chunk["timestamp"] = parsed_ts
                 chunk = chunk[chunk["timestamp"].notna()].copy()
-                stats = ChunkProcessingStats(
-                    rows_read=stats.rows_read,
-                    rows_missing_timestamp=stats.rows_missing_timestamp,
+                stats = replace(
+                    stats,
                     rows_invalid_timestamp=stats.rows_invalid_timestamp + invalid_ts,
-                    rows_before_cursor=stats.rows_before_cursor,
-                    raw_backups_written=stats.raw_backups_written,
-                    silver_fail_groups=stats.silver_fail_groups,
-                    chunks_all_before_cursor=stats.chunks_all_before_cursor,
-                    files_stopped_early=stats.files_stopped_early,
                 )
                 if chunk.shape[0] == 0:
                     continue
@@ -471,13 +456,9 @@ class MyRunnable(Runnable):
                         chunk_max_ts,
                         last_update,
                     )
-                    stats = ChunkProcessingStats(
-                        rows_read=stats.rows_read,
-                        rows_missing_timestamp=stats.rows_missing_timestamp,
-                        rows_invalid_timestamp=stats.rows_invalid_timestamp,
+                    stats = replace(
+                        stats,
                         rows_before_cursor=stats.rows_before_cursor + int(chunk.shape[0]),
-                        raw_backups_written=stats.raw_backups_written,
-                        silver_fail_groups=stats.silver_fail_groups,
                         chunks_all_before_cursor=stats.chunks_all_before_cursor + 1,
                         files_stopped_early=stats.files_stopped_early + 1,
                     )
@@ -486,15 +467,9 @@ class MyRunnable(Runnable):
 
                 before_cursor = int((chunk["timestamp"] < last_update).sum())
                 chunk = chunk[chunk["timestamp"] >= last_update].copy()
-                stats = ChunkProcessingStats(
-                    rows_read=stats.rows_read,
-                    rows_missing_timestamp=stats.rows_missing_timestamp,
-                    rows_invalid_timestamp=stats.rows_invalid_timestamp,
+                stats = replace(
+                    stats,
                     rows_before_cursor=stats.rows_before_cursor + before_cursor,
-                    raw_backups_written=stats.raw_backups_written,
-                    silver_fail_groups=stats.silver_fail_groups,
-                    chunks_all_before_cursor=stats.chunks_all_before_cursor,
-                    files_stopped_early=stats.files_stopped_early,
                 )
                 if chunk.shape[0] == 0:
                     if allow_early_stop and pd.notna(chunk_min_ts) and chunk_min_ts < last_update:
@@ -505,13 +480,8 @@ class MyRunnable(Runnable):
                             chunk_min_ts,
                             last_update,
                         )
-                        stats = ChunkProcessingStats(
-                            rows_read=stats.rows_read,
-                            rows_missing_timestamp=stats.rows_missing_timestamp,
-                            rows_invalid_timestamp=stats.rows_invalid_timestamp,
-                            rows_before_cursor=stats.rows_before_cursor,
-                            raw_backups_written=stats.raw_backups_written,
-                            silver_fail_groups=stats.silver_fail_groups,
+                        stats = replace(
+                            stats,
                             chunks_all_before_cursor=stats.chunks_all_before_cursor + 1,
                             files_stopped_early=stats.files_stopped_early + 1,
                         )
@@ -545,35 +515,15 @@ class MyRunnable(Runnable):
                             output_base_dir=layout.base_dir,
                             payload=chunk.to_dict(orient="records"),
                         )
-                        stats = ChunkProcessingStats(
-                            rows_read=stats.rows_read,
-                            rows_missing_timestamp=stats.rows_missing_timestamp,
-                            rows_invalid_timestamp=stats.rows_invalid_timestamp,
-                            rows_before_cursor=stats.rows_before_cursor,
-                            raw_backups_written=stats.raw_backups_written + 1,
-                            silver_fail_groups=stats.silver_fail_groups,
-                            chunks_all_before_cursor=stats.chunks_all_before_cursor,
-                            files_stopped_early=stats.files_stopped_early,
-                            write_failures=stats.write_failures,
-                            raw_write_failures=stats.raw_write_failures,
-                            silver_write_failures=stats.silver_write_failures,
-                        )
+                        stats = replace(stats, raw_backups_written=stats.raw_backups_written + 1)
                     except Exception as exc:
                         chunk_success = False
                         logger.exception("Raw audit backup write failed for chunk %s", chunk_idx)
                         processor_messages.setdefault("__raw_write__", repr(exc))
-                        stats = ChunkProcessingStats(
-                            rows_read=stats.rows_read,
-                            rows_missing_timestamp=stats.rows_missing_timestamp,
-                            rows_invalid_timestamp=stats.rows_invalid_timestamp,
-                            rows_before_cursor=stats.rows_before_cursor,
-                            raw_backups_written=stats.raw_backups_written,
-                            silver_fail_groups=stats.silver_fail_groups,
-                            chunks_all_before_cursor=stats.chunks_all_before_cursor,
-                            files_stopped_early=stats.files_stopped_early,
+                        stats = replace(
+                            stats,
                             write_failures=stats.write_failures + 1,
                             raw_write_failures=stats.raw_write_failures + 1,
-                            silver_write_failures=stats.silver_write_failures,
                         )
 
                 for proc_name in processor_names:
@@ -622,6 +572,7 @@ class MyRunnable(Runnable):
                             flatten_variant = str(module_name)
                             flatten_base = ("audit_dataiku_usage", "audit_metadata")
 
+                        silver_stats: dict = {}
                         silver_df = normalize_silver(
                             df=grp,
                             instance_name=instance_name,
@@ -631,7 +582,10 @@ class MyRunnable(Runnable):
                             todo_section="audit",
                             flatten_base=flatten_base,
                             flatten_variant=flatten_variant,
+                            stats_out=silver_stats,
                         )
+                        if silver_stats.get("flatten_config_missing"):
+                            flatten_missing_total += 1
 
                         parquet_name = f"audit_logs-{run_epoch_ms}-{chunk_idx}.parquet"
                         dq_name = f"audit_logs-{run_epoch_ms}-{chunk_idx}.dq.json.gz"
@@ -661,7 +615,10 @@ class MyRunnable(Runnable):
                             event_date=event_date,
                         ) / dq_name
 
-                        dq = check_silver_dq(silver_df)
+                        dq = check_silver_dq(
+                            silver_df,
+                            flatten_required=silver_stats.get("required_columns") or None,
+                        )
                         if dq.ok:
                             try:
                                 if proc_name == "event_mapping":
@@ -691,34 +648,14 @@ class MyRunnable(Runnable):
                                     chunk_idx,
                                 )
                                 processor_messages.setdefault(f"{proc_name}::__write__", repr(exc))
-                                stats = ChunkProcessingStats(
-                                    rows_read=stats.rows_read,
-                                    rows_missing_timestamp=stats.rows_missing_timestamp,
-                                    rows_invalid_timestamp=stats.rows_invalid_timestamp,
-                                    rows_before_cursor=stats.rows_before_cursor,
-                                    raw_backups_written=stats.raw_backups_written,
-                                    silver_fail_groups=stats.silver_fail_groups,
-                                    chunks_all_before_cursor=stats.chunks_all_before_cursor,
-                                    files_stopped_early=stats.files_stopped_early,
+                                stats = replace(
+                                    stats,
                                     write_failures=stats.write_failures + 1,
-                                    raw_write_failures=stats.raw_write_failures,
                                     silver_write_failures=stats.silver_write_failures + 1,
                                 )
                         else:
                             chunk_success = False
-                            stats = ChunkProcessingStats(
-                                rows_read=stats.rows_read,
-                                rows_missing_timestamp=stats.rows_missing_timestamp,
-                                rows_invalid_timestamp=stats.rows_invalid_timestamp,
-                                rows_before_cursor=stats.rows_before_cursor,
-                                raw_backups_written=stats.raw_backups_written,
-                                silver_fail_groups=stats.silver_fail_groups + 1,
-                                chunks_all_before_cursor=stats.chunks_all_before_cursor,
-                                files_stopped_early=stats.files_stopped_early,
-                                write_failures=stats.write_failures,
-                                raw_write_failures=stats.raw_write_failures,
-                                silver_write_failures=stats.silver_write_failures,
-                            )
+                            stats = replace(stats, silver_fail_groups=stats.silver_fail_groups + 1)
                             fail_path = self._build_partition_dir(
                                 layout=layout,
                                 layer="silver_fail",
@@ -757,23 +694,41 @@ class MyRunnable(Runnable):
                                     chunk_idx,
                                 )
                                 processor_messages.setdefault(f"{proc_name}::__dq_write__", repr(exc))
-                                stats = ChunkProcessingStats(
-                                    rows_read=stats.rows_read,
-                                    rows_missing_timestamp=stats.rows_missing_timestamp,
-                                    rows_invalid_timestamp=stats.rows_invalid_timestamp,
-                                    rows_before_cursor=stats.rows_before_cursor,
-                                    raw_backups_written=stats.raw_backups_written,
-                                    silver_fail_groups=stats.silver_fail_groups,
-                                    chunks_all_before_cursor=stats.chunks_all_before_cursor,
-                                    files_stopped_early=stats.files_stopped_early,
+                                stats = replace(
+                                    stats,
                                     write_failures=stats.write_failures + 1,
-                                    raw_write_failures=stats.raw_write_failures,
                                     silver_write_failures=stats.silver_write_failures + 1,
                                 )
 
                 if chunk_success and pd.notna(chunk_max_ts):
-                    if pending_cursor_ts is None or chunk_max_ts > pending_cursor_ts:
-                        pending_cursor_ts = chunk_max_ts
+                    cursor_clamp.advance(chunk_max_ts)
+                    if file_max_success_ts is None or chunk_max_ts > file_max_success_ts:
+                        file_max_success_ts = chunk_max_ts
+                elif not chunk_success:
+                    # The cursor must not advance past this chunk's data.
+                    cursor_clamp.record_failure(
+                        chunk_min_ts if pd.notna(chunk_min_ts) else None,
+                        reason=f"chunk {chunk_idx} in {path.name} had failures",
+                    )
+
+            if file_read_errors:
+                exc = file_read_errors[0]
+                logger.error(
+                    "Reading audit log file %s failed: %r — file will re-qualify next run",
+                    path.name,
+                    exc,
+                )
+                processor_messages.setdefault(f"__file_read__::{path.name}", repr(exc))
+                stats = replace(stats, file_read_failures=stats.file_read_failures + 1)
+                # Audit files are roughly chronological: rows after the last
+                # successfully processed chunk are >= that chunk's max ts. With
+                # no successful chunk the failure position is unknown (None
+                # pins the cursor to its previous value).
+                cursor_clamp.record_failure(
+                    file_max_success_ts,
+                    reason=f"file read failure in {path.name}",
+                )
+                continue
 
             if stop_current_file_early:
                 continue
@@ -824,7 +779,20 @@ class MyRunnable(Runnable):
                     module_name,
                     event_date,
                 )
-                pending_cursor_ts = None
+                # Clamp to the failed group's day (midnight UTC) instead of
+                # dropping the whole cursor update: only this group's data
+                # needs to re-qualify next run.
+                group_floor_ts = None
+                try:
+                    group_floor_ts = pd.Timestamp(event_date, tz="UTC")
+                except Exception:
+                    group_floor_ts = None
+                cursor_clamp.record_failure(
+                    group_floor_ts,
+                    reason=(
+                        f"event_mapping final upload failed for module={module_name} date={event_date}"
+                    ),
+                )
 
         try:
             for path in staging_dir.rglob("*"):
@@ -837,12 +805,24 @@ class MyRunnable(Runnable):
         except Exception:
             logger.debug("Failed cleaning audit staging dir %s", staging_dir, exc_info=True)
 
-        if pending_cursor_ts is not None and pd.notna(pending_cursor_ts):
-            logger.info("Updating audit cursor to %s", pending_cursor_ts.isoformat())
-            self._update_audit_delta(ctx.local_client, pending_cursor_ts.isoformat())
+        resolution = cursor_clamp.resolve(previous=last_update)
+        if resolution.clamped_by_failures:
+            logger.warning(
+                "Audit cursor clamped by failures: final=%s (max successful ts=%s). Reasons: %s",
+                resolution.final_ts.isoformat() if resolution.final_ts is not None else "",
+                cursor_clamp.pending.isoformat() if cursor_clamp.pending is not None else "",
+                "; ".join(resolution.reasons),
+            )
+        cursor_write_failed = False
+        if resolution.final_ts is not None and resolution.final_ts > last_update:
+            logger.info("Updating audit cursor to %s", resolution.final_ts.isoformat())
+            cursor_write_failed = not self._update_audit_delta(
+                ctx.local_client, resolution.final_ts.isoformat()
+            )
         else:
             logger.warning(
-                "Skipping cursor update because no chunk completed successfully; max_ts_seen=%s",
+                "Skipping cursor update (no safe progress past %s); max_ts_seen=%s",
+                last_update,
                 max_ts_seen,
             )
 
@@ -875,6 +855,7 @@ class MyRunnable(Runnable):
                 str(result.message or ""),
             ])
 
+        rt.add_record(["__contracts__", "", "", "", contracts_summary])
         rt.add_record([
             "__summary__",
             str(stats.rows_read),
@@ -893,11 +874,16 @@ class MyRunnable(Runnable):
                 f"write_failures={stats.write_failures}; "
                 f"raw_write_failures={stats.raw_write_failures}; "
                 f"silver_write_failures={stats.silver_write_failures}; "
+                f"file_read_failures={stats.file_read_failures}; "
+                f"excluded_eligible_files={selection.excluded_eligible_count}; "
                 f"final_event_mapping_upload_failures={final_event_mapping_upload_failures}; "
                 f"silver_fail_groups={stats.silver_fail_groups}; "
                 f"processor_failures={processor_failures}; "
+                f"flatten_missing_total={flatten_missing_total}; "
                 f"cursor_from={last_update.isoformat()}; "
-                f"cursor_to={(pending_cursor_ts.isoformat() if pending_cursor_ts is not None else '')}"
+                f"cursor_to={(resolution.final_ts.isoformat() if resolution.final_ts is not None else '')}; "
+                f"clamped_by_failures={str(resolution.clamped_by_failures).lower()}; "
+                f"cursor_write_failed={str(cursor_write_failed).lower()}"
             ),
         ])
 

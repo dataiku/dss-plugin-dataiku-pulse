@@ -40,7 +40,13 @@ def _read_project_var_ts(client: Any, *, project_key: str, var_name: str) -> pd.
         return None
 
 
-def _write_project_var(client: Any, *, project_key: str, var_name: str, value: str) -> None:
+def _write_project_var(client: Any, *, project_key: str, var_name: str, value: str) -> bool:
+    """Write a cursor variable. Returns False on failure.
+
+    A silently failed cursor write makes the next run re-collect (or, worse,
+    hides that progress isn't persisted) — callers must surface the result.
+    """
+
     try:
         project = client.get_project(project_key)
         variables = project.get_variables()
@@ -48,6 +54,7 @@ def _write_project_var(client: Any, *, project_key: str, var_name: str, value: s
         local[var_name] = value
         variables["local"] = local
         project.set_variables(variables)
+        return True
     except Exception:
         logger.warning(
             "Failed writing project variable %s for project %s",
@@ -55,7 +62,7 @@ def _write_project_var(client: Any, *, project_key: str, var_name: str, value: s
             project_key,
             exc_info=True,
         )
-        return
+        return False
 
 
 def resolve_cursor_ts(
@@ -93,9 +100,11 @@ def update_cursor_ts(
     spec: CursorSpec,
     value: str,
     enabled: bool = True,
-) -> None:
-    """Best-effort update of the cursor project variable."""
+) -> bool:
+    """Update the cursor project variable. Returns False when the write failed."""
 
     if not enabled:
-        return
-    _write_project_var(client, project_key=project_key, var_name=spec.variable_name, value=value)
+        return True
+    return _write_project_var(
+        client, project_key=project_key, var_name=spec.variable_name, value=value
+    )

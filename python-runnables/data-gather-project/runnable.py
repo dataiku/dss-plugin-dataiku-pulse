@@ -11,6 +11,7 @@ from dataiku.runnables import ResultTable, Runnable
 
 from data_collection.data_collection.collect_all_projects import collect_all_projects
 from data_collection.helper import (
+    CursorClamp,
     CursorSpec,
     PulseMacroContext,
     build_context,
@@ -43,10 +44,12 @@ class MyRunnable(Runnable):
         return None
 
     def _resolve_projects_default_ts(self) -> pd.Timestamp:
-        default_raw = self.param_set.get("pulse_default_projects_delta", "2026-01-01 00:00:00.000000")
+        # Fallback matches the parameter-set default: on a fresh install the
+        # first run must include all existing projects.
+        default_raw = self.param_set.get("pulse_default_projects_delta", "2015-01-01 00:00:00")
         default_dt = pd.to_datetime(default_raw, utc=True, errors="coerce")
         if pd.isna(default_dt):
-            return pd.Timestamp("2026-01-01", tz="UTC")
+            return pd.Timestamp("2015-01-01", tz="UTC")
         return default_dt
 
     def _read_projects_delta(self, client: Any) -> pd.Timestamp:
@@ -60,9 +63,9 @@ class MyRunnable(Runnable):
             local_mode=False,
         )
 
-    def _update_projects_delta(self, client: Any, value: str) -> None:
+    def _update_projects_delta(self, client: Any, value: str) -> bool:
         worker_project_key = resolve_worker_project_key(client, fallback_project_key=self.project_key)
-        update_cursor_ts(
+        return update_cursor_ts(
             client=client,
             project_key=worker_project_key,
             spec=CursorSpec(variable_name="projects_delta"),
@@ -76,34 +79,49 @@ class MyRunnable(Runnable):
         creation_tag = project.get("creationTag") or {}
         return version_tag.get("lastModifiedOn") or creation_tag.get("lastModifiedOn")
 
-    def _resolve_success_cursor_ts(self, client: Any, *, project_keys: list[str]) -> pd.Timestamp | None:
+    @staticmethod
+    def _parse_last_modified(raw_ts: Any) -> pd.Timestamp | None:
+        """Parse a lastModifiedOn value (ISO string or epoch number)."""
+
+        if raw_ts is None:
+            return None
+
+        if isinstance(raw_ts, (int, float)) and not isinstance(raw_ts, bool):
+            from data_collection.data_normalizer.casting import _detect_epoch_unit
+
+            series = pd.Series([raw_ts])
+            unit = _detect_epoch_unit(series)
+            dt = pd.to_datetime(series, unit=unit, utc=True, errors="coerce").iloc[0]
+        else:
+            dt = pd.to_datetime(raw_ts, utc=True, errors="coerce")
+
+        if pd.isna(dt):
+            return None
+        return pd.Timestamp(dt).floor("s")
+
+    def _last_modified_by_key(self, client: Any, *, project_keys: list[str]) -> dict[str, pd.Timestamp]:
+        """Map project key -> lastModifiedOn for the given keys (floored at 2015)."""
+
         if not project_keys:
-            return None
+            return {}
 
-        projects = client.list_projects()
-        if not projects:
-            return None
-
+        projects = client.list_projects() or []
         key_set = set(project_keys)
-        max_ts: pd.Timestamp | None = None
         floor_dt = pd.Timestamp("2015-01-01", tz="UTC")
+        out: dict[str, pd.Timestamp] = {}
 
         for project in projects:
             project_key = project.get("projectKey")
             if project_key not in key_set:
                 continue
-
-            raw_ts = self._extract_last_modified_on(project)
-            dt = pd.to_datetime(raw_ts, utc=True, errors="coerce")
-            if pd.isna(dt):
+            dt = self._parse_last_modified(self._extract_last_modified_on(project))
+            if dt is None:
                 continue
-            dt = dt.floor("s")
             if dt < floor_dt:
                 dt = floor_dt
-            if max_ts is None or dt > max_ts:
-                max_ts = dt
+            out[str(project_key)] = dt
 
-        return max_ts
+        return out
 
     def _resolve_project_keys(self, client: Any, *, since: pd.Timestamp) -> list[str]:
         projects = client.list_projects()
@@ -154,6 +172,10 @@ class MyRunnable(Runnable):
         ctx: PulseMacroContext = build_context(plugin_config=self.plugin_config)
         self.param_set = ctx.param_set
 
+        from data_collection.contracts import run_startup_validation
+
+        contracts_summary = run_startup_validation(param_set=dict(self.param_set))
+
         target = ensure_output_folder(param_set=self.param_set, remote_client=ctx.remote_client)
         since = self._read_projects_delta(ctx.local_client)
         project_keys = self._resolve_project_keys(ctx.local_client, since=since)
@@ -176,27 +198,62 @@ class MyRunnable(Runnable):
         successful_project_keys = [
             project_key
             for project_key, project_result in result.per_project.items()
-            if project_result.collected
+            if project_result.collected and not project_result.errors
         ]
-        success_cursor_ts = self._resolve_success_cursor_ts(
+        failed_project_keys = [
+            project_key
+            for project_key, project_result in result.per_project.items()
+            if project_result.errors
+        ]
+
+        ts_by_key = self._last_modified_by_key(
             ctx.local_client,
-            project_keys=successful_project_keys,
+            project_keys=successful_project_keys + failed_project_keys,
         )
-        if success_cursor_ts is not None:
-            self._update_projects_delta(ctx.local_client, success_cursor_ts.isoformat())
+
+        cursor_clamp = CursorClamp()
+        success_ts = [ts_by_key[k] for k in successful_project_keys if k in ts_by_key]
+        if success_ts:
+            cursor_clamp.advance(max(success_ts))
+        if failed_project_keys:
+            # Cursor must stay below the earliest failed project's
+            # lastModifiedOn so it re-qualifies (selection is `>= cursor`);
+            # -1s guards against sub-second truncation.
+            failed_ts = [ts_by_key[k] for k in failed_project_keys if k in ts_by_key]
+            cursor_clamp.record_failure(
+                (min(failed_ts) - pd.Timedelta(seconds=1)) if failed_ts else None,
+                reason=f"{len(failed_project_keys)} projects failed collection",
+            )
+
+        resolution = cursor_clamp.resolve(previous=since)
+        if resolution.clamped_by_failures:
+            logger.warning(
+                "Projects cursor clamped by failures (failed projects: %s). Reasons: %s",
+                ", ".join(sorted(failed_project_keys)),
+                "; ".join(resolution.reasons),
+            )
+        cursor_write_failed = False
+        if resolution.final_ts is not None and resolution.final_ts > since:
+            cursor_write_failed = not self._update_projects_delta(
+                ctx.local_client, resolution.final_ts.isoformat()
+            )
         elif project_keys:
             logger.warning(
-                "Skipping projects cursor update because no project produced successful collections"
+                "Skipping projects cursor update because no safe progress was made past %s",
+                since,
             )
 
         status_counts: dict[str, int] = {}
         total_methods = 0
         total_errors = 0
+        flatten_missing_total = 0
         for project_result in result.per_project.values():
             total_errors += len(project_result.errors)
             for item in project_result.method_results:
                 total_methods += 1
                 status_counts[item.status] = status_counts.get(item.status, 0) + 1
+                if getattr(item, "flatten_config_missing", False):
+                    flatten_missing_total += 1
 
         rt = ResultTable()
         rt.add_column(1, "metric", "STRING")
@@ -206,8 +263,18 @@ class MyRunnable(Runnable):
         rt.add_column(5, "details", "STRING")
 
         for row in [
+            ("contracts", contracts_summary, "summary", "info", ""),
             ("projects_selected", str(len(project_keys)), "summary", "info", ""),
             ("projects_collected", str(len(result.collected_projects)), "summary", "info", ""),
+            ("projects_failed", str(len(failed_project_keys)), "summary", "info", ", ".join(sorted(failed_project_keys))),
+            ("cursor_write_failed", str(cursor_write_failed).lower(), "summary", "error" if cursor_write_failed else "info", ""),
+            (
+                "cursor_clamped_by_failures",
+                str(resolution.clamped_by_failures).lower(),
+                "summary",
+                "info",
+                f"cursor_from={since.isoformat()}; cursor_to={(resolution.final_ts.isoformat() if resolution.final_ts is not None else '')}",
+            ),
             ("project_method_results", str(total_methods), "summary", "info", ""),
             ("project_errors_total", str(total_errors), "summary", "info", ""),
             ("silver_written_total", str(status_counts.get("silver_written", 0)), "summary", "info", ""),
@@ -219,6 +286,13 @@ class MyRunnable(Runnable):
             ("excluded_by_rule_total", str(status_counts.get("excluded_by_rule", 0)), "summary", "info", ""),
             ("call_failed_total", str(status_counts.get("call_failed", 0)), "summary", "info", ""),
             ("needs_rule_total", str(status_counts.get("needs_rule", 0)), "summary", "info", ""),
+            (
+                "flatten_missing_total",
+                str(flatten_missing_total),
+                "summary",
+                "warning" if flatten_missing_total else "info",
+                "methods writing silver without a flatten contract (unbounded schema)",
+            ),
         ]:
             rt.add_record(list(row))
 

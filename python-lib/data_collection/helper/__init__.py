@@ -9,6 +9,7 @@ from .dss_folder_writer import (
     upload_parquet,
 )
 from .cursors import CursorSpec, resolve_cursor_ts, update_cursor_ts
+from .cursor_clamp import ClampResolution, CursorClamp
 from .delta_filter import filter_payload_by_delta, find_timestamp_column
 from .worker_project import resolve_worker_project_key
 from .json_writer import write_json, write_json_gzip
@@ -33,6 +34,8 @@ __all__ = [
     "write_json",
     "write_json_gzip",
     "CursorSpec",
+    "CursorClamp",
+    "ClampResolution",
     "resolve_cursor_ts",
     "update_cursor_ts",
     "find_timestamp_column",
