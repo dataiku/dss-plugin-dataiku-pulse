@@ -17,11 +17,16 @@ def check_silver_dq(
     *,
     required_non_null: list[str] | None = None,
     sample_extras_rows: int = 10,
+    flatten_required: list[str] | None = None,
+    max_all_null_required_ratio: float = 0.5,
 ) -> DQResult:
-    """Run minimal data quality checks for SILVER writes.
+    """Run data quality checks for SILVER writes.
 
-    This is intentionally lightweight and conservative; rules can be tightened
-    later once we see real-world failure modes.
+    `flatten_required` is the flatten contract for this dataset. When more
+    than `max_all_null_required_ratio` of those columns are entirely NULL, the
+    upstream payload no longer matches the contract (schema drift: the real
+    values are being packed into `extras` while the contract columns are
+    null-filled) — that is an error, not a silent degradation.
     """
 
     errors: list[str] = []
@@ -47,6 +52,22 @@ def check_silver_dq(
         null_count = int(df[col].isna().sum())
         if null_count:
             errors.append(f"nulls_in:{col}:{null_count}")
+
+    # Schema-drift check against the flatten contract.
+    if flatten_required and df.shape[0] > 0:
+        contract_cols = [
+            c for c in flatten_required if c not in {"instance_name", "run_ts"}
+        ]
+        all_null = [
+            c for c in contract_cols if c in df.columns and df[c].isna().all()
+        ]
+        if contract_cols:
+            ratio = len(all_null) / len(contract_cols)
+            if ratio > max_all_null_required_ratio:
+                sample = ", ".join(all_null[:8])
+                errors.append(
+                    f"required_all_null:{len(all_null)}/{len(contract_cols)}:{sample}"
+                )
 
     # If present, `extras` should be JSON-parseable for a small sample.
     if "extras" in df.columns:

@@ -33,6 +33,7 @@ def normalize_silver(
     flatten_base: tuple[str, str] | None = None,
     flatten_variant: str | None = None,
     include_instance_column: bool = True,
+    stats_out: dict | None = None,
 ) -> pd.DataFrame:
     """Apply silver-layer normalization rules.
 
@@ -42,6 +43,11 @@ def normalize_silver(
     3) If a flatten YAML exists for (category, module):
        - ensure required columns exist (null-fill)
        - roll all non-required columns into `extras` (JSON string)
+
+    When `stats_out` is provided it receives:
+    - `flatten_config_missing`: True when a category was given but no flatten
+      config exists (the schema is then unbounded — callers should surface it)
+    - `required_columns`: the flatten contract columns (empty when missing)
     """
 
     out = df.copy()
@@ -85,6 +91,10 @@ def normalize_silver(
     # instance_name should always be a stripped string (no case normalization)
     out = cast_string_columns(out, ["instance_name"], uppercase=False)
 
+    if stats_out is not None:
+        stats_out.setdefault("flatten_config_missing", False)
+        stats_out.setdefault("required_columns", [])
+
     if not category:
         # No flattening config available, so only apply minimal global rules.
         # (Casting rules are applied after flattening.)
@@ -97,6 +107,10 @@ def normalize_silver(
         base=flatten_base,
         variant=flatten_variant,
     )
+    if stats_out is not None:
+        stats_out["flatten_config_missing"] = cfg is None or not cfg.required_columns
+        stats_out["required_columns"] = list(cfg.required_columns) if cfg else []
+
     if cfg is None or not cfg.required_columns:
         # No flattening config, but still apply casting + string stripping.
         datetime_cols = load_casting_columns(name="datetime").columns

@@ -140,9 +140,10 @@ def load_flatten_config(
 
     if base_path is None and variant_path is None:
         # Internal/dev convenience: create a TODO marker when configs are missing.
-        # This is intended to help maintainers spot new DSS list_* endpoints
-        # after upgrades without impacting end users.
-        if os.environ.get("PULSE_AUTO_TODO_FLATTEN", "1") not in {"0", "false", "False"}:
+        # Off by default — writing into the installed plugin dir fails on
+        # read-only installs and mutates deployed plugin files. Missing configs
+        # are surfaced by the contract validator instead.
+        if os.environ.get("PULSE_AUTO_TODO_FLATTEN", "0") in {"1", "true", "True"}:
             todo_name = _todo_flatten_filename(
                 category=base_category,
                 module=base_module,

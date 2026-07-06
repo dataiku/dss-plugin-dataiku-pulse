@@ -59,6 +59,7 @@ class MethodCollectResult:
     duration_ms: int
     message: str | None = None
     rule_mode: str = "auto"
+    flatten_config_missing: bool = False
 
 
 RuleHook = Callable[[str, Any, MethodCallContext], Any]
@@ -276,6 +277,7 @@ def collect_method_output(
         upload_json_gzip(target=target, output_path=paths["raw"], output_base_dir=layout.base_dir, payload=filtered_payload)
 
         category = layout.category_name(artifact_name)
+        silver_stats: dict = {}
         silver_df = normalize_silver(
             df=raw_df,
             instance_name=context.instance_name,
@@ -283,8 +285,13 @@ def collect_method_output(
             category=category,
             module=layout.module,
             todo_section=todo_section,
+            stats_out=silver_stats,
         )
-        dq = check_silver_dq(silver_df)
+        flatten_missing = bool(silver_stats.get("flatten_config_missing"))
+        dq = check_silver_dq(
+            silver_df,
+            flatten_required=silver_stats.get("required_columns") or None,
+        )
         if dq.ok:
             upload_parquet(
                 target=target,
@@ -300,7 +307,9 @@ def collect_method_output(
                 int(raw_df.shape[0]),
                 int(silver_df.shape[0]),
                 int((time.time() - started) * 1000),
+                message=("flatten_config_missing" if flatten_missing else None),
                 rule_mode=rule.call_mode,
+                flatten_config_missing=flatten_missing,
             )
 
         upload_parquet(
@@ -334,6 +343,7 @@ def collect_method_output(
             int((time.time() - started) * 1000),
             message=str(dq.errors),
             rule_mode=rule.call_mode,
+            flatten_config_missing=flatten_missing,
         )
     except Exception as exc:
         err_df = build_error_row(

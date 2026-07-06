@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_authvia(x: Any) -> str:
@@ -121,12 +124,30 @@ def main(df: pd.DataFrame) -> pd.DataFrame:
     if "dataiku_category" in merged.columns:
         merged = merged[merged["dataiku_category"] != "DROP_DELETE"]
 
+        # msgTypes absent from mapping.csv produce NaN categories; letting
+        # them through would create unmapped partition dirs downstream. Drop
+        # them, but loudly, so mapping gaps are visible.
+        unmapped_mask = merged["dataiku_category"].isna()
+        unmapped_count = int(unmapped_mask.sum())
+        if unmapped_count:
+            unmapped_types = (
+                merged.loc[unmapped_mask, "message_msgType"].astype(str).value_counts().head(20)
+            )
+            logger.warning(
+                "event_mapping: dropping %s rows with msgTypes missing from mapping.csv: %s",
+                unmapped_count,
+                unmapped_types.to_dict(),
+            )
+            merged = merged[~unmapped_mask]
+        merged.attrs["unmapped_msgtype_rows"] = unmapped_count
+
     if merged.shape[0] == 0:
         return merged
 
-    # Minor cleanse
+    # Minor cleanse. Strip only the leading `message_` prefix — an unanchored
+    # replace would also mangle columns merely containing "message_".
     merged.columns = [c.lower() for c in merged.columns]
-    merged.columns = merged.columns.str.replace("message_", "", regex=False)
+    merged.columns = merged.columns.str.replace(r"^message_", "", regex=True)
 
     if "dataiku_category" in merged.columns:
         merged["dataiku_category"] = merged["dataiku_category"].astype("string").str.lower()
