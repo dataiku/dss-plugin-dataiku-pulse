@@ -284,6 +284,13 @@ if pulse_settings is not None:
     setattr(pulse_settings, "PULSE_INIT_STATUS_CALLBACK", _update_startup_init_phase)
     setattr(pulse_settings, "PULSE_BACKEND_STARTED_AT", _backend_started_at)
 
+# Table expectations live in a Flask-free module so the contract validator can
+# import them; the sys.path fallback above makes this import resolvable too.
+from pulse_dashboard.webapp_backend.table_registry import (  # noqa: E402
+    EXPECTED_STARTUP_OBJECTS,
+    OBJECT_EXTRAS_SOURCES,
+)
+
 
 @bp.route("/__ping", endpoint="pulse_dashboard_ping")
 def pulse_dashboard_ping():
@@ -536,8 +543,12 @@ def _addon_service_label(addon_key: Any) -> str:
 
 
 def _is_debug_enabled() -> bool:
+    # Local dev no longer implies raw-SQL access: opt in explicitly.
+    # (See docs/security.md.)
     if _IS_LOCAL_DEV:
-        return True
+        import os
+
+        return os.environ.get("PULSE_DEV_ALLOW_RAW_SQL", "") in {"1", "true", "True"}
     standard = _read_standard_project_variables()
     return standard.get("debug") is True
 
@@ -831,12 +842,7 @@ def startup_status():
         except Exception:
             exists = False
 
-    expected_objects = [
-        "final_build_catalog",
-        "final_build_products_catalog",
-        "dev_activity_capability_daily",
-        "final_build_development_activity_events",
-    ]
+    expected_objects = list(EXPECTED_STARTUP_OBJECTS)
 
     tables: list[str] = []
     present_expected: list[str] = []
@@ -1369,20 +1375,8 @@ def _metadata_completeness_sql_for_product_inventory() -> tuple[str, str]:
 
 
 # Best-effort mapping from catalog object types to metadata history tables.
-# These tables are expected in the GOLD outputs.
-_OBJECT_EXTRAS_SOURCES: dict[str, dict[str, object]] = {
-    # Build → Assets
-    "project": {"table": "base_projects_instance_metadata_history", "key_col": "project_key", "project_scoped": False},
-    "dataset": {"table": "base_datasets_project_metadata_history", "key_col": "datasets_name", "project_scoped": True},
-    "recipe": {"table": "base_recipes_project_metadata_history", "key_col": "recipes_name", "project_scoped": True},
-    "scenario": {"table": "base_scenarios_project_metadata_history", "key_col": "scenarios_id", "project_scoped": True},
-    # Build → Products
-    "api_service": {"table": "base_api_services_project_metadata_history", "key_col": "api_services_id", "project_scoped": True},
-    "agent_tool": {"table": "base_agent_tools_project_metadata_history", "key_col": "agent_tools_id", "project_scoped": True},
-    "insight": {"table": "base_insights_project_metadata_history", "key_col": "insights_id", "project_scoped": True},
-    "web_application": {"table": "base_webapps_project_metadata_history", "key_col": "webapps_id", "project_scoped": True},
-    "dataiku_application": {"table": "base_apps_instance_metadata_history", "key_col": "apps_appid", "project_scoped": False},
-}
+# Defined in table_registry so the contract validator can import it without Flask.
+_OBJECT_EXTRAS_SOURCES: dict[str, dict[str, object]] = OBJECT_EXTRAS_SOURCES
 
 
 # Map product catalog types to the activity-event object_type.

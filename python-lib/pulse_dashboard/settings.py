@@ -119,3 +119,7 @@ PULSE_HUB_INSTANCE_NAMES = os.getenv("PULSE_HUB_INSTANCE_NAMES", "")
 def ensure_duckdb_parent_dir() -> None:
     DUCKDB_PATH.parent.mkdir(parents=True, exist_ok=True)
     DUCKDB_METADATA_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # The cross-process init lock lives under DUCKDB_DIR, which is not
+    # necessarily DUCKDB_PATH's parent — without this mkdir the fcntl lock
+    # can never be acquired and workers fall back to uncoordinated init.
+    Path(PULSE_DUCKDB_INIT_LOCK_PATH).parent.mkdir(parents=True, exist_ok=True)

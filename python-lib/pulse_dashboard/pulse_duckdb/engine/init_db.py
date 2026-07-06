@@ -392,12 +392,20 @@ def _maybe_seed_demo_dev_activity(conn) -> dict:
             ts = now - timedelta(days=i % 45)
             rows.append((ts, instance, login, f"{base}_EVENT", base, category, project))
 
+        from shared_duckdb.schemas import insert_sql as _fact_insert_sql
+
         conn.executemany(
-            """
-            INSERT INTO fact_dev_activity_events (
-              timestamp, instance_name, login, msgtype, msgtypebase, dataiku_category, project_key
-            ) VALUES (?, ?, ?, ?, ?, ?, ?);
-            """,
+            _fact_insert_sql(
+                columns=[
+                    "timestamp",
+                    "instance_name",
+                    "login",
+                    "msgtype",
+                    "msgtypebase",
+                    "dataiku_category",
+                    "project_key",
+                ]
+            ),
             rows,
         )
         seeded.append("fact_dev_activity_events")
