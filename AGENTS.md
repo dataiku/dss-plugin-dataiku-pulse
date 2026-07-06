@@ -38,11 +38,14 @@ Most runtime code executes **inside DSS** and relies on `dataiku` / `dataikuapi`
 This repo is not a standard Python package (no `pyproject.toml` / `setup.cfg`) and typically has no JS build step.
 Run tools directly from the repo root.
 
-### Install tooling (optional)
+### Install tooling (dev/test)
 
 ```bash
-python -m pip install -r code-env/python/spec/requirements.txt
+python -m pip install -r tests/requirements-dev.txt
 ```
+
+(The prod code-env spec `code-env/python/spec/requirements.txt` intentionally
+contains no dev tooling.)
 
 ### Lint (Ruff)
 
@@ -61,25 +64,25 @@ black python-lib scripts python-runnables custom-recipes webapps
 
 ### Tests (Pytest)
 
-Pytest is listed as a dev dependency, but the repo currently has **no conventional `tests/` suite**.
-If/when tests are added:
+The suite lives in `tests/` and runs **without a DSS runtime**: `tests/conftest.py`
+puts `python-lib` on `sys.path` and installs a stub `dataiku` module from
+`tests/stubs/`. Layout:
+
+- `tests/contract/` — cross-checks the string contracts (flatten/casting YAML,
+  gold specs, dashboard table registry) via `data_collection.contracts`
+- `tests/unit/` — pure-Python unit tests (normalizer, cursors, notifications)
+- `tests/integration/` — tiny in-memory DuckDB gold builds over tmp parquet
 
 ```bash
-pytest
+pip install -r tests/requirements-dev.txt
+pytest                        # whole suite
+pytest tests/contract         # contracts only (fast; run after YAML edits)
+pytest tests/unit/test_cursor_clamp.py -k failure   # single file / pattern
 ```
 
-Run a single test file:
-
-```bash
-pytest path/to/test_file.py
-```
-
-Run a single test (common patterns):
-
-```bash
-pytest path/to/test_file.py -k test_name_substring
-pytest path/to/test_file.py::TestClass::test_method
-```
+When adding a collector, flatten YAML, casting entry or gold spec, run
+`pytest tests/contract` — it fails on dangling names that would otherwise
+degrade data silently.
 
 ### Run the dashboard backend (dev)
 
@@ -94,25 +97,22 @@ python -m flask --app webapps/pulse-dashboard/backend.py run --port 8995
 
 Do not hand-edit `resource/pulse-dashboard/build/`. That folder is generated packaged output served by the plugin.
 
-In this Code Studio workspace, the authoritative editable React source lives outside the plugin repo at:
-- `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/`
+The authoritative React source home is `frontend/` in this repo. Until the
+one-time vendoring copy is done (see `frontend/README.md`), the legacy source
+lives in the Code Studio workspace at
+`/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/`.
 
-Canonical workflow:
+Canonical workflow (once `frontend/` is populated):
 
 ```bash
-bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/scripts/build_frontend.sh
-bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/scripts/sync_pulse_dashboard_build.sh /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/build
+bash scripts/build_frontend.sh
 ```
 
 Important rules for agents:
-- Make frontend source edits in `dataiku-pulse.extras/webapps/entry_point/frontend/`, not in `resource/pulse-dashboard/build/`.
+- Make frontend source edits in `frontend/`, not in `resource/pulse-dashboard/build/`.
 - Keep `webapps/pulse-dashboard/` in this plugin repo for backend/wrapper changes only.
-- After every frontend source change, immediately rebuild and sync so `dataiku-pulse/resource/pulse-dashboard/build/` is refreshed before handing work back.
-- Do not leave frontend-only edits applied in `dataiku-pulse.extras` without also syncing the compiled build into `dataiku-pulse` during the same task, unless the user explicitly asks not to.
-- The sync script in `dataiku-pulse.extras/scripts/` now targets the plugin repo (`dataiku-pulse`) by default.
-- Ignore or remove stale duplicate packaged builds under `dataiku-pulse.extras/resource/`; they are not the served source of truth.
-
-When editing the external Pulse dashboard frontend source at `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/`, agents should automatically rebuild the frontend and sync the resulting build into `resource/pulse-dashboard/build/` before handing work back, unless the user explicitly asks not to.
+- After every frontend source change, immediately run `scripts/build_frontend.sh` so `resource/pulse-dashboard/build/` is refreshed before handing work back.
+- `frontend/node_modules/` and `frontend/build/` are gitignored; only source files are committed.
 
 ## Code style guidelines
 

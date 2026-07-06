@@ -104,15 +104,15 @@ Pulse is designed for environments where a central project acts as the analytica
 
 ## Local Development Notes
 
-In this Code Studio workspace, the editable React frontend source lives outside this repo at:
+The React frontend source is being vendored into this repo under `frontend/`
+(see `frontend/README.md` — a one-time copy from the legacy Code Studio
+workspace at `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/`
+is required by someone with access to it).
 
-- `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/`
-
-To rebuild and sync the dashboard build used by the plugin:
+Once `frontend/` is populated, rebuild and sync the packaged dashboard build with:
 
 ```bash
-bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/scripts/build_frontend.sh
-scripts/sync_pulse_dashboard_build.sh /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/build
+bash scripts/build_frontend.sh
 ```
 
 ## Documentation
