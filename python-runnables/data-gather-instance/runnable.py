@@ -264,6 +264,10 @@ class MyRunnable(Runnable):
         ctx: PulseMacroContext = build_context(plugin_config=self.plugin_config)
         self.param_set = ctx.param_set
 
+        from data_collection.contracts import run_startup_validation
+
+        contracts_summary = run_startup_validation(param_set=dict(self.param_set))
+
         instance_name = get_instance_name(ctx.local_client)
         if not instance_name:
             raise ValueError("Could not determine instance_name (nodeId/installId)")
@@ -394,8 +398,11 @@ class MyRunnable(Runnable):
                 progress_callback(completed / total_work)
 
         status_counts: dict[str, int] = {}
+        flatten_missing_total = 0
         for item in method_results:
             status_counts[item.status] = status_counts.get(item.status, 0) + 1
+            if getattr(item, "flatten_config_missing", False):
+                flatten_missing_total += 1
 
         rt = ResultTable()
         rt.add_column(1, "metric", "STRING")
@@ -405,6 +412,7 @@ class MyRunnable(Runnable):
         rt.add_column(5, "details", "STRING")
 
         for row in [
+            ("contracts", contracts_summary, "summary", "info", ""),
             ("list_methods_total", str(len(methods)), "summary", "info", ""),
             ("custom_methods_total", str(len(custom_methods)), "summary", "info", ""),
             ("project_inclusions_total", str(len(project_inclusions)), "summary", "info", ""),
@@ -417,6 +425,13 @@ class MyRunnable(Runnable):
             ("call_failed_total", str(status_counts.get("call_failed", 0)), "summary", "info", ""),
             ("method_not_found_total", str(status_counts.get("method_not_found", 0)), "summary", "info", ""),
             ("needs_rule_total", str(status_counts.get("needs_rule", 0)), "summary", "info", ""),
+            (
+                "flatten_missing_total",
+                str(flatten_missing_total),
+                "summary",
+                "warning" if flatten_missing_total else "info",
+                "methods writing silver without a flatten contract (unbounded schema)",
+            ),
         ]:
             rt.add_record(list(row))
 
