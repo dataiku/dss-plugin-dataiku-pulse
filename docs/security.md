@@ -27,7 +27,13 @@ Operational guidance:
 ## `/api/duckdb/query` raw-SQL debug endpoint
 
 The dashboard backend exposes `GET /api/duckdb/query?q=...` which executes
-arbitrary SQL against the dashboard DuckDB database.
+SQL against the dashboard DuckDB database. Statements are type-checked before
+execution and only read statements (SELECT/EXPLAIN — SHOW/DESCRIBE/SUMMARIZE
+parse as SELECT) are accepted; writes (INSERT/UPDATE/CREATE/DROP/COPY/ATTACH/
+SET/transactions/…) are rejected with a 400. This matters because the backend
+shares one **writable** DuckDB handle per process (see
+`pulse_duckdb/engine/create_conn.py`) — the statement gate, not the connection
+mode, is what makes this endpoint read-only.
 
 Gating:
 

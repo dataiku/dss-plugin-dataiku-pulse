@@ -259,7 +259,7 @@ class RequestValidationError(ValueError):
 # In DSS, python-lib is automatically available; in local dev we add it to sys.path.
 try:
     from pulse_dashboard import settings as pulse_settings  # type: ignore
-    from pulse_dashboard.pulse_duckdb.engine import create_connection, ensure_database_ready, is_initialization_in_progress, query_df  # type: ignore
+    from pulse_dashboard.pulse_duckdb.engine import ReadOnlySQLError, create_connection, ensure_database_ready, is_initialization_in_progress, query_df  # type: ignore
     from pulse_dashboard.pulse_duckdb.engine.init_db import read_duckdb_metadata  # type: ignore
 except Exception:
     try:
@@ -269,7 +269,7 @@ except Exception:
             sys.path.insert(0, str(python_lib))
 
         from pulse_dashboard import settings as pulse_settings  # type: ignore
-        from pulse_dashboard.pulse_duckdb.engine import create_connection, ensure_database_ready, is_initialization_in_progress, query_df  # type: ignore
+        from pulse_dashboard.pulse_duckdb.engine import ReadOnlySQLError, create_connection, ensure_database_ready, is_initialization_in_progress, query_df  # type: ignore
         from pulse_dashboard.pulse_duckdb.engine.init_db import read_duckdb_metadata  # type: ignore
     except Exception:
         logger.exception("Failed to import Pulse dashboard libraries")
@@ -279,6 +279,7 @@ except Exception:
         is_initialization_in_progress = None
         query_df = None
         read_duckdb_metadata = None
+        ReadOnlySQLError = None  # type: ignore[assignment,misc]
 
 if pulse_settings is not None:
     setattr(pulse_settings, "PULSE_INIT_STATUS_CALLBACK", _update_startup_init_phase)
@@ -1454,6 +1455,12 @@ def duckdb_query():
         df = query_df(q)
         return _ok({"rows": _df_records(df)})
     except Exception as e:
+        if ReadOnlySQLError is not None and isinstance(e, ReadOnlySQLError):
+            return _err(
+                str(e),
+                status=400,
+                hint="This endpoint only runs read statements (SELECT/EXPLAIN).",
+            )
         msg = str(e)
         if "database does not exist" in msg:
             return _err(
