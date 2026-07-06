@@ -131,7 +131,7 @@ Populate the configuration needed for:
   - Worker Hosts (Can add 1 or Many)
     - URL per hosts (can/should include Hub host)
     - Admin level API Key per host
-    - Production / Development
+    - Node Classification (`Designer` or `Automation`)
     - Parameter Set Name (Can be null, ask TAM for custom host setup)
   - Dataiku user to own Projects and Scenarios
   - Ignore SSL Certs for API calls
@@ -166,6 +166,8 @@ This setup is responsible for establishing the Pulse operating model, including:
 - Initialize Worker Host(s)
   - Ran each time new hosts or versions are updated
   - worker-side project setup on connected instances
+  - `Designer` workers create the worker project directly via DSS APIs
+  - `Automation` workers bootstrap from `resource/dataiku_pulse_worker_bundle_skeleton_v1.zip`, then activate the imported bundle before Pulse creates datasets, variables, and scenarios
   - Can force GitHub updates, skip GitHub, or force run scenarios now
 
 Depending on the environment, the first full collection and modeling cycle may take some time to complete.
@@ -206,6 +208,19 @@ Before declaring the installation complete, verify the full Pulse chain:
 - Parquet support available through the required Hadoop/Spark add-on tarball packages
 
 Once those checks pass and the first data refresh completes, Pulse is ready for use.
+
+## Worker cursor defaults
+
+During worker initialization, if the worker project does not already contain the Pulse cursor variables, Pulse creates:
+
+- `local.projects_delta`
+- `local.audit_log_delta`
+
+Both values are initialized to **3 calendar months before the current UTC time**.
+
+Example:
+
+- if initialization runs on `2026-07-02`, missing cursors initialize to `2026-04-02` with the current UTC time component preserved
 
 ## Notes for v3
 

@@ -468,6 +468,15 @@ def _object_activity_branch_sql(
     def _null_if_empty(expr: str) -> str:
         return f"NULLIF(TRIM(CAST({expr} AS VARCHAR)), '')"
 
+    def _path_segment(expr: str, marker: str) -> str:
+        normalized_expr = f"split_part(split_part(CAST({expr} AS VARCHAR), '?', 1), '#', 1)"
+        extracted_expr = (
+            f"CASE WHEN strpos({normalized_expr}, '{marker}') > 0 "
+            f"THEN split_part(split_part({normalized_expr}, '{marker}', 2), '/', 1) "
+            "ELSE NULL END"
+        )
+        return _null_if_empty(extracted_expr)
+
     def _clean_identifier(expr: str) -> str:
         return (
             "CASE "
@@ -486,16 +495,16 @@ def _object_activity_branch_sql(
 
     if module in {"datasets", "dataset"}:
         object_type = "dataset"
-        object_key_expr = "NULLIF(regexp_extract(callpath, '/datasets/([^/?]+)', 1), '')"
+        object_key_expr = _path_segment("callpath", "/datasets/")
     elif module in {"visual_recipes", "misc_recipes", "prepare"}:
         object_type = "recipe"
-        object_key_expr = "NULLIF(regexp_extract(callpath, '/recipes/([^/?]+)', 1), '')"
+        object_key_expr = _path_segment("callpath", "/recipes/")
     elif module == "webapps":
         object_type = "web_application"
         normalized_webapp_expr = _null_if_empty("e.webappid") if _has_column("webappid") else "NULL"
-        callpath_webapp_expr = _null_if_empty("regexp_extract(e.callpath, '/webapps/([^/?]+)', 1)")
+        callpath_webapp_expr = _path_segment("e.callpath", "/webapps/")
         authvia_webapp_expr = _null_if_empty(
-            "regexp_extract(e.authvia, 'ticket:Standard webapp backend: [^.]+\\.([^, ]+)', 1)"
+            "CASE WHEN strpos(CAST(e.authvia AS VARCHAR), 'ticket:Standard webapp backend: ') > 0 THEN split_part(split_part(split_part(CAST(e.authvia AS VARCHAR), 'ticket:Standard webapp backend: ', 2), ' ', 2), ',', 1) ELSE NULL END"
         )
         extras_webapp_expr = _json_text('$.webappid')
         object_key_expr = _clean_identifier(
@@ -507,9 +516,9 @@ def _object_activity_branch_sql(
             )
         )
     elif module == "charts_dashboard":
-        dashboard_key_expr = _null_if_empty("regexp_extract(callpath, '/dashboards/([^/?]+)', 1)")
+        dashboard_key_expr = _path_segment("callpath", "/dashboards/")
         insight_key_expr = _first_non_empty(
-            _null_if_empty("regexp_extract(callpath, '/insights/([^/?]+)', 1)"),
+            _path_segment("callpath", "/insights/"),
             _json_text('$.insightId'),
             _json_text('$.insightid'),
             _json_text('$.dashboardInsightId'),
@@ -522,8 +531,8 @@ def _object_activity_branch_sql(
         object_type = "api_service"
         object_key_expr = _clean_identifier(
             _first_non_empty(
-                _null_if_empty("regexp_extract(callpath, '/api[-_]?services/([^/?]+)', 1)"),
-                _null_if_empty("regexp_extract(callpath, '/api[-_]?endpoints/([^/?]+)', 1)"),
+                _first_non_empty(_path_segment("callpath", "/api-services/"), _path_segment("callpath", "/api_services/")),
+                _first_non_empty(_path_segment("callpath", "/api-endpoints/"), _path_segment("callpath", "/api_endpoints/")),
                 _json_text('$.serviceId'),
                 _json_text('$.apiServiceId'),
                 _json_text('$.apiserviceid'),
@@ -535,7 +544,7 @@ def _object_activity_branch_sql(
         object_type = "dataiku_application"
         object_key_expr = _clean_identifier(
             _first_non_empty(
-                _null_if_empty("regexp_extract(callpath, '/applications/([^/?]+)', 1)"),
+                _path_segment("callpath", "/applications/"),
                 _json_text('$.applicationId'),
                 _json_text('$.applicationid'),
                 _json_text('$.appId'),
@@ -554,7 +563,7 @@ def _object_activity_branch_sql(
         object_key_expr = "NULL"
 
     project_key_expr = (
-        "COALESCE(project_key, regexp_extract(callpath, '/projects/([^/?]+)', 1), "
+        f"COALESCE(project_key, {_path_segment('callpath', '/projects/')}, "
         "json_extract_string(extras, '$.projectKey'), json_extract_string(extras, '$.projectkey'))"
         if object_type == "dataiku_application"
         else "project_key"

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import calendar
+from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping
@@ -15,6 +17,12 @@ from .notifications import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+PLUGIN_ID = "dataiku-pulse"
+AUTOMATION_CLASSIFICATION = "automation"
+DESIGNER_CLASSIFICATION = "designer"
+WORKER_BUNDLE_RESOURCE = "dataiku_pulse_worker_bundle_skeleton_v1.zip"
 
 
 def _instance_label(url: str) -> str:
@@ -40,11 +48,37 @@ def _safe_get(d: Mapping[str, Any] | None, key: str, default: Any = None) -> Any
     return d.get(key, default)
 
 
+def _normalize_worker_classification(value: Any) -> tuple[str, str | None]:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return DESIGNER_CLASSIFICATION, "worker_classification missing; defaulting to designer"
+    if raw in {DESIGNER_CLASSIFICATION, AUTOMATION_CLASSIFICATION}:
+        return raw, None
+    return (
+        DESIGNER_CLASSIFICATION,
+        f"worker_classification={raw!r} unsupported; defaulting to designer",
+    )
+
+
+def _subtract_calendar_months(ts: datetime, *, months: int) -> datetime:
+    total_month = (ts.year * 12 + (ts.month - 1)) - months
+    year = total_month // 12
+    month = total_month % 12 + 1
+    day = min(ts.day, calendar.monthrange(year, month)[1])
+    return ts.replace(year=year, month=month, day=day)
+
+
+def _default_worker_cursor_ts() -> str:
+    return _subtract_calendar_months(
+        datetime.now(timezone.utc), months=3
+    ).isoformat()
+
+
 def _resolve_primary_preset_name(local_client: Any) -> tuple[str, str | None]:
     """Return (preset_name, warning_message)."""
 
     try:
-        plugin_handle = local_client.get_plugin(plugin_id="dataiku-pulse")
+        plugin_handle = local_client.get_plugin(plugin_id=PLUGIN_ID)
         plugin_settings = plugin_handle.get_settings()
         pdi_ps = plugin_settings.get_parameter_set(
             parameter_set_name="params-dashboard-instance"
@@ -112,7 +146,7 @@ def _sync_plugin_from_hub(
             )
         ]
 
-    plugin_id = "dataiku-pulse"
+    plugin_id = PLUGIN_ID
     plugin_client = remote_client
 
     if not force_skip_github:
@@ -266,25 +300,186 @@ def _sync_plugin_from_hub(
     return steps
 
 
-def _ensure_project(
+def _get_local_bundle_path() -> Path:
+    return (
+        Path(__file__).resolve().parents[2]
+        / "resource"
+        / WORKER_BUNDLE_RESOURCE
+    )
+
+
+def _read_bundle_bytes(bundle_path: Path) -> bytes:
+    return bundle_path.read_bytes()
+
+
+def _list_imported_bundle_ids(project: Any) -> list[str]:
+    bundle_ids: list[str] = []
+    try:
+        imported = project.list_imported_bundles() or {}
+    except Exception:
+        return bundle_ids
+
+    bundles = imported.get("bundles") or []
+    for bundle in bundles:
+        if isinstance(bundle, str):
+            bundle_ids.append(bundle)
+            continue
+        if isinstance(bundle, Mapping):
+            for key in ("bundleId", "bundle_id", "id"):
+                value = bundle.get(key)
+                if value:
+                    bundle_ids.append(str(value))
+                    break
+    return bundle_ids
+
+
+def _activate_project_bundle(project: Any, bundle_id: str) -> list[InitStep]:
+    steps: list[InitStep] = []
+    if not bundle_id:
+        return [
+            InitStep(
+                step="bundle_activate",
+                status="error",
+                message="Could not determine imported bundle id to activate",
+            )
+        ]
+
+    try:
+        project.preload_bundle(bundle_id)
+        steps.append(
+            InitStep(step="bundle_preload", status="created", message=bundle_id)
+        )
+    except Exception as e:
+        return [
+            InitStep(
+                step="bundle_preload",
+                status="error",
+                message=repr(e),
+            )
+        ]
+
+    try:
+        project.activate_bundle(bundle_id)
+        steps.append(
+            InitStep(step="bundle_activate", status="created", message=bundle_id)
+        )
+        return steps
+    except Exception as e:
+        return [
+            InitStep(
+                step="bundle_activate",
+                status="error",
+                message=repr(e),
+            )
+        ]
+
+
+def _import_automation_project_bundle(
+    *,
+    client: Any,
+    project_key: str,
+) -> tuple[Any | None, list[InitStep]]:
+    steps: list[InitStep] = []
+
+    bundle_path = _get_local_bundle_path()
+    if not bundle_path.exists():
+        return None, [
+            InitStep(
+                step="project_import",
+                status="error",
+                message=f"Bundle resource not found: {bundle_path}",
+            )
+        ]
+
+    bundle_bytes = _read_bundle_bytes(bundle_path)
+
+    try:
+        existing_project_keys = client.list_project_keys() or []
+    except Exception as e:
+        return None, [
+            InitStep(step="project_check", status="error", message=repr(e))
+        ]
+
+    if project_key in existing_project_keys:
+        try:
+            project = client.get_project(project_key)
+            return project, [
+                InitStep(step=f"project:{project_key}", status="already_exists")
+            ]
+        except Exception as e:
+            return None, [
+                InitStep(step=f"project:{project_key}", status="error", message=repr(e))
+            ]
+
+    try:
+        client.create_project_from_bundle_archive(bundle_bytes)
+        steps.append(
+            InitStep(step="project_import", status="created", message=project_key)
+        )
+    except Exception as e:
+        return None, [
+            InitStep(step="project_import", status="error", message=repr(e))
+        ]
+
+    try:
+        project = client.get_project(project_key)
+        steps.append(InitStep(step="project_attach", status="ok", message=project_key))
+    except Exception as e:
+        return None, steps + [
+            InitStep(step="project_attach", status="error", message=repr(e))
+        ]
+
+    bundle_ids = _list_imported_bundle_ids(project)
+    if not bundle_ids:
+        return None, steps + [
+            InitStep(
+                step="bundle_lookup",
+                status="error",
+                message=f"No imported bundles found after project creation: {project.list_imported_bundles()!r}",
+            )
+        ]
+
+    steps.append(
+        InitStep(step="bundle_lookup", status="ok", message=bundle_ids[0])
+    )
+
+    activation_steps = _activate_project_bundle(project, bundle_ids[0])
+    steps.extend(activation_steps)
+    if any(step.status == "error" for step in activation_steps):
+        return None, steps
+
+    return project, steps
+
+
+def _ensure_worker_project(
     *,
     client: Any,
     project_key: str,
     owner_login: str,
-) -> tuple[Any | None, InitStep]:
+    worker_classification: str,
+) -> tuple[Any | None, list[InitStep]]:
     try:
         if project_key in (client.list_project_keys() or []):
-            return client.get_project(project_key), InitStep(
-                step=f"project:{project_key}", status="already_exists"
+            return client.get_project(project_key), [
+                InitStep(step=f"project:{project_key}", status="already_exists")
+            ]
+
+        if worker_classification == AUTOMATION_CLASSIFICATION:
+            return _import_automation_project_bundle(
+                client=client,
+                project_key=project_key,
             )
+
         project = client.create_project(
             project_key=project_key, name=project_key, owner=owner_login
         )
-        return project, InitStep(step=f"project:{project_key}", status="created")
+        return project, [
+            InitStep(step=f"project:{project_key}", status="created")
+        ]
     except Exception as e:
-        return None, InitStep(
-            step=f"project:{project_key}", status="error", message=repr(e)
-        )
+        return None, [
+            InitStep(step=f"project:{project_key}", status="error", message=repr(e))
+        ]
 
 
 def _ensure_dss_commits(project: Any) -> InitStep:
@@ -509,12 +704,15 @@ def initialize_workers(
 
     worker_hosts = _safe_get(hub_params, "worker_hosts", []) or []
 
-    now_ts = datetime.now(timezone.utc).isoformat()
+    now_ts = _default_worker_cursor_ts()
 
     # Cursor variables are stored on the worker project.
     for worker in worker_hosts:
         worker_url = str(_safe_get(worker, "worker_url", ""))
         worker_api = _safe_get(worker, "worker_api")
+        worker_classification, classification_warning = _normalize_worker_classification(
+            _safe_get(worker, "worker_classification", DESIGNER_CLASSIFICATION)
+        )
 
         # Per-worker preset override (the parameter-set subparam was
         # previously ignored).
@@ -537,6 +735,23 @@ def initialize_workers(
             continue
 
         is_hub = bool(hub_url) and (worker_url == hub_url)
+
+        if classification_warning:
+            steps.append(
+                InitStep(
+                    step=f"worker:{worker_url}:classification",
+                    status="warning",
+                    message=classification_warning,
+                )
+            )
+        else:
+            steps.append(
+                InitStep(
+                    step=f"worker:{worker_url}:classification",
+                    status="ok",
+                    message=worker_classification,
+                )
+            )
 
         # Build client
         if is_hub:
@@ -599,17 +814,19 @@ def initialize_workers(
             )
 
         # Worker project
-        project, st = _ensure_project(
+        project, project_steps = _ensure_worker_project(
             client=client,
             project_key=worker_key,
             owner_login=run_as_user,
+            worker_classification=worker_classification,
         )
-        steps.append(
+        steps.extend(
             InitStep(
-                step=f"worker:{worker_url}:{st.step}",
-                status=st.status,
-                message=st.message,
+                step=f"worker:{worker_url}:{step.step}",
+                status=step.status,
+                message=step.message,
             )
+            for step in project_steps
         )
         if project is None:
             continue

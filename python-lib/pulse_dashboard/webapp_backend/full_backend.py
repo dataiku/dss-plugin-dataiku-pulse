@@ -5366,4 +5366,12 @@ def register_routes(app: Flask, *, is_local_dev: bool = False) -> None:
     # the blocking startup init via ; avoid racing it with
     # a parallel background init thread that can hit the shared lock timeout.
     if _IS_LOCAL_DEV:
+        if pulse_settings is not None:
+            logger.info(
+                "Pulse local backend startup: auto_init=%s duckdb_path=%s metadata_path=%s lock_path=%s",
+                getattr(pulse_settings, "PULSE_AUTO_INIT_DUCKDB", False),
+                getattr(pulse_settings, "DUCKDB_PATH", None),
+                getattr(pulse_settings, "DUCKDB_METADATA_PATH", None),
+                getattr(pulse_settings, "PULSE_DUCKDB_INIT_LOCK_PATH", None),
+            )
         _maybe_schedule_startup_duckdb_init()
