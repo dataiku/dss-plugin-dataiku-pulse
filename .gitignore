@@ -1,18 +1,12 @@
-.journal
-.mainlock
-.wlock
-.ts
-.dss-meta
-.git
-*.pyc
-.coverage
-.htmlcov
-.DS_Store
-.idea
-.codex
-.ruff_cache
+# DSS-instance-local plugin install state — never commit
+state.json
 
-# Local development artifacts
-.pulse-logs/
-docs/feature-requests/
-docs/future-improvements/
+# Frontend build artifacts
+frontend/node_modules/
+frontend/build/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
