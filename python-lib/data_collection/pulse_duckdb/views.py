@@ -34,8 +34,13 @@ def create_silver_view(
     category: str,
     module: str,
     view_name: str | None = None,
-) -> str:
-    """Create a view over SILVER parquet for a given `{category,module}`."""
+) -> tuple[str, str | None]:
+    """Create a view over SILVER parquet for a given `{category,module}`.
+
+    Returns (view_name, None) on success, ("", skip_reason) when no silver
+    parquet exists yet — callers must surface skips instead of dropping the
+    table silently.
+    """
 
     if not ctx.bucket_or_container:
         raise ValueError("Missing bucket/container")
@@ -72,7 +77,9 @@ def create_silver_view(
     except duckdb.IOException as exc:
         # When there is no SILVER parquet yet for a given (category,module),
         # DuckDB raises an IO error. For batch builds we want to skip these
-        # specs rather than fail the whole recipe.
-        logger.warning("Skipping view %s (no parquet found): %s", view_name, exc)
-        return ""
-    return view_name
+        # specs rather than fail the whole recipe — but the skip must be
+        # reported to the caller, not swallowed.
+        reason = f"no silver parquet for category={category}/module={module}: {exc}"
+        logger.warning("Skipping view %s: %s", view_name, reason)
+        return "", reason
+    return view_name, None

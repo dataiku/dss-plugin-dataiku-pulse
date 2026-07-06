@@ -41,6 +41,13 @@
                 { "value": "dataiku", "label": "Dataiku API" }
             ],
             "defaultValue": "duckdb"
+        },
+        {
+            "name": "fail_on_errors",
+            "label": "Fail recipe on gold table errors",
+            "description": "When any gold table fails to build or unload, fail the recipe run (recommended: this triggers the Pulse failure notification). Disable to restore the legacy report-only behavior.",
+            "type": "BOOLEAN",
+            "defaultValue": true
         }
     ],
     "resourceKeys": []

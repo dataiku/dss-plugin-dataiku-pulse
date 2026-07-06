@@ -85,8 +85,13 @@ def _load_license_profiles(base_dir: Path) -> list[str]:
     return out
 
 
-def _inject_wide_license_sql(spec_path: Path, *, base_dir: Path) -> None:
-    """Render wide license columns into the wide latest license spec."""
+def _build_wide_license_columns(*, base_dir: Path) -> str:
+    """Build the wide license column SQL for the `{wide_columns}` spec placeholder.
+
+    Rendered at runtime and passed to `load_gold_spec(sql_params=...)` — the
+    spec YAML on disk keeps its pristine placeholder so new license profiles
+    are picked up on every run.
+    """
 
     profiles = _load_license_profiles(base_dir)
     if not profiles:
@@ -111,11 +116,7 @@ def _inject_wide_license_sql(spec_path: Path, *, base_dir: Path) -> None:
     if column_lines:
         column_lines[-1] = column_lines[-1].rstrip(",")
 
-    wide_columns = ",\n" + "\n".join(column_lines)
-    text = spec_path.read_text(encoding="utf-8")
-    if "{wide_columns}" not in text:
-        return
-    spec_path.write_text(text.replace("{wide_columns}", wide_columns), encoding="utf-8")
+    return ",\n" + "\n".join(column_lines)
 
 
 def _has_required_tables(conn: duckdb.DuckDBPyConnection, table_names: list[str]) -> bool:
@@ -688,7 +689,7 @@ def _build_fact_user_activity_daily(
     - A separate table `fact_user_activity_project_daily` keeps project grain.
     """
 
-    view_name = create_silver_view(conn=conn, ctx=ctx, category="users", module="user_activity")
+    view_name, _skip_reason = create_silver_view(conn=conn, ctx=ctx, category="users", module="user_activity")
     if not view_name:
         return ""
 
@@ -728,7 +729,7 @@ def _build_fact_user_activity_project_daily(
     - We include `last_activity_at` to help UI sort/filter.
     """
 
-    view_name = create_silver_view(conn=conn, ctx=ctx, category="users", module="user_activity")
+    view_name, _skip_reason = create_silver_view(conn=conn, ctx=ctx, category="users", module="user_activity")
     if not view_name:
         return ""
 
@@ -758,6 +759,10 @@ def _build_fact_user_activity_project_daily(
 
 
 def run() -> dict:
+    from data_collection.contracts import run_startup_validation
+
+    contracts_summary = run_startup_validation()
+
     # Recipe output folder is used as the GOLD destination.
     # (Later steps will unload parquet here.)
     gold_folder_lookup = _resolve_gold_folder_lookup()
@@ -775,6 +780,7 @@ def run() -> dict:
     recipe_config = get_recipe_config() or {}
 
     unload_behavior = recipe_config.get("unload_behavior", "duckdb")
+    fail_on_errors = bool(recipe_config.get("fail_on_errors", True))
 
     # The output managed folder is the GOLD destination.
     # Dataiku recipe helpers usually return a managed folder id.
@@ -794,6 +800,8 @@ def run() -> dict:
     )
 
     failed_tables: list[str] = []
+    failure_reasons: dict[str, str] = {}
+    skipped_tables: list[dict[str, str]] = []
     user_activity_quality: dict[str, object] = {
         "daily_present": False,
         "project_present": False,
@@ -840,19 +848,20 @@ def run() -> dict:
         )
 
         for spec_path in spec_paths:
+            sql_params: dict[str, str] | None = None
             if spec_path.name == "base_license_limits_wide_latest.yaml":
                 if not _has_required_tables(
                     setup.conn,
                     ["base_license_status_latest", "base_license_max_licenses_latest"],
                 ):
                     continue
-                _inject_wide_license_sql(spec_path, base_dir=base_dir / "instance")
-            spec = load_gold_spec(spec_path)
+                sql_params = {"wide_columns": _build_wide_license_columns(base_dir=base_dir / "instance")}
+            spec = load_gold_spec(spec_path, sql_params=sql_params)
 
             # Ensure the upstream SILVER view exists.
             if spec.category and spec.module:
                 view_name = spec.view_table_name or f"v_{spec.category}__{spec.module}"
-                created_view = create_silver_view(
+                created_view, skip_reason = create_silver_view(
                     conn=setup.conn,
                     ctx=ctx,
                     category=spec.category,
@@ -860,10 +869,16 @@ def run() -> dict:
                     view_name=view_name,
                 )
                 if not created_view:
-                    # No data available yet for this spec.
+                    # No data available yet for this spec: skip, but loudly.
+                    skipped_tables.append({"table": spec.name, "reason": skip_reason or "no data"})
                     continue
 
-            apply_gold_spec(setup.conn, spec)
+            try:
+                apply_gold_spec(setup.conn, spec)
+            except Exception as e:
+                logger.exception("Failed to build gold table %s", spec.name)
+                failed_tables.append(spec.name)
+                failure_reasons[spec.name] = repr(e)
 
         current_tables = _list_table_names(setup.conn)
 
@@ -976,6 +991,18 @@ def run() -> dict:
             + [t for t in fact_tables if t not in base_tables and t not in dim_tables]
         )
 
+        # Reopen a fresh read-only connection for the unload phase. Hours of
+        # scanning event_mapping parquet leave the process near the cgroup
+        # memory limit through allocator-held pages that DuckDB's memory_limit
+        # does not govern; the partitioned fact-table COPY then tips it into
+        # an OOM kill. Closing the build connection tears the DuckDB instance
+        # (and its arenas) down, so the unloads start with real headroom.
+        logger.info("Build phase complete; reopening DuckDB read-only for unloads...")
+        setup.conn.close()
+        setup = prepare_duckdb(ctx=ctx, read_only=True, reset=False, db_path=setup.db_path)
+        # Bound the partitioned parquet writer's buffered state as well.
+        setup.conn.execute("SET partitioned_write_max_open_files = 32;")
+
         for table_name in unloaded_tables:
             # Partition large event tables by instance+day to keep queries fast.
             if table_name in {"fact_dev_activity_events", "fact_object_activity_events"}:
@@ -1000,22 +1027,16 @@ def run() -> dict:
 
                     if table_name == "fact_dev_activity_events":
                         # Write partitioned parquet for efficient downstream reads.
+                        # Column list comes from the shared schema declaration.
+                        from shared_duckdb.schemas import fact_dev_activity_events_column_names
+
+                        column_list = ",\n    ".join(
+                            fact_dev_activity_events_column_names(include_partitions=True)
+                        )
                         query = (
                             "COPY (\n"
                             "  SELECT\n"
-                            "    timestamp,\n"
-                            "    instance_name,\n"
-                            "    login,\n"
-                            "    msgtype,\n"
-                            "    msgtypebase,\n"
-                            "    dataiku_category,\n"
-                            "    project_key,\n"
-                            "    callpath,\n"
-                            "    extras,\n"
-                            "    run_timestamp,\n"
-                            "    year,\n"
-                            "    month,\n"
-                            "    day\n"
+                            f"    {column_list}\n"
                             "  FROM fact_dev_activity_events\n"
                             ") TO '{path}' (\n"
                             "  FORMAT 'PARQUET',\n"
@@ -1065,6 +1086,7 @@ def run() -> dict:
                 except Exception as e:
                     logger.error("Failed to unload %s: %s", table_name, e)
                     failed_tables.append(table_name)
+                    failure_reasons[table_name] = repr(e)
 
             elif unload_behavior == "dataiku":
                 try:
@@ -1085,6 +1107,7 @@ def run() -> dict:
                 except Exception as e:
                     logger.error("Dataiku unload failed for %s: %s", table_name, e)
                     failed_tables.append(table_name)
+                    failure_reasons[table_name] = repr(e)
 
             else:
                 raise ValueError(f"Unknown unload behavior: {unload_behavior!r}")
@@ -1092,9 +1115,12 @@ def run() -> dict:
     finally:
         setup.conn.close()
 
-    return {
+    result = {
         "ok": len(failed_tables) == 0,
+        "contracts": contracts_summary,
         "failed_tables": failed_tables,
+        "failure_reasons": failure_reasons,
+        "skipped_tables": skipped_tables,
         "source_project_key": project_key,
         "connection_type": ctx.connection_type,
         "connection_name": ctx.connection_name,
@@ -1104,6 +1130,19 @@ def run() -> dict:
         "unloaded_tables": unloaded_tables,
         "user_activity_quality": user_activity_quality,
     }
+
+    if skipped_tables:
+        logger.warning("Gold tables skipped (no silver data): %s", skipped_tables)
+
+    if failed_tables and fail_on_errors:
+        # A failed gold build must fail the recipe run (and thereby trigger
+        # the scenario failure reporter) instead of reporting success.
+        raise RuntimeError(
+            f"Gold build failed for {len(failed_tables)} table(s): "
+            + ", ".join(f"{t}: {failure_reasons.get(t, 'unknown')}" for t in failed_tables)
+        )
+
+    return result
 
 
 run()
