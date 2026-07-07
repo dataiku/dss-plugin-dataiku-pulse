@@ -206,7 +206,7 @@ def ensure_scenario_gold_refresh(
         if reporter_status == "warning" and reporter_message:
             message_parts.append(reporter_message)
         elif reporter_status in {"created", "updated"}:
-            message_parts.append(f"failure reporter {reporter_status}")
+            message_parts.append(f"notification reporter {reporter_status}")
         message = "; ".join(message_parts) if message_parts else None
         return InitStep(
             step=f"scenario:{scenario_name}", status=status, message=message

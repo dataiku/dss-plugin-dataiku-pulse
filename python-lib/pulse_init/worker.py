@@ -634,7 +634,7 @@ def _ensure_or_repair_scenario(
         if reporter_status == "warning" and reporter_message:
             message = reporter_message
         elif reporter_status in {"created", "updated"}:
-            message = f"failure reporter {reporter_status}"
+            message = f"notification reporter {reporter_status}"
         return InitStep(step=f"scenario:{name}", status=status, message=message)
 
     except Exception as e:
