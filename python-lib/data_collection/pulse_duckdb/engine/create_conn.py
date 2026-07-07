@@ -1,3 +1,8 @@
+"""Compat shim: real implementation lives in `shared_duckdb.create_conn`.
+
+Kept for import stability of existing callers; add new code to shared_duckdb.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
