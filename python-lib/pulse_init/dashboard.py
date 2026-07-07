@@ -124,25 +124,23 @@ def ensure_scenario_gold_refresh(
     notification_email: str | None = None,
     notification_engine: str | None = None,
 ) -> InitStep:
-    """Create the GOLD refresh scenario if missing.
-
-    Important: if the scenario already exists, do not modify it.
-    """
+    """Create or repair the GOLD refresh scenario."""
 
     try:
+        existing_id = None
         for s in project.list_scenarios() or []:
             if s.get("name") == scenario_name:
-                return InitStep(
-                    step=f"scenario:{scenario_name}", status="already_exists"
-                )
-    except Exception:
-        # If listing scenarios fails, fall through to creation attempt.
-        pass
+                existing_id = s.get("id")
+                break
 
-    try:
-        scenario = project.create_scenario(
-            scenario_name=scenario_name, type="step_based"
-        )
+        if existing_id:
+            scenario = project.get_scenario(existing_id)
+            status = "repaired"
+        else:
+            scenario = project.create_scenario(
+                scenario_name=scenario_name, type="step_based"
+            )
+            status = "created"
         settings = scenario.get_settings()
 
         raw = settings.get_raw()
@@ -153,7 +151,21 @@ def ensure_scenario_gold_refresh(
 
         # Create a daily trigger at 00:00 server time.
         del settings.raw_triggers[:]
-        settings.add_daily_trigger(hour=0, minute=0, repeat_every=1, timezone="SERVER")
+        settings.raw_triggers.append(
+            {
+                "type": "temporal",
+                "name": "Time-based",
+                "delay": 5,
+                "active": True,
+                "params": {
+                    "repeatFrequency": 1,
+                    "frequency": "Daily",
+                    "hour": 0,
+                    "minute": 0,
+                    "timezone": "SERVER",
+                },
+            }
+        )
 
         # Build the GOLD folder (recursive forced build).
         del settings.raw_steps[:]
@@ -199,7 +211,10 @@ def ensure_scenario_gold_refresh(
 
         settings.save()
 
-        status = "created" if run_as_login else "created_with_warning"
+        if status == "created" and not run_as_login:
+            status = "created_with_warning"
+        elif status == "repaired" and not run_as_login:
+            status = "repaired_with_warning"
         message_parts: list[str] = []
         if not run_as_login:
             message_parts.append("Could not resolve project owner login; scenario runAsUser left unset")
