@@ -4,9 +4,9 @@ import base64
 import logging
 from pathlib import Path
 
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+# cryptography is imported lazily inside the decrypt helpers: it is only
+# needed for the GCS HMAC path, and keeping it out of module import keeps
+# `shared_duckdb` importable in light environments (tests, validators).
 
 from .context import StorageContext
 from .extensions import duckdb_version, ensure_provider_extensions
@@ -83,11 +83,16 @@ def configure_gcs_filesystem(conn) -> None:
 
 
 def derive_key_from_password(password: str, salt: bytes) -> bytes:
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
     kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=390000)
     return base64.urlsafe_b64encode(kdf.derive(password.encode()))
 
 
 def decrypt_string(ciphertext: bytes, password: str, salt: bytes) -> str:
+    from cryptography.fernet import Fernet
+
     return Fernet(derive_key_from_password(password, salt)).decrypt(ciphertext).decode()
 
 
@@ -163,6 +168,31 @@ def _configure_azure_shared_key(conn, ctx: StorageContext) -> dict:
         "Azure shared-key secret creation failed "
         f"for duckdb_version={duckdb_version()} after trying variants: {' | '.join(errors)}"
     )
+
+
+def refresh_storage_credentials(conn, *, ctx: StorageContext) -> bool:
+    """Re-create the DuckDB storage secret with freshly resolved credentials.
+
+    DSS hands out temporary STS tokens for ENVIRONMENT / STS_ASSUME_ROLE
+    connections; re-fetching connection info returns a rotated token once the
+    previous one nears expiry, and the secret templates are CREATE OR REPLACE.
+
+    Returns True when a secret was refreshed, False when the provider has no
+    refreshable secret (e.g. GCS in filesystem mode).
+    """
+
+    ctype = ctx.connection_type
+    if ctype == "EC2":
+        conn.execute(aws_credentials(ctx))
+        return True
+    if ctype == "Azure":
+        credential_mode = (ctx.connection_handle.get_info().get("params") or {}).get("authType")
+        if credential_mode == "SHARED_KEY":
+            _configure_azure_shared_key(conn, ctx)
+        else:
+            conn.execute(azure_credentials(ctx))
+        return True
+    return False
 
 
 def configure_storage(conn, *, ctx: StorageContext) -> dict:
