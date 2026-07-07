@@ -1,12 +1,11 @@
 """Connection helpers for DuckDB.
 
-All dashboard code shares ONE DuckDB database handle per process, handed out
-as cursors. DuckDB refuses to open the same file twice in one process with a
-different configuration (e.g. the read_only flag flipped), so per-request
-``duckdb.connect`` calls with mixed read_only values raced each other into
-intermittent "Can't open a connection to same database file with a different
-configuration than existing connections" errors whenever a query overlapped a
-gold refresh.
+All dashboard code shares ONE DuckDB handle per process, handed out as
+cursors: DuckDB refuses to open the same file twice in one process with
+mixed read_only flags, so per-request connects raced into intermittent
+"different configuration" errors. Because the shared handle is writable,
+read-only callers must go through ``query.query_df`` / ``assert_read_only_sql``,
+which reject non-read statements.
 """
 
 from __future__ import annotations
@@ -53,13 +52,11 @@ def _master() -> duckdb.DuckDBPyConnection:
 def create_connection(read_only: bool | None = None) -> duckdb.DuckDBPyConnection:
     """Return a cursor on the process-wide shared DuckDB connection.
 
-    ``read_only`` is kept for call-site compatibility but no longer selects a
-    connection mode: the shared connection is writable unless the deployment
-    sets ``PULSE_DUCKDB_READ_ONLY``, and read-only callers simply don't write.
-    Requesting a writable handle on a read-only deployment raises.
-
-    Callers may (and should) ``close()`` the returned cursor; the shared
-    connection stays open for the life of the process.
+    ``read_only`` does NOT select a connection mode — the cursor is writable
+    unless the deployment sets ``PULSE_DUCKDB_READ_ONLY`` (in which case
+    requesting a writable handle raises). Callers needing enforced read-only
+    execution must use ``query.query_df``. Callers should ``close()`` the
+    cursor; the shared connection stays open for the life of the process.
     """
     if DUCKDB_READ_ONLY and read_only is False:
         raise RuntimeError(
