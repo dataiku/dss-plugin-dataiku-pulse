@@ -6,7 +6,7 @@ from typing import Any
 
 import dataiku
 
-from .notifications import ensure_failure_reporter, notification_enabled
+from .notifications import ensure_failure_reporter_on_settings, notification_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -187,17 +187,17 @@ def ensure_scenario_gold_refresh(
             }
         )
 
-        settings.save()
-
         reporter_status = None
         reporter_message = None
         if notification_enabled(recipient=notification_email, channel_name=notification_engine):
-            reporter_status, reporter_message = ensure_failure_reporter(
+            reporter_status, reporter_message = ensure_failure_reporter_on_settings(
                 client=dataiku.api_client(),
-                scenario=scenario,
+                settings=settings,
                 recipient=notification_email,
                 channel_name=notification_engine,
             )
+
+        settings.save()
 
         status = "created" if run_as_login else "created_with_warning"
         message_parts: list[str] = []

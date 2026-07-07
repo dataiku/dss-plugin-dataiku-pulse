@@ -10,7 +10,7 @@ from typing import Any, Mapping
 import dataiku
 import dataikuapi
 
-from .notifications import ensure_failure_reporter, notification_enabled
+from .notifications import ensure_failure_reporter_on_settings, notification_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -618,17 +618,17 @@ def _ensure_or_repair_scenario(
             }
         )
 
-        settings.save()
-
         reporter_status = None
         reporter_message = None
         if notification_enabled(recipient=notification_email, channel_name=notification_engine):
-            reporter_status, reporter_message = ensure_failure_reporter(
+            reporter_status, reporter_message = ensure_failure_reporter_on_settings(
                 client=client,
-                scenario=scenario,
+                settings=settings,
                 recipient=notification_email,
                 channel_name=notification_engine,
             )
+
+        settings.save()
 
         message = None
         if reporter_status == "warning" and reporter_message:
