@@ -6,6 +6,8 @@ from typing import Any
 
 import dataiku
 
+from .notifications import ensure_failure_reporter, notification_enabled
+
 logger = logging.getLogger(__name__)
 
 
@@ -119,6 +121,8 @@ def ensure_scenario_gold_refresh(
     scenario_name: str,
     gold_folder_id: str,
     run_as_login: str | None,
+    notification_email: str | None = None,
+    notification_engine: str | None = None,
 ) -> InitStep:
     """Create the GOLD refresh scenario if missing.
 
@@ -185,12 +189,25 @@ def ensure_scenario_gold_refresh(
 
         settings.save()
 
+        reporter_status = None
+        reporter_message = None
+        if notification_enabled(recipient=notification_email, channel_name=notification_engine):
+            reporter_status, reporter_message = ensure_failure_reporter(
+                client=dataiku.api_client(),
+                scenario=scenario,
+                recipient=notification_email,
+                channel_name=notification_engine,
+            )
+
         status = "created" if run_as_login else "created_with_warning"
-        message = (
-            None
-            if run_as_login
-            else "Could not resolve project owner login; scenario runAsUser left unset"
-        )
+        message_parts: list[str] = []
+        if not run_as_login:
+            message_parts.append("Could not resolve project owner login; scenario runAsUser left unset")
+        if reporter_status == "warning" and reporter_message:
+            message_parts.append(reporter_message)
+        elif reporter_status in {"created", "updated"}:
+            message_parts.append(f"failure reporter {reporter_status}")
+        message = "; ".join(message_parts) if message_parts else None
         return InitStep(
             step=f"scenario:{scenario_name}", status=status, message=message
         )
@@ -208,6 +225,8 @@ def initialize_dashboard(
     gold_folder_name: str = "gold_data",
     recipe_name: str = "create_gold_tables",
     scenario_name: str = "gold_data_refresh",
+    notification_email: str | None = None,
+    notification_engine: str | None = None,
 ) -> list[InitStep]:
     """Initialize the hub (dashboard) project.
 
@@ -269,6 +288,8 @@ def initialize_dashboard(
                 scenario_name=scenario_name,
                 gold_folder_id=gold_id,
                 run_as_login=run_as_login,
+                notification_email=notification_email,
+                notification_engine=notification_engine,
             )
         )
     else:
