@@ -1,0 +1,15 @@
+# Dev/test dependencies (NOT installed in the production code-env).
+# Usage: pip install -r tests/requirements-dev.txt && pytest
+pytest
+pyyaml
+pandas
+pyarrow
+duckdb==1.5.3
+pytz
+dataiku-api-client
+
+# Lint / formatting (moved out of the prod code-env)
+ruff
+black
+rich
+nbformat
