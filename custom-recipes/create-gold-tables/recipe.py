@@ -697,7 +697,9 @@ def _build_fact_user_activity_daily(
     - A separate table `fact_user_activity_project_daily` keeps project grain.
     """
 
-    view_name = create_silver_view(conn=conn, ctx=ctx, category="users", module="user_activity")
+    view_name, _skip_reason = create_silver_view(conn=conn, ctx=ctx, category="users", module="user_activity")
+    if not view_name:
+        return ""
     if not view_name:
         return ""
 
@@ -737,7 +739,9 @@ def _build_fact_user_activity_project_daily(
     - We include `last_activity_at` to help UI sort/filter.
     """
 
-    view_name = create_silver_view(conn=conn, ctx=ctx, category="users", module="user_activity")
+    view_name, _skip_reason = create_silver_view(conn=conn, ctx=ctx, category="users", module="user_activity")
+    if not view_name:
+        return ""
     if not view_name:
         return ""
 
