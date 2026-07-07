@@ -848,6 +848,8 @@ def run() -> dict:
             + list((base_dir / "instance").glob("base_*.yaml"))
         )
 
+        skipped_tables: list[dict[str, str]] = []
+
         for spec_path in spec_paths:
             if spec_path.name == "base_license_limits_wide_latest.yaml":
                 if not _has_required_tables(
@@ -855,13 +857,41 @@ def run() -> dict:
                     ["base_license_status_latest", "base_license_max_licenses_latest"],
                 ):
                     continue
-                _inject_wide_license_sql(spec_path, base_dir=base_dir / "instance")
-            spec = load_gold_spec(spec_path)
+                profiles = _load_license_profiles(base_dir / "instance")
+                if not profiles:
+                    raise ValueError(
+                        "license_profiles.yaml must define at least one known license profile"
+                    )
+
+                column_lines: list[str] = []
+                for profile in profiles:
+                    upper_profile = profile.upper()
+                    column_lines.append(
+                        "      MAX(CASE WHEN max_licenses.license_profile = '{profile}' THEN max_licenses.max_licenses END) AS max_licenses_{column},".format(
+                            profile=upper_profile,
+                            column=profile,
+                        )
+                    )
+                    column_lines.append(
+                        "      MAX(CASE WHEN max_licenses.license_profile = 'SUBLICENSE_{profile}' THEN max_licenses.max_licenses END) AS sublicense_{column},".format(
+                            profile=upper_profile,
+                            column=profile,
+                        )
+                    )
+
+                if column_lines:
+                    column_lines[-1] = column_lines[-1].rstrip(",")
+
+                sql_params = {"wide_columns": ",\n" + "\n".join(column_lines)}
+            else:
+                sql_params = None
+
+            spec = load_gold_spec(spec_path, sql_params=sql_params)
 
             # Ensure the upstream SILVER view exists.
             if spec.category and spec.module:
                 view_name = spec.view_table_name or f"v_{spec.category}__{spec.module}"
-                created_view = create_silver_view(
+                created_view, skip_reason = create_silver_view(
                     conn=setup.conn,
                     ctx=ctx,
                     category=spec.category,
@@ -869,7 +899,7 @@ def run() -> dict:
                     view_name=view_name,
                 )
                 if not created_view:
-                    # No data available yet for this spec.
+                    skipped_tables.append({"table": spec.name, "reason": skip_reason or "no data"})
                     continue
 
             apply_gold_spec(setup.conn, spec)
@@ -1101,9 +1131,13 @@ def run() -> dict:
     finally:
         setup.conn.close()
 
+    if skipped_tables:
+        logger.warning("Gold tables skipped (no silver data): %s", skipped_tables)
+
     return {
         "ok": len(failed_tables) == 0,
         "failed_tables": failed_tables,
+        "skipped_tables": skipped_tables,
         "source_project_key": project_key,
         "connection_type": ctx.connection_type,
         "connection_name": ctx.connection_name,

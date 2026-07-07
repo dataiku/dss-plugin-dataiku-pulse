@@ -59,7 +59,12 @@ def _render_template(*, template_name: str, payload: dict) -> str:
     raise ValueError(f"Unknown gold spec template: {template_name!r}")
 
 
-def load_gold_spec(path: Path) -> GoldSpec:
+def load_gold_spec(path: Path, *, sql_params: dict[str, str] | None = None) -> GoldSpec:
+    """Load a gold spec, optionally rendering `{placeholder}` SQL params at runtime.
+
+    Rendering uses plain `str.replace` (not `str.format`) because spec SQL can
+    contain other literal braces. The spec file on disk is never modified.
+    """
     data = yaml_loader.load_yaml(path)
     if not isinstance(data, dict) or not data:
         raise ValueError(f"Invalid gold spec YAML: {path}")
@@ -72,6 +77,14 @@ def load_gold_spec(path: Path) -> GoldSpec:
         sql = _render_template(template_name=str(template), payload=payload)
     else:
         sql = str(payload.get("sql") or "")
+
+    for key, value in (sql_params or {}).items():
+        placeholder = "{" + str(key) + "}"
+        if placeholder not in sql:
+            raise ValueError(
+                f"Gold spec {path} does not contain expected placeholder {placeholder}"
+            )
+        sql = sql.replace(placeholder, str(value))
 
     return GoldSpec(
         name=name,
