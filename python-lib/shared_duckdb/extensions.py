@@ -67,8 +67,23 @@ def _install_and_load_extension(conn, extension_name: str) -> None:
 def _load_bundled_extension(conn, extension_name: str) -> None:
     extension_path = bundled_extension_path(extension_name)
     if not extension_path.exists():
+        bundle_root = _repo_root() / "resource" / "duckdb_extensions"
+        try:
+            available = sorted(
+                str(p.relative_to(bundle_root))
+                for p in bundle_root.glob("*/*")
+                if p.is_dir()
+            )
+        except Exception:
+            available = []
         raise FileNotFoundError(
-            f"Missing bundled DuckDB extension for {extension_name}: {extension_path}"
+            f"No bundled DuckDB extension {extension_name!r} for duckdb "
+            f"{duckdb_version()} on platform {platform_slug()} — expected file: "
+            f"{extension_path}. Bundled version/platform matrix: "
+            f"{', '.join(available) if available else 'none'}. Fix by allowing "
+            "network access (INSTALL), pre-populating the DuckDB extension cache, "
+            "or adding the bundled binary for this duckdb version and platform "
+            "(see docs/install.md, 'DuckDB extensions')."
         )
     escaped_path = str(extension_path).replace("'", "''")
     conn.execute(f"LOAD '{escaped_path}';")
