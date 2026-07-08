@@ -10,6 +10,8 @@ from typing import Any, Mapping
 import dataiku
 import dataikuapi
 
+from .notifications import ensure_failure_reporter_on_settings, notification_enabled
+
 logger = logging.getLogger(__name__)
 
 
@@ -527,6 +529,7 @@ def _ensure_project_var_if_missing(
 def _ensure_or_repair_scenario(
     project: Any,
     *,
+    client: Any,
     name: str,
     runnable_type: str,
     preset_name: str,
@@ -536,6 +539,8 @@ def _ensure_or_repair_scenario(
     repeat_frequency: int = 1,
     step_config: Mapping[str, Any] | None = None,
     admin_config: Mapping[str, Any] | None = None,
+    notification_email: str | None = None,
+    notification_engine: str | None = None,
 ) -> InitStep:
     """Create or repair a step-based scenario with a runnable step."""
 
@@ -613,8 +618,24 @@ def _ensure_or_repair_scenario(
             }
         )
 
+        reporter_status = None
+        reporter_message = None
+        if notification_enabled(recipient=notification_email, channel_name=notification_engine):
+            reporter_status, reporter_message = ensure_failure_reporter_on_settings(
+                client=client,
+                settings=settings,
+                recipient=notification_email,
+                channel_name=notification_engine,
+            )
+
         settings.save()
-        return InitStep(step=f"scenario:{name}", status=status)
+
+        message = None
+        if reporter_status == "warning" and reporter_message:
+            message = reporter_message
+        elif reporter_status in {"created", "updated"}:
+            message = f"notification reporter {reporter_status}"
+        return InitStep(step=f"scenario:{name}", status=status, message=message)
 
     except Exception as e:
         return InitStep(step=f"scenario:{name}", status="error", message=repr(e))
@@ -647,6 +668,8 @@ def initialize_workers(
     ignore_certs = bool(_safe_get(hub_params, "ignore_certs", False))
 
     worker_hosts = _safe_get(hub_params, "worker_hosts", []) or []
+    default_notification_email = str(_safe_get(hub_params, "notification_email", "") or "")
+    default_notification_engine = str(_safe_get(hub_params, "notification_engine", "") or "")
 
     now_ts = _default_worker_cursor_ts()
 
@@ -657,6 +680,7 @@ def initialize_workers(
         worker_classification, classification_warning = _normalize_worker_classification(
             _safe_get(worker, "worker_classification", DESIGNER_CLASSIFICATION)
         )
+        worker_preset_name = str(_safe_get(worker, "preset_name", "") or "").strip()
 
         if not worker_url:
             steps.append(
@@ -720,12 +744,39 @@ def initialize_workers(
                 )
                 continue
 
+        worker_notification_email = default_notification_email
+        worker_notification_engine = default_notification_engine
+
+        if worker_preset_name:
+            try:
+                plugin_handle = client.get_plugin("dataiku-pulse")
+                plugin_settings = plugin_handle.get_settings()
+                pdi_ps = plugin_settings.get_parameter_set("params-worker-instances")
+                preset_values = pdi_ps.get_preset(worker_preset_name) or {}
+                worker_notification_email = str(preset_values.get("notification_email") or worker_notification_email or "")
+                worker_notification_engine = str(preset_values.get("notification_engine") or worker_notification_engine or "")
+                steps.append(
+                    InitStep(
+                        step=f"worker:{worker_url}:notification_preset",
+                        status="ok",
+                        message=worker_preset_name,
+                    )
+                )
+            except Exception as exc:
+                steps.append(
+                    InitStep(
+                        step=f"worker:{worker_url}:notification_preset",
+                        status="warning",
+                        message=repr(exc),
+                    )
+                )
+
         # Sync plugin remotely (skip when worker is hub)
         if not is_hub:
             plugin_steps = _sync_plugin_from_hub(
                 remote_client=client,
                 hub_params=hub_params,
-                preset_name=preset_name,
+                preset_name=worker_preset_name or preset_name,
                 run_as_user=run_as_user,
                 update_github=update_github,
                 force_skip_github=force_skip_github,
@@ -818,15 +869,18 @@ def initialize_workers(
             scn_name = str(scenario_def["name"])
             scn_step = _ensure_or_repair_scenario(
                 project,
+                client=client,
                 name=scn_name,
                 runnable_type=str(scenario_def["runnable_type"]),
-                preset_name=preset_name,
+                preset_name=worker_preset_name or preset_name,
                 run_as_user=run_as_user,
                 hour=int(scenario_def.get("hour", 17)),
                 frequency=str(scenario_def.get("frequency", "Daily")),
                 repeat_frequency=int(scenario_def.get("repeat_frequency", 1)),
                 step_config=scenario_def.get("step_config"),
                 admin_config=scenario_def.get("admin_config"),
+                notification_email=worker_notification_email,
+                notification_engine=worker_notification_engine,
             )
             steps.append(
                 InitStep(

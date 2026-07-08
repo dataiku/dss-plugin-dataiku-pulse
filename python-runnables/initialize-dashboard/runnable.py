@@ -55,7 +55,10 @@ class MyRunnable(Runnable):
         connection_name = param_set.get("pulse_folder_connection")
 
         steps = initialize_dashboard(
-            project_key=hub_project_key, connection_name=connection_name
+            project_key=hub_project_key,
+            connection_name=connection_name,
+            notification_email=param_set.get("notification_email"),
+            notification_engine=param_set.get("notification_engine"),
         )
 
         return _steps_to_result_table(steps)

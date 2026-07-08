@@ -4,6 +4,7 @@ import gzip
 import io
 import json
 import logging
+import threading
 import time
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -19,12 +20,34 @@ from dataikuapi.dssclient import DSSClient
 
 logger = logging.getLogger(__name__)
 
-_FOLDER_HANDLE_CACHE: dict[tuple[Any, str, str, str | None, str | None, str | None], Any] = {}
+# Folder handles keyed by identity of the target (host/project/folder), not by
+# id(client): id() values are recycled after GC and would alias unrelated
+# clients. Guarded by a lock — parallel project collection uploads from
+# multiple joblib threads.
+_FOLDER_HANDLE_CACHE: dict[tuple[str | None, str, str, str | None], Any] = {}
+_FOLDER_HANDLE_CACHE_LOCK = threading.Lock()
 
 from .output_layout import as_posix_relative
 
 
 def _is_transient_upload_error(exc: Exception) -> bool:
+    # Classify by exception class first, then fall back to substring markers
+    # for wrapped/stringified errors (e.g. DSS API error payloads).
+    try:
+        import requests
+
+        if isinstance(exc, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+            return True
+        if isinstance(exc, requests.exceptions.HTTPError):
+            response = getattr(exc, "response", None)
+            status = getattr(response, "status_code", None)
+            if status is not None and int(status) >= 500:
+                return True
+    except ImportError:
+        pass
+    if isinstance(exc, (ConnectionError, TimeoutError)):
+        return True
+
     text = repr(exc).lower()
     markers = (
         "connection reset",
@@ -40,7 +63,9 @@ def _is_transient_upload_error(exc: Exception) -> bool:
 
 
 def _run_with_upload_retry(*, rel_path: str, fn) -> None:
-    attempts = 2
+    # Note: multi-file commits are not atomic on managed folders; on partial
+    # failure the gather cursors are clamped so the data re-qualifies next run.
+    attempts = 4
     delay_seconds = 1.0
     last_exc: Exception | None = None
     for attempt in range(1, attempts + 1):
@@ -59,6 +84,7 @@ def _run_with_upload_retry(*, rel_path: str, fn) -> None:
                 delay_seconds,
             )
             time.sleep(delay_seconds)
+            delay_seconds *= 2
     if last_exc is not None:
         raise last_exc
 
@@ -109,14 +135,15 @@ def _ensure_partitioning_settings(folder_handle: Any, *, folder_lookup: str) -> 
         return
 
 
-def _folder_cache_key(target: DSSFolderTarget) -> tuple[Any, str, str, str | None, str | None, str | None]:
+def _folder_cache_key(target: DSSFolderTarget) -> tuple[str | None, str, str, str | None]:
+    host = target.host
+    if host is None and target.client is not None:
+        host = getattr(target.client, "host", None)
     return (
-        id(target.client) if target.client is not None else None,
+        host,
         target.project_key,
         target.folder_lookup,
         target.connection_name,
-        target.host,
-        target.api_key,
     )
 
 
@@ -148,7 +175,15 @@ def _get_or_create_local_folder(target: DSSFolderTarget) -> dataiku.Folder:
             connection_name=connection_name,
         )
     except Exception:
-        pass
+        # Expected in parallel runs (create race: another worker won); the
+        # final resolution below is authoritative. Still logged so genuine
+        # create failures (permissions, bad connection) are diagnosable.
+        logger.info(
+            "create_managed_folder(%s) in %s failed (likely already exists)",
+            target.folder_lookup,
+            target.project_key,
+            exc_info=True,
+        )
 
     try:
         fid = None
@@ -160,7 +195,12 @@ def _get_or_create_local_folder(target: DSSFolderTarget) -> dataiku.Folder:
             folder_handle = project.get_managed_folder(fid)
             _ensure_partitioning_settings(folder_handle, folder_lookup=target.folder_lookup)
     except Exception:
-        pass
+        logger.warning(
+            "Failed to enforce partitioning on folder %s in %s",
+            target.folder_lookup,
+            target.project_key,
+            exc_info=True,
+        )
 
     folder = dataiku.Folder(
         lookup=target.folder_lookup,
@@ -224,31 +264,26 @@ def _get_or_create_folder(target: DSSFolderTarget):
     """
 
     cache_key = _folder_cache_key(target)
-    cached = _FOLDER_HANDLE_CACHE.get(cache_key)
+    with _FOLDER_HANDLE_CACHE_LOCK:
+        cached = _FOLDER_HANDLE_CACHE.get(cache_key)
     if cached is not None:
         return cached
 
-    if target.client is not None:
+    if target.client is not None or (target.host and target.api_key):
         folder = _get_or_create_remote_folder(target)
-        _FOLDER_HANDLE_CACHE[cache_key] = folder
-        return folder
+    else:
+        if target.host and not target.api_key:
+            logger.warning(
+                "Ignoring remote host because api_key is missing (host=%s project=%s folder=%s)",
+                target.host,
+                target.project_key,
+                target.folder_lookup,
+            )
+        folder = _get_or_create_local_folder(target)
 
-    if target.host and target.api_key:
-        folder = _get_or_create_remote_folder(target)
-        _FOLDER_HANDLE_CACHE[cache_key] = folder
-        return folder
-
-    if target.host and not target.api_key:
-        logger.warning(
-            "Ignoring remote host because api_key is missing (host=%s project=%s folder=%s)",
-            target.host,
-            target.project_key,
-            target.folder_lookup,
-        )
-
-    folder = _get_or_create_local_folder(target)
-    _FOLDER_HANDLE_CACHE[cache_key] = folder
-    return folder
+    with _FOLDER_HANDLE_CACHE_LOCK:
+        _FOLDER_HANDLE_CACHE.setdefault(cache_key, folder)
+        return _FOLDER_HANDLE_CACHE[cache_key]
 
 
 

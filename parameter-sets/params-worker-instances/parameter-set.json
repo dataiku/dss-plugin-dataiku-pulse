@@ -16,6 +16,22 @@
             "defaultValue": "admin"
         },
         {
+            "name": "notification_email",
+            "label": "Notification Email Addresses",
+            "type": "STRING",
+            "description": "Comma-separated email addresses to notify on Pulse scenario failure. Leave blank to skip notification setup.",
+            "mandatory": false,
+            "defaultValue": ""
+        },
+        {
+            "name": "notification_engine",
+            "label": "Notification Engine Name",
+            "type": "STRING",
+            "description": "Exact DSS messaging channel name/id to use for Pulse scenario failure notifications. Leave blank to skip notification setup.",
+            "mandatory": false,
+            "defaultValue": ""
+        },
+        {
             "name": "ignore_certs",
             "label": "Ignore Certificates and force trust TLS",
             "type": "BOOLEAN",
