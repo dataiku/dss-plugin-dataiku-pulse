@@ -7,6 +7,7 @@ import duckdb
 
 from .context import StorageContext, build_storage_context
 from .create_conn import create_connection, reset_duckdb
+from .refreshing_conn import RefreshingConnection
 from .storage_config import configure_storage
 
 
@@ -42,17 +43,21 @@ def prepare_duckdb(
         reset_duckdb(path=db_path, project_key=project_key, purpose=purpose)
 
     conn = create_connection(read_only=read_only, path=db_path, project_key=project_key, purpose=purpose)
+    conn_out = conn
     try:
         if storage_context is not None:
             storage_info = configure_storage(conn, ctx=storage_context)
             provider = str(storage_info.get("provider"))
             credential_mode = storage_info.get("credential_mode")
+            # Long builds outlive DSS's temporary STS tokens; the proxy keeps
+            # the DuckDB secret refreshed and retries once on ExpiredToken.
+            conn_out = RefreshingConnection(conn, ctx=storage_context)
     except Exception:
         conn.close()
         raise
 
     return DuckDBBootstrapResult(
-        conn=conn,
+        conn=conn_out,
         db_path=Path(conn.sql("PRAGMA database_list").fetchall()[0][2]),
         provider=provider,
         credential_mode=credential_mode,

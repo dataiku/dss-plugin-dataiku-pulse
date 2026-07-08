@@ -6,6 +6,8 @@ from typing import Any
 
 import dataiku
 
+from .notifications import ensure_failure_reporter_on_settings, notification_enabled
+
 logger = logging.getLogger(__name__)
 
 
@@ -119,26 +121,26 @@ def ensure_scenario_gold_refresh(
     scenario_name: str,
     gold_folder_id: str,
     run_as_login: str | None,
+    notification_email: str | None = None,
+    notification_engine: str | None = None,
 ) -> InitStep:
-    """Create the GOLD refresh scenario if missing.
-
-    Important: if the scenario already exists, do not modify it.
-    """
+    """Create or repair the GOLD refresh scenario."""
 
     try:
+        existing_id = None
         for s in project.list_scenarios() or []:
             if s.get("name") == scenario_name:
-                return InitStep(
-                    step=f"scenario:{scenario_name}", status="already_exists"
-                )
-    except Exception:
-        # If listing scenarios fails, fall through to creation attempt.
-        pass
+                existing_id = s.get("id")
+                break
 
-    try:
-        scenario = project.create_scenario(
-            scenario_name=scenario_name, type="step_based"
-        )
+        if existing_id:
+            scenario = project.get_scenario(existing_id)
+            status = "repaired"
+        else:
+            scenario = project.create_scenario(
+                scenario_name=scenario_name, type="step_based"
+            )
+            status = "created"
         settings = scenario.get_settings()
 
         raw = settings.get_raw()
@@ -149,7 +151,21 @@ def ensure_scenario_gold_refresh(
 
         # Create a daily trigger at 00:00 server time.
         del settings.raw_triggers[:]
-        settings.add_daily_trigger(hour=0, minute=0, repeat_every=1, timezone="SERVER")
+        settings.raw_triggers.append(
+            {
+                "type": "temporal",
+                "name": "Time-based",
+                "delay": 5,
+                "active": True,
+                "params": {
+                    "repeatFrequency": 1,
+                    "frequency": "Daily",
+                    "hour": 0,
+                    "minute": 0,
+                    "timezone": "SERVER",
+                },
+            }
+        )
 
         # Build the GOLD folder (recursive forced build).
         del settings.raw_steps[:]
@@ -183,14 +199,30 @@ def ensure_scenario_gold_refresh(
             }
         )
 
+        reporter_status = None
+        reporter_message = None
+        if notification_enabled(recipient=notification_email, channel_name=notification_engine):
+            reporter_status, reporter_message = ensure_failure_reporter_on_settings(
+                client=dataiku.api_client(),
+                settings=settings,
+                recipient=notification_email,
+                channel_name=notification_engine,
+            )
+
         settings.save()
 
-        status = "created" if run_as_login else "created_with_warning"
-        message = (
-            None
-            if run_as_login
-            else "Could not resolve project owner login; scenario runAsUser left unset"
-        )
+        if status == "created" and not run_as_login:
+            status = "created_with_warning"
+        elif status == "repaired" and not run_as_login:
+            status = "repaired_with_warning"
+        message_parts: list[str] = []
+        if not run_as_login:
+            message_parts.append("Could not resolve project owner login; scenario runAsUser left unset")
+        if reporter_status == "warning" and reporter_message:
+            message_parts.append(reporter_message)
+        elif reporter_status in {"created", "updated"}:
+            message_parts.append(f"notification reporter {reporter_status}")
+        message = "; ".join(message_parts) if message_parts else None
         return InitStep(
             step=f"scenario:{scenario_name}", status=status, message=message
         )
@@ -208,6 +240,8 @@ def initialize_dashboard(
     gold_folder_name: str = "gold_data",
     recipe_name: str = "create_gold_tables",
     scenario_name: str = "gold_data_refresh",
+    notification_email: str | None = None,
+    notification_engine: str | None = None,
 ) -> list[InitStep]:
     """Initialize the hub (dashboard) project.
 
@@ -269,6 +303,8 @@ def initialize_dashboard(
                 scenario_name=scenario_name,
                 gold_folder_id=gold_id,
                 run_as_login=run_as_login,
+                notification_email=notification_email,
+                notification_engine=notification_engine,
             )
         )
     else:

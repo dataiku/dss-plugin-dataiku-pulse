@@ -259,3 +259,25 @@ To install Pulse v3 successfully:
 - confirm connected-instance access, shared storage, and Parquet runtime readiness
 
 Once initialized, Pulse begins operating as a centralized hub with worker-side collection across connected Dataiku instances.
+
+## DuckDB extensions (offline-friendly loading)
+
+Pulse pins DuckDB to a specific version and needs the `httpfs` (AWS/GCS) or
+`azure` extension depending on the storage connection. Extensions load through
+a three-step fallback (`shared_duckdb/extensions.py`):
+
+1. **Network install** — `INSTALL <ext>` from the DuckDB extension repository.
+2. **Local cache** — `LOAD <ext>` from `~/.duckdb/extensions/...` if a previous
+   install populated it.
+3. **Bundled binary** — loaded from
+   `resource/duckdb_extensions/<duckdb_version>/<platform>/<ext>.duckdb_extension`,
+   shipped with the plugin for the pinned DuckDB version on `linux_amd64`.
+
+If all three fail, the error names the exact expected bundled path and the
+version/platform matrix actually shipped. On air-gapped instances with a
+platform outside the bundled matrix, pre-populate the DuckDB extension cache
+or add the matching bundled binary.
+
+The DuckDB version is pinned in lockstep between `code-env/python/spec/requirements.txt`
+and `tests/requirements-dev.txt`; when bumping it, also re-vendor the bundled
+extensions for the new version.
