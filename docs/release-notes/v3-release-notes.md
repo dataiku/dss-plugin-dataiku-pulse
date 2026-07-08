@@ -6,20 +6,34 @@ These notes summarize the major themes of the v3 work at a high level for public
 
 ## Version Highlights
 
+### 3.0.18
+
+- Hardened the packaged dashboard startup path so the webapp backend binds more reliably before DuckDB warmup begins, reducing cases where the UI appears before analytics are fully ready.
+- Improved DuckDB connection handling inside the dashboard process to avoid mixed read/write connection conflicts and better tolerate stale or invalid shared handles.
+- Strengthened the dashboard's read-only SQL protections so the query path rejects write-style statements more explicitly.
+- Added credential-refresh support for long-running GOLD builds so cloud-storage backed DuckDB reads are more resilient when temporary credentials expire mid-run.
+- Improved GOLD build/runtime behavior by rendering specs at execution time, surfacing skipped tables more clearly, and handling skipped user-activity views more gracefully.
+- Added scenario failure notification configuration plus follow-up fixes so dashboard refresh scenarios keep their expected triggers while attaching Pulse-managed failure reporters.
+- Added a focused local regression test harness covering dashboard connection reuse, read-only query safety, credential refresh, and notification reporter setup.
+
 ### 3.0.17
 
 - Added worker node classification support so each worker can be initialized as either `Designer` or `Automation`.
 - Added Automation-node worker bootstrap using the packaged skeleton bundle `resource/dataiku_pulse_worker_bundle_skeleton_v1.zip` so Pulse can create an activation-ready worker project before building datasets, variables, and scenarios.
+- Refined automation worker bundle activation and setup flow so imported bundles are used more consistently when preparing automation workers.
 - Updated worker initialization so missing `projects_delta` and `audit_log_delta` cursors start **3 calendar months back** instead of only from the current run time.
 - Aligned project and audit-log collection fallback cursor behavior with the same 3-month default window when worker variables are missing.
 - Updated installation and runnable documentation to reflect Automation worker setup and the revised cursor defaults.
 
 ### 3.0.16
 
-- Continued hardening of the packaged Pulse dashboard experience for smoother startup, refresh, and recovery behavior.
-- Expanded collection and normalization coverage across metadata and activity inputs to improve the quality and continuity of downstream analytics.
-- Improved curated GOLD-layer coverage, taxonomy alignment, and dashboard readability across products, assets, activity, and summary views.
-- Strengthened resilience for mixed or incomplete source inputs so Pulse remains more usable across real-world deployment environments.
+- Added broader Automation-worker setup support and documentation so Pulse can be deployed more flexibly across Designer and Automation estates.
+- Improved bundled/offline DuckDB extension behavior and extension error reporting so storage-backed builds work more reliably in restricted environments.
+- Hardened managed-folder upload handling and folder access reuse to make collection and build flows more reliable under real DSS execution patterns.
+- Improved dashboard startup, refresh, and recovery behavior for a smoother packaged webapp experience.
+- Expanded collection, normalization, and taxonomy coverage across metadata and activity inputs to improve the quality and continuity of downstream analytics.
+- Improved curated GOLD-layer coverage and dashboard readability across products, assets, activity, summary, and license-oriented views.
+- Strengthened resilience for mixed, incomplete, or partially missing source inputs so Pulse remains more usable across real-world deployment environments.
 
 ## Data Collection
 
