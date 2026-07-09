@@ -803,8 +803,7 @@ def initialize_workers(
             _safe_get(worker, "worker_classification", DESIGNER_CLASSIFICATION)
         )
         worker_preset_name = str(_safe_get(worker, "preset_name", "") or "").strip()
-        worker_enabled_raw = _safe_get(worker, "worker_enabled", True)
-        worker_enabled = _as_bool(worker_enabled_raw, default=True)
+        worker_enabled = _as_bool(_safe_get(worker, "worker_enabled", True), default=True)
         worker_override, worker_override_warning = _resolve_worker_override_preset(
             local_client, worker_preset_name
         )
@@ -852,14 +851,6 @@ def initialize_workers(
                     message=worker_classification,
                 )
             )
-
-        steps.append(
-            InitStep(
-                step=f"worker:{worker_url}:enabled_resolved",
-                status="ok",
-                message=f"raw={worker_enabled_raw!r}, resolved={worker_enabled}",
-            )
-        )
 
         if worker_override_warning:
             steps.append(
