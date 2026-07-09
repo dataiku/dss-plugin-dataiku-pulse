@@ -42,6 +42,22 @@ def _safe_get(d: Mapping[str, Any] | None, key: str, default: Any = None) -> Any
     return d.get(key, default)
 
 
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+
+    normalized = str(value).strip().lower()
+    if normalized in {"true", "1", "yes", "y", "on"}:
+        return True
+    if normalized in {"false", "0", "no", "n", "off", ""}:
+        return False
+    return default
+
+
 def _normalize_worker_classification(value: Any) -> tuple[str, str | None]:
     raw = str(value or "").strip().lower()
     if not raw:
@@ -107,6 +123,33 @@ def _plugin_exists(client: Any, plugin_id: str) -> bool:
     except Exception:
         return False
     return False
+
+
+def _attach_plugin_code_env(plugin_handle: Any, plugin_id: str) -> InitStep:
+    """Attach the plugin-managed Python code env in plugin settings."""
+
+    try:
+        settings = plugin_handle.get_settings()
+        raw = settings.get_raw()
+
+        code_env_settings = raw.setdefault("codeEnvSettings", {})
+        python_settings = code_env_settings.setdefault("python", {})
+
+        python_settings["envMode"] = "EXPLICIT_ENV"
+        python_settings["envName"] = plugin_id
+
+        settings.save()
+        return InitStep(
+            step="remote:attach_code_env",
+            status="updated",
+            message=plugin_id,
+        )
+    except Exception as exc:
+        return InitStep(
+            step="remote:attach_code_env",
+            status="warning",
+            message=repr(exc),
+        )
 
 
 def _resolve_worker_override_preset(
@@ -285,6 +328,8 @@ def _sync_plugin_from_hub(
             else:
                 steps.append(InitStep(step="remote:create_code_env", status="created"))
 
+            steps.append(_attach_plugin_code_env(plugin_handle, plugin_id))
+
         else:
             steps.append(
                 InitStep(step="remote:install_plugin", status="already_exists")
@@ -330,9 +375,13 @@ def _sync_plugin_from_hub(
                     steps.append(
                         InitStep(step="remote:update_code_env", status="updated")
                     )
+
+                steps.append(_attach_plugin_code_env(plugin_handle, plugin_id))
             else:
                 steps.append(InitStep(step="remote:update_from_git", status="skipped"))
                 steps.append(InitStep(step="remote:update_code_env", status="skipped"))
+                plugin_handle = plugin_client.get_plugin(plugin_id=plugin_id)
+                steps.append(_attach_plugin_code_env(plugin_handle, plugin_id))
 
         # Sync the preset config so worker scenarios reference the correct preset name.
         plugin_handle = remote_client.get_plugin(plugin_id=plugin_id)
@@ -754,7 +803,7 @@ def initialize_workers(
             _safe_get(worker, "worker_classification", DESIGNER_CLASSIFICATION)
         )
         worker_preset_name = str(_safe_get(worker, "preset_name", "") or "").strip()
-        worker_enabled = bool(_safe_get(worker, "worker_enabled", True))
+        worker_enabled = _as_bool(_safe_get(worker, "worker_enabled", True), default=True)
         worker_override, worker_override_warning = _resolve_worker_override_preset(
             local_client, worker_preset_name
         )
@@ -765,7 +814,10 @@ def initialize_workers(
             worker_override,
         )
         run_as_user = str(_safe_get(effective_worker_params, "pulse_dataiku_user", "admin"))
-        ignore_certs = bool(_safe_get(effective_worker_params, "ignore_certs", False))
+        ignore_certs = _as_bool(
+            _safe_get(effective_worker_params, "ignore_certs", False),
+            default=False,
+        )
         worker_notification_email = str(
             _safe_get(effective_worker_params, "notification_email", "") or ""
         )
