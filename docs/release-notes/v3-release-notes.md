@@ -6,6 +6,14 @@ These notes summarize the major themes of the v3 work at a high level for public
 
 ## Version Highlights
 
+### 3.0.19
+
+- Improved the GOLD builder recipe runtime with step-level timing and row-count logging so long-running phases are easier to isolate and diagnose.
+- Added recipe-level controls for incremental execution, lookback safety windows, and selective inclusion of the heaviest activity fact tables.
+- Introduced manifest-backed incremental state in the GOLD managed folder so later runs can reuse prior build progress even though the recipe creates a fresh DuckDB file each time.
+- Added incremental merge behavior for latest-state GOLD tables plus incremental export behavior for large activity fact tables to reduce repeated full-history rebuilds.
+- Updated the GOLD recipe documentation to describe the new incremental execution model, recipe parameters, and operational caveats for first-run versus steady-state execution.
+
 ### 3.0.18
 
 - Hardened the packaged dashboard startup path so the webapp backend binds more reliably before DuckDB warmup begins, reducing cases where the UI appears before analytics are fully ready.
