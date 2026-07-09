@@ -34,6 +34,7 @@ Naming rules are documented at `python-lib/data_collection/pulse_duckdb/gold_spe
 Notes:
 - Scenario ids/names and timestamps are currently extracted from `extras` JSON in SILVER.
 - This recipe assumes the GOLD output managed folder and `partitioned_data` share the same underlying connection.
+- Incremental state is stored in the GOLD managed folder at `gold/_state/manifest.json`.
 
 ## Recipe parameters
 
@@ -66,6 +67,45 @@ DuckDB files default under `/tmp/duckdb/` using a unique per-run filename such a
 You can override it with:
 
 - `PULSE_DUCKDB_DIR`: directory for per-run DuckDB files
+
+## Incremental state
+
+This recipe creates a fresh local DuckDB file on every run, so runtime improvements
+cannot rely on persisted local database state.
+
+Instead, incremental progress is stored in the GOLD output managed folder at:
+
+- `gold/_state/manifest.json`
+
+The manifest stores per-table watermarks so later runs can:
+
+- rescan only recent SILVER data for append-heavy event facts
+- merge prior GOLD latest-state outputs with new SILVER rows for `base_*` latest tables
+- keep a small safety lookback window for late-arriving data
+
+### Incremental environment variables
+
+- `PULSE_GOLD_INCREMENTAL`
+  - default: `true`
+  - enables manifest-backed incremental behavior
+
+- `PULSE_GOLD_LOOKBACK_DAYS`
+  - default: `3`
+  - subtracts a small safety window from stored watermarks before incremental reads
+
+- `PULSE_GOLD_BUILD_DEV_ACTIVITY`
+  - default: `true`
+  - when `false`, skips `fact_dev_activity_events`
+
+- `PULSE_GOLD_BUILD_OBJECT_ACTIVITY`
+  - default: `true`
+  - when `false`, skips `fact_object_activity_events`
+
+### Important notes
+
+- The first run after enabling incremental mode is still close to a full rebuild because no manifest exists yet.
+- Later runs should be substantially faster when SILVER is mostly append-only.
+- If older source partitions can be rewritten or corrected, increase `PULSE_GOLD_LOOKBACK_DAYS`.
 
 Notes:
 - This recipe currently generates the DuckDB file path internally and does not read `PULSE_DUCKDB_PATH`.
