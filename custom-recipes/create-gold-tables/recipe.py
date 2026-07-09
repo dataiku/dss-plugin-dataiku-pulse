@@ -1059,10 +1059,10 @@ def run() -> dict:
     recipe_config = get_recipe_config() or {}
 
     unload_behavior = recipe_config.get("unload_behavior", "duckdb")
-    build_dev_activity = _env_flag("PULSE_GOLD_BUILD_DEV_ACTIVITY", default=True)
-    build_object_activity = _env_flag("PULSE_GOLD_BUILD_OBJECT_ACTIVITY", default=True)
-    manifest_enabled = _env_flag("PULSE_GOLD_INCREMENTAL", default=True)
-    lookback_days = int(os.environ.get("PULSE_GOLD_LOOKBACK_DAYS", "3") or "3")
+    build_dev_activity = bool(recipe_config.get("build_dev_activity", True))
+    build_object_activity = bool(recipe_config.get("build_object_activity", True))
+    manifest_enabled = bool(recipe_config.get("incremental_enabled", True))
+    lookback_days = int(recipe_config.get("lookback_days", 3) or 3)
 
     # The output managed folder is the GOLD destination.
     # Dataiku recipe helpers usually return a managed folder id.

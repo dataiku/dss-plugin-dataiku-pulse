@@ -41,6 +41,18 @@ Notes:
 - `unload_behavior`
   - `duckdb`: uses DuckDB `COPY ... TO '<blob-url>'` to write parquet directly to blob storage
   - `dataiku`: uses `SELECT * FROM <table>` -> pandas -> `Folder.upload_stream()`
+- `incremental_enabled`
+  - default: `true`
+  - enables manifest-backed incremental behavior
+- `lookback_days`
+  - default: `3`
+  - reprocesses a recent safety window on each incremental run to catch late-arriving data
+- `build_dev_activity`
+  - default: `true`
+  - controls whether `fact_dev_activity_events` is built and exported
+- `build_object_activity`
+  - default: `true`
+  - controls whether `fact_object_activity_events` is built and exported
 
 ## Local/debug runs
 
@@ -83,29 +95,19 @@ The manifest stores per-table watermarks so later runs can:
 - merge prior GOLD latest-state outputs with new SILVER rows for `base_*` latest tables
 - keep a small safety lookback window for late-arriving data
 
-### Incremental environment variables
+### Incremental recipe controls
 
-- `PULSE_GOLD_INCREMENTAL`
-  - default: `true`
-  - enables manifest-backed incremental behavior
+Use the recipe parameters in `custom-recipes/create-gold-tables/recipe.json` to control:
 
-- `PULSE_GOLD_LOOKBACK_DAYS`
-  - default: `3`
-  - subtracts a small safety window from stored watermarks before incremental reads
-
-- `PULSE_GOLD_BUILD_DEV_ACTIVITY`
-  - default: `true`
-  - when `false`, skips `fact_dev_activity_events`
-
-- `PULSE_GOLD_BUILD_OBJECT_ACTIVITY`
-  - default: `true`
-  - when `false`, skips `fact_object_activity_events`
+- whether incremental manifest-backed execution is enabled
+- how many lookback days are rescanned
+- whether the heavy dev/object activity fact exports are included
 
 ### Important notes
 
 - The first run after enabling incremental mode is still close to a full rebuild because no manifest exists yet.
 - Later runs should be substantially faster when SILVER is mostly append-only.
-- If older source partitions can be rewritten or corrected, increase `PULSE_GOLD_LOOKBACK_DAYS`.
+- If older source partitions can be rewritten or corrected, increase `lookback_days`.
 
 Notes:
 - This recipe currently generates the DuckDB file path internally and does not read `PULSE_DUCKDB_PATH`.

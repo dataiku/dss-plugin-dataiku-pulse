@@ -41,6 +41,35 @@
                 { "value": "dataiku", "label": "Dataiku API" }
             ],
             "defaultValue": "duckdb"
+        },
+        {
+            "name": "incremental_enabled",
+            "label": "Enable Incremental Build",
+            "description": "Store and reuse GOLD manifest state to avoid full rebuilds on later runs.",
+            "type": "BOOLEAN",
+            "defaultValue": true
+        },
+        {
+            "name": "lookback_days",
+            "label": "Incremental Lookback Days",
+            "description": "Reprocess this many recent days on each incremental run to tolerate late-arriving data.",
+            "type": "INT",
+            "defaultValue": 3,
+            "mandatory": true
+        },
+        {
+            "name": "build_dev_activity",
+            "label": "Build Dev Activity Facts",
+            "description": "Build and export `fact_dev_activity_events`.",
+            "type": "BOOLEAN",
+            "defaultValue": true
+        },
+        {
+            "name": "build_object_activity",
+            "label": "Build Object Activity Facts",
+            "description": "Build and export `fact_object_activity_events`.",
+            "type": "BOOLEAN",
+            "defaultValue": true
         }
     ],
     "resourceKeys": []
