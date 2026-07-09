@@ -57,6 +57,7 @@ def list_gold_paths(*, suffixes: tuple[str, ...] = (".parquet", ".csv")) -> list
     """
 
     started = time.time()
+    settings.PULSE_SOURCE_PROJECT_KEY = settings.resolve_source_project_key()
     lookup = _resolve_gold_folder_lookup()
     logger.info(
         "DuckDB gold_loader.list_gold_paths: start project=%s lookup=%s suffixes=%s",
@@ -255,6 +256,7 @@ def load_gold_tables(
     """
 
     started = time.time()
+    settings.PULSE_SOURCE_PROJECT_KEY = settings.resolve_source_project_key()
     lookup = _resolve_gold_folder_lookup()
     logger.info(
         "DuckDB gold_loader.load_gold_tables: start replace=%s prefix=%s glob=%s project=%s lookup=%s",
