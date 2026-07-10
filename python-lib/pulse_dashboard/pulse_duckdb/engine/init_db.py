@@ -410,6 +410,23 @@ def _maybe_seed_demo_dev_activity(conn) -> dict:
     }
 
 
+def _ensure_dev_activity_base_tables(conn) -> dict[str, object]:
+    """Ensure development-activity base tables exist for downstream views.
+
+    The packaged dashboard view specs always depend on
+    `fact_dev_activity_events` and `dim_category_to_capability`, even when demo
+    seeding is disabled. Create those base tables from their plugin-owned YAML
+    specs when missing so startup view-building remains deterministic.
+    """
+
+    created: list[str] = []
+    for table_name in ["dim_category_to_capability", "fact_dev_activity_events"]:
+        if _ensure_table_exists(conn, table_name=table_name):
+            created.append(table_name)
+
+    return {"ok": True, "created": created}
+
+
 @contextmanager
 def _duckdb_init_lock():
     """Best-effort inter-process lock using `fcntl`.
@@ -742,6 +759,15 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         len(cast(list[object], license_report.get("created", []))),
                     )
 
+                    dev_activity_started = time.time()
+                    _set_status_callback("preparing_dev_activity", "Preparing development activity base tables")
+                    dev_activity_report = _ensure_dev_activity_base_tables(conn)
+                    logger.info(
+                        "DuckDB ensure_database_ready: development activity base tables ready in %.3fs created=%s",
+                        time.time() - dev_activity_started,
+                        len(cast(list[object], dev_activity_report.get("created", []))),
+                    )
+
                     seed_started = time.time()
                     _set_status_callback("seeding_demo", "Seeding demo activity data if needed")
                     seed_report = _maybe_seed_demo_dev_activity(conn)
@@ -758,6 +784,11 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         time.time() - views_started,
                         views_report.get("ok"),
                     )
+                    if not bool(views_report.get("ok", False)):
+                        logger.error(
+                            "DuckDB ensure_database_ready: view build errors=%s",
+                            views_report.get("errors"),
+                        )
 
                     ok = bool(views_report.get("ok", False))
                     if report is not None:
@@ -804,6 +835,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         "reason": reason,
                         "report": report,
                         "license_views": license_report,
+                        "dev_activity_tables": dev_activity_report,
                         "seed_demo_dev_activity": seed_report,
                         "maintenance": maintenance_report,
                         "views": views_report,
