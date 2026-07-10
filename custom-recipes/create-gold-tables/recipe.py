@@ -862,14 +862,31 @@ def _build_fact_user_activity_project_daily(
     return "fact_user_activity_project_daily"
 
 
-def _fact_dev_activity_events_select(*, base_dir: Path) -> str:
+def _list_view_names(conn: duckdb.DuckDBPyConnection) -> set[str]:
+    rows = conn.execute(
+        (
+            "SELECT table_name FROM information_schema.views "
+            "WHERE table_schema = 'main'"
+        )
+    ).fetchall()
+    return {str(row[0]) for row in rows}
+
+
+def _fact_dev_activity_events_select(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    base_dir: Path,
+) -> str:
     modules = _load_dev_toolbox_modules(base_dir)
     if not modules:
         return ""
 
+    existing_views = _list_view_names(conn)
     branches: list[str] = []
     for mod in modules:
         view_name = f"v_event_mapping__{_slug(mod)}"
+        if view_name not in existing_views:
+            continue
         branches.append(
             f"""
             SELECT
@@ -899,11 +916,17 @@ def _incremental_where_sql(*, watermark: str | None, timestamp_expr: str) -> str
     return f" WHERE {timestamp_expr} >= TIMESTAMP '{escaped}'"
 
 
-def _fact_dev_activity_events_select_incremental(*, base_dir: Path, watermark: str | None) -> str:
+def _fact_dev_activity_events_select_incremental(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    base_dir: Path,
+    watermark: str | None,
+) -> str:
     modules = _load_dev_toolbox_modules(base_dir)
     if not modules:
         return ""
 
+    existing_views = _list_view_names(conn)
     branches: list[str] = []
     where_sql = _incremental_where_sql(
         watermark=watermark,
@@ -911,6 +934,8 @@ def _fact_dev_activity_events_select_incremental(*, base_dir: Path, watermark: s
     )
     for mod in modules:
         view_name = f"v_event_mapping__{_slug(mod)}"
+        if view_name not in existing_views:
+            continue
         branches.append(
             f"""
             SELECT
@@ -942,9 +967,12 @@ def _fact_object_activity_events_select(
     if not modules:
         return ""
 
+    existing_views = _list_view_names(conn)
     branches: list[str] = []
     for mod in modules:
         view_name = f"v_event_mapping__{_slug(mod)}"
+        if view_name not in existing_views:
+            continue
         branches.append(_object_activity_branch_sql(conn, module=_slug(mod), view_name=view_name))
     return "\nUNION ALL\n".join(branches)
 
@@ -1340,9 +1368,9 @@ def run() -> dict:
                     _manifest_watermark(manifest, "fact_dev_activity_events") if manifest_enabled else None,
                     lookback_days,
                 )
-                select_sql = _fact_dev_activity_events_select_incremental(base_dir=base_dir, watermark=dev_watermark)
+                select_sql = _fact_dev_activity_events_select_incremental(setup.conn, base_dir=base_dir, watermark=dev_watermark)
                 if not select_sql:
-                    select_sql = _fact_dev_activity_events_select(base_dir=base_dir)
+                    select_sql = _fact_dev_activity_events_select(setup.conn, base_dir=base_dir)
                 if select_sql:
                     run_timed(
                         "unload:fact_dev_activity_events_streamed",
