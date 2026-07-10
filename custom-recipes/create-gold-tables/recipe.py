@@ -86,6 +86,65 @@ def _log_table_stats(conn: duckdb.DuckDBPyConnection, table_name: str) -> None:
         logger.exception("Failed to collect row count for %s", table_name)
 
 
+def _table_debug_snapshot(conn: duckdb.DuckDBPyConnection, table_name: str) -> dict[str, object]:
+    snapshot: dict[str, object] = {"table": table_name, "exists": False}
+    try:
+        row = conn.execute(
+            """
+            SELECT table_type
+            FROM information_schema.tables
+            WHERE table_schema='main' AND table_name=?
+            """,
+            [table_name],
+        ).fetchone()
+        if not row:
+            return snapshot
+
+        snapshot["exists"] = True
+        snapshot["table_type"] = str(row[0])
+        snapshot["rows"] = int(conn.execute(f'SELECT COUNT(*) FROM {_sql_identifier(table_name)};').fetchone()[0])  # nosec B608
+
+        columns = conn.execute(f"DESCRIBE {_sql_identifier(table_name)};").fetchall()  # nosec B608
+        snapshot["columns"] = [str(col[0]) for col in columns]
+
+        sample = conn.execute(f"SELECT * FROM {_sql_identifier(table_name)} LIMIT 3;").fetchall()  # nosec B608
+        snapshot["sample_rows"] = [list(row) for row in sample]
+    except Exception as exc:
+        snapshot["error"] = str(exc)
+    return snapshot
+
+
+def _log_pre_unload_debug(conn: duckdb.DuckDBPyConnection, *, table_names: list[str], gold_ctx) -> None:
+    logger.info("Pre-unload debug: gold_folder_lookup=%s folder_root=%s bucket_or_container=%s blob_header=%s", gold_ctx.folder_lookup, gold_ctx.folder_root, gold_ctx.bucket_or_container, gold_ctx.blob_header)
+    for table_name in table_names:
+        logger.info("Pre-unload table snapshot: %s", _table_debug_snapshot(conn, table_name))
+
+
+def _gold_path_exists(folder_lookup: str, rel_path: str) -> bool:
+    folder = dataiku.Folder(folder_lookup)
+    normalized = str(rel_path or "").lstrip("/")
+    try:
+        paths = folder.list_paths_in_partition()
+    except TypeError:
+        paths = folder.list_paths_in_partition("NP")
+    normalized_dir = normalized.rstrip("/") + "/"
+    return any(
+        str(path).lstrip("/") == normalized or str(path).lstrip("/").startswith(normalized_dir)
+        for path in paths
+    )
+
+
+def _gold_paths_under(folder_lookup: str, rel_path: str, *, limit: int = 20) -> list[str]:
+    folder = dataiku.Folder(folder_lookup)
+    normalized = str(rel_path or "").lstrip("/").rstrip("/") + "/"
+    try:
+        paths = folder.list_paths_in_partition()
+    except TypeError:
+        paths = folder.list_paths_in_partition("NP")
+    matched = [str(path) for path in paths if str(path).lstrip("/").startswith(normalized)]
+    return matched[:limit]
+
+
 def _read_manifest(folder_lookup: str) -> dict[str, object]:
     folder = dataiku.Folder(folder_lookup)
     try:
@@ -1358,6 +1417,17 @@ def run() -> dict:
             + [t for t in fact_tables if t not in base_tables and t not in dim_tables]
         )
 
+        _log_pre_unload_debug(
+            setup.conn,
+            table_names=[
+                "fact_dev_activity_events",
+                "fact_object_activity_events",
+                "fact_user_activity_daily",
+                "fact_user_activity_project_daily",
+            ],
+            gold_ctx=gold_ctx,
+        )
+
         streamed_event_tables: set[str] = set()
 
         if unload_behavior == "duckdb":
@@ -1374,6 +1444,7 @@ def run() -> dict:
 
             if build_dev_activity and _load_dev_toolbox_modules(base_dir):
                 path = _gold_destination_path(gold_ctx, "gold/fact_dev_activity_events")
+                logger.info("Event-fact unload target: table=%s mode=streamed path=%s", "fact_dev_activity_events", path)
                 dev_watermark = _lookback_adjusted_watermark(
                     _manifest_watermark(manifest, "fact_dev_activity_events") if manifest_enabled else None,
                     lookback_days,
@@ -1382,6 +1453,7 @@ def run() -> dict:
                 if not select_sql:
                     select_sql = _fact_dev_activity_events_select(setup.conn, base_dir=base_dir)
                 if select_sql:
+                    logger.info("Event-fact unload source: table=%s sql=%s", "fact_dev_activity_events", select_sql)
                     run_timed(
                         "unload:fact_dev_activity_events_streamed",
                         lambda select_sql=select_sql, path=path: _copy_partitioned_query_to_gold(
@@ -1391,12 +1463,26 @@ def run() -> dict:
                             label="copy:fact_dev_activity_events",
                         ),
                     )
-                    streamed_event_tables.add("fact_dev_activity_events")
+                    existing_paths = _gold_paths_under(gold_folder_lookup, "gold/fact_dev_activity_events")
+                    logger.info(
+                        "Event-fact unload verification: table=%s exists=%s sample_paths=%s",
+                        "fact_dev_activity_events",
+                        bool(existing_paths),
+                        existing_paths,
+                    )
+                    if existing_paths:
+                        streamed_event_tables.add("fact_dev_activity_events")
+                    else:
+                        logger.warning(
+                            "Event-fact streamed unload did not produce visible GOLD paths for %s; will allow fallback unload path",
+                            "fact_dev_activity_events",
+                        )
                     max_ts = setup.conn.execute("SELECT CAST(MAX(run_timestamp) AS VARCHAR) FROM fact_dev_activity_events;").fetchone()[0] if "fact_dev_activity_events" in fact_tables else None
                     _set_manifest_watermark(manifest, "fact_dev_activity_events", max_ts)
 
             if build_object_activity and _load_object_activity_modules(base_dir):
                 path = _gold_destination_path(gold_ctx, "gold/fact_object_activity_events")
+                logger.info("Event-fact unload target: table=%s mode=streamed path=%s", "fact_object_activity_events", path)
                 object_watermark = _lookback_adjusted_watermark(
                     _manifest_watermark(manifest, "fact_object_activity_events") if manifest_enabled else None,
                     lookback_days,
@@ -1409,6 +1495,7 @@ def run() -> dict:
                 if not select_sql:
                     select_sql = _fact_object_activity_events_select(setup.conn, base_dir=base_dir)
                 if select_sql:
+                    logger.info("Event-fact unload source: table=%s sql=%s", "fact_object_activity_events", select_sql)
                     run_timed(
                         "unload:fact_object_activity_events_streamed",
                         lambda select_sql=select_sql, path=path: _copy_partitioned_query_to_gold(
@@ -1418,7 +1505,20 @@ def run() -> dict:
                             label="copy:fact_object_activity_events",
                         ),
                     )
-                    streamed_event_tables.add("fact_object_activity_events")
+                    existing_paths = _gold_paths_under(gold_folder_lookup, "gold/fact_object_activity_events")
+                    logger.info(
+                        "Event-fact unload verification: table=%s exists=%s sample_paths=%s",
+                        "fact_object_activity_events",
+                        bool(existing_paths),
+                        existing_paths,
+                    )
+                    if existing_paths:
+                        streamed_event_tables.add("fact_object_activity_events")
+                    else:
+                        logger.warning(
+                            "Event-fact streamed unload did not produce visible GOLD paths for %s; will allow fallback unload path",
+                            "fact_object_activity_events",
+                        )
                     max_ts = setup.conn.execute("SELECT CAST(MAX(run_timestamp) AS VARCHAR) FROM fact_object_activity_events;").fetchone()[0] if "fact_object_activity_events" in fact_tables else None
                     _set_manifest_watermark(manifest, "fact_object_activity_events", max_ts)
 
@@ -1433,6 +1533,7 @@ def run() -> dict:
                 destination = f"gold/{table_name}.parquet"
 
             logger.info("Unloading %s to %s...", table_name, destination)
+            logger.info("Unload plan: table=%s mode=%s destination=%s", table_name, unload_behavior, destination)
 
             if unload_behavior == "duckdb":
                 try:
