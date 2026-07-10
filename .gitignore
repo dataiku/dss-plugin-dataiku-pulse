@@ -11,8 +11,9 @@
 .idea
 .codex
 .ruff_cache
+.pulse-logs
+.pytest_cache
 
 # Local development artifacts
-.pulse-logs/
 docs/feature-requests/
 docs/future-improvements/

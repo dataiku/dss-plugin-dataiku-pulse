@@ -51,3 +51,13 @@ This bypasses `get_output_names_for_role('gold_tables_folder')`.
 
 - Output role `gold_tables_folder` resolves to a managed folder identifier.
 - Managed folder lookups can be folder *name* or *id*; `build_storage_context()` supports both.
+
+## Debugging guidance
+
+- `fact_dev_activity_events` and `fact_object_activity_events` are the most sensitive unload paths; they may be partitioned outputs and should be verified separately from flat `fact_user_*` outputs.
+- When diagnosing GOLD export issues, verify all three layers explicitly:
+  - DuckDB table existence and row counts before unload
+  - Unload destination path and method used
+  - Managed-folder visibility after unload (`dataiku.Folder(...).list_paths_in_partition()`)
+- Prefer temporary diagnostic logging around event-fact exports over speculative fixes; successful `COPY` logs alone are not sufficient proof that blobs exist in the target managed folder.
+- Keep the standard unload loop behavior easy to reason about; avoid introducing special-case export branches without corresponding visibility checks.

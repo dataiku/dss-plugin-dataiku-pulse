@@ -48,11 +48,18 @@ def _write_project_var(client: Any, *, project_key: str, var_name: str, value: s
         local[var_name] = value
         variables["local"] = local
         project.set_variables(variables)
-    except Exception:
-        logger.warning(
-            "Failed writing project variable %s for project %s",
+        logger.info(
+            "Updated project variable %s for project %s to %s",
             var_name,
             project_key,
+            value,
+        )
+    except Exception:
+        logger.warning(
+            "Failed writing project variable %s for project %s to %s",
+            var_name,
+            project_key,
+            value,
             exc_info=True,
         )
         return

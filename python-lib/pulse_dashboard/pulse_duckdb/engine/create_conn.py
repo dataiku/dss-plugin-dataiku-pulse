@@ -15,7 +15,7 @@ import threading
 
 import duckdb
 
-from ...settings import DUCKDB_PATH, DUCKDB_READ_ONLY, ensure_duckdb_parent_dir
+from ... import settings
 from shared_duckdb.bootstrap import prepare_duckdb as shared_prepare_duckdb
 
 logger = logging.getLogger(__name__)
@@ -38,10 +38,12 @@ def _master() -> duckdb.DuckDBPyConnection:
                     pass
                 _master_conn = None
         if _master_conn is None:
-            ensure_duckdb_parent_dir()
+            settings.DUCKDB_PATH = settings.resolve_duckdb_path()
+            settings.DUCKDB_METADATA_PATH = settings.DUCKDB_PATH.with_suffix(f"{settings.DUCKDB_PATH.suffix}.meta.json")
+            settings.ensure_duckdb_parent_dir()
             bootstrap = shared_prepare_duckdb(
-                read_only=DUCKDB_READ_ONLY,
-                db_path=DUCKDB_PATH,
+                read_only=settings.DUCKDB_READ_ONLY,
+                db_path=settings.DUCKDB_PATH,
                 purpose="dashboard",
                 configure_storage_access=False,
             )
@@ -58,7 +60,7 @@ def create_connection(read_only: bool | None = None) -> duckdb.DuckDBPyConnectio
     execution must use ``query.query_df``. Callers should ``close()`` the
     cursor; the shared connection stays open for the life of the process.
     """
-    if DUCKDB_READ_ONLY and read_only is False:
+    if settings.DUCKDB_READ_ONLY and read_only is False:
         raise RuntimeError(
             "This deployment is read-only (PULSE_DUCKDB_READ_ONLY is set); "
             "a writable DuckDB connection was requested"

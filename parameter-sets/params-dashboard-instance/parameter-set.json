@@ -108,6 +108,13 @@
             "type": "OBJECT_LIST",
             "subParams": [
                 {
+                    "name": "worker_enabled",
+                    "label": "Enabled",
+                    "type": "BOOLEAN",
+                    "description": "Enable Pulse for this worker",
+                    "mandatory": true
+                },
+                {
                     "name": "worker_url",
                     "label": "URL",
                     "type": "STRING",

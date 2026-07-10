@@ -1,13 +1,19 @@
 # Exclusion list for project-level collection
 #
 # List method names to skip when iterating `project_handle.list_*`.
-# Example:
-# - list_foo
-# - list_bar
 
 - list_imported_bundles
+- list_code_studios
+- list_evaluation_comparisons
+- list_evaluation_stores
+- list_hive_databases
+- list_jupyter_notebooks
 - list_llms
 - list_macros
+- list_mltask_queues
 - list_ml_tasks
+- list_model_comparisons
+- list_model_evaluation_stores
+- list_plugins_usages
 - list_running_notebooks
-
+- list_test_scenarios
