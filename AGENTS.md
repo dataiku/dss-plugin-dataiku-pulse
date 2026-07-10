@@ -189,3 +189,4 @@ Guidelines:
 
 - `resource/pulse-dashboard/build/` is generated output; update via `scripts/sync_pulse_dashboard_build.sh`.
 - Treat minified files under `resource/` as non-source.
+- For GOLD export issues, distinguish clearly between: (1) DuckDB table creation, (2) unload/export execution, and (3) managed-folder visibility. Avoid assuming a successful unload log means blobs exist; verify with `dataiku.Folder(...).list_paths_in_partition()` or storage inspection when diagnosing event-fact exports.

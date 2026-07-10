@@ -2,7 +2,7 @@
 
 This custom recipe is the start of the "GOLD builder" step in the data-collection pipeline.
 
-Current implementation notes in this document reflect the `3.0.19` incremental-build update.
+Current implementation notes in this document reflect the `3.0.20` GOLD export/debugging update.
 
 It is intended to run on a schedule (nightly) inside a Dataiku-managed container, and to:
 

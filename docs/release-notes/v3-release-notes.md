@@ -6,6 +6,12 @@ These notes summarize the major themes of the v3 work at a high level for public
 
 ## Version Highlights
 
+### 3.0.20
+
+- Fixed GOLD event-fact export handling so partitioned `fact_dev_activity_events` and `fact_object_activity_events` are more reliably written into the GOLD managed folder namespace.
+- Improved GOLD recipe diagnostics with pre-unload table snapshots, row counts, destination logging, and event-fact visibility verification to speed up field debugging.
+- Hardened GOLD storage-context handling so exports target the intended managed-folder backing store more consistently.
+
 ### 3.0.19
 
 - Improved the GOLD builder recipe runtime with step-level timing and row-count logging so long-running phases are easier to isolate and diagnose.

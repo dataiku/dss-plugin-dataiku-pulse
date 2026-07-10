@@ -281,3 +281,14 @@ or add the matching bundled binary.
 The DuckDB version is pinned in lockstep between `code-env/python/spec/requirements.txt`
 and `tests/requirements-dev.txt`; when bumping it, also re-vendor the bundled
 extensions for the new version.
+
+
+## GOLD Export Troubleshooting
+
+For troubleshooting missing GOLD outputs, validate all three layers in order:
+
+1. Confirm the recipe built the DuckDB tables and logged non-zero row counts where expected.
+2. Confirm the recipe logged the unload destination and method for the affected tables.
+3. Confirm the managed folder shows the resulting objects via `dataiku.Folder(...).list_paths_in_partition()`.
+
+For partitioned event facts such as `fact_dev_activity_events` and `fact_object_activity_events`, successful unload logs alone are not sufficient proof of visible output; always verify the managed-folder listing after a run.
