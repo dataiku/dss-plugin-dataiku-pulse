@@ -145,6 +145,19 @@ def _gold_paths_under(folder_lookup: str, rel_path: str, *, limit: int = 20) -> 
     return matched[:limit]
 
 
+def _gold_paths_under_safe(folder_lookup: str, rel_path: str, *, limit: int = 20) -> list[str] | None:
+    try:
+        return _gold_paths_under(folder_lookup, rel_path, limit=limit)
+    except Exception:
+        logger.warning(
+            "GOLD path visibility check failed for folder=%s path=%s; continuing without managed-folder verification",
+            folder_lookup,
+            rel_path,
+            exc_info=True,
+        )
+        return None
+
+
 def _read_manifest(folder_lookup: str) -> dict[str, object]:
     folder = dataiku.Folder(folder_lookup)
     try:
@@ -1463,14 +1476,21 @@ def run() -> dict:
                             label="copy:fact_dev_activity_events",
                         ),
                     )
-                    existing_paths = _gold_paths_under(gold_folder_lookup, "gold/fact_dev_activity_events")
+                    existing_paths = _gold_paths_under_safe(gold_folder_lookup, "gold/fact_dev_activity_events")
                     logger.info(
-                        "Event-fact unload verification: table=%s exists=%s sample_paths=%s",
+                        "Event-fact unload verification: table=%s exists=%s sample_paths=%s verification_skipped=%s",
                         "fact_dev_activity_events",
                         bool(existing_paths),
                         existing_paths,
+                        existing_paths is None,
                     )
-                    if existing_paths:
+                    if existing_paths is None:
+                        logger.warning(
+                            "Event-fact streamed unload visibility could not be confirmed for %s due to managed-folder API error; treating stream unload as successful and skipping fallback unload",
+                            "fact_dev_activity_events",
+                        )
+                        streamed_event_tables.add("fact_dev_activity_events")
+                    elif existing_paths:
                         streamed_event_tables.add("fact_dev_activity_events")
                     else:
                         logger.warning(
@@ -1505,14 +1525,21 @@ def run() -> dict:
                             label="copy:fact_object_activity_events",
                         ),
                     )
-                    existing_paths = _gold_paths_under(gold_folder_lookup, "gold/fact_object_activity_events")
+                    existing_paths = _gold_paths_under_safe(gold_folder_lookup, "gold/fact_object_activity_events")
                     logger.info(
-                        "Event-fact unload verification: table=%s exists=%s sample_paths=%s",
+                        "Event-fact unload verification: table=%s exists=%s sample_paths=%s verification_skipped=%s",
                         "fact_object_activity_events",
                         bool(existing_paths),
                         existing_paths,
+                        existing_paths is None,
                     )
-                    if existing_paths:
+                    if existing_paths is None:
+                        logger.warning(
+                            "Event-fact streamed unload visibility could not be confirmed for %s due to managed-folder API error; treating stream unload as successful and skipping fallback unload",
+                            "fact_object_activity_events",
+                        )
+                        streamed_event_tables.add("fact_object_activity_events")
+                    elif existing_paths:
                         streamed_event_tables.add("fact_object_activity_events")
                     else:
                         logger.warning(

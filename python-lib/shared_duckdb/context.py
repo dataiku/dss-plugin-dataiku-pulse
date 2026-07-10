@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import field
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,6 +20,7 @@ class StorageContext:
     folder_root: str
     bucket_or_container: str | None
     blob_header: str
+    cached_connection_info: dict[str, Any] = field(default_factory=dict)
 
 
 def build_storage_context(*, project_key: str, folder_lookup: str = "partitioned_data") -> StorageContext:
@@ -88,4 +90,5 @@ def build_storage_context(*, project_key: str, folder_lookup: str = "partitioned
         folder_root=folder_root,
         bucket_or_container=bucket_or_container,
         blob_header=blob_header,
+        cached_connection_info=conn_info if isinstance(conn_info, dict) else {},
     )
