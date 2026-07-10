@@ -997,16 +997,13 @@ def _read_gold_table_view(
     table_name: str,
     view_name: str,
 ) -> bool:
-    root = gold_ctx.folder_root.strip("/")
-    if root:
-        root = f"{root}/"
     if not gold_ctx.bucket_or_container:
         return False
 
     if table_name in {"fact_dev_activity_events", "fact_object_activity_events"}:
-        path = f"{gold_ctx.blob_header}://{gold_ctx.bucket_or_container}/{root}gold/{table_name}/**/*.parquet"
+        path = _gold_destination_path(gold_ctx, f"gold/{table_name}/**/*.parquet")
     else:
-        path = f"{gold_ctx.blob_header}://{gold_ctx.bucket_or_container}/{root}gold/{table_name}.parquet"
+        path = _gold_destination_path(gold_ctx, f"gold/{table_name}.parquet")
 
     try:
         conn.execute(
@@ -1077,6 +1074,21 @@ def _copy_partitioned_query_to_gold(
         ");"
     )
     _time_query(conn, query, label=label)
+
+
+def _gold_destination_path(gold_ctx, relative_path: str) -> str:
+    """Build a blob URL anchored to the GOLD managed folder root.
+
+    Use the explicit GOLD folder storage root for both flat and partitioned
+    outputs so streamed event tables land in the same managed-folder namespace
+    that folder listings and downstream reads inspect.
+    """
+
+    root = gold_ctx.folder_root.strip("/")
+    rel = str(relative_path or "").lstrip("/")
+    if root:
+        rel = f"{root}/{rel}" if rel else root
+    return f"{gold_ctx.blob_header}://{gold_ctx.bucket_or_container}/{rel}"
 
 
 def run() -> dict:
@@ -1347,10 +1359,6 @@ def run() -> dict:
         streamed_event_tables: set[str] = set()
 
         if unload_behavior == "duckdb":
-            root = gold_ctx.folder_root.strip("/")
-            if root:
-                root = f"{root}/"
-
             if not gold_ctx.bucket_or_container:
                 raise ValueError("Could not resolve GOLD bucket/container")
 
@@ -1363,7 +1371,7 @@ def run() -> dict:
                 )
 
             if build_dev_activity and _load_dev_toolbox_modules(base_dir):
-                path = f"{blob_header}://{gold_ctx.bucket_or_container}/{root}gold/fact_dev_activity_events"
+                path = _gold_destination_path(gold_ctx, "gold/fact_dev_activity_events")
                 dev_watermark = _lookback_adjusted_watermark(
                     _manifest_watermark(manifest, "fact_dev_activity_events") if manifest_enabled else None,
                     lookback_days,
@@ -1386,7 +1394,7 @@ def run() -> dict:
                     _set_manifest_watermark(manifest, "fact_dev_activity_events", max_ts)
 
             if build_object_activity and _load_object_activity_modules(base_dir):
-                path = f"{blob_header}://{gold_ctx.bucket_or_container}/{root}gold/fact_object_activity_events"
+                path = _gold_destination_path(gold_ctx, "gold/fact_object_activity_events")
                 object_watermark = _lookback_adjusted_watermark(
                     _manifest_watermark(manifest, "fact_object_activity_events") if manifest_enabled else None,
                     lookback_days,
@@ -1426,16 +1434,10 @@ def run() -> dict:
 
             if unload_behavior == "duckdb":
                 try:
-                    # Build blob URL to write into the GOLD managed folder location.
-                    # This mirrors the legacy `settings.py` approach.
-                    root = gold_ctx.folder_root.strip("/")
-                    if root:
-                        root = f"{root}/"
-
                     if not gold_ctx.bucket_or_container:
                         raise ValueError("Could not resolve GOLD bucket/container")
 
-                    path = f"{blob_header}://{gold_ctx.bucket_or_container}/{root}{destination}"
+                    path = _gold_destination_path(gold_ctx, destination)
 
                     if table_name == "fact_dev_activity_events":
                         # Write partitioned parquet for efficient downstream reads.
