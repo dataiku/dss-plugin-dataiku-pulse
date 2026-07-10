@@ -146,7 +146,7 @@ class MyRunnable(Runnable):
         has_project_errors = any(project_result.errors for project_result in result.per_project.values())
         if not has_project_errors:
             self._update_projects_delta(ctx.local_client, run_started_at.isoformat())
-        elif project_keys:
+        else:
             logger.warning("Skipping projects cursor update because project collection reported errors")
 
         status_counts: dict[str, int] = {}
