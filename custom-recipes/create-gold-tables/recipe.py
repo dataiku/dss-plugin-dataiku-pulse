@@ -515,6 +515,16 @@ def _create_event_mapping_module_view(
         # No parquet yet for this module; skip.
         return ""
 
+    created_views = conn.execute(
+        (
+            "SELECT table_name FROM information_schema.views "
+            "WHERE table_schema = 'main' AND table_name = ?"
+        ),
+        [view_name],
+    ).fetchall()
+    if not created_views:
+        return ""
+
     return view_name
 
 

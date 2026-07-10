@@ -73,7 +73,7 @@ Timestamp used for filtering:
 - Epoch unit detection is applied (s/ms/us/ns) based on value magnitude
 - Very old/null/epoch-like timestamps are floored to `2015-01-01` to keep filtering deterministic
 
-After a best-effort run, the macro updates `local.projects_delta` to the current UTC run timestamp.
+After a successful run, the macro updates `local.projects_delta` to the UTC timestamp captured at macro start (second precision).
 
 ## Row-level delta filtering (list_* payloads)
 
