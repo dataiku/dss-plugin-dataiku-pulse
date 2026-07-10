@@ -2,6 +2,8 @@
 
 This custom recipe is the start of the "GOLD builder" step in the data-collection pipeline.
 
+Current implementation notes in this document reflect the `3.0.20` GOLD export/debugging update.
+
 It is intended to run on a schedule (nightly) inside a Dataiku-managed container, and to:
 
 1. Create/reset a local DuckDB file
@@ -34,12 +36,25 @@ Naming rules are documented at `python-lib/data_collection/pulse_duckdb/gold_spe
 Notes:
 - Scenario ids/names and timestamps are currently extracted from `extras` JSON in SILVER.
 - This recipe assumes the GOLD output managed folder and `partitioned_data` share the same underlying connection.
+- Incremental state is stored in the GOLD managed folder at `gold/_state/manifest.json`.
 
 ## Recipe parameters
 
 - `unload_behavior`
   - `duckdb`: uses DuckDB `COPY ... TO '<blob-url>'` to write parquet directly to blob storage
   - `dataiku`: uses `SELECT * FROM <table>` -> pandas -> `Folder.upload_stream()`
+- `incremental_enabled`
+  - default: `true`
+  - enables manifest-backed incremental behavior
+- `lookback_days`
+  - default: `3`
+  - reprocesses a recent safety window on each incremental run to catch late-arriving data
+- `build_dev_activity`
+  - default: `true`
+  - controls whether `fact_dev_activity_events` is built and exported
+- `build_object_activity`
+  - default: `true`
+  - controls whether `fact_object_activity_events` is built and exported
 
 ## Local/debug runs
 
@@ -66,6 +81,35 @@ DuckDB files default under `/tmp/duckdb/` using a unique per-run filename such a
 You can override it with:
 
 - `PULSE_DUCKDB_DIR`: directory for per-run DuckDB files
+
+## Incremental state
+
+This recipe creates a fresh local DuckDB file on every run, so runtime improvements
+cannot rely on persisted local database state.
+
+Instead, incremental progress is stored in the GOLD output managed folder at:
+
+- `gold/_state/manifest.json`
+
+The manifest stores per-table watermarks so later runs can:
+
+- rescan only recent SILVER data for append-heavy event facts
+- merge prior GOLD latest-state outputs with new SILVER rows for `base_*` latest tables
+- keep a small safety lookback window for late-arriving data
+
+### Incremental recipe controls
+
+Use the recipe parameters in `custom-recipes/create-gold-tables/recipe.json` to control:
+
+- whether incremental manifest-backed execution is enabled
+- how many lookback days are rescanned
+- whether the heavy dev/object activity fact exports are included
+
+### Important notes
+
+- The first run after enabling incremental mode is still close to a full rebuild because no manifest exists yet.
+- Later runs should be substantially faster when SILVER is mostly append-only.
+- If older source partitions can be rewritten or corrected, increase `lookback_days`.
 
 Notes:
 - This recipe currently generates the DuckDB file path internally and does not read `PULSE_DUCKDB_PATH`.

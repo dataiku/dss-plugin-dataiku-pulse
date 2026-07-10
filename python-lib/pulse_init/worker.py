@@ -19,6 +19,14 @@ PLUGIN_ID = "dataiku-pulse"
 AUTOMATION_CLASSIFICATION = "automation"
 DESIGNER_CLASSIFICATION = "designer"
 WORKER_BUNDLE_RESOURCE = "dataiku_pulse_worker_bundle_skeleton_v1.zip"
+WORKER_OVERRIDE_SUMMARY_FIELDS = (
+    "pulse_dataiku_user",
+    "ignore_certs",
+    "notification_email",
+    "notification_engine",
+    "do_parallel",
+    "cores",
+)
 
 
 @dataclass(frozen=True)
@@ -32,6 +40,22 @@ def _safe_get(d: Mapping[str, Any] | None, key: str, default: Any = None) -> Any
     if not isinstance(d, Mapping):
         return default
     return d.get(key, default)
+
+
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+
+    normalized = str(value).strip().lower()
+    if normalized in {"true", "1", "yes", "y", "on"}:
+        return True
+    if normalized in {"false", "0", "no", "n", "off", ""}:
+        return False
+    return default
 
 
 def _normalize_worker_classification(value: Any) -> tuple[str, str | None]:
@@ -101,10 +125,106 @@ def _plugin_exists(client: Any, plugin_id: str) -> bool:
     return False
 
 
+def _attach_plugin_code_env(plugin_handle: Any, plugin_id: str) -> InitStep:
+    """Attach the plugin-managed Python code env in plugin settings."""
+
+    try:
+        settings = plugin_handle.get_settings()
+        raw = settings.get_raw()
+
+        code_env_settings = raw.setdefault("codeEnvSettings", {})
+        python_settings = code_env_settings.setdefault("python", {})
+
+        python_settings["envMode"] = "EXPLICIT_ENV"
+        python_settings["envName"] = plugin_id
+
+        settings.save()
+        return InitStep(
+            step="remote:attach_code_env",
+            status="updated",
+            message=plugin_id,
+        )
+    except Exception as exc:
+        return InitStep(
+            step="remote:attach_code_env",
+            status="warning",
+            message=repr(exc),
+        )
+
+
+def _resolve_worker_override_preset(
+    local_client: Any,
+    preset_name: str,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Return hub-local worker override preset config and optional warning."""
+
+    if not preset_name:
+        return None, None
+
+    try:
+        plugin_handle = local_client.get_plugin(plugin_id=PLUGIN_ID)
+        plugin_settings = plugin_handle.get_settings()
+        worker_ps = plugin_settings.get_parameter_set(
+            parameter_set_name="params-worker-instances"
+        )
+        preset = worker_ps.get_preset(preset_name)
+        if not preset:
+            return None, f"Worker preset {preset_name!r} not found on hub"
+
+        raw_config = getattr(preset, "plugin_config", None)
+        if not isinstance(raw_config, Mapping):
+            return None, f"Worker preset {preset_name!r} has no plugin config"
+
+        return dict(raw_config), None
+    except Exception as exc:
+        return None, f"Could not read worker preset {preset_name!r} on hub: {exc!r}"
+
+
+def _build_effective_worker_params(
+    hub_params: Mapping[str, Any],
+    worker: Mapping[str, Any],
+    worker_override: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Merge hub dashboard config with optional hub-side worker overrides."""
+
+    effective_params = dict(hub_params)
+    if worker_override:
+        effective_params.update(dict(worker_override))
+
+    worker_hosts = list(_safe_get(effective_params, "worker_hosts", []) or [])
+    effective_worker = dict(worker)
+    worker_hosts = [
+        effective_worker
+        if str(_safe_get(existing_worker, "worker_url", ""))
+        == str(_safe_get(worker, "worker_url", ""))
+        else existing_worker
+        for existing_worker in worker_hosts
+    ]
+    effective_params["worker_hosts"] = worker_hosts
+
+    return effective_params
+
+
+def _format_override_field_summary(worker_override: Mapping[str, Any] | None) -> str | None:
+    """Return a compact list of hub override fields applied for a worker."""
+
+    if not worker_override:
+        return None
+
+    override_fields = [
+        field for field in WORKER_OVERRIDE_SUMMARY_FIELDS if field in worker_override
+    ]
+    if not override_fields:
+        override_fields = sorted(str(key) for key in worker_override.keys())
+    if not override_fields:
+        return None
+    return ", ".join(override_fields)
+
+
 def _sync_plugin_from_hub(
     *,
     remote_client: Any,
-    hub_params: Mapping[str, Any],
+    worker_params: Mapping[str, Any],
     preset_name: str,
     run_as_user: str,
     update_github: bool,
@@ -114,15 +234,15 @@ def _sync_plugin_from_hub(
 
     steps: list[InitStep] = []
 
-    repo_url = str(_safe_get(hub_params, "pulse_repo_url", ""))
-    repo_branch = str(_safe_get(hub_params, "pulse_repo_branch", "main"))
+    repo_url = str(_safe_get(worker_params, "pulse_repo_url", ""))
+    repo_branch = str(_safe_get(worker_params, "pulse_repo_branch", "main"))
 
     if not repo_url:
         return [
             InitStep(
                 step="remote:plugin_sync",
                 status="error",
-                message="pulse_repo_url missing in hub params",
+                message="pulse_repo_url missing in worker params",
             )
         ]
 
@@ -208,6 +328,8 @@ def _sync_plugin_from_hub(
             else:
                 steps.append(InitStep(step="remote:create_code_env", status="created"))
 
+            steps.append(_attach_plugin_code_env(plugin_handle, plugin_id))
+
         else:
             steps.append(
                 InitStep(step="remote:install_plugin", status="already_exists")
@@ -253,9 +375,13 @@ def _sync_plugin_from_hub(
                     steps.append(
                         InitStep(step="remote:update_code_env", status="updated")
                     )
+
+                steps.append(_attach_plugin_code_env(plugin_handle, plugin_id))
             else:
                 steps.append(InitStep(step="remote:update_from_git", status="skipped"))
                 steps.append(InitStep(step="remote:update_code_env", status="skipped"))
+                plugin_handle = plugin_client.get_plugin(plugin_id=plugin_id)
+                steps.append(_attach_plugin_code_env(plugin_handle, plugin_id))
 
         # Sync the preset config so worker scenarios reference the correct preset name.
         plugin_handle = remote_client.get_plugin(plugin_id=plugin_id)
@@ -266,7 +392,7 @@ def _sync_plugin_from_hub(
         preset = pdi_ps.get_preset(preset_name=preset_name)
         if not preset:
             preset = pdi_ps.create_preset(preset_name=preset_name)
-        preset.get_raw()["pluginConfig"] = dict(hub_params)
+        preset.get_raw()["pluginConfig"] = dict(worker_params)
         pdi_ps.save()
         steps.append(
             InitStep(step=f"remote:preset_sync:{preset_name}", status="updated")
@@ -664,12 +790,8 @@ def initialize_workers(
 
     hub_url = str(_safe_get(hub_params, "pulse_project_url", ""))
     worker_key = str(_safe_get(hub_params, "pulse_worker_key", "DATAIKU_PULSE_WORKER"))
-    run_as_user = str(_safe_get(hub_params, "pulse_dataiku_user", "admin"))
-    ignore_certs = bool(_safe_get(hub_params, "ignore_certs", False))
 
     worker_hosts = _safe_get(hub_params, "worker_hosts", []) or []
-    default_notification_email = str(_safe_get(hub_params, "notification_email", "") or "")
-    default_notification_engine = str(_safe_get(hub_params, "notification_engine", "") or "")
 
     now_ts = _default_worker_cursor_ts()
 
@@ -681,6 +803,27 @@ def initialize_workers(
             _safe_get(worker, "worker_classification", DESIGNER_CLASSIFICATION)
         )
         worker_preset_name = str(_safe_get(worker, "preset_name", "") or "").strip()
+        worker_enabled = _as_bool(_safe_get(worker, "worker_enabled", True), default=True)
+        worker_override, worker_override_warning = _resolve_worker_override_preset(
+            local_client, worker_preset_name
+        )
+        worker_override_summary = _format_override_field_summary(worker_override)
+        effective_worker_params = _build_effective_worker_params(
+            hub_params,
+            worker,
+            worker_override,
+        )
+        run_as_user = str(_safe_get(effective_worker_params, "pulse_dataiku_user", "admin"))
+        ignore_certs = _as_bool(
+            _safe_get(effective_worker_params, "ignore_certs", False),
+            default=False,
+        )
+        worker_notification_email = str(
+            _safe_get(effective_worker_params, "notification_email", "") or ""
+        )
+        worker_notification_engine = str(
+            _safe_get(effective_worker_params, "notification_engine", "") or ""
+        )
 
         if not worker_url:
             steps.append(
@@ -708,6 +851,37 @@ def initialize_workers(
                     message=worker_classification,
                 )
             )
+
+        if worker_override_warning:
+            steps.append(
+                InitStep(
+                    step=f"worker:{worker_url}:preset_override",
+                    status="warning",
+                    message=worker_override_warning,
+                )
+            )
+        elif worker_preset_name:
+            steps.append(
+                InitStep(
+                    step=f"worker:{worker_url}:preset_override",
+                    status="ok",
+                    message=(
+                        f"{worker_preset_name}: {worker_override_summary}"
+                        if worker_override_summary
+                        else worker_preset_name
+                    ),
+                )
+            )
+
+        if not worker_enabled:
+            steps.append(
+                InitStep(
+                    step=f"worker:{worker_url}:enabled",
+                    status="skipped",
+                    message="worker_enabled is false",
+                )
+            )
+            continue
 
         # Build client
         if is_hub:
@@ -744,38 +918,11 @@ def initialize_workers(
                 )
                 continue
 
-        worker_notification_email = default_notification_email
-        worker_notification_engine = default_notification_engine
-
-        if worker_preset_name:
-            try:
-                plugin_handle = client.get_plugin("dataiku-pulse")
-                plugin_settings = plugin_handle.get_settings()
-                pdi_ps = plugin_settings.get_parameter_set("params-worker-instances")
-                preset_values = pdi_ps.get_preset(worker_preset_name) or {}
-                worker_notification_email = str(preset_values.get("notification_email") or worker_notification_email or "")
-                worker_notification_engine = str(preset_values.get("notification_engine") or worker_notification_engine or "")
-                steps.append(
-                    InitStep(
-                        step=f"worker:{worker_url}:notification_preset",
-                        status="ok",
-                        message=worker_preset_name,
-                    )
-                )
-            except Exception as exc:
-                steps.append(
-                    InitStep(
-                        step=f"worker:{worker_url}:notification_preset",
-                        status="warning",
-                        message=repr(exc),
-                    )
-                )
-
         # Sync plugin remotely (skip when worker is hub)
         if not is_hub:
             plugin_steps = _sync_plugin_from_hub(
                 remote_client=client,
-                hub_params=hub_params,
+                worker_params=effective_worker_params,
                 preset_name=worker_preset_name or preset_name,
                 run_as_user=run_as_user,
                 update_github=update_github,

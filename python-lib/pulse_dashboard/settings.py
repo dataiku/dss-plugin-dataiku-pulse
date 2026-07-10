@@ -7,11 +7,15 @@ the webapp backend can import it reliably.
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from pathlib import Path
 
 from data_collection.pulse_duckdb.constants import db_path as shared_db_path
+
+
+logger = logging.getLogger(__name__)
 
 
 APP_NAME = os.getenv("PULSE_APP_NAME", "dataiku_pulse")
@@ -72,10 +76,30 @@ def _resolve_default_project_key() -> str | None:
 # 1) explicit env var `PULSE_SOURCE_PROJECT_KEY`
 # 2) DSS current project (when available)
 # 3) fallback for local dev
-PULSE_SOURCE_PROJECT_KEY = os.getenv(
-    "PULSE_SOURCE_PROJECT_KEY",
-    _resolve_default_project_key() or "DATAIKU_PULSE_DASHBOARD",
-)
+_ENV_PULSE_SOURCE_PROJECT_KEY = os.getenv("PULSE_SOURCE_PROJECT_KEY")
+
+
+def resolve_source_project_key() -> str:
+    """Resolve the source project key without forcing DSS calls at import time.
+
+    In DSS webapp containers, import-time context resolution can delay the
+    backend from binding its HTTP port, which makes the UI look like DuckDB
+    startup is slow even though Flask is not listening yet.
+    """
+
+    if _ENV_PULSE_SOURCE_PROJECT_KEY:
+        return _ENV_PULSE_SOURCE_PROJECT_KEY
+
+    key = _resolve_default_project_key()
+    if key:
+        return key
+
+    fallback = "DATAIKU_PULSE_DASHBOARD"
+    logger.debug("Pulse source project key unresolved at runtime; using fallback %s", fallback)
+    return fallback
+
+
+PULSE_SOURCE_PROJECT_KEY = _ENV_PULSE_SOURCE_PROJECT_KEY or "DATAIKU_PULSE_DASHBOARD"
 DUCKDB_PATH = Path(
     os.getenv(
         "PULSE_DUCKDB_PATH",
@@ -119,3 +143,14 @@ PULSE_HUB_INSTANCE_NAMES = os.getenv("PULSE_HUB_INSTANCE_NAMES", "")
 def ensure_duckdb_parent_dir() -> None:
     DUCKDB_PATH.parent.mkdir(parents=True, exist_ok=True)
     DUCKDB_METADATA_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+
+def resolve_duckdb_path() -> Path:
+    """Return the effective DuckDB path, resolving the project key lazily."""
+
+    env_path = os.getenv("PULSE_DUCKDB_PATH")
+    if env_path:
+        return Path(env_path)
+
+    project_key = resolve_source_project_key()
+    return DUCKDB_DIR / shared_db_path(project_key=project_key, purpose="dashboard").name
