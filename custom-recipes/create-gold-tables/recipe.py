@@ -22,6 +22,7 @@ from data_collection.pulse_duckdb.context import build_storage_context
 from data_collection.pulse_duckdb.duckdb_manager import prepare_duckdb
 from data_collection.pulse_duckdb.gold_builder import apply_gold_spec, load_gold_spec
 from data_collection.pulse_duckdb.views import create_silver_view
+from shared_duckdb.storage_config import configure_storage
 
 
 def _resolve_gold_folder_lookup() -> str:
@@ -1130,6 +1131,7 @@ def run() -> dict:
         reset=True,
         db_path=_unique_duckdb_path(project_key=ctx.project_key),
     )
+    configure_storage(setup.conn, ctx=gold_ctx)
 
     failed_tables: list[str] = []
     user_activity_quality: dict[str, object] = {
