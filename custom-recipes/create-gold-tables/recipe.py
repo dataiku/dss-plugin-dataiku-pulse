@@ -674,7 +674,7 @@ def _object_activity_branch_sql(
         return f"NULLIF(TRIM(CAST({expr} AS VARCHAR)), '')"
 
     def _path_segment(expr: str, marker: str) -> str:
-        normalized_expr = f"split_part(split_part(CAST({expr} AS VARCHAR), '?', 1), '#', 1)"
+        normalized_expr = f"regexp_replace(regexp_replace(CAST({expr} AS VARCHAR), '\?.*$', ''), '#.*$', '')"
         extracted_expr = (
             f"CASE WHEN strpos({normalized_expr}, '{marker}') > 0 "
             f"THEN split_part(split_part({normalized_expr}, '{marker}', 2), '/', 1) "
