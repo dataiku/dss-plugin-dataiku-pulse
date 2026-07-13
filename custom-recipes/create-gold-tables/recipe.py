@@ -145,6 +145,64 @@ def _gold_paths_under(folder_lookup: str, rel_path: str, *, limit: int = 20) -> 
     return matched[:limit]
 
 
+def _gold_path_exists_safe(folder_lookup: str, rel_path: str) -> bool | None:
+    try:
+        return _gold_path_exists(folder_lookup, rel_path)
+    except Exception:
+        logger.warning(
+            "GOLD path existence check failed for folder=%s path=%s; continuing without managed-folder verification",
+            folder_lookup,
+            rel_path,
+            exc_info=True,
+        )
+        return None
+
+
+def _gold_paths_under_safe(folder_lookup: str, rel_path: str, *, limit: int = 20) -> list[str] | None:
+    try:
+        return _gold_paths_under(folder_lookup, rel_path, limit=limit)
+    except Exception:
+        logger.warning(
+            "GOLD path visibility check failed for folder=%s path=%s; continuing without managed-folder verification",
+            folder_lookup,
+            rel_path,
+            exc_info=True,
+        )
+        return None
+
+
+def _duckdb_parquet_glob_for_gold(gold_ctx, relative_path: str) -> str:
+    rel = str(relative_path or "").strip("/")
+    if rel.endswith(".parquet"):
+        return _gold_destination_path(gold_ctx, rel)
+    return _gold_destination_path(gold_ctx, f"{rel}/**/*.parquet")
+
+
+def _log_duckdb_gold_readback(conn: duckdb.DuckDBPyConnection, *, gold_ctx, relative_path: str, table_name: str) -> None:
+    parquet_glob = _duckdb_parquet_glob_for_gold(gold_ctx, relative_path)
+    try:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS rows_count
+            FROM read_parquet(?, hive_partitioning = true, union_by_name = true)
+            """.strip(),
+            [parquet_glob],
+        ).fetchone()
+        logger.info(
+            "DuckDB GOLD readback succeeded: table=%s parquet_glob=%s rows=%s",
+            table_name,
+            parquet_glob,
+            int(row[0] or 0) if row else 0,
+        )
+    except Exception:
+        logger.warning(
+            "DuckDB GOLD readback failed: table=%s parquet_glob=%s",
+            table_name,
+            parquet_glob,
+            exc_info=True,
+        )
+
+
 def _read_manifest(folder_lookup: str) -> dict[str, object]:
     folder = dataiku.Folder(folder_lookup)
     try:
@@ -1428,8 +1486,6 @@ def run() -> dict:
             gold_ctx=gold_ctx,
         )
 
-        streamed_event_tables: set[str] = set()
-
         if unload_behavior == "duckdb":
             if not gold_ctx.bucket_or_container:
                 raise ValueError("Could not resolve GOLD bucket/container")
@@ -1443,89 +1499,26 @@ def run() -> dict:
                 )
 
             if build_dev_activity and _load_dev_toolbox_modules(base_dir):
-                path = _gold_destination_path(gold_ctx, "gold/fact_dev_activity_events")
-                logger.info("Event-fact unload target: table=%s mode=streamed path=%s", "fact_dev_activity_events", path)
-                dev_watermark = _lookback_adjusted_watermark(
-                    _manifest_watermark(manifest, "fact_dev_activity_events") if manifest_enabled else None,
-                    lookback_days,
+                logger.info(
+                    "Skipping streamed unload for %s; using standard table unload path instead",
+                    "fact_dev_activity_events",
                 )
-                select_sql = _fact_dev_activity_events_select_incremental(setup.conn, base_dir=base_dir, watermark=dev_watermark)
-                if not select_sql:
-                    select_sql = _fact_dev_activity_events_select(setup.conn, base_dir=base_dir)
-                if select_sql:
-                    logger.info("Event-fact unload source: table=%s sql=%s", "fact_dev_activity_events", select_sql)
-                    run_timed(
-                        "unload:fact_dev_activity_events_streamed",
-                        lambda select_sql=select_sql, path=path: _copy_partitioned_query_to_gold(
-                            setup.conn,
-                            select_sql=select_sql,
-                            path=path,
-                            label="copy:fact_dev_activity_events",
-                        ),
-                    )
-                    existing_paths = _gold_paths_under(gold_folder_lookup, "gold/fact_dev_activity_events")
-                    logger.info(
-                        "Event-fact unload verification: table=%s exists=%s sample_paths=%s",
-                        "fact_dev_activity_events",
-                        bool(existing_paths),
-                        existing_paths,
-                    )
-                    if existing_paths:
-                        streamed_event_tables.add("fact_dev_activity_events")
-                    else:
-                        logger.warning(
-                            "Event-fact streamed unload did not produce visible GOLD paths for %s; will allow fallback unload path",
-                            "fact_dev_activity_events",
-                        )
-                    max_ts = setup.conn.execute("SELECT CAST(MAX(run_timestamp) AS VARCHAR) FROM fact_dev_activity_events;").fetchone()[0] if "fact_dev_activity_events" in fact_tables else None
-                    _set_manifest_watermark(manifest, "fact_dev_activity_events", max_ts)
+                max_ts = setup.conn.execute(
+                    "SELECT CAST(MAX(run_timestamp) AS VARCHAR) FROM fact_dev_activity_events;"
+                ).fetchone()[0] if "fact_dev_activity_events" in fact_tables else None
+                _set_manifest_watermark(manifest, "fact_dev_activity_events", max_ts)
 
             if build_object_activity and _load_object_activity_modules(base_dir):
-                path = _gold_destination_path(gold_ctx, "gold/fact_object_activity_events")
-                logger.info("Event-fact unload target: table=%s mode=streamed path=%s", "fact_object_activity_events", path)
-                object_watermark = _lookback_adjusted_watermark(
-                    _manifest_watermark(manifest, "fact_object_activity_events") if manifest_enabled else None,
-                    lookback_days,
+                logger.info(
+                    "Skipping streamed unload for %s; using standard table unload path instead",
+                    "fact_object_activity_events",
                 )
-                select_sql = _fact_object_activity_events_select_incremental(
-                    setup.conn,
-                    base_dir=base_dir,
-                    watermark=object_watermark,
-                )
-                if not select_sql:
-                    select_sql = _fact_object_activity_events_select(setup.conn, base_dir=base_dir)
-                if select_sql:
-                    logger.info("Event-fact unload source: table=%s sql=%s", "fact_object_activity_events", select_sql)
-                    run_timed(
-                        "unload:fact_object_activity_events_streamed",
-                        lambda select_sql=select_sql, path=path: _copy_partitioned_query_to_gold(
-                            setup.conn,
-                            select_sql=select_sql,
-                            path=path,
-                            label="copy:fact_object_activity_events",
-                        ),
-                    )
-                    existing_paths = _gold_paths_under(gold_folder_lookup, "gold/fact_object_activity_events")
-                    logger.info(
-                        "Event-fact unload verification: table=%s exists=%s sample_paths=%s",
-                        "fact_object_activity_events",
-                        bool(existing_paths),
-                        existing_paths,
-                    )
-                    if existing_paths:
-                        streamed_event_tables.add("fact_object_activity_events")
-                    else:
-                        logger.warning(
-                            "Event-fact streamed unload did not produce visible GOLD paths for %s; will allow fallback unload path",
-                            "fact_object_activity_events",
-                        )
-                    max_ts = setup.conn.execute("SELECT CAST(MAX(run_timestamp) AS VARCHAR) FROM fact_object_activity_events;").fetchone()[0] if "fact_object_activity_events" in fact_tables else None
-                    _set_manifest_watermark(manifest, "fact_object_activity_events", max_ts)
+                max_ts = setup.conn.execute(
+                    "SELECT CAST(MAX(run_timestamp) AS VARCHAR) FROM fact_object_activity_events;"
+                ).fetchone()[0] if "fact_object_activity_events" in fact_tables else None
+                _set_manifest_watermark(manifest, "fact_object_activity_events", max_ts)
 
         for table_name in unloaded_tables:
-            if table_name in streamed_event_tables:
-                logger.info("Skipping table unload for %s because it was already streamed directly", table_name)
-                continue
             # Partition large event tables by instance+day to keep queries fast.
             if table_name in {"fact_dev_activity_events", "fact_object_activity_events"}:
                 destination = f"gold/{table_name}"
@@ -1606,6 +1599,24 @@ def run() -> dict:
 
                     logger.debug(query)
                     setup.conn.execute(query)
+
+                    if table_name in {"fact_dev_activity_events", "fact_object_activity_events"}:
+                        relative_path = destination
+                        _log_duckdb_gold_readback(
+                            setup.conn,
+                            gold_ctx=gold_ctx,
+                            relative_path=relative_path,
+                            table_name=table_name,
+                        )
+                        exists = _gold_path_exists_safe(gold_folder_lookup, relative_path)
+                        existing_paths = _gold_paths_under_safe(gold_folder_lookup, relative_path)
+                        logger.info(
+                            "Event-fact standard unload verification: table=%s exists=%s sample_paths=%s verification_skipped=%s",
+                            table_name,
+                            exists,
+                            existing_paths,
+                            exists is None or existing_paths is None,
+                        )
                 except Exception as e:
                     logger.error("Failed to unload %s: %s", table_name, e)
                     failed_tables.append(table_name)

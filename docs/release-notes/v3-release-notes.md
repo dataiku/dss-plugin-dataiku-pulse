@@ -6,6 +6,12 @@ These notes summarize the major themes of the v3 work at a high level for public
 
 ## Version Highlights
 
+### 3.0.21
+
+- Stabilized GOLD event-fact exports by routing both partitioned activity fact tables through the same standard unload flow used by the packaged GOLD build.
+- Improved GOLD export diagnostics with stronger readback and managed-folder visibility checks so partitioned output issues are easier to confirm in real DSS runs.
+- Validated the end-to-end packaged experience with a clean GOLD run, expected output files present, and the Pulse webapp loading successfully against the refreshed data.
+
 ### 3.0.20
 
 - Fixed GOLD event-fact export handling so partitioned `fact_dev_activity_events` and `fact_object_activity_events` are more reliably written into the GOLD managed folder namespace.
