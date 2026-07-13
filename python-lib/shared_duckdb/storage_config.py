@@ -20,8 +20,33 @@ def _load_queries() -> dict:
     return yaml_loader.load_yaml(Path(__file__).with_name("blob_credentials.yaml"))
 
 
+def _connection_info(ctx: StorageContext, *, allow_cached: bool = False) -> dict:
+    try:
+        info = ctx.connection_handle.get_info()
+    except Exception:
+        cached_info = ctx.cached_connection_info if isinstance(ctx.cached_connection_info, dict) else {}
+        if allow_cached and cached_info:
+            params = cached_info.get("params") or {}
+            credential_mode = params.get("credentialsMode") or params.get("authType") or "unknown"
+            logger.warning(
+                "Falling back to cached DSS connection info for connection=%s credential_mode=%s after get_info() failure",
+                ctx.connection_name,
+                credential_mode,
+                exc_info=True,
+            )
+            return cached_info
+        raise
+
+    if isinstance(info, dict):
+        ctx.cached_connection_info.clear()
+        ctx.cached_connection_info.update(info)
+        return info
+
+    return {}
+
+
 def aws_credentials(ctx: StorageContext) -> str:
-    info = ctx.connection_handle.get_info()
+    info = _connection_info(ctx, allow_cached=True)
     params = info.get("params", {})
     credentials_mode = params.get("credentialsMode")
     aws_region = params.get("regionOrEndpoint")
@@ -50,7 +75,7 @@ def aws_credentials(ctx: StorageContext) -> str:
 
 
 def azure_credentials(ctx: StorageContext) -> str:
-    info = ctx.connection_handle.get_info()
+    info = _connection_info(ctx)
     params = info.get("params", {})
     credentials_mode = params.get("authType")
     storage_account = params.get("storageAccount")
@@ -119,7 +144,7 @@ def gcp_credentials(ctx: StorageContext):
 
 
 def _render_azure_shared_key_queries(ctx: StorageContext) -> list[tuple[str, str]]:
-    info = ctx.connection_handle.get_info()
+    info = _connection_info(ctx)
     params = info.get("params", {})
     queries = _load_queries()
     account_name = params["storageAccount"]
@@ -186,7 +211,7 @@ def refresh_storage_credentials(conn, *, ctx: StorageContext) -> bool:
         conn.execute(aws_credentials(ctx))
         return True
     if ctype == "Azure":
-        credential_mode = (ctx.connection_handle.get_info().get("params") or {}).get("authType")
+        credential_mode = (_connection_info(ctx).get("params") or {}).get("authType")
         if credential_mode == "SHARED_KEY":
             _configure_azure_shared_key(conn, ctx)
         else:
@@ -206,12 +231,12 @@ def configure_storage(conn, *, ctx: StorageContext) -> dict:
         )
 
     if ctype == "EC2":
-        credential_mode = (ctx.connection_handle.get_info().get("params") or {}).get("credentialsMode")
+        credential_mode = (_connection_info(ctx).get("params") or {}).get("credentialsMode")
         blob_credentials = aws_credentials(ctx)
         conn.execute(blob_credentials)
         return {"provider": ctype, "credential_mode": credential_mode, "extension_source": extension_source}
     elif ctype == "Azure":
-        credential_mode = (ctx.connection_handle.get_info().get("params") or {}).get("authType")
+        credential_mode = (_connection_info(ctx).get("params") or {}).get("authType")
         if credential_mode == "SHARED_KEY":
             storage_info = _configure_azure_shared_key(conn, ctx)
             storage_info["extension_source"] = extension_source
