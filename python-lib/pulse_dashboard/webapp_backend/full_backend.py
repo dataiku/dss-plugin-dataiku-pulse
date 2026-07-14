@@ -1214,6 +1214,37 @@ def _safe_json_dumps(value: Any) -> str:
         return repr(value)
 
 
+_READ_ONLY_QUERY_LIMIT = 200
+_READ_ONLY_SQL_RE = re.compile(r"^\s*(select|with|show|describe|desc|explain)\b", re.IGNORECASE)
+_FORBIDDEN_SQL_TOKENS_RE = re.compile(
+    r"\b(insert|update|delete|merge|alter|drop|create|replace|truncate|attach|detach|copy|call|vacuum|use|set|reset|checkpoint|export|import)\b",
+    re.IGNORECASE,
+)
+
+
+def _normalize_debug_sql(sql: Any) -> str:
+    if sql is None:
+        raise RequestValidationError("Missing SQL query")
+    normalized = str(sql).strip()
+    if not normalized:
+        raise RequestValidationError("Missing SQL query")
+    return normalized
+
+
+def _validate_read_only_debug_sql(sql: str) -> str:
+    normalized = _normalize_debug_sql(sql)
+    stripped = normalized.rstrip().rstrip(';').strip()
+    if not stripped:
+        raise RequestValidationError("Missing SQL query")
+    if ';' in stripped:
+        raise RequestValidationError("Only a single SQL statement is allowed")
+    if not _READ_ONLY_SQL_RE.match(stripped):
+        raise RequestValidationError("Only read-only SELECT/SHOW/DESCRIBE/EXPLAIN queries are allowed")
+    if _FORBIDDEN_SQL_TOKENS_RE.search(stripped):
+        raise RequestValidationError("Only read-only SQL is allowed")
+    return stripped
+
+
 def _ok(payload: dict[str, Any] | None = None, *, status: int = 200):
     data = {"ok": True}
     if payload:
@@ -1579,6 +1610,42 @@ def debug_duckdb_table(table_name: str):
         conn.close()
 
     return _ok({"columns": _df_records(cols_df), "sample": _df_records(sample_df)})
+
+
+@bp.route("/api/debug/duckdb/query", methods=["POST"])
+@_handle_request_errors("duckdb query")
+def debug_duckdb_query():
+    _require_debug_access()
+    _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+    _ensure_ready_if_enabled()
+
+    if _duckdb_init_in_progress():
+        return _duckdb_busy_response()
+
+    payload = request.get_json(silent=True) or {}
+    sql = _validate_read_only_debug_sql(payload.get("sql"))
+
+    conn = _create_connection(read_only=True)
+    try:
+        df = conn.execute(sql).df()
+    except ReadOnlySQLError as e:
+        raise RequestValidationError(str(e)) from e
+    finally:
+        conn.close()
+
+    truncated = int(len(df.index)) > _READ_ONLY_QUERY_LIMIT
+    limited_df = df.head(_READ_ONLY_QUERY_LIMIT).copy()
+
+    return _ok(
+        {
+            "sql": sql,
+            "limit": _READ_ONLY_QUERY_LIMIT,
+            "columns": list(limited_df.columns),
+            "rows": _df_records(limited_df),
+            "rowCount": int(len(limited_df.index)),
+            "truncated": truncated,
+        }
+    )
 
 
 @bp.route("/api/build/assets/facets")
