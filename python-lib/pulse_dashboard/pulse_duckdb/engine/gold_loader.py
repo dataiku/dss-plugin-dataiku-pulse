@@ -240,6 +240,7 @@ def load_gold_tables(
     name_glob: str = "*",
     allowed_suffixes: tuple[str, ...] = (".parquet", ".csv"),
     allowed_table_names: set[str] | None = None,
+    paths: list[str] | None = None,
 ) -> dict:
     """Load curated files from the gold_tables managed folder into DuckDB.
 
@@ -273,7 +274,10 @@ def load_gold_tables(
         ignore_flow=True,
     )
 
-    paths = list_gold_paths(suffixes=allowed_suffixes)
+    if paths is None:
+        paths = list_gold_paths(suffixes=allowed_suffixes)
+    else:
+        paths = sorted(str(path) for path in paths if str(path))
 
     loaded: list[dict] = []
     skipped: list[dict] = []

@@ -675,138 +675,47 @@ def startup_flags():
 
 @bp.route("/api/startup/duckdb")
 def startup_duckdb():
-    """Blocking startup initializer.
-
-    This is meant to be called by `webapps/pulse-dashboard/body.html` before the
-    React bundle is injected. It forces an eager GOLD load so the dashboard is
-    usable immediately after initial render.
-    """
+    """Compatibility startup endpoint that only schedules background init."""
 
     if ensure_database_ready is None:
         return _err("pulse_duckdb not available", status=500)
 
-    if _duckdb_init_in_progress():
-        started_at = _startup_init_status.get("startedAt")
-        duration_sec = None
+    _maybe_schedule_startup_duckdb_init()
+
+    init = dict(_startup_init_status)
+    state = str(init.get("state") or "idle")
+    pending = state in {"idle", "running"}
+    duration_sec = init.get("durationSec")
+    if pending and duration_sec is None:
+        started_at = init.get("startedAt")
         if started_at is not None:
             try:
                 duration_sec = round(time.time() - float(started_at), 3)
             except Exception:
                 duration_sec = None
-        _startup_init_status.update(
-            {
-                "state": "running",
-                "message": "DuckDB initialization is still running",
-                "finishedAt": None,
-                "durationSec": duration_sec,
-                "error": None,
-            }
-        )
-        return _ok(
-            {
-                "load": {
-                    "ok": True,
-                    "pending": True,
-                    "message": "DuckDB initialization is still running",
-                },
-                "durationSec": duration_sec,
-                "pending": True,
-            }
+            init["durationSec"] = duration_sec
+
+    if state == "failed":
+        return _err(
+            "DuckDB initialization failed",
+            status=500,
+            hint=json.dumps({"durationSec": duration_sec, "load": init.get("report"), "error": init.get("error")}),
         )
 
-    started = time.time()
-    _startup_init_status.update(
+    return _ok(
         {
-            "state": "running",
-            "phase": "bootstrap",
-            "message": "Initializing DuckDB and loading GOLD tables",
-            "startedAt": started,
-            "finishedAt": None,
-            "durationSec": None,
-            "error": None,
-            "report": None,
+            "load": {
+                "ok": state == "ready",
+                "pending": pending,
+                "message": init.get("message"),
+                "state": state,
+                "report": init.get("report"),
+            },
+            "durationSec": duration_sec,
+            "pending": pending,
+            "init": init,
         }
     )
-    try:
-        report = cast(
-            dict[str, Any],
-            ensure_database_ready(
-                load_gold_tables=True,
-                replace_gold_tables=getattr(pulse_settings, "PULSE_AUTO_LOAD_REPLACE", False)
-                if pulse_settings is not None
-                else False,
-            ),
-        )
-        duration_sec = round(time.time() - started, 3)
-        if not bool(report.get("ok", False)):
-            _startup_init_status.update(
-                {
-                    "state": "failed",
-                    "phase": "failed",
-                    "message": "DuckDB initialization failed",
-                    "finishedAt": time.time(),
-                    "durationSec": duration_sec,
-                    "error": json.dumps(report),
-                    "report": report,
-                }
-            )
-            return _err(
-                "DuckDB initialization failed",
-                status=500,
-                hint=json.dumps({"durationSec": duration_sec, "load": report}),
-            )
-        _startup_init_status.update(
-            {
-                "state": "ready",
-                "phase": "frontend_ready",
-                "message": "DuckDB initialization complete",
-                "finishedAt": time.time(),
-                "durationSec": duration_sec,
-                "error": None,
-                "report": report,
-            }
-        )
-        return _ok({"load": report, "durationSec": duration_sec})
-    except Exception as e:
-        duration_sec = round(time.time() - started, 3)
-        if _is_backend_local_timeout_error(e):
-            _startup_init_status.update(
-                {
-                    "state": "running",
-                    "message": "DuckDB initialization is still running",
-                    "finishedAt": None,
-                    "durationSec": duration_sec,
-                    "error": None,
-                }
-            )
-            logger.warning(
-                "DuckDB startup request timed out after %.3fs while initialization continues: %s",
-                duration_sec,
-                e,
-            )
-            return _ok(
-                {
-                    "load": {
-                        "ok": True,
-                        "pending": True,
-                        "message": "DuckDB initialization is still running",
-                    },
-                    "durationSec": duration_sec,
-                    "pending": True,
-                }
-            )
-        _startup_init_status.update(
-            {
-                "state": "failed",
-                "phase": "failed",
-                "message": "DuckDB initialization failed",
-                "finishedAt": time.time(),
-                "durationSec": round(time.time() - started, 3),
-                "error": str(e),
-            }
-        )
-        logger.exception("DuckDB startup init failed")
-        return _err(str(e), status=500)
 
 
 @bp.route("/api/startup/status")
@@ -1130,6 +1039,8 @@ def _maybe_schedule_startup_duckdb_init() -> None:
 
 @bp.route("/api/startup/init-status")
 def startup_init_status():
+    if not bool(_startup_init_status.get("startupCheckPerformed")) and not _startup_check_completed:
+        _maybe_schedule_startup_duckdb_init()
     return _ok({"init": dict(_startup_init_status)})
 
 

@@ -529,63 +529,26 @@
           await startInitPolling();
 
 
-          async function warmupDuckdb() {
-            try {
-              var warmupUrl = pulseApiUrl("startup/duckdb");
-              if (!warmupUrl) {
-                return { ok: false, error: "Backend URL not available" };
-              }
-
-
-              var res = await fetch(warmupUrl, { cache: "no-cache" });
-              if (!res.ok) {
-                var text = "";
-                try {
-                  text = await res.text();
-                } catch (e) {
-                  // ignore
-                }
-                return {
-                  ok: false,
-                  error: "DuckDB init failed (HTTP " + res.status + ")" + (text ? "\n" + text : ""),
-                };
-              }
-
-              return await res.json();
-            } catch (e) {
-              return { ok: false, error: String(e) };
-            }
-          }
-
           async function waitForDuckdbReady() {
-            var warmup = await warmupDuckdb();
-            if (!warmup || warmup.ok !== true) {
-              return warmup;
-            }
-            if (!(warmup.pending === true || (warmup.load && warmup.load.pending === true))) {
-              return warmup;
-            }
-
             while (true) {
-              await sleep(1500);
               var init = _startupInitState;
-              if (!init) {
-                continue;
+              if (init) {
+                if (init.state === "failed" || init.state === "unavailable") {
+                  return {
+                    ok: false,
+                    error: init.error || init.message || "DuckDB initialization failed",
+                  };
+                }
+                if (init.state === "ready") {
+                  return {
+                    ok: true,
+                    pending: false,
+                    durationSec: init.durationSec,
+                    load: init.report,
+                  };
+                }
               }
-              if (init.state === "failed" || init.state === "unavailable") {
-                return {
-                  ok: false,
-                  error: init.error || init.message || "DuckDB initialization failed",
-                };
-              }
-              if (init.state === "ready") {
-                return {
-                  ok: true,
-                  pending: false,
-                  durationSec: init.durationSec,
-                  load: init.report,
-                };
-              }
+              await sleep(1500);
             }
           }
 
