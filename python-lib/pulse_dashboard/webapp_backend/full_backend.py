@@ -204,6 +204,8 @@ _startup_check_completed = False
 _backend_started_at = time.time()
 _startup_init_status: dict[str, Any] = {
     "state": "idle",
+    "normalizedState": "NOT_STARTED",
+    "retryAllowed": True,
     "message": "Waiting to check DuckDB startup state",
     "phase": "idle",
     "startedAt": None,
@@ -213,6 +215,8 @@ _startup_init_status: dict[str, Any] = {
     "dbPath": None,
     "metadataPath": None,
     "dbMtime": None,
+    "currentFileNumber": None,
+    "totalFileCount": None,
     "startupCheckPerformed": False,
     "stale": False,
     "staleReason": None,
@@ -244,6 +248,42 @@ def _update_startup_init_message(message: str) -> None:
 def _update_startup_init_phase(phase: str, message: str) -> None:
     _startup_init_status["phase"] = str(phase)
     _startup_init_status["message"] = str(message)
+
+
+def _normalized_startup_state(state: str | None) -> str:
+    value = str(state or "").strip().lower()
+    if value == "ready":
+        return "READY"
+    if value in {"running", "initializing"}:
+        return "INITIALIZING"
+    if value in {"failed", "unavailable"}:
+        return "FAILED"
+    return "NOT_STARTED"
+
+
+def _refresh_startup_status_metadata() -> None:
+    normalized_state = _normalized_startup_state(_startup_init_status.get("state"))
+    _startup_init_status["normalizedState"] = normalized_state
+    _startup_init_status["retryAllowed"] = normalized_state in {"NOT_STARTED", "FAILED"}
+
+    report = _startup_init_status.get("report")
+    if isinstance(report, dict):
+        total = report.get("total")
+        if total is None:
+            loaded = report.get("loaded")
+            failed = report.get("failed")
+            if isinstance(loaded, list) or isinstance(failed, list):
+                total = len(loaded or []) + len(failed or [])
+        loaded_count = report.get("loadedCount")
+        if loaded_count is None:
+            loaded = report.get("loaded")
+            if isinstance(loaded, list):
+                loaded_count = len(loaded)
+        _startup_init_status["totalFileCount"] = int(total) if isinstance(total, int) else None
+        _startup_init_status["currentFileNumber"] = int(loaded_count) if isinstance(loaded_count, int) else None
+    else:
+        _startup_init_status["totalFileCount"] = None
+        _startup_init_status["currentFileNumber"] = None
 
 
 class RequestValidationError(ValueError):
@@ -820,6 +860,7 @@ def _run_startup_duckdb_init() -> None:
                 "error": "DuckDB engine unavailable",
             }
         )
+        _refresh_startup_status_metadata()
         logger.warning("Pulse webapp startup init skipped: DuckDB engine unavailable")
         _startup_check_completed = True
         return
@@ -838,6 +879,7 @@ def _run_startup_duckdb_init() -> None:
                 "report": None,
             }
         )
+        _refresh_startup_status_metadata()
         logger.info("Pulse webapp startup: initializing DuckDB in background")
         report = cast(
             dict[str, Any],
@@ -861,6 +903,7 @@ def _run_startup_duckdb_init() -> None:
                     "report": report,
                 }
             )
+            _refresh_startup_status_metadata()
             logger.info("Pulse webapp startup: DuckDB initialization finished in %ss", duration_sec)
         else:
             _startup_init_status.update(
@@ -874,6 +917,7 @@ def _run_startup_duckdb_init() -> None:
                     "error": json.dumps(report),
                 }
             )
+            _refresh_startup_status_metadata()
             logger.warning(
                 "Pulse webapp startup: DuckDB initialization reported failure after %ss: %s",
                 duration_sec,
@@ -898,6 +942,7 @@ def _run_startup_duckdb_init() -> None:
                 "error": "DuckDB initialization failed. Check backend logs.",
             }
         )
+        _refresh_startup_status_metadata()
         logger.exception("Pulse webapp startup: DuckDB initialization failed")
         _startup_check_completed = True
 
@@ -958,6 +1003,7 @@ def _maybe_schedule_startup_duckdb_init() -> None:
                 "error": "DuckDB settings unavailable",
             }
         )
+        _refresh_startup_status_metadata()
         return
 
     duckdb_path = Path(getattr(pulse_settings, "DUCKDB_PATH", "") or "")
@@ -997,6 +1043,7 @@ def _maybe_schedule_startup_duckdb_init() -> None:
                 "error": None,
             }
         )
+        _refresh_startup_status_metadata()
         _startup_check_completed = True
         return
 
@@ -1041,6 +1088,7 @@ def _maybe_schedule_startup_duckdb_init() -> None:
 def startup_init_status():
     if not bool(_startup_init_status.get("startupCheckPerformed")) and not _startup_check_completed:
         _maybe_schedule_startup_duckdb_init()
+    _refresh_startup_status_metadata()
     return _ok({"init": dict(_startup_init_status)})
 
 
@@ -1438,6 +1486,7 @@ def debug_duckdb_reload():
             "report": None,
         }
     )
+    _refresh_startup_status_metadata()
 
     load_report = cast(
         dict[str, Any],
@@ -1456,6 +1505,7 @@ def debug_duckdb_reload():
             "report": load_report,
         }
     )
+    _refresh_startup_status_metadata()
 
     return _ok({"load": load_report})
 

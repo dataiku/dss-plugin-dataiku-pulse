@@ -330,8 +330,11 @@
         var init = status.init;
         _startupInitState = init;
         var state = String(init.state || "idle");
+        var normalizedState = String(init.normalizedState || "").toUpperCase();
         var phase = String(init.phase || "idle");
-        var isReloading = state === "running";
+        var isReloading = state === "running" || (!init.state && normalizedState === "INITIALIZING");
+        var isReady = state === "ready" || (!init.state && normalizedState === "READY");
+        var isFailed = state === "failed" || state === "unavailable" || (!init.state && normalizedState === "FAILED");
 
         if (isReloading || phase === "frontend_ready") {
           setLoaderStep(1, "done");
@@ -342,11 +345,11 @@
             setLoaderStep(2, "active");
             setLoaderStep(3, "pending");
           }
-        } else if (state === "ready") {
+        } else if (isReady) {
           setLoaderStep(1, "done");
           setLoaderStep(2, "done");
           setLoaderStep(3, "active");
-        } else if (state === "failed" || state === "unavailable") {
+        } else if (isFailed) {
           setLoaderStep(1, "done");
           setLoaderStep(2, "error");
           setLoaderStep(3, "pending");
@@ -533,13 +536,13 @@
             while (true) {
               var init = _startupInitState;
               if (init) {
-                if (init.state === "failed" || init.state === "unavailable") {
+                if (init.state === "failed" || init.state === "unavailable" || (!init.state && String(init.normalizedState || "").toUpperCase() === "FAILED")) {
                   return {
                     ok: false,
                     error: init.error || init.message || "DuckDB initialization failed",
                   };
                 }
-                if (init.state === "ready") {
+                if (init.state === "ready" || (!init.state && String(init.normalizedState || "").toUpperCase() === "READY")) {
                   return {
                     ok: true,
                     pending: false,
