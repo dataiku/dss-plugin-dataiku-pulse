@@ -6,6 +6,10 @@ These notes summarize the major themes of the v3 work at a high level for public
 
 ## Version Highlights
 
+### 3.0.22
+
+- Bumped the packaged plugin version references to `3.0.22` across the plugin manifest, README, and release documentation.
+
 ### 3.0.21
 
 - Stabilized GOLD event-fact exports by routing both partitioned activity fact tables through the same standard unload flow used by the packaged GOLD build.
