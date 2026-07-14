@@ -717,15 +717,15 @@ def _object_activity_branch_sql(
     row_filter = "authuser IS NOT NULL"
 
     if module in {"datasets", "dataset"}:
-        object_type = "dataset"
+        object_type_expr = repr("dataset")
         object_key_expr = _native_text("datasetname")
         row_filter = f"{row_filter} AND {object_key_expr} IS NOT NULL"
     elif module in {"visual_recipes", "misc_recipes", "prepare"}:
-        object_type = "recipe"
+        object_type_expr = repr("recipe")
         object_key_expr = _native_text("recipename")
         row_filter = f"{row_filter} AND {object_key_expr} IS NOT NULL"
     elif module == "webapps":
-        object_type = "web_application"
+        object_type_expr = repr("web_application")
         object_key_expr = _clean_identifier(
             _first_non_empty(
                 _native_text("webappid", "webappid_source_call"),
@@ -741,13 +741,13 @@ def _object_activity_branch_sql(
             _json_text('$.insightid'),
             _json_text('$.dashboardInsightId'),
         )
-        object_type = (
+        object_type_expr = (
             f"CASE WHEN {dashboard_key_expr} IS NOT NULL THEN 'dashboard' ELSE 'insight' END"
         )
         object_key_expr = _clean_identifier(_first_non_empty(dashboard_key_expr, insight_key_expr))
         row_filter = f"{row_filter} AND {object_key_expr} IS NOT NULL"
     elif module == "apis":
-        object_type = "api_service"
+        object_type_expr = repr("api_service")
         object_key_expr = _clean_identifier(
             _first_non_empty(
                 _native_text("serviceid", "apiserviceid"),
@@ -759,7 +759,7 @@ def _object_activity_branch_sql(
         )
         row_filter = f"{row_filter} AND {object_key_expr} IS NOT NULL"
     elif module == "application_designer":
-        object_type = "dataiku_application"
+        object_type_expr = repr("dataiku_application")
         object_key_expr = _clean_identifier(
             _first_non_empty(
                 _native_text("applicationid", "appid"),
@@ -774,7 +774,7 @@ def _object_activity_branch_sql(
             " AND msgtype <> 'application-open'"
         )
     else:
-        object_type = module
+        object_type_expr = repr(module)
         object_key_expr = "NULL"
 
     project_key_expr = "project_key"
@@ -789,7 +789,7 @@ def _object_activity_branch_sql(
             "  e.dataiku_category AS event_category,\n",
             "  m.capability AS canonical_capability,\n",
             f"  {project_key_expr} AS project_key,\n",
-            f"  '{object_type}' AS object_type,\n",
+            f"  {object_type_expr} AS object_type,\n",
             f"  {object_key_expr} AS object_key,\n",
             f"  {object_key_expr} AS object_name,\n",
             "  NULL AS instance_url,\n",
