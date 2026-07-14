@@ -206,6 +206,7 @@
         error: "",
         lastStatusAt: null,
       };
+      var _startupInitState = null;
 
       function renderLoaderMetaFromState() {
         var details = [];
@@ -327,6 +328,7 @@
       function renderInitStatus(status) {
         if (!status || !status.init) return;
         var init = status.init;
+        _startupInitState = init;
         var state = String(init.state || "idle");
         var phase = String(init.phase || "idle");
         var isReloading = state === "running";
@@ -500,6 +502,7 @@
             renderLoaderMetaFromState();
           }, 1000);
           async function startInitPolling() {
+            var stopped = false;
             var run = async function () {
               try {
                 var status = await fetchInitStatus();
@@ -511,9 +514,16 @@
                   // ignore
                 }
               }
+              if (!stopped) {
+                initPoll = window.setTimeout(run, 1500);
+              }
+            };
+            initPoll = {
+              stop: function () {
+                stopped = true;
+              },
             };
             await run();
-            initPoll = window.setInterval(run, 1500);
           }
 
           await startInitPolling();
@@ -548,22 +558,40 @@
           }
 
           async function waitForDuckdbReady() {
+            var warmup = await warmupDuckdb();
+            if (!warmup || warmup.ok !== true) {
+              return warmup;
+            }
+            if (!(warmup.pending === true || (warmup.load && warmup.load.pending === true))) {
+              return warmup;
+            }
+
             while (true) {
-              var warmup = await warmupDuckdb();
-              if (!warmup || warmup.ok !== true) {
-                return warmup;
-              }
-              if (warmup.pending === true || (warmup.load && warmup.load.pending === true)) {
-                await sleep(1500);
+              await sleep(1500);
+              var init = _startupInitState;
+              if (!init) {
                 continue;
               }
-              return warmup;
+              if (init.state === "failed" || init.state === "unavailable") {
+                return {
+                  ok: false,
+                  error: init.error || init.message || "DuckDB initialization failed",
+                };
+              }
+              if (init.state === "ready") {
+                return {
+                  ok: true,
+                  pending: false,
+                  durationSec: init.durationSec,
+                  load: init.report,
+                };
+              }
             }
           }
 
           var warmup = await waitForDuckdbReady();
           if (!warmup || warmup.ok !== true) {
-            if (initPoll) window.clearInterval(initPoll);
+            if (initPoll) { if (typeof initPoll.stop === "function") initPoll.stop(); else window.clearTimeout(initPoll); }
             if (liveMetaTimer) window.clearInterval(liveMetaTimer);
             setLoaderStep(2, "error");
             var msg = warmup && warmup.error ? String(warmup.error) : "DuckDB initialization failed";
@@ -574,7 +602,7 @@
             return;
           }
 
-          if (initPoll) window.clearInterval(initPoll);
+          if (initPoll) { if (typeof initPoll.stop === "function") initPoll.stop(); else window.clearTimeout(initPoll); }
           if (liveMetaTimer) window.clearInterval(liveMetaTimer);
           setLoaderStep(1, "done");
           setLoaderStep(2, "done");
