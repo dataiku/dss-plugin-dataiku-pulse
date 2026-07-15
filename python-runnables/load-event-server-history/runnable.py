@@ -112,6 +112,28 @@ def _first_non_empty_series(series_list: list[pd.Series], *, index: pd.Index) ->
     return out
 
 
+def _coerce_to_single_series(value: pd.Series | pd.DataFrame, *, index: pd.Index) -> pd.Series:
+    if isinstance(value, pd.Series):
+        return value
+
+    if value.shape[1] == 0:
+        return pd.Series(pd.NA, index=index, dtype="object")
+
+    logger.warning(
+        "Collapsing duplicate-named columns into one alias source: columns=%s count=%s",
+        [str(column) for column in value.columns],
+        value.shape[1],
+    )
+
+    duplicated_sources = [value.iloc[:, column_idx] for column_idx in range(value.shape[1])]
+    return _first_non_empty_series(duplicated_sources, index=index)
+
+
+def _find_duplicate_column_names(df: pd.DataFrame) -> list[str]:
+    duplicate_mask = df.columns.duplicated(keep=False)
+    return [str(column) for column in df.columns[duplicate_mask].tolist()]
+
+
 def _series_has_values(series: pd.Series) -> pd.Series:
     if series.dtype == "object":
         as_str = series.astype("string")
@@ -126,14 +148,14 @@ def _collect_alias_sources(df: pd.DataFrame, candidate_names: list[str]) -> list
     seen_columns: set[Any] = set()
     for candidate in candidate_names:
         if candidate in df.columns and candidate not in seen_columns:
-            sources.append(df[candidate])
+            sources.append(_coerce_to_single_series(df[candidate], index=df.index))
             seen_columns.add(candidate)
             continue
 
         normalized_candidate = str(candidate).replace(".", "").replace("_", "").lower()
         matched_column = normalized_lookup.get(normalized_candidate)
         if matched_column is not None and matched_column not in seen_columns:
-            sources.append(df[matched_column])
+            sources.append(_coerce_to_single_series(df[matched_column], index=df.index))
             seen_columns.add(matched_column)
 
     return sources
@@ -332,6 +354,15 @@ def _normalize_history_chunk_shape(chunk: pd.DataFrame) -> tuple[pd.DataFrame, d
 
 def _cleanup_history_processor_output(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
+
+    duplicate_columns = _find_duplicate_column_names(out)
+    if duplicate_columns:
+        logger.warning(
+            "Processor output contains duplicate columns before cleanup: duplicates=%s row_count=%s total_columns=%s",
+            duplicate_columns,
+            out.shape[0],
+            out.shape[1],
+        )
 
     duplicate_pairs = {
         "msgtypebase": ["msgtypebase_x", "msgtypebase_y"],
@@ -740,6 +771,16 @@ class MyRunnable(Runnable):
             for module_name, grp in out_df.groupby("dataiku_category"):
                 output_category = proc_name
                 output_module = str(module_name)
+                duplicate_columns = _find_duplicate_column_names(grp)
+                if duplicate_columns:
+                    logger.warning(
+                        "Duplicate columns detected in history processor output: processor=%s category=%s duplicates=%s row_count=%s total_columns=%s",
+                        proc_name,
+                        output_module,
+                        duplicate_columns,
+                        grp.shape[0],
+                        grp.shape[1],
+                    )
                 cleaned_grp = _cleanup_history_processor_output(grp)
 
                 normalize_category = output_category
