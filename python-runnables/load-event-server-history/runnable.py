@@ -105,7 +105,13 @@ def _first_non_empty_series(series_list: list[pd.Series], *, index: pd.Index) ->
 
     out = pd.Series(pd.NA, index=index, dtype="object")
     for series in series_list:
-        normalized = series.reindex(index).astype("object")
+        if isinstance(series, pd.DataFrame):
+            series = _coerce_to_single_series(series, index=index)
+
+        normalized = pd.Series(series, copy=False)
+        if not normalized.index.equals(index):
+            normalized = normalized.reindex(index)
+        normalized = normalized.astype("object")
         mask = out.isna() & normalized.notna()
         if mask.any():
             out.loc[mask] = normalized.loc[mask]
