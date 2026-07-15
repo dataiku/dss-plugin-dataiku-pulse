@@ -677,6 +677,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                                 name_glob=settings.PULSE_GOLD_LOAD_NAME_GLOB,
                                 allowed_suffixes=(".csv", ".parquet"),
                                 allowed_table_names=allowed_names,
+                                paths=gold_paths,
                             )
                             logger.info(
                                 "DuckDB ensure_database_ready: GOLD load completed in %.3fs with ok=%s loaded=%s failed=%s",
@@ -730,6 +731,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                             name_glob=settings.PULSE_GOLD_LOAD_NAME_GLOB,
                             allowed_suffixes=(".csv", ".parquet"),
                             allowed_table_names=allowed_names,
+                            paths=gold_paths,
                         )
                         logger.info(
                             "DuckDB ensure_database_ready: GOLD load completed in %.3fs with ok=%s loaded=%s failed=%s",
