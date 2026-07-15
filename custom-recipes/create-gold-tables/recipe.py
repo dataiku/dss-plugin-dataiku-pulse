@@ -1653,7 +1653,10 @@ def run() -> dict:
             manifest["updated_at"] = datetime.now(timezone.utc).isoformat()
             _write_manifest(gold_folder_lookup, manifest)
     finally:
-        setup.conn.close()
+        try:
+            setup.conn.close()
+        except Exception:
+            logger.exception("Failed to close DuckDB connection during GOLD recipe teardown")
 
     if skipped_tables:
         logger.warning("Gold tables skipped (no silver data): %s", skipped_tables)
