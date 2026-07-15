@@ -674,7 +674,17 @@ def _object_activity_branch_sql(
         return f"NULLIF(TRIM(CAST({expr} AS VARCHAR)), '')"
 
     def _path_segment(expr: str, marker: str) -> str:
-        normalized_expr = f"split_part(split_part(CAST({expr} AS VARCHAR), '?', 1), '#', 1)"
+        base_expr = f"CAST({expr} AS VARCHAR)"
+        query_cut_expr = (
+            f"CASE WHEN strpos({base_expr}, '?') > 0 "
+            f"THEN left({base_expr}, strpos({base_expr}, '?') - 1) "
+            f"ELSE {base_expr} END"
+        )
+        normalized_expr = (
+            f"CASE WHEN strpos({query_cut_expr}, '#') > 0 "
+            f"THEN left({query_cut_expr}, strpos({query_cut_expr}, '#') - 1) "
+            f"ELSE {query_cut_expr} END"
+        )
         extracted_expr = (
             f"CASE WHEN strpos({normalized_expr}, '{marker}') > 0 "
             f"THEN split_part(split_part({normalized_expr}, '{marker}', 2), '/', 1) "
@@ -693,51 +703,54 @@ def _object_activity_branch_sql(
     def _json_text(path: str) -> str:
         return _null_if_empty(f"json_extract_string(e.extras, '{path}')")
 
+    def _native_text(*names: str) -> str:
+        exprs = [_null_if_empty(f"e.{name}") for name in names if _has_column(name)]
+        if not exprs:
+            return "NULL"
+        if len(exprs) == 1:
+            return exprs[0]
+        return "COALESCE(" + ", ".join(exprs) + ")"
+
     def _first_non_empty(*exprs: str) -> str:
         return "COALESCE(" + ", ".join(exprs) + ")"
 
     row_filter = "authuser IS NOT NULL"
 
     if module in {"datasets", "dataset"}:
-        object_type = "dataset"
-        object_key_expr = _path_segment("callpath", "/datasets/")
+        object_type_expr = repr("dataset")
+        object_key_expr = _native_text("datasetname")
+        row_filter = f"{row_filter} AND {object_key_expr} IS NOT NULL"
     elif module in {"visual_recipes", "misc_recipes", "prepare"}:
-        object_type = "recipe"
-        object_key_expr = _path_segment("callpath", "/recipes/")
+        object_type_expr = repr("recipe")
+        object_key_expr = _native_text("recipename")
+        row_filter = f"{row_filter} AND {object_key_expr} IS NOT NULL"
     elif module == "webapps":
-        object_type = "web_application"
-        normalized_webapp_expr = _null_if_empty("e.webappid") if _has_column("webappid") else "NULL"
-        callpath_webapp_expr = _path_segment("e.callpath", "/webapps/")
-        authvia_webapp_expr = _null_if_empty(
-            "CASE WHEN strpos(CAST(e.authvia AS VARCHAR), 'ticket:Standard webapp backend: ') > 0 THEN split_part(split_part(split_part(CAST(e.authvia AS VARCHAR), 'ticket:Standard webapp backend: ', 2), ' ', 2), ',', 1) ELSE NULL END"
-        )
-        extras_webapp_expr = _json_text('$.webappid')
+        object_type_expr = repr("web_application")
         object_key_expr = _clean_identifier(
             _first_non_empty(
-                normalized_webapp_expr,
-                authvia_webapp_expr,
-                extras_webapp_expr,
-                callpath_webapp_expr,
+                _native_text("webappid", "webappid_source_call"),
+                _json_text('$.webappid'),
             )
         )
+        row_filter = f"{row_filter} AND {object_key_expr} IS NOT NULL"
     elif module == "charts_dashboard":
-        dashboard_key_expr = _path_segment("callpath", "/dashboards/")
+        dashboard_key_expr = _native_text("dashboardid")
         insight_key_expr = _first_non_empty(
-            _path_segment("callpath", "/insights/"),
+            _native_text("insightid", "dashboardinsightid"),
             _json_text('$.insightId'),
             _json_text('$.insightid'),
             _json_text('$.dashboardInsightId'),
         )
-        object_type = (
+        object_type_expr = (
             f"CASE WHEN {dashboard_key_expr} IS NOT NULL THEN 'dashboard' ELSE 'insight' END"
         )
         object_key_expr = _clean_identifier(_first_non_empty(dashboard_key_expr, insight_key_expr))
+        row_filter = f"{row_filter} AND {object_key_expr} IS NOT NULL"
     elif module == "apis":
-        object_type = "api_service"
+        object_type_expr = repr("api_service")
         object_key_expr = _clean_identifier(
             _first_non_empty(
-                _first_non_empty(_path_segment("callpath", "/api-services/"), _path_segment("callpath", "/api_services/")),
-                _first_non_empty(_path_segment("callpath", "/api-endpoints/"), _path_segment("callpath", "/api_endpoints/")),
+                _native_text("serviceid", "apiserviceid"),
                 _json_text('$.serviceId'),
                 _json_text('$.apiServiceId'),
                 _json_text('$.apiserviceid'),
@@ -746,17 +759,14 @@ def _object_activity_branch_sql(
         )
         row_filter = f"{row_filter} AND {object_key_expr} IS NOT NULL"
     elif module == "application_designer":
-        object_type = "dataiku_application"
+        object_type_expr = repr("dataiku_application")
         object_key_expr = _clean_identifier(
             _first_non_empty(
-                _path_segment("callpath", "/applications/"),
+                _native_text("applicationid", "appid"),
                 _json_text('$.applicationId'),
                 _json_text('$.applicationid'),
                 _json_text('$.appId'),
                 _json_text('$.appid'),
-                _json_text('$.projectKey'),
-                _json_text('$.projectkey'),
-                _null_if_empty("project_key")
             )
         )
         row_filter = (
@@ -764,15 +774,10 @@ def _object_activity_branch_sql(
             " AND msgtype <> 'application-open'"
         )
     else:
-        object_type = module
+        object_type_expr = repr(module)
         object_key_expr = "NULL"
 
-    project_key_expr = (
-        f"COALESCE(project_key, {_path_segment('callpath', '/projects/')}, "
-        "json_extract_string(extras, '$.projectKey'), json_extract_string(extras, '$.projectkey'))"
-        if object_type == "dataiku_application"
-        else "project_key"
-    )
+    project_key_expr = "project_key"
 
     return "".join(
         [
@@ -784,7 +789,7 @@ def _object_activity_branch_sql(
             "  e.dataiku_category AS event_category,\n",
             "  m.capability AS canonical_capability,\n",
             f"  {project_key_expr} AS project_key,\n",
-            f"  '{object_type}' AS object_type,\n",
+            f"  {object_type_expr} AS object_type,\n",
             f"  {object_key_expr} AS object_key,\n",
             f"  {object_key_expr} AS object_name,\n",
             "  NULL AS instance_url,\n",
@@ -1648,7 +1653,10 @@ def run() -> dict:
             manifest["updated_at"] = datetime.now(timezone.utc).isoformat()
             _write_manifest(gold_folder_lookup, manifest)
     finally:
-        setup.conn.close()
+        try:
+            setup.conn.close()
+        except Exception:
+            logger.exception("Failed to close DuckDB connection during GOLD recipe teardown")
 
     if skipped_tables:
         logger.warning("Gold tables skipped (no silver data): %s", skipped_tables)

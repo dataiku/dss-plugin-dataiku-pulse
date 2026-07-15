@@ -189,6 +189,7 @@ Prefer reuse over duplication.
 - Keep SQL inside DuckDB whenever practical. Do not move SQL into Python unless requested.
 - Keep queries readable (multi-line strings + .strip()).
 - Avoid exposing arbitrary SQL execution to untrusted inputs in web endpoints; validate/whitelist.
+- For audit/object-activity modeling, do not derive object identifiers by parsing `callPath` or `callpath`. Templated paths do not provide trustworthy object identity; prefer explicit native audit fields and drop low-context rows when those fields are missing.
 
 ---
 

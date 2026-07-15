@@ -22,11 +22,19 @@ products:
 
 license_groups:
   license_creator:
-    - FULL_DESIGNER
+    - DATA_SCIENTIST
+    - DATA_ANALYST
+    - DESIGNER
+    - VISUAL_DESIGNER
     - DATA_DESIGNER
     - ADVANCED_ANALYTICS_DESIGNER
+    - FULL_DESIGNER
   license_consumer:
-    - AI_CONSUMER
     - READER
+    - EXPLORER
+    - AI_CONSUMER
+    - AI_ACCESS_USER
+    - GOVERNANCE_MANAGER
   license_admin:
+    - PLATFORM_ADMIN
     - TECHNICAL_ACCOUNT
