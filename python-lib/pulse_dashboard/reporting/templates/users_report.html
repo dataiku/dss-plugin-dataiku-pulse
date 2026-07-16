@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>{{ report.title }}</title>
+  <style>{{ css }}</style>
+</head>
+<body>
+  <h1>{{ report.title }}</h1>
+  <p class="meta">Generated {{ report.generatedAt }} · Instance: {{ report.instanceName or 'All instances' }} · Activity filter: {{ report.activityFilter or 'all' }} · License filter: {{ report.licenseFilter or 'all' }} · Window: {{ report.windowLabel }}</p>
+
+  {% if sections.includeSummary %}<section>
+    <h2>Summary</h2>
+    <div class="kpis">
+      <div class="kpi"><div class="label">Enabled users</div><div class="value">{{ kpis.enabled_users or 0 }}</div></div>
+      <div class="kpi"><div class="label">Active users (6m)</div><div class="value">{{ kpis.active_users_6m or 0 }}</div></div>
+      <div class="kpi"><div class="label">Developing users (6m)</div><div class="value">{{ kpis.developing_users_6m or 0 }}</div></div>
+      <div class="kpi"><div class="label">Inactive users (6m)</div><div class="value">{{ kpis.inactive_users_6m or 0 }}</div></div>
+    </div>
+  </section>{% endif %}
+
+  {% if sections.includeMonthly and charts.active_monthly_png %}<section><h2>Monthly Activity</h2><img src="data:image/png;base64,{{ charts.active_monthly_png }}" /></section>{% endif %}
+  {% if sections.includeSegments and charts.segments_png %}<section><h2>User Segments</h2><img src="data:image/png;base64,{{ charts.segments_png }}" /></section>{% endif %}
+  {% if sections.includeLicenseSummary and charts.license_groups_png %}<section><h2>License Groups</h2><img src="data:image/png;base64,{{ charts.license_groups_png }}" /></section>{% endif %}
+
+  {% if sections.includeLeaderboard %}<section>
+    <h2>Leaderboard</h2>
+    <table>
+      <thead><tr><th>User</th><th>Viewing</th><th>Developing</th></tr></thead>
+      <tbody>
+        {% for row in leaderboard.rows[:10] %}
+        <tr><td>{{ row.displayName or row.login or row.login_norm }}</td><td>{{ row.viewing or row.viewing_actions or 0 }}</td><td>{{ row.developing or row.developing_actions or 0 }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>{% endif %}
+
+  {% if sections.includeLicenseSummary %}<section>
+    <h2>License Summary</h2>
+    <table>
+      <thead><tr><th>Group</th><th>Enabled Users</th></tr></thead>
+      <tbody>
+        {% for row in licenseSummary.byLicenseGroup %}
+        <tr><td>{{ row.license_group or row.label }}</td><td>{{ row.enabled_users or row.value or 0 }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>{% endif %}
+</body>
+</html>

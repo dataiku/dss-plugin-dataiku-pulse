@@ -44,6 +44,7 @@ class MethodCallContext:
     instance_name: str
     run_ts: str
     param_set: dict[str, Any]
+    client: Any | None = None
     project_key: str | None = None
     worker_project_key: str | None = None
     since: datetime | None = None
