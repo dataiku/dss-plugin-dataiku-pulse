@@ -5,6 +5,7 @@ from typing import Any
 import pandas as pd
 
 from data_collection.method_rules import MethodCallContext
+from data_collection.method_rules_user_enrichment import cleanup_list_users_dataframe, cleanup_list_users_payload
 
 
 def build_call_kwargs_hook(method_name: str, context: MethodCallContext) -> dict[str, Any]:
@@ -14,6 +15,8 @@ def build_call_kwargs_hook(method_name: str, context: MethodCallContext) -> dict
 
 
 def cleanup_payload_hook(method_name: str, payload: Any, context: MethodCallContext) -> Any:
+    if method_name == "list_users":
+        return cleanup_list_users_payload(payload, context)
     return payload
 
 
@@ -22,6 +25,8 @@ def cleanup_dataframe_hook(
     df: pd.DataFrame,
     context: MethodCallContext,
 ) -> pd.DataFrame:
+    if method_name == "list_users":
+        return cleanup_list_users_dataframe(df, context)
     if method_name == "list_connections":
         out = df.copy()
         secret_like = [

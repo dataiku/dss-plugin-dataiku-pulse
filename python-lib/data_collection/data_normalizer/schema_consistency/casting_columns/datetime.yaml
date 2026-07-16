@@ -5,7 +5,12 @@
 - run_timestamp
 - dssstartuptimestamp
 - creationdate
+- lastsuccessfullogin
+- lastfailedlogin
 - last_session_activity
+- lastsessionactivity
+- npssurveysettings_nextaction
+- atsurveysettings_nextaction
 - first_commit_date
 - last_commit_date
 - creationtag_lastmodifiedon
