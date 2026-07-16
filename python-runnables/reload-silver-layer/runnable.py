@@ -56,6 +56,17 @@ def _clean_path(path: str) -> str:
     return f"/{normalized.lstrip('/')}"
 
 
+def _list_folder_paths(folder: dataiku.Folder) -> list[str]:
+    try:
+        paths = [str(path) for path in folder.list_paths_in_partition() or []]
+        logger.info("reload-silver-layer listed managed folder paths using default partition API: count=%s", len(paths))
+        return paths
+    except TypeError:
+        paths = [str(path) for path in folder.list_paths_in_partition("NP") or []]
+        logger.info("reload-silver-layer listed managed folder paths using 'NP' fallback API: count=%s", len(paths))
+        return paths
+
+
 def _extract_file_key(name: str) -> tuple[str | None, str | None]:
     lowered = name.lower()
     for extension in SUPPORTED_RAW_EXTENSIONS:
@@ -315,6 +326,16 @@ def _replay_metadata_file(*, folder: dataiku.Folder, target: Any, info: RawPathI
     raw_df = raw_to_dataframe(payload, prefix=prefix)
     raw_df = cleanup_dataframe(rule, raw_df, _build_replay_context(info, run_ts))
 
+    logger.info(
+        "reload-silver-layer metadata replay prepared raw_path=%s category=%s module=%s run_ts=%s raw_rows=%s raw_cols=%s",
+        raw_path,
+        info.category,
+        info.module,
+        run_ts,
+        int(raw_df.shape[0]),
+        int(raw_df.shape[1]),
+    )
+
     if raw_df.shape[0] == 0:
         return ReplayResult(raw_path, "empty_dataframe", "Replay produced an empty dataframe")
 
@@ -327,6 +348,14 @@ def _replay_metadata_file(*, folder: dataiku.Folder, target: Any, info: RawPathI
         todo_section=str(info.module),
     )
     dq = check_silver_dq(silver_df)
+
+    logger.info(
+        "reload-silver-layer metadata replay normalized raw_path=%s silver_rows=%s silver_cols=%s dq_ok=%s",
+        raw_path,
+        int(silver_df.shape[0]),
+        int(silver_df.shape[1]),
+        dq.ok,
+    )
 
     if dq.ok:
         target_path = _raw_path_to_silver_path(raw_path)
@@ -460,6 +489,15 @@ def _replay_audit_dataframe(*, raw_df: pd.DataFrame, target: Any, info: RawPathI
     processors, processor_messages = _load_processors(processor_names)
     results: list[ReplayResult] = []
 
+    logger.info(
+        "reload-silver-layer audit replay start raw_path=%s processors=%s raw_rows=%s raw_cols=%s run_ts=%s",
+        raw_path,
+        processor_names,
+        int(raw_df.shape[0]),
+        int(raw_df.shape[1]),
+        run_ts,
+    )
+
     for processor_name in processor_names:
         processor = processors.get(processor_name)
         if processor is None:
@@ -474,6 +512,14 @@ def _replay_audit_dataframe(*, raw_df: pd.DataFrame, target: Any, info: RawPathI
             logger.exception("Audit processor %s failed for %s", processor_name, raw_path)
             results.append(ReplayResult(raw_path, "audit_processor_failed", f"{processor_name}: {repr(exc)}"))
             continue
+
+        logger.info(
+            "reload-silver-layer audit processor output raw_path=%s processor=%s rows=%s cols=%s",
+            raw_path,
+            processor_name,
+            0 if out_df is None or not isinstance(out_df, pd.DataFrame) else int(out_df.shape[0]),
+            0 if out_df is None or not isinstance(out_df, pd.DataFrame) else int(out_df.shape[1]),
+        )
 
         if out_df is None or not isinstance(out_df, pd.DataFrame) or out_df.shape[0] == 0:
             results.append(ReplayResult(raw_path, "audit_processor_empty", processor_name))
@@ -494,6 +540,17 @@ def _replay_audit_dataframe(*, raw_df: pd.DataFrame, target: Any, info: RawPathI
             )
             event_date = _resolve_event_date(silver_df=silver_df, fallback_date=run_date)
             dq = check_silver_dq(silver_df)
+
+            logger.info(
+                "reload-silver-layer audit group normalized raw_path=%s processor=%s module=%s rows=%s cols=%s event_date=%s dq_ok=%s",
+                raw_path,
+                processor_name,
+                module_name_str,
+                int(silver_df.shape[0]),
+                int(silver_df.shape[1]),
+                event_date.isoformat(),
+                dq.ok,
+            )
 
             if dq.ok:
                 silver_path = _audit_group_path(
@@ -572,6 +629,12 @@ def _replay_audit_file(*, folder: dataiku.Folder, target: Any, info: RawPathInfo
         raise ValueError(f"Expected audit raw payload list in {raw_path!r}")
 
     raw_df = pd.DataFrame(payload)
+    logger.info(
+        "reload-silver-layer audit raw payload loaded raw_path=%s rows=%s cols=%s",
+        raw_path,
+        int(raw_df.shape[0]),
+        int(raw_df.shape[1]),
+    )
     if raw_df.shape[0] == 0:
         return [ReplayResult(raw_path, "empty_dataframe", "Audit raw payload is empty")]
 
@@ -593,6 +656,13 @@ def _replay_legacy_audit_file(*, folder: dataiku.Folder, target: Any, info: RawP
 
     payload = _read_managed_folder_json(folder, raw_path, info.extension)
     adapted_df, skip_reason = _normalize_legacy_audit_payload(payload, info=info)
+    logger.info(
+        "reload-silver-layer legacy audit adaptation raw_path=%s adapted_rows=%s adapted_cols=%s skip_reason=%s",
+        raw_path,
+        0 if adapted_df is None else int(adapted_df.shape[0]),
+        0 if adapted_df is None else int(adapted_df.shape[1]),
+        skip_reason,
+    )
     if adapted_df is None:
         return [ReplayResult(raw_path, "legacy_audit_skipped", skip_reason or "Legacy audit payload could not be adapted")]
 
@@ -696,6 +766,14 @@ class MyRunnable(Runnable):
         ctx = build_context(plugin_config=self.plugin_config)
         target = ensure_output_folder(param_set=self.param_set, remote_client=ctx.remote_client)
 
+        logger.info(
+            "reload-silver-layer start runnable_project=%s target_project=%s folder_lookup=%s connection=%s",
+            self.project_key,
+            target.project_key,
+            target.folder_lookup,
+            target.connection_name,
+        )
+
         folder = dataiku.Folder(
             lookup=target.folder_lookup,
             project_key=target.project_key,
@@ -703,14 +781,27 @@ class MyRunnable(Runnable):
         )
         folder_id = folder.get_id()
 
+        logger.info(
+            "reload-silver-layer resolved managed folder target_project=%s folder_lookup=%s folder_id=%s",
+            target.project_key,
+            target.folder_lookup,
+            folder_id,
+        )
+
         try:
-            all_paths = [str(path) for path in folder.list_paths_in_partition("NP") or []]
+            all_paths = _list_folder_paths(folder)
         except Exception as exc:
             raise RuntimeError(
                 f"Could not list managed folder paths for {target.folder_lookup!r} in project {target.project_key!r}"
             ) from exc
 
         raw_paths = sorted({_clean_path(path) for path in all_paths if _clean_path(path).startswith("/raw/")})
+        logger.info(
+            "reload-silver-layer discovered paths total_paths=%s raw_paths=%s sample_raw_paths=%s",
+            len(all_paths),
+            len(raw_paths),
+            raw_paths[: min(len(raw_paths), SAMPLE_LIMIT)],
+        )
         counts = {
             "metadata_candidate": 0,
             "audit_candidate": 0,

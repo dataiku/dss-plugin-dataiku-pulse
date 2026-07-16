@@ -1,0 +1,12 @@
+body { font-family: Arial, sans-serif; color: #111827; font-size: 12px; margin: 28px; }
+h1, h2 { color: #0f172a; }
+.meta { color: #475569; margin-bottom: 18px; }
+.kpis { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.kpi { border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 12px; min-width: 140px; }
+.kpi .label { color: #475569; font-size: 11px; }
+.kpi .value { font-size: 20px; font-weight: bold; margin-top: 4px; }
+section { margin-top: 20px; page-break-inside: avoid; }
+img { width: 100%; max-width: 700px; display: block; margin-top: 8px; }
+table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; }
+th { background: #f8fafc; }

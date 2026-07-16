@@ -14,12 +14,15 @@ import re
 import sys
 import threading
 import time
+from io import BytesIO
 from functools import wraps
 from pathlib import Path
 from typing import Any, cast
 
 import yaml
 from flask import Blueprint, Flask, jsonify, request, send_file, send_from_directory
+
+from pulse_dashboard.reporting import build_users_report_pdf_bytes
 
 # Resolve repo paths for local dev static serving.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -5388,6 +5391,48 @@ def build_user_top_projects(login: str):
 
     except Exception as e:
         logger.exception("user top projects failed")
+        return _err(str(e), status=500)
+
+
+@bp.route("/api/export/users-report.pdf")
+def export_users_report_pdf():
+    try:
+        instance_name = _parse_instance_name(request.args.get("instance_name"))
+        license_filter = request.args.get("licenseFilter") or None
+        activity_filter = request.args.get("activityFilter") or None
+        months = _parse_window_months(request.args.get("window"))
+        if months is None:
+            months = int(request.args.get("months") or 3)
+        months = max(1, min(24, months))
+        sections = {
+            "includeSummary": str(request.args.get("includeSummary") or "true").lower() == "true",
+            "includeMonthly": str(request.args.get("includeMonthly") or "true").lower() == "true",
+            "includeSegments": str(request.args.get("includeSegments") or "true").lower() == "true",
+            "includeLeaderboard": str(request.args.get("includeLeaderboard") or "true").lower() == "true",
+            "includeLicenseSummary": str(request.args.get("includeLicenseSummary") or "true").lower() == "true",
+        }
+
+        pdf_bytes = build_users_report_pdf_bytes(
+            instance_name=instance_name,
+            license_filter=license_filter,
+            activity_filter=activity_filter,
+            months=months,
+            sections=sections,
+        )
+
+        filename = "pulse-users-report.pdf"
+        if instance_name:
+            safe_instance = re.sub(r"[^a-zA-Z0-9._-]+", "-", instance_name).strip("-") or "instance"
+            filename = f"pulse-users-report-{safe_instance}.pdf"
+
+        return send_file(
+            BytesIO(pdf_bytes),
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=filename,
+        )
+    except Exception as e:
+        logger.exception("users report export failed")
         return _err(str(e), status=500)
 
 

@@ -1,4 +1,10 @@
 methods:
+  list_users:
+    enabled: true
+    call_mode: auto
+    cleanup_mode: python_hook
+    notes: Route instance-level users through a dedicated enrichment hook; no-op until enrichment is implemented.
+
   list_connections:
     enabled: true
     call_mode: auto
