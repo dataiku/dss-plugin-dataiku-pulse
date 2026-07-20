@@ -1,0 +1,51 @@
+final_build_formal_mau_daily:
+  description: >
+    Daily formal-MAU eligibility rows joined with broad user activity counts.
+    Eligibility comes from `fact_formal_mau_daily` and behavioral context comes
+    from `fact_user_activity_daily`, filtered to enabled non-trial users.
+  depends_on:
+    - fact_formal_mau_daily
+    - fact_user_activity_daily
+    - base_users_instance_metadata_history
+  build_order: 1115
+  sql: |
+    CREATE OR REPLACE VIEW "final_build_formal_mau_daily" AS
+    WITH latest_users AS (
+      SELECT
+        instance_name,
+        lower(trim(users_login)) AS login_norm,
+        users_enabled,
+        users_trialstatus_exists,
+        ROW_NUMBER() OVER (
+          PARTITION BY instance_name, lower(trim(users_login))
+          ORDER BY run_ts DESC
+        ) AS rn
+      FROM base_users_instance_metadata_history
+      WHERE users_login IS NOT NULL
+        AND length(trim(users_login)) > 0
+    )
+    SELECT
+      f.day,
+      f.instance_name,
+      f.login_norm,
+      f.login,
+      f.application_open_count,
+      f.last_application_open_at,
+      COALESCE(a.viewing_actions_count, 0) AS consuming_actions_count,
+      COALESCE(a.viewing_actions_count, 0) AS viewing_actions_count,
+      COALESCE(a.developing_actions_count, 0) AS developing_actions_count,
+      a.last_activity_at
+    FROM fact_formal_mau_daily f
+    JOIN latest_users u
+      ON u.instance_name = f.instance_name
+     AND u.login_norm = f.login_norm
+     AND u.rn = 1
+    LEFT JOIN fact_user_activity_daily a
+      ON a.day = f.day
+     AND a.instance_name = f.instance_name
+     AND a.login_norm = f.login_norm
+    WHERE u.users_enabled IS TRUE
+      AND COALESCE(u.users_trialstatus_exists, FALSE) IS NOT TRUE;
+  example_data: |
+    -- This object is a VIEW.
+    -- Insert example rows into its upstream base tables.

@@ -617,11 +617,6 @@ class MyRunnable(Runnable):
                         flatten_module = str(module_name)
                         flatten_variant = None
                         flatten_base = None
-                        if proc_name == "event_mapping":
-                            flatten_category = "audit_dataiku_usage"
-                            flatten_module = "audit_metadata"
-                            flatten_variant = str(module_name)
-                            flatten_base = ("audit_dataiku_usage", "audit_metadata")
 
                         silver_df = normalize_silver(
                             df=grp,

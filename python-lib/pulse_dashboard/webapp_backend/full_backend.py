@@ -4608,6 +4608,139 @@ def build_users_active_monthly():
         return _err(str(e), status=500)
 
 
+@bp.route("/api/build/users/formal-mau-monthly")
+def build_users_formal_mau_monthly():
+    """Formal monthly active users (calendar months).
+
+    Definition of "active": at least one qualifying `application-open` event
+    recorded in `fact_formal_mau_daily`, with enabled/non-trial filtering
+    applied by `final_build_formal_mau_daily`.
+
+    Query parameters:
+    - window: this_month|last_3_months|last_12_months (default: last_3_months)
+    - months: integer (optional override; 1..24)
+    - instance_name: optional filter
+    """
+
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        months = _parse_window_months(request.args.get("window"))
+        if months is None:
+            months = int(request.args.get("months") or 3)
+        months = max(1, min(24, months))
+
+        instance_name = _parse_instance_name(request.args.get("instance_name"))
+
+        start_month_expr = f"(date_trunc('month', current_date) - INTERVAL {months - 1} MONTH)::DATE"
+        next_month_expr = "(date_trunc('month', current_date) + INTERVAL 1 MONTH)::DATE"
+
+        instance_sql = ""
+        instance_params_aggregate: list[Any] = []
+        instance_params_by_instance: list[Any] = []
+        instances_filter_sql = ""
+        if instance_name:
+            instance_sql = " AND f.instance_name = ?"
+            instance_params_aggregate = [instance_name]
+            instance_params_by_instance = [instance_name, instance_name]
+            instances_filter_sql = " AND instance_name = ?"
+
+        by_instance_df = _query_df(
+            f"""
+            WITH months AS (
+              SELECT *
+              FROM generate_series({start_month_expr}, ({next_month_expr} - INTERVAL 1 DAY)::DATE, INTERVAL 1 MONTH) AS t(month_start)
+            ),
+            activity AS (
+              SELECT
+                date_trunc('month', f.day) AS month_start,
+                f.instance_name,
+                f.login_norm
+              FROM final_build_formal_mau_daily f
+              WHERE f.day >= {start_month_expr}
+                AND f.day < {next_month_expr}
+                {instance_sql}
+            ),
+            agg AS (
+              SELECT
+                month_start,
+                instance_name,
+                COUNT(DISTINCT login_norm) AS active_users
+              FROM activity
+              GROUP BY 1, 2
+            )
+            SELECT
+              CAST(m.month_start AS VARCHAR) AS month,
+              i.instance_name,
+              COALESCE(a.active_users, 0) AS active_users
+            FROM months m
+            CROSS JOIN (
+              SELECT DISTINCT instance_name
+              FROM base_users_instance_metadata_history
+              WHERE instance_name IS NOT NULL
+              {instances_filter_sql}
+            ) i
+            LEFT JOIN agg a
+              ON a.month_start = m.month_start AND a.instance_name = i.instance_name
+            ORDER BY m.month_start, i.instance_name;
+            """,  # nosec B608 (month expr and instance_sql are internal/generated)
+            instance_params_by_instance,
+        )
+
+        aggregate_df = _query_df(
+            f"""
+            WITH months AS (
+              SELECT *
+              FROM generate_series({start_month_expr}, ({next_month_expr} - INTERVAL 1 DAY)::DATE, INTERVAL 1 MONTH) AS t(month_start)
+            ),
+            activity AS (
+              SELECT
+                date_trunc('month', f.day) AS month_start,
+                f.instance_name,
+                f.login_norm
+              FROM final_build_formal_mau_daily f
+              WHERE f.day >= {start_month_expr}
+                AND f.day < {next_month_expr}
+                {instance_sql}
+            ),
+            agg AS (
+              SELECT
+                month_start,
+                COUNT(DISTINCT concat(instance_name, '::', login_norm)) AS active_users
+              FROM activity
+              GROUP BY 1
+            )
+            SELECT
+              CAST(m.month_start AS VARCHAR) AS month,
+              COALESCE(a.active_users, 0) AS active_users
+            FROM months m
+            LEFT JOIN agg a
+              ON a.month_start = m.month_start
+            ORDER BY m.month_start;
+            """,  # nosec B608 (month expr and instance_sql are internal/generated)
+            instance_params_aggregate,
+        )
+
+        aggregate_rows = _df_records(aggregate_df)
+        latest_month = aggregate_rows[-1] if aggregate_rows else None
+
+        return _ok(
+            {
+                "window": request.args.get("window") or None,
+                "months": months,
+                "instanceName": instance_name,
+                "latestMonth": latest_month,
+                "byInstance": _df_records(by_instance_df),
+                "aggregate": aggregate_rows,
+            }
+        )
+
+    except Exception as e:
+        logger.exception("users formal mau monthly failed")
+        return _err(str(e), status=500)
+
+
 @bp.route("/api/build/users/leaderboard")
 def build_users_leaderboard():
     """Return leaderboards for consuming and creating activity."""
