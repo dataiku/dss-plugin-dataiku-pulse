@@ -1009,7 +1009,7 @@ def _build_fact_formal_mau_daily(
           instance_name,
           lower(trim(login)) AS login_norm,
           MIN(trim(login)) AS login,
-          SUM(COALESCE(application_open_count, 0)) AS application_open_count,
+          SUM(COALESCE(try_cast(application_open_count AS BIGINT), 0)) AS application_open_count,
           MAX(timestamp) AS last_application_open_at
         FROM {view_name}
         WHERE timestamp IS NOT NULL

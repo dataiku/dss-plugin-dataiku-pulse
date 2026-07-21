@@ -103,6 +103,9 @@ def main(df: pd.DataFrame) -> pd.DataFrame:
     grouped = out.groupby(group_cols, dropna=False, as_index=False).agg(
         application_open_count=("application_open_count", "sum"),
     )
+    grouped["application_open_count"] = pd.to_numeric(
+        grouped["application_open_count"], errors="coerce"
+    ).fillna(0).astype("Int64")
     grouped["dataiku_category"] = "formal_mau"
 
     return grouped[
