@@ -381,10 +381,9 @@ class MyRunnable(Runnable):
         processor_failures = 0
 
         logger.info(
-            "Starting audit gather for %s with last_update=%s, max_files=%s, chunk_size=%s, available_files=%s, selected_files=%s",
+            "Starting audit gather for %s with last_update=%s, chunk_size=%s, available_files=%s, selected_files=%s",
             instance_name,
             last_update,
-            max_files,
             chunk_size,
             available_file_count,
             len(files),
