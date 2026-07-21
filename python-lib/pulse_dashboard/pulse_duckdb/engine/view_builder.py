@@ -76,6 +76,22 @@ def _column_exists(conn: duckdb.DuckDBPyConnection, *, table: str, column: str) 
     return bool(row and int(row[0]) > 0)
 
 
+def _view_exists(conn: duckdb.DuckDBPyConnection, *, name: str) -> bool:
+    row = conn.execute(
+        """
+        SELECT COUNT(*)
+        FROM information_schema.views
+        WHERE table_schema='main' AND table_name=?
+        """.strip(),
+        [name],
+    ).fetchone()
+    return bool(row and int(row[0]) > 0)
+
+
+def _relation_exists(conn: duckdb.DuckDBPyConnection, *, name: str) -> bool:
+    return _table_exists(conn, name=name) or _view_exists(conn, name=name)
+
+
 def _sql_ident(name: str) -> str:
     # identifiers in our pipeline are controlled (table/column names), but keep it safe anyway
     return '"' + str(name).replace('"', '""') + '"'
@@ -290,10 +306,12 @@ def build_views_from_specs(conn: duckdb.DuckDBPyConnection) -> dict:
     specs = _load_view_specs()
 
     view_statements: list[tuple[str, str]] = []
+    skipped: list[dict[str, object]] = []
     for spec in specs:
         sql = str(spec.get("sql", "") or "").strip()
         name = str(spec.get("name"))
         path = str(spec.get("_path"))
+        depends_on = spec.get("depends_on") or []
 
         # If we successfully generated `base_product_index` from the registry,
         # avoid overwriting it with the static YAML version (which may depend on
@@ -314,6 +332,23 @@ def build_views_from_specs(conn: duckdb.DuckDBPyConnection) -> dict:
 
         if not sql:
             raise ValueError(f"Missing `sql` in view spec: {path}")
+
+        if isinstance(depends_on, list):
+            missing_deps = [
+                str(dep)
+                for dep in depends_on
+                if str(dep).strip() and not _relation_exists(conn, name=str(dep).strip())
+            ]
+            if missing_deps:
+                skipped.append(
+                    {
+                        "spec": f"{name} ({path})",
+                        "reason": "missing_dependencies",
+                        "missing": missing_deps,
+                    }
+                )
+                logger.info("Skipping view spec %s due to missing dependencies: %s", name, missing_deps)
+                continue
 
         for stmt in _split_sql_statements(sql):
             view_statements.append((f"{name} ({path})", stmt))
@@ -361,6 +396,7 @@ def build_views_from_specs(conn: duckdb.DuckDBPyConnection) -> dict:
         "ok": len(errors) == 0,
         "spec_files": len(list(_VIEW_SPECS_DIR.glob("*.yaml"))),
         "statements": len(view_statements),
+        "skipped": skipped,
         "errors": errors,
         "base_product_index": product_index_report,
         "config_driven": config_reports,
