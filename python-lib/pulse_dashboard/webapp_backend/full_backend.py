@@ -3759,6 +3759,23 @@ def _parse_instance_name(value: str | None) -> str | None:
     return out or None
 
 
+def _duckdb_relation_exists(query_df, relation_name: str) -> bool:
+    rows = query_df(
+        """
+        SELECT 1 AS present
+        FROM information_schema.tables
+        WHERE table_schema = 'main' AND table_name = ?
+        UNION ALL
+        SELECT 1 AS present
+        FROM information_schema.views
+        WHERE table_schema = 'main' AND table_name = ?
+        LIMIT 1
+        """.strip(),
+        [relation_name, relation_name],
+    )
+    return rows is not None and not rows.empty
+
+
 def _parse_login_norm(value: str) -> str:
     return value.strip().lower()
 
@@ -4633,6 +4650,20 @@ def build_users_formal_mau_monthly():
 
         instance_name = _parse_instance_name(request.args.get("instance_name"))
 
+        if not _duckdb_relation_exists(_query_df, "final_build_formal_mau_daily"):
+            return _ok(
+                {
+                    "window": request.args.get("window") or None,
+                    "months": months,
+                    "instanceName": instance_name,
+                    "latestMonth": None,
+                    "byInstance": [],
+                    "aggregate": [],
+                    "available": False,
+                    "reason": "formal_mau_view_missing",
+                }
+            )
+
         start_month_expr = f"(date_trunc('month', current_date) - INTERVAL {months - 1} MONTH)::DATE"
         next_month_expr = "(date_trunc('month', current_date) + INTERVAL 1 MONTH)::DATE"
 
@@ -4733,6 +4764,7 @@ def build_users_formal_mau_monthly():
                 "latestMonth": latest_month,
                 "byInstance": _df_records(by_instance_df),
                 "aggregate": aggregate_rows,
+                "available": True,
             }
         )
 
@@ -5069,7 +5101,6 @@ def build_users_segments():
 
     Segments are based on activity in `fact_user_activity_daily`:
     - viewer_only: viewing > 0 and developing = 0
-    - developer_only: developing > 0 and viewing = 0
     - mixed: viewing > 0 and developing > 0
     - inactive: enabled users with neither in the selected window
     """
@@ -5161,7 +5192,6 @@ def build_users_segments():
 
         segments = [
             {"label": "Viewer only", "value": viewer_only_users},
-            {"label": "Developer only", "value": developer_only_users},
             {"label": "Mixed", "value": mixed_users},
             {"label": "Inactive", "value": inactive_users},
         ]
