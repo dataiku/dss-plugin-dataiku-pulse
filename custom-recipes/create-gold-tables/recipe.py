@@ -666,6 +666,7 @@ def _object_activity_branch_sql(
     view_columns = _view_columns(conn, view_name)
     ip_sources = [col for col in ("clientip", "originalip") if col in view_columns]
     ip_address_expr = "COALESCE(" + ", ".join(ip_sources) + ")" if ip_sources else "NULL"
+    extras_expr = "e.extras" if "extras" in view_columns else "NULL"
 
     def _has_column(name: str) -> bool:
         return name.lower() in view_columns
@@ -701,7 +702,7 @@ def _object_activity_branch_sql(
         )
 
     def _json_text(path: str) -> str:
-        return _null_if_empty(f"json_extract_string(e.extras, '{path}')")
+        return _null_if_empty(f"json_extract_string({extras_expr}, '{path}')")
 
     def _native_text(*names: str) -> str:
         exprs = [_null_if_empty(f"e.{name}") for name in names if _has_column(name)]
@@ -797,7 +798,7 @@ def _object_activity_branch_sql(
             "  NULL AS session_id,\n",
             f"  {ip_address_expr} AS ip_address,\n",
             "  NULL AS user_agent,\n",
-            "  extras AS details_json,\n",
+            f"  {extras_expr} AS details_json,\n",
             "  try_cast(run_ts AS TIMESTAMP) AS run_timestamp,\n",
             "  CAST(year AS INTEGER) AS year,\n",
             "  CAST(month AS INTEGER) AS month,\n",
