@@ -793,11 +793,6 @@ class MyRunnable(Runnable):
                 normalize_module = output_module
                 normalize_variant = None
                 normalize_base = None
-                if proc_name == "event_mapping":
-                    normalize_category = "audit_dataiku_usage"
-                    normalize_module = "audit_metadata"
-                    normalize_variant = str(module_name)
-                    normalize_base = ("audit_dataiku_usage", "audit_metadata")
 
                 silver_df = normalize_silver(
                     df=cleaned_grp,

@@ -36,7 +36,6 @@ def _select_candidate_audit_files(
     file_list: list[Path],
     *,
     cursor_ts: pd.Timestamp,
-    max_files: int,
 ) -> tuple[list[Path], int, pd.Timestamp | None, pd.Timestamp | None]:
     file_entries: list[tuple[Path, float]] = []
     for path in file_list:
@@ -55,9 +54,6 @@ def _select_candidate_audit_files(
     boundary_added = False
 
     for path, mtime_epoch in sorted_entries:
-        if len(selected_entries) >= max_files:
-            break
-
         if mtime_epoch >= cursor_epoch:
             selected_entries.append((path, mtime_epoch))
             continue
@@ -282,7 +278,7 @@ class MyRunnable(Runnable):
             client=client,
             project_key=worker_project_key,
             param_set=self.param_set,
-            spec=CursorSpec(variable_name="audit_log_delta", debug_key="pulse_audit_logs_delta_debug"),
+            spec=CursorSpec(variable_name="audit_log_delta", debug_key="pulse_audit_logs_debug"),
             default_ts=start_dt,
             local_mode=self._is_local_debug(),
         )
@@ -359,14 +355,12 @@ class MyRunnable(Runnable):
 
         last_update = self._read_audit_delta(ctx.local_client)
         chunk_size = int(self.param_set.get("pulse_audit_logs_chunk_size", 50_000))
-        max_files = int(self.param_set.get("pulse_audit_logs_max_files", 5))
         backup_raw = bool(self.param_set.get("pulse_backup_audit_logs", False))
 
         available_files = [path for path in audit_dir.iterdir() if path.is_file() and path.name.startswith("audit.log")]
         files, available_file_count, selected_oldest_mtime, selected_newest_mtime = _select_candidate_audit_files(
             available_files,
             cursor_ts=last_update,
-            max_files=max_files,
         )
 
         processor_names = _load_processor_names()
@@ -387,10 +381,9 @@ class MyRunnable(Runnable):
         processor_failures = 0
 
         logger.info(
-            "Starting audit gather for %s with last_update=%s, max_files=%s, chunk_size=%s, available_files=%s, selected_files=%s",
+            "Starting audit gather for %s with last_update=%s, chunk_size=%s, available_files=%s, selected_files=%s",
             instance_name,
             last_update,
-            max_files,
             chunk_size,
             available_file_count,
             len(files),
@@ -617,11 +610,6 @@ class MyRunnable(Runnable):
                         flatten_module = str(module_name)
                         flatten_variant = None
                         flatten_base = None
-                        if proc_name == "event_mapping":
-                            flatten_category = "audit_dataiku_usage"
-                            flatten_module = "audit_metadata"
-                            flatten_variant = str(module_name)
-                            flatten_base = ("audit_dataiku_usage", "audit_metadata")
 
                         silver_df = normalize_silver(
                             df=grp,

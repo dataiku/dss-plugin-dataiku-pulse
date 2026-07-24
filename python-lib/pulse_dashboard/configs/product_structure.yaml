@@ -28,6 +28,36 @@ dashboard:
   created_at: created_at
   updated_at: updated_at
 
+api_service:
+  table: base_api_services_project_metadata_history
+  product_key: api_services_id
+  product_name: api_services_name
+  product_subtype: api_services_type
+  owner_login: null
+  last_modified_by_login: null
+  created_at: api_services_createdon
+  updated_at: api_services_lastmodifiedon
+
+agent_tool:
+  table: base_agent_tools_project_metadata_history
+  product_key: agent_tools_id
+  product_name: agent_tools_name
+  product_subtype: agent_tools_type
+  owner_login: null
+  last_modified_by_login: null
+  created_at: agent_tools_createdon
+  updated_at: agent_tools_lastmodifiedon
+
+insight:
+  table: base_insights_project_metadata_history
+  product_key: insights_id
+  product_name: insights_name
+  product_subtype: insights_type
+  owner_login: null
+  last_modified_by_login: null
+  created_at: insights_createdon
+  updated_at: insights_lastmodifiedon
+
 web_application:
   table: base_webapps_metadata
   product_key: webapp_id

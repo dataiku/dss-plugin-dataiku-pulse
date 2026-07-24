@@ -3759,6 +3759,23 @@ def _parse_instance_name(value: str | None) -> str | None:
     return out or None
 
 
+def _duckdb_relation_exists(query_df, relation_name: str) -> bool:
+    rows = query_df(
+        """
+        SELECT 1 AS present
+        FROM information_schema.tables
+        WHERE table_schema = 'main' AND table_name = ?
+        UNION ALL
+        SELECT 1 AS present
+        FROM information_schema.views
+        WHERE table_schema = 'main' AND table_name = ?
+        LIMIT 1
+        """.strip(),
+        [relation_name, relation_name],
+    )
+    return rows is not None and not rows.empty
+
+
 def _parse_login_norm(value: str) -> str:
     return value.strip().lower()
 
@@ -3929,26 +3946,26 @@ def build_users_kpis():
                 "  GROUP BY 1\n"
                 ")\n"
                 "SELECT\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE) AS enabled_users,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True') AS enabled_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True'"
                 f"{license_filter_sql}) AS enabled_users_no_consumer,\n"  # nosec B608 (exclude_sql uses placeholders)
-                f"  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND ({license_group_case_sql_for_latest}) = 'Creator Licenses') AS enabled_users_license_creator,\n"
-                f"  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND ({license_group_case_sql_for_latest}) = 'Consumer Licenses') AS enabled_users_license_consumer,\n"
-                f"  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND ({license_group_case_sql_for_latest}) = 'Admin Licenses') AS enabled_users_license_admin,\n"
-                f"  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND ({license_group_case_sql_for_latest}) = 'Other Licenses') AS enabled_users_license_other,\n"
+                f"  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND ({license_group_case_sql_for_latest}) = 'Creator Licenses') AS enabled_users_license_creator,\n"
+                f"  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND ({license_group_case_sql_for_latest}) = 'Consumer Licenses') AS enabled_users_license_consumer,\n"
+                f"  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND ({license_group_case_sql_for_latest}) = 'Admin Licenses') AS enabled_users_license_admin,\n"
+                f"  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND ({license_group_case_sql_for_latest}) = 'Other Licenses') AS enabled_users_license_other,\n"
                 "  COALESCE(SUM(a.total_viewing), 0) AS total_viewing_actions,\n"
                 "  COALESCE(SUM(a.total_developing), 0) AS total_developing_actions,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_viewing, 0) > 0) AS viewing_users,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_developing, 0) > 0) AS developing_users,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND (coalesce(a.viewing_30d, 0) > 0 OR coalesce(a.developing_30d, 0) > 0)) AS active_users_30d,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.developing_30d, 0) > 0) AS developing_users_30d,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND (coalesce(a.viewing_90d, 0) > 0 OR coalesce(a.developing_90d, 0) > 0)) AS active_users_90d,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.developing_90d, 0) > 0) AS developing_users_90d,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.developing_6m, 0) > 0) AS developing_users_6m,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND (coalesce(a.viewing_6m, 0) > 0 OR coalesce(a.developing_6m, 0) > 0)) AS active_users_6m,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND (coalesce(a.viewing_12m, 0) > 0 OR coalesce(a.developing_12m, 0) > 0)) AS active_users_12m,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.developing_12m, 0) > 0) AS developing_users_12m,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.viewing_6m, 0) > 0 AND coalesce(a.developing_6m, 0) = 0) AS viewer_only_users_6m\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND coalesce(a.total_viewing, 0) > 0) AS viewing_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND coalesce(a.total_developing, 0) > 0) AS developing_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND (coalesce(a.viewing_30d, 0) > 0 OR coalesce(a.developing_30d, 0) > 0)) AS active_users_30d,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND coalesce(a.developing_30d, 0) > 0) AS developing_users_30d,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND (coalesce(a.viewing_90d, 0) > 0 OR coalesce(a.developing_90d, 0) > 0)) AS active_users_90d,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND coalesce(a.developing_90d, 0) > 0) AS developing_users_90d,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND coalesce(a.developing_6m, 0) > 0) AS developing_users_6m,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND (coalesce(a.viewing_6m, 0) > 0 OR coalesce(a.developing_6m, 0) > 0)) AS active_users_6m,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND (coalesce(a.viewing_12m, 0) > 0 OR coalesce(a.developing_12m, 0) > 0)) AS active_users_12m,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND coalesce(a.developing_12m, 0) > 0) AS developing_users_12m,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND coalesce(a.viewing_6m, 0) > 0 AND coalesce(a.developing_6m, 0) = 0) AS viewer_only_users_6m\n"
                 "FROM latest l\n"
                 "LEFT JOIN activity a ON a.login_norm = l.login_norm\n"
                 "WHERE rn = 1;"
@@ -4177,7 +4194,7 @@ def build_users_kpis():
                 ")\n"
                 "SELECT\n"
                 "  user_profile AS profile,\n"
-                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE) AS enabled_users\n"
+                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled = 'True') AS enabled_users\n"
                 "FROM latest\n"
                 "WHERE rn = 1\n"
                 "GROUP BY 1\n"
@@ -4206,7 +4223,7 @@ def build_users_kpis():
                 ")\n"
                 "SELECT\n"
                 f"  {license_group_case_sql} AS license_group,\n"
-                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE) AS enabled_users\n"
+                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled = 'True') AS enabled_users\n"
                 "FROM latest\n"
                 "WHERE rn = 1\n"
                 "GROUP BY 1\n"
@@ -4279,11 +4296,11 @@ def build_users_kpis():
                 f"  {license_group_case_sql} AS license_group,\n"
                 "  user_profile AS profile,\n"
                 f"  {profile_normalized_expr} AS profile_norm,\n"
-                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE) AS enabled_users\n"
+                "  COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled = 'True') AS enabled_users\n"
                 "FROM latest\n"
                 "WHERE rn = 1\n"
                 "GROUP BY 1, 2, 3\n"
-                "HAVING COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled IS TRUE) > 0\n"
+                "HAVING COUNT(DISTINCT login_norm) FILTER (WHERE users_enabled = 'True') > 0\n"
                 "ORDER BY license_group, enabled_users DESC, profile;"
             ),
             instance_params,
@@ -4323,14 +4340,14 @@ def build_users_kpis():
                 ")\n"
                 "SELECT\n"
                 "  l.instance_name AS instanceName,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE) AS enabled_users,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True') AS enabled_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True'"
                 f"{license_filter_sql_by_instance}) AS enabled_users_no_consumer,\n"  # nosec B608 (exclude_sql_by_instance uses placeholders)
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_viewing, 0) > 0) AS viewing_users,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.total_developing, 0) > 0) AS developing_users,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.developing_6m, 0) > 0) AS developing_users_6m,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND (coalesce(a.viewing_6m, 0) > 0 OR coalesce(a.developing_6m, 0) > 0)) AS active_users_6m,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.viewing_6m, 0) > 0 AND coalesce(a.developing_6m, 0) = 0) AS viewer_only_users_6m\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND coalesce(a.total_viewing, 0) > 0) AS viewing_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND coalesce(a.total_developing, 0) > 0) AS developing_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND coalesce(a.developing_6m, 0) > 0) AS developing_users_6m,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND (coalesce(a.viewing_6m, 0) > 0 OR coalesce(a.developing_6m, 0) > 0)) AS active_users_6m,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND coalesce(a.viewing_6m, 0) > 0 AND coalesce(a.developing_6m, 0) = 0) AS viewer_only_users_6m\n"
                 "FROM latest l\n"
                 "LEFT JOIN activity a ON a.instance_name = l.instance_name AND a.login_norm = l.login_norm\n"
                 "WHERE l.rn = 1\n"
@@ -4516,7 +4533,7 @@ def build_users_active_monthly():
                 f"    a.day >= {start_month_expr}\n"  # nosec B608 (month expr is internal)
                 f"    AND a.day < {next_month_expr}\n"  # nosec B608 (month expr is internal)
                 "    AND u.rn = 1\n"
-                "    AND u.users_enabled IS TRUE\n"
+                "    AND u.users_enabled = 'True'\n"
                 f"    {exclude_sql}\n"  # nosec B608 (exclude_sql uses placeholders)
                 f"    {instance_sql}\n"  # nosec B608 (instance_sql uses placeholders)
                 "),\n"
@@ -4566,7 +4583,7 @@ def build_users_active_monthly():
                 f"    a.day >= {start_month_expr}\n"  # nosec B608 (month expr is internal)
                 f"    AND a.day < {next_month_expr}\n"  # nosec B608 (month expr is internal)
                 "    AND u.rn = 1\n"
-                "    AND u.users_enabled IS TRUE\n"
+                "    AND u.users_enabled = 'True'\n"
                 f"    {exclude_sql}\n"  # nosec B608 (exclude_sql uses placeholders)
                 f"    {instance_sql}\n"  # nosec B608 (instance_sql uses placeholders)
                 "),\n"
@@ -4605,6 +4622,154 @@ def build_users_active_monthly():
 
     except Exception as e:
         logger.exception("users active monthly failed")
+        return _err(str(e), status=500)
+
+
+@bp.route("/api/build/users/formal-mau-monthly")
+def build_users_formal_mau_monthly():
+    """Formal monthly active users (calendar months).
+
+    Definition of "active": at least one qualifying `application-open` event
+    recorded in `fact_formal_mau_daily`, with enabled/non-trial filtering
+    applied by `final_build_formal_mau_daily`.
+
+    Query parameters:
+    - window: this_month|last_3_months|last_12_months (default: last_3_months)
+    - months: integer (optional override; 1..24)
+    - instance_name: optional filter
+    """
+
+    try:
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        months = _parse_window_months(request.args.get("window"))
+        if months is None:
+            months = int(request.args.get("months") or 3)
+        months = max(1, min(24, months))
+
+        instance_name = _parse_instance_name(request.args.get("instance_name"))
+
+        if not _duckdb_relation_exists(_query_df, "final_build_formal_mau_daily"):
+            return _ok(
+                {
+                    "window": request.args.get("window") or None,
+                    "months": months,
+                    "instanceName": instance_name,
+                    "latestMonth": None,
+                    "byInstance": [],
+                    "aggregate": [],
+                    "available": False,
+                    "reason": "formal_mau_view_missing",
+                }
+            )
+
+        start_month_expr = f"(date_trunc('month', current_date) - INTERVAL {months - 1} MONTH)::DATE"
+        next_month_expr = "(date_trunc('month', current_date) + INTERVAL 1 MONTH)::DATE"
+
+        instance_sql = ""
+        instance_params_aggregate: list[Any] = []
+        instance_params_by_instance: list[Any] = []
+        instances_filter_sql = ""
+        if instance_name:
+            instance_sql = " AND f.instance_name = ?"
+            instance_params_aggregate = [instance_name]
+            instance_params_by_instance = [instance_name, instance_name]
+            instances_filter_sql = " AND instance_name = ?"
+
+        by_instance_df = _query_df(
+            f"""
+            WITH months AS (
+              SELECT *
+              FROM generate_series({start_month_expr}, ({next_month_expr} - INTERVAL 1 DAY)::DATE, INTERVAL 1 MONTH) AS t(month_start)
+            ),
+            activity AS (
+              SELECT
+                date_trunc('month', f.day) AS month_start,
+                f.instance_name,
+                f.login_norm
+              FROM final_build_formal_mau_daily f
+              WHERE f.day >= {start_month_expr}
+                AND f.day < {next_month_expr}
+                {instance_sql}
+            ),
+            agg AS (
+              SELECT
+                month_start,
+                instance_name,
+                COUNT(DISTINCT login_norm) AS active_users
+              FROM activity
+              GROUP BY 1, 2
+            )
+            SELECT
+              CAST(m.month_start AS VARCHAR) AS month,
+              i.instance_name,
+              COALESCE(a.active_users, 0) AS active_users
+            FROM months m
+            CROSS JOIN (
+              SELECT DISTINCT instance_name
+              FROM base_users_instance_metadata_history
+              WHERE instance_name IS NOT NULL
+              {instances_filter_sql}
+            ) i
+            LEFT JOIN agg a
+              ON a.month_start = m.month_start AND a.instance_name = i.instance_name
+            ORDER BY m.month_start, i.instance_name;
+            """,  # nosec B608 (month expr and instance_sql are internal/generated)
+            instance_params_by_instance,
+        )
+
+        aggregate_df = _query_df(
+            f"""
+            WITH months AS (
+              SELECT *
+              FROM generate_series({start_month_expr}, ({next_month_expr} - INTERVAL 1 DAY)::DATE, INTERVAL 1 MONTH) AS t(month_start)
+            ),
+            activity AS (
+              SELECT
+                date_trunc('month', f.day) AS month_start,
+                f.instance_name,
+                f.login_norm
+              FROM final_build_formal_mau_daily f
+              WHERE f.day >= {start_month_expr}
+                AND f.day < {next_month_expr}
+                {instance_sql}
+            ),
+            agg AS (
+              SELECT
+                month_start,
+                COUNT(DISTINCT concat(instance_name, '::', login_norm)) AS active_users
+              FROM activity
+              GROUP BY 1
+            )
+            SELECT
+              CAST(m.month_start AS VARCHAR) AS month,
+              COALESCE(a.active_users, 0) AS active_users
+            FROM months m
+            LEFT JOIN agg a
+              ON a.month_start = m.month_start
+            ORDER BY m.month_start;
+            """,  # nosec B608 (month expr and instance_sql are internal/generated)
+            instance_params_aggregate,
+        )
+
+        aggregate_rows = _df_records(aggregate_df)
+        latest_month = aggregate_rows[-1] if aggregate_rows else None
+
+        return _ok(
+            {
+                "window": request.args.get("window") or None,
+                "months": months,
+                "instanceName": instance_name,
+                "latestMonth": latest_month,
+                "byInstance": _df_records(by_instance_df),
+                "aggregate": aggregate_rows,
+                "available": True,
+            }
+        )
+
+    except Exception as e:
+        logger.exception("users formal mau monthly failed")
         return _err(str(e), status=500)
 
 
@@ -4838,7 +5003,7 @@ def build_users_creator_risk():
             "  FROM latest l\n"
             "  LEFT JOIN activity_6m a ON a.instance_name = l.instance_name AND a.login_norm = l.login_norm\n"
             "  WHERE l.rn = 1\n"
-            "    AND l.users_enabled IS TRUE\n"
+            "    AND l.users_enabled = 'True'\n"
             f"    AND ({license_group_case_sql}) = 'Creator Licenses'\n"
             ")\n"
         )
@@ -4936,7 +5101,6 @@ def build_users_segments():
 
     Segments are based on activity in `fact_user_activity_daily`:
     - viewer_only: viewing > 0 and developing = 0
-    - developer_only: developing > 0 and viewing = 0
     - mixed: viewing > 0 and developing > 0
     - inactive: enabled users with neither in the selected window
     """
@@ -5002,13 +5166,13 @@ def build_users_segments():
                 "  GROUP BY 1\n"
                 ")\n"
                 "SELECT\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE" + f"{exclude_sql}) AS enabled_users,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.viewing, 0) > 0 AND coalesce(a.developing, 0) = 0" + f"{exclude_sql}) AS viewer_only_users,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.developing, 0) > 0 AND coalesce(a.viewing, 0) = 0" + f"{exclude_sql}) AS developer_only_users,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.viewing, 0) > 0 AND coalesce(a.developing, 0) > 0" + f"{exclude_sql}) AS mixed_users,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.viewing, 0) > coalesce(a.developing, 0) AND coalesce(a.developing, 0) > 0" + f"{exclude_sql}) AS viewer_dominant_users,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.developing, 0) > coalesce(a.viewing, 0) AND coalesce(a.viewing, 0) > 0" + f"{exclude_sql}) AS developer_dominant_users,\n"
-                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled IS TRUE AND coalesce(a.viewing, 0) = coalesce(a.developing, 0) AND coalesce(a.viewing, 0) > 0" + f"{exclude_sql}) AS balanced_mixed_users\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True'" + f"{exclude_sql}) AS enabled_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND coalesce(a.viewing, 0) > 0 AND coalesce(a.developing, 0) = 0" + f"{exclude_sql}) AS viewer_only_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND coalesce(a.developing, 0) > 0 AND coalesce(a.viewing, 0) = 0" + f"{exclude_sql}) AS developer_only_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND coalesce(a.viewing, 0) > 0 AND coalesce(a.developing, 0) > 0" + f"{exclude_sql}) AS mixed_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND coalesce(a.viewing, 0) > coalesce(a.developing, 0) AND coalesce(a.developing, 0) > 0" + f"{exclude_sql}) AS viewer_dominant_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND coalesce(a.developing, 0) > coalesce(a.viewing, 0) AND coalesce(a.viewing, 0) > 0" + f"{exclude_sql}) AS developer_dominant_users,\n"
+                "  COUNT(DISTINCT l.login_norm) FILTER (WHERE l.users_enabled = 'True' AND coalesce(a.viewing, 0) = coalesce(a.developing, 0) AND coalesce(a.viewing, 0) > 0" + f"{exclude_sql}) AS balanced_mixed_users\n"
                 "FROM latest l\n"
                 "LEFT JOIN activity a ON a.login_norm = l.login_norm\n"
                 "WHERE l.rn = 1;"
@@ -5028,7 +5192,6 @@ def build_users_segments():
 
         segments = [
             {"label": "Viewer only", "value": viewer_only_users},
-            {"label": "Developer only", "value": developer_only_users},
             {"label": "Mixed", "value": mixed_users},
             {"label": "Inactive", "value": inactive_users},
         ]
@@ -5118,7 +5281,7 @@ def build_users_stickiness():
                 "  JOIN base_users_instance_metadata_history u ON TRUE\n"
                 "  WHERE u.users_login IS NOT NULL\n"
                 "    AND length(trim(u.users_login)) > 0\n"
-                "    AND u.users_enabled IS TRUE\n"
+                "    AND u.users_enabled = 'True'\n"
                 f"    {exclude_sql}\n"  # nosec B608
                 f"    {instance_sql_users}\n"  # nosec B608
                 "  GROUP BY 1\n"
@@ -5133,7 +5296,7 @@ def build_users_stickiness():
                 "   AND lower(trim(u.users_login)) = a.login_norm\n"
                 "  WHERE a.day >= " + start_month_expr + "\n"
                 "    AND a.day < " + next_month_expr + "\n"
-                "    AND u.users_enabled IS TRUE\n"
+                "    AND u.users_enabled = 'True'\n"
                 f"    {exclude_sql}\n"  # nosec B608
                 f"    {instance_sql_activity}\n"  # nosec B608
                 "  GROUP BY 1, 2\n"

@@ -1,0 +1,9 @@
+# Audit (users formal MAU: hourly application-open counts)
+
+- instance_name
+- timestamp
+
+- login
+- application_open_count
+
+- dataiku_category
