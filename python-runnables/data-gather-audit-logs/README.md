@@ -8,7 +8,7 @@ This runnable is intended to be packaged as a Dataiku plugin macro.
 - Locates DSS audit logs (`DATA_DIR/run/audit/audit.log*`) using `client.get_instance_info()` without changing process working directory
   - If `PULSE_AUDIT_LOGS_USE_CACHED` is truthy, uses the static test folder `python/audit_data/`
 - Uses a delta cursor `local.audit_log_delta` stored in the *worker project* variables (the project where the macro runs)
-- Uses that delta first to select the smallest likely set of `audit.log*` files by Linux `mtime` (newest-first, with one older boundary file when needed), then applies the row-level timestamp filter inside those files
+- Uses that delta first to order `audit.log*` files by Linux `mtime` (newest-first) and select all files at or after the cursor plus one older boundary file when needed, then applies the row-level timestamp filter inside those files
 - Builds one shared prepared audit DataFrame per chunk for downstream processors by filtering to `topic == "generic"` and flattening `message` once
 - Expands the audit `message` JSON into `message_*` columns
 - Runs a configurable list of processors from:
@@ -65,7 +65,7 @@ Plugin settings used (under `pulse_primary`):
 - If the variable is missing and `pulse_audit_logs_delta` is not configured, the runnable starts from **3 calendar months before the current UTC time**.
 
 Additional behavior:
-- Candidate audit files are selected newest-first from `audit.log*` using the cursor as an `mtime` boundary, with a safety fallback to include the newest file and at most one older boundary file.
+- Candidate audit files are selected newest-first from `audit.log*` using the cursor as an `mtime` boundary, including all files at or after that boundary plus one older boundary file when needed.
 - Older selected files may stop early once a parsed chunk is fully before the cursor, to avoid scanning an entire boundary file when only its newest tail could contain new rows.
 - RAW backups now use hive-style partitions (`instance_name=.../year=.../month=.../day=...`).
 - SILVER and RAW partitions now use event time (max timestamp in the written group/chunk), not macro run time.

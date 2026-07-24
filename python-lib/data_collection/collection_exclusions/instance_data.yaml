@@ -2,9 +2,11 @@
 #
 # List method names to skip when iterating `client.list_*`.
 
+- list_all_personal_api_keys
 - list_code_studio_templates
 - list_data_collections
 - list_groups_info
+- list_messaging_channels
 - list_running_notebooks
 - list_users_activity
 - list_users_info

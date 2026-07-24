@@ -130,6 +130,7 @@ def main(df: pd.DataFrame) -> pd.DataFrame:
 
     if "dataiku_category" in merged.columns:
         merged["dataiku_category"] = merged["dataiku_category"].astype("string").str.lower()
+        merged["dataiku_category"] = merged["dataiku_category"].fillna("unclassified")
 
     # AuthVia enrichment
     if "authvia" in merged.columns:
