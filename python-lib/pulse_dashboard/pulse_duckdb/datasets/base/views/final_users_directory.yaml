@@ -19,7 +19,7 @@ final_users_directory:
         lower(trim(users_login)) AS login_norm,
         users_displayname AS display_name,
         users_email AS email,
-        users_enabled AS enabled,
+        users_enabled = 'True' AS enabled,
         users_userprofile AS user_profile,
         users_groups AS group_names,
         run_ts,
