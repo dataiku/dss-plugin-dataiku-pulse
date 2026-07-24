@@ -118,6 +118,8 @@ RAW -> SILVER -> GOLD -> DuckDB -> Dashboard
 
 Fix problems where they originate. Never compensate downstream for upstream bugs.
 
+For GOLD-table and web-application issues, do not assume a patch is needed first. Confirm that the SILVER source data and metadata are correct, then patch GOLD logic if needed, and only then patch web application views or other downstream tables if the issue still remains.
+
 ### Dataiku Safety Rules
 - Assume DSS constraints: restricted egress, limited filesystem; /tmp is available only for transient artifacts.
 - Avoid writing into the plugin directory at runtime; write to managed folders via Dataiku APIs.
