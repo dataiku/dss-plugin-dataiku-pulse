@@ -3,12 +3,11 @@
 # Values must match the `dataiku_category` (and the `module=` partition) produced
 # by the `event_mapping` audit-log processor.
 
-- datasets
+- dataset
 - visual_recipes
 - coding
 
 # Advanced Analytics & ML
-- statistic_analytics
 - mlops
 
 # GenAI & LLM

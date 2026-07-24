@@ -292,13 +292,13 @@ def _inject_wide_license_sql(spec_path: Path, *, base_dir: Path) -> None:
     for profile in profiles:
         upper_profile = profile.upper()
         column_lines.append(
-            "      MAX(CASE WHEN max_licenses.license_profile = '{profile}' THEN max_licenses.max_licenses END) AS max_licenses_{column},".format(
+            "      MAX(CASE WHEN max_licenses.license_profile = '{profile}' THEN try_cast(max_licenses.max_licenses AS BIGINT) END) AS max_licenses_{column},".format(
                 profile=upper_profile,
                 column=profile,
             )
         )
         column_lines.append(
-            "      MAX(CASE WHEN max_licenses.license_profile = 'SUBLICENSE_{profile}' THEN max_licenses.max_licenses END) AS sublicense_{column},".format(
+            "      MAX(CASE WHEN max_licenses.license_profile = 'SUBLICENSE_{profile}' THEN try_cast(max_licenses.max_licenses AS BIGINT) END) AS sublicense_{column},".format(
                 profile=upper_profile,
                 column=profile,
             )
@@ -1371,13 +1371,13 @@ def run() -> dict:
                 for profile in profiles:
                     upper_profile = profile.upper()
                     column_lines.append(
-                        "      MAX(CASE WHEN max_licenses.license_profile = '{profile}' THEN max_licenses.max_licenses END) AS max_licenses_{column},".format(
+                        "      MAX(CASE WHEN max_licenses.license_profile = '{profile}' THEN try_cast(max_licenses.max_licenses AS BIGINT) END) AS max_licenses_{column},".format(
                             profile=upper_profile,
                             column=profile,
                         )
                     )
                     column_lines.append(
-                        "      MAX(CASE WHEN max_licenses.license_profile = 'SUBLICENSE_{profile}' THEN max_licenses.max_licenses END) AS sublicense_{column},".format(
+                        "      MAX(CASE WHEN max_licenses.license_profile = 'SUBLICENSE_{profile}' THEN try_cast(max_licenses.max_licenses AS BIGINT) END) AS sublicense_{column},".format(
                             profile=upper_profile,
                             column=profile,
                         )

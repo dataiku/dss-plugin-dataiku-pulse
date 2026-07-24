@@ -44,8 +44,8 @@ final_build_formal_mau_daily:
       ON a.day = f.day
      AND a.instance_name = f.instance_name
      AND a.login_norm = f.login_norm
-    WHERE u.users_enabled IS TRUE
-      AND COALESCE(u.users_trialstatus_exists, FALSE) IS NOT TRUE;
+    WHERE u.users_enabled = 'True'
+      AND COALESCE(u.users_trialstatus_exists, 'False') != 'True';
   example_data: |
     -- This object is a VIEW.
     -- Insert example rows into its upstream base tables.
