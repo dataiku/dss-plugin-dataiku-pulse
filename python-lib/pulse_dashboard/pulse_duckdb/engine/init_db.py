@@ -39,7 +39,6 @@ _BASE_SPECS_DIR = _BASE_DIR / "datasets" / "base"
 _EXPECTED_STARTUP_TABLES = {
     "final_build_catalog",
     "final_build_products_catalog",
-    "dev_activity_capability_daily",
     "final_build_development_activity_events",
 }
 
@@ -334,6 +333,69 @@ def _maybe_create_inventory_views(conn) -> None:
         source_table="fact_object_activity_events",
         select_sql="SELECT * FROM fact_object_activity_events",
     )
+
+
+def ensure_consumption_product_views(conn) -> dict[str, object]:
+    from .config_driven_views import build_base_product_index, build_product_activity_30d
+
+    _maybe_create_inventory_views(conn)
+
+    if _object_type(conn, "base_object_activity_events") and not _object_type(conn, "v_object_activity_events"):
+        conn.execute('CREATE VIEW "v_object_activity_events" AS SELECT * FROM "base_object_activity_events";')
+
+    base_product_report = build_base_product_index(conn)
+    product_activity_report = build_product_activity_30d(conn)
+
+    conn.execute(
+        """
+        CREATE OR REPLACE VIEW "final_build_products_catalog" AS
+        WITH idx AS (
+          SELECT * FROM base_product_index
+        ),
+        act AS (
+          SELECT * FROM product_activity_30d
+        )
+        SELECT
+          md5(concat_ws('|', idx.instance_name, idx.project_key, idx.product_type, idx.product_key)) AS product_id,
+          idx.instance_name,
+          idx.project_key,
+          idx.product_type,
+          idx.product_key,
+          idx.product_name,
+          idx.product_subtype,
+          idx.owner_login,
+          idx.last_modified_by_login,
+          idx.created_at,
+          idx.updated_at,
+          COALESCE(act.activity_30d, 0) AS activity_30d,
+          COALESCE(act.active_users_30d, 0) AS active_users_30d,
+          act.last_activity_at,
+          p.project_name
+        FROM idx
+        LEFT JOIN act
+          ON act.instance_name = idx.instance_name
+         AND act.project_key = idx.project_key
+         AND act.product_type = idx.product_type
+         AND act.product_key = idx.product_key
+        LEFT JOIN (
+          SELECT
+            instance_name,
+            project_key,
+            project_name
+          FROM base_projects_metadata
+        ) p
+          ON p.instance_name = idx.instance_name
+         AND p.project_key = idx.project_key;
+        """.strip()
+    )
+
+    return {
+        "ok": True,
+        "base_product_index": base_product_report,
+        "product_activity_30d": product_activity_report,
+        "v_object_activity_events": bool(_object_type(conn, "v_object_activity_events")),
+        "final_build_products_catalog": bool(_object_type(conn, "final_build_products_catalog")),
+    }
 
 
 def _maybe_seed_demo_dev_activity(conn) -> dict:

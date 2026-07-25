@@ -42,6 +42,78 @@ _MAX_LOOKBACK_DAYS = 365
 _MAX_LOOKBACK_MONTHS = 24
 
 
+def _users_directory_cte_sql(*, cte_name: str = 'directory') -> str:
+    return (
+        f"{cte_name} AS (\n"
+        "  WITH src AS (\n"
+        "    SELECT\n"
+        "      instance_name,\n"
+        "      users_login AS login,\n"
+        "      lower(trim(users_login)) AS login_norm,\n"
+        "      users_displayname AS display_name,\n"
+        "      users_email AS email,\n"
+        "      users_enabled = 'True' AS enabled,\n"
+        "      users_userprofile AS user_profile,\n"
+        "      users_groups AS group_names,\n"
+        "      run_ts,\n"
+        f"      CASE WHEN instance_name IN ({_hub_instances_sql_list()}) THEN 1 ELSE 0 END AS is_hub\n"
+        "    FROM base_users_instance_metadata_history\n"
+        "    WHERE users_login IS NOT NULL\n"
+        "      AND length(trim(users_login)) > 0\n"
+        "  ),\n"
+        "  ranked AS (\n"
+        "    SELECT\n"
+        "      *,\n"
+        "      ROW_NUMBER() OVER (\n"
+        "        PARTITION BY login_norm\n"
+        "        ORDER BY run_ts DESC, is_hub DESC, instance_name ASC\n"
+        "      ) AS rn\n"
+        "    FROM src\n"
+        "  )\n"
+        "  SELECT\n"
+        "    instance_name,\n"
+        "    login,\n"
+        "    login_norm,\n"
+        "    display_name,\n"
+        "    email,\n"
+        "    enabled,\n"
+        "    user_profile,\n"
+        "    group_names,\n"
+        "    run_ts\n"
+        "  FROM ranked\n"
+        "  WHERE rn = 1\n"
+        ")\n"
+    )
+
+
+def _ensure_consumption_products_views(_create_connection) -> None:
+    conn = _create_connection(read_only=False)
+    try:
+        ensure_consumption_product_views(conn)
+    finally:
+        conn.close()
+
+
+def _development_activity_source_sql(_query_df) -> str:
+    if _duckdb_relation_exists(_query_df, "final_build_development_activity_events"):
+        return "final_build_development_activity_events"
+    return (
+        "(\n"
+        "  SELECT\n"
+        "    e.timestamp,\n"
+        "    e.instance_name,\n"
+        "    e.login,\n"
+        "    e.project_key,\n"
+        "    e.msgtype,\n"
+        "    e.msgtypebase AS base_tag,\n"
+        "    COALESCE(m.category_display_name, e.dataiku_category) AS dataiku_category,\n"
+        "    COALESCE(m.capability_display_name, m.capability, 'Uncategorized') AS capability\n"
+        "  FROM fact_dev_activity_events e\n"
+        "  LEFT JOIN dim_category_to_capability m\n"
+        "    ON lower(trim(m.dataiku_category)) = lower(trim(e.dataiku_category))\n"
+        ")"
+    )
+
 def _metadata_completeness_sql(*, name_col: str, key_col: str, owner_col: str, updated_col: str) -> tuple[str, str]:
     score_sql = (
         "("
@@ -303,7 +375,7 @@ class RequestValidationError(ValueError):
 try:
     from pulse_dashboard import settings as pulse_settings  # type: ignore
     from pulse_dashboard.pulse_duckdb.engine import ReadOnlySQLError, create_connection, ensure_database_ready, is_initialization_in_progress, query_df  # type: ignore
-    from pulse_dashboard.pulse_duckdb.engine.init_db import read_duckdb_metadata  # type: ignore
+    from pulse_dashboard.pulse_duckdb.engine.init_db import ensure_consumption_product_views, read_duckdb_metadata  # type: ignore
 except Exception:
     try:
         repo_root = Path(__file__).resolve().parents[2]
@@ -313,7 +385,7 @@ except Exception:
 
         from pulse_dashboard import settings as pulse_settings  # type: ignore
         from pulse_dashboard.pulse_duckdb.engine import ReadOnlySQLError, create_connection, ensure_database_ready, is_initialization_in_progress, query_df  # type: ignore
-        from pulse_dashboard.pulse_duckdb.engine.init_db import read_duckdb_metadata  # type: ignore
+        from pulse_dashboard.pulse_duckdb.engine.init_db import ensure_consumption_product_views, read_duckdb_metadata  # type: ignore
     except Exception:
         logger.exception("Failed to import Pulse dashboard libraries")
         pulse_settings = None
@@ -787,7 +859,6 @@ def startup_status():
     expected_objects = [
         "final_build_catalog",
         "final_build_products_catalog",
-        "dev_activity_capability_daily",
         "final_build_development_activity_events",
     ]
 
@@ -2461,6 +2532,7 @@ def consumption_products_facets():
     try:
         _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
         _ensure_ready_if_enabled()
+        _ensure_consumption_products_views(_create_connection)
 
         quoted_types = ", ".join("'" + t.replace("'", "''") + "'" for t in _CONSUMPTION_PRODUCT_OBJECT_TYPES)
 
@@ -2515,6 +2587,7 @@ def consumption_products_details():
     try:
         _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
         _ensure_ready_if_enabled()
+        _ensure_consumption_products_views(_create_connection)
 
         product_id = (request.args.get("productId") or "").strip()
         if not _is_md5(product_id):
@@ -2676,6 +2749,7 @@ def consumption_products_summary():
     try:
         _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
         _ensure_ready_if_enabled()
+        _ensure_consumption_products_views(_create_connection)
 
         days = _parse_days_arg(default=30)
 
@@ -3115,6 +3189,7 @@ def consumption_products_lifecycle_summary():
     try:
         _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
         _ensure_ready_if_enabled()
+        _ensure_consumption_products_views(_create_connection)
 
         days = _parse_days_arg(default=365)
         instances = _parse_string_list_param(request.args.get("instances"))
@@ -3293,16 +3368,17 @@ def consumption_process_usage():
         _ensure_ready_if_enabled()
 
         days = _parse_days_arg(default=30)
+        activity_source_sql = _development_activity_source_sql(_query_df)
 
         summary_df = _query_df(
-            """
+            f"""
             SELECT
               COUNT(*) AS events,
               COUNT(DISTINCT capability) AS active_capabilities,
               COUNT(DISTINCT login) AS active_users,
               COUNT(DISTINCT project_key) AS active_projects,
               COUNT(DISTINCT instance_name) AS active_instances
-            FROM final_build_development_activity_events
+            FROM {activity_source_sql}
             WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY;
             """.strip(),
             [days],
@@ -3310,14 +3386,14 @@ def consumption_process_usage():
         summary = _df_records(summary_df)[0] if len(summary_df) else {}
 
         by_capability_df = _query_df(
-            """
+            f"""
             SELECT
               capability AS label,
               COUNT(*) AS value,
               COUNT(DISTINCT login) AS activeUsers,
               COUNT(DISTINCT project_key) AS projects,
               COUNT(DISTINCT instance_name) AS instances
-            FROM final_build_development_activity_events
+            FROM {activity_source_sql}
             WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
             GROUP BY 1
             ORDER BY value DESC, label;
@@ -3326,11 +3402,11 @@ def consumption_process_usage():
         )
 
         activity_daily_df = _query_df(
-            """
+            f"""
             SELECT
               CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,
               COUNT(*) AS value
-            FROM final_build_development_activity_events
+            FROM {activity_source_sql}
             WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
             GROUP BY 1
             ORDER BY 1;
@@ -3339,11 +3415,11 @@ def consumption_process_usage():
         )
 
         top_by_users_df = _query_df(
-            """
+            f"""
             SELECT
               capability AS label,
               COUNT(DISTINCT login) AS value
-            FROM final_build_development_activity_events
+            FROM {activity_source_sql}
             WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
             GROUP BY 1
             ORDER BY value DESC, label;
@@ -3352,11 +3428,11 @@ def consumption_process_usage():
         )
 
         top_by_projects_df = _query_df(
-            """
+            f"""
             SELECT
               capability AS label,
               COUNT(DISTINCT project_key) AS value
-            FROM final_build_development_activity_events
+            FROM {activity_source_sql}
             WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
             GROUP BY 1
             ORDER BY value DESC, label;
@@ -3365,11 +3441,11 @@ def consumption_process_usage():
         )
 
         top_by_instances_df = _query_df(
-            """
+            f"""
             SELECT
               capability AS label,
               COUNT(DISTINCT instance_name) AS value
-            FROM final_build_development_activity_events
+            FROM {activity_source_sql}
             WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
             GROUP BY 1
             ORDER BY value DESC, label;
@@ -3377,13 +3453,27 @@ def consumption_process_usage():
             [days],
         )
 
+        total_active_users = int(summary.get("active_users") or 0)
+        top_by_users_rows = []
+        for row in _df_records(top_by_users_df):
+            user_count = int(row.get("value") or 0)
+            user_share = None
+            if total_active_users > 0:
+                user_share = round((user_count / total_active_users) * 100.0, 1)
+            enriched = dict(row)
+            enriched["userShare"] = user_share
+            top_by_users_rows.append(enriched)
+
         return _ok(
             {
                 "windowDays": days,
-                "summary": summary,
+                "summary": {
+                    **summary,
+                    "active_users": total_active_users,
+                },
                 "activityDaily": _df_records(activity_daily_df),
                 "byCapability": _df_records(by_capability_df),
-                "topByUsers": _df_records(top_by_users_df),
+                "topByUsers": top_by_users_rows,
                 "topByProjects": _df_records(top_by_projects_df),
                 "topByInstances": _df_records(top_by_instances_df),
             }
@@ -3405,15 +3495,16 @@ def consumption_process_usage_capability(capability: str):
             return _err("Missing capability")
 
         days = _parse_days_arg(default=30)
+        activity_source_sql = _development_activity_source_sql(_query_df)
 
         summary_df = _query_df(
-            """
+            f"""
             SELECT
               COUNT(*) AS events,
               COUNT(DISTINCT login) AS users,
               COUNT(DISTINCT project_key) AS projects,
               COUNT(DISTINCT instance_name) AS instances
-            FROM final_build_development_activity_events
+            FROM {activity_source_sql}
             WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY;
             """.strip(),
             [capability, days],
@@ -3421,11 +3512,11 @@ def consumption_process_usage_capability(capability: str):
         summary = _df_records(summary_df)[0] if len(summary_df) else {}
 
         activity_daily_df = _query_df(
-            """
+            f"""
             SELECT
               CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,
               COUNT(*) AS value
-            FROM final_build_development_activity_events
+            FROM {activity_source_sql}
             WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
             GROUP BY 1
             ORDER BY 1;
@@ -3434,11 +3525,11 @@ def consumption_process_usage_capability(capability: str):
         )
 
         top_users_df = _query_df(
-            """
+            f"""
             SELECT
               login AS label,
               COUNT(*) AS value
-            FROM final_build_development_activity_events
+            FROM {activity_source_sql}
             WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
             GROUP BY 1
             ORDER BY value DESC
@@ -3452,7 +3543,7 @@ def consumption_process_usage_capability(capability: str):
             SELECT
               concat_ws(':', instance_name, project_key) AS label,
               COUNT(*) AS value
-            FROM final_build_development_activity_events
+            FROM {activity_source_sql}
             WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
             GROUP BY 1
             ORDER BY value DESC
@@ -3482,14 +3573,15 @@ def build_development_activity():
         _ensure_ready_if_enabled()
 
         days = _parse_days_arg(default=30)
+        activity_source_sql = _development_activity_source_sql(_query_df)
 
         activity_daily_df = _query_df(
-            """
+            f"""
             SELECT
-              CAST(day AS VARCHAR) AS label,
-              SUM(event_count) AS value
-            FROM dev_activity_capability_daily
-            WHERE day >= current_date - ?::INTEGER
+              CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,
+              COUNT(*) AS value
+            FROM {activity_source_sql}
+            WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
             GROUP BY 1
             ORDER BY 1;
             """.strip(),
@@ -3497,34 +3589,43 @@ def build_development_activity():
         )
 
         by_capability_df = _query_df(
-            """
+            f"""
             SELECT
               capability AS label,
-              event_count_30d AS value
-            FROM dev_activity_capability_30d
-            ORDER BY value DESC;
-            """.strip()
+              COUNT(*) AS value
+            FROM {activity_source_sql}
+            WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
+            GROUP BY 1
+            ORDER BY value DESC, label;
+            """.strip(),
+            [days],
         )
 
         by_category_df = _query_df(
-            """
+            f"""
             SELECT
               concat_ws(' / ', capability, dataiku_category) AS label,
-              event_count_30d AS value
-            FROM dev_activity_category_30d
-            ORDER BY value DESC;
-            """.strip()
+              COUNT(*) AS value
+            FROM {activity_source_sql}
+            WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
+            GROUP BY 1
+            ORDER BY value DESC, label;
+            """.strip(),
+            [days],
         )
 
         top_users_df = _query_df(
-            """
+            f"""
             SELECT
               login AS label,
-              event_count_30d AS value
-            FROM dev_activity_top_users_30d
-            ORDER BY value DESC
+              COUNT(*) AS value
+            FROM {activity_source_sql}
+            WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
+            GROUP BY 1
+            ORDER BY value DESC, label
             LIMIT 50;
-            """.strip()
+            """.strip(),
+            [days],
         )
 
         activity_daily_rows = []
@@ -3559,15 +3660,16 @@ def build_development_activity_capability(capability: str):
             return _err("Missing capability")
 
         days = _parse_days_arg(default=30)
+        activity_source_sql = _development_activity_source_sql(_query_df)
 
         summary_df = _query_df(
-            """
+            f"""
             SELECT
               COUNT(*) AS events,
               COUNT(DISTINCT login) AS users,
               COUNT(DISTINCT project_key) AS projects,
               COUNT(DISTINCT instance_name) AS instances
-            FROM final_build_development_activity_events
+            FROM {activity_source_sql}
             WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY;
             """.strip(),
             [capability, days],
@@ -3575,11 +3677,11 @@ def build_development_activity_capability(capability: str):
         summary = _df_records(summary_df)[0] if len(summary_df) else None
 
         activity_daily_df = _query_df(
-            """
+            f"""
             SELECT
               CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,
               COUNT(*) AS value
-            FROM final_build_development_activity_events
+            FROM {activity_source_sql}
             WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
             GROUP BY 1
             ORDER BY 1;
@@ -3588,11 +3690,11 @@ def build_development_activity_capability(capability: str):
         )
 
         categories_df = _query_df(
-            """
+            f"""
             SELECT
               dataiku_category AS label,
               COUNT(*) AS value
-            FROM final_build_development_activity_events
+            FROM {activity_source_sql}
             WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
             GROUP BY 1
             ORDER BY value DESC;
@@ -3601,11 +3703,11 @@ def build_development_activity_capability(capability: str):
         )
 
         tags_df = _query_df(
-            """
+            f"""
             SELECT
               base_tag AS label,
               COUNT(*) AS value
-            FROM final_build_development_activity_events
+            FROM {activity_source_sql}
             WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
             GROUP BY 1
             ORDER BY value DESC;
@@ -3614,11 +3716,11 @@ def build_development_activity_capability(capability: str):
         )
 
         top_users_df = _query_df(
-            """
+            f"""
             SELECT
               login AS label,
               COUNT(*) AS value
-            FROM final_build_development_activity_events
+            FROM {activity_source_sql}
             WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
             GROUP BY 1
             ORDER BY value DESC
@@ -3661,14 +3763,15 @@ def build_development_activity_user(login: str):
 
         days = int(request.args.get("days") or 30)
         days = max(1, min(365, days))
+        activity_source_sql = _development_activity_source_sql(_query_df)
 
         summary_df = _query_df(
-            """
+            f"""
             SELECT
               COUNT(*) AS events,
               COUNT(DISTINCT project_key) AS projects,
               COUNT(DISTINCT instance_name) AS instances
-            FROM final_build_development_activity_events
+            FROM {activity_source_sql}
             WHERE login = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY;
             """.strip(),
             [login, days],
@@ -3676,11 +3779,11 @@ def build_development_activity_user(login: str):
         summary = _df_records(summary_df)[0] if len(summary_df) else None
 
         activity_daily_df = _query_df(
-            """
+            f"""
             SELECT
               CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,
               COUNT(*) AS value
-            FROM final_build_development_activity_events
+            FROM {activity_source_sql}
             WHERE login = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
             GROUP BY 1
             ORDER BY 1;
@@ -3689,11 +3792,11 @@ def build_development_activity_user(login: str):
         )
 
         capabilities_df = _query_df(
-            """
+            f"""
             SELECT
               capability AS label,
               COUNT(*) AS value
-            FROM final_build_development_activity_events
+            FROM {activity_source_sql}
             WHERE login = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
             GROUP BY 1
             ORDER BY value DESC;
@@ -3702,11 +3805,11 @@ def build_development_activity_user(login: str):
         )
 
         categories_df = _query_df(
-            """
+            f"""
             SELECT
               dataiku_category AS label,
               COUNT(*) AS value
-            FROM final_build_development_activity_events
+            FROM {activity_source_sql}
             WHERE login = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
             GROUP BY 1
             ORDER BY value DESC;
@@ -3715,11 +3818,11 @@ def build_development_activity_user(login: str):
         )
 
         tags_df = _query_df(
-            """
+            f"""
             SELECT
               base_tag AS label,
               COUNT(*) AS value
-            FROM final_build_development_activity_events
+            FROM {activity_source_sql}
             WHERE login = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
             GROUP BY 1
             ORDER BY value DESC;
@@ -3817,12 +3920,14 @@ def build_users_facets():
 
         instances = (
             _query_df(
-                """
-                SELECT DISTINCT instance_name
-                FROM final_users_directory
-                WHERE instance_name IS NOT NULL
-                ORDER BY 1;
-                """.strip()
+                (
+                    "WITH "
+                    + _users_directory_cte_sql()
+                    + "SELECT DISTINCT instance_name\n"
+                    + "FROM directory\n"
+                    + "WHERE instance_name IS NOT NULL\n"
+                    + "ORDER BY 1;"
+                )
             )["instance_name"]
             .dropna()
             .astype(str)
@@ -4002,6 +4107,20 @@ def build_users_kpis():
             if (total_viewing_actions + total_developing_actions)
             else 0.0
         )
+        history_df = _query_df(
+            (
+                "SELECT\n"
+                "  MIN(day) AS first_activity_day,\n"
+                "  MAX(day) AS last_activity_day\n"
+                "FROM fact_user_activity_daily\n"
+                "WHERE 1 = 1"
+                f"{instance_sql}\n"  # nosec B608 (instance_sql uses placeholders)
+            ),
+            instance_params,
+        )
+        history_row = _df_records(history_df)[0] if len(history_df) else {}
+        row["activity_history_start"] = history_row.get("first_activity_day")
+        row["activity_history_end"] = history_row.get("last_activity_day")
         row["active_window_days"] = [30, 90]
         row["inactive_window_months"] = 6
         row["active_window_months"] = [6, 12]
@@ -4753,6 +4872,88 @@ def build_users_formal_mau_monthly():
             instance_params_aggregate,
         )
 
+        license_group_case_sql = _license_group_case_sql("user_profile")
+        latest_month_profiles_df = _query_df(
+            f"""
+            WITH latest_users AS (
+              SELECT
+                instance_name,
+                lower(trim(users_login)) AS login_norm,
+                coalesce(nullif(trim(users_userprofile), ''), 'UNKNOWN') AS user_profile,
+                ROW_NUMBER() OVER (
+                  PARTITION BY instance_name, lower(trim(users_login))
+                  ORDER BY run_ts DESC
+                ) AS rn
+              FROM base_users_instance_metadata_history
+              WHERE users_login IS NOT NULL
+                AND length(trim(users_login)) > 0
+            ),
+            latest_activity AS (
+              SELECT
+                f.instance_name,
+                f.login_norm,
+                u.user_profile
+              FROM final_build_formal_mau_daily f
+              JOIN latest_users u
+                ON u.instance_name = f.instance_name
+               AND u.login_norm = f.login_norm
+               AND u.rn = 1
+              WHERE f.day >= date_trunc('month', current_date)::DATE
+                AND f.day < {next_month_expr}
+                {instance_sql}
+            )
+            SELECT
+              {license_group_case_sql} AS license_group,
+              user_profile AS userProfile,
+              COUNT(DISTINCT concat(instance_name, '::', login_norm)) AS active_users
+            FROM latest_activity
+            GROUP BY 1, 2
+            ORDER BY active_users DESC, license_group, userProfile;
+            """,  # nosec B608 (month expr, case sql, and instance_sql are internal/generated)
+            instance_params_aggregate,
+        )
+
+        latest_month_instance_profiles_df = _query_df(
+            f"""
+            WITH latest_users AS (
+              SELECT
+                instance_name,
+                lower(trim(users_login)) AS login_norm,
+                coalesce(nullif(trim(users_userprofile), ''), 'UNKNOWN') AS user_profile,
+                ROW_NUMBER() OVER (
+                  PARTITION BY instance_name, lower(trim(users_login))
+                  ORDER BY run_ts DESC
+                ) AS rn
+              FROM base_users_instance_metadata_history
+              WHERE users_login IS NOT NULL
+                AND length(trim(users_login)) > 0
+            ),
+            latest_activity AS (
+              SELECT
+                f.instance_name,
+                f.login_norm,
+                u.user_profile
+              FROM final_build_formal_mau_daily f
+              JOIN latest_users u
+                ON u.instance_name = f.instance_name
+               AND u.login_norm = f.login_norm
+               AND u.rn = 1
+              WHERE f.day >= date_trunc('month', current_date)::DATE
+                AND f.day < {next_month_expr}
+                {instance_sql}
+            )
+            SELECT
+              instance_name,
+              {license_group_case_sql} AS license_group,
+              user_profile AS userProfile,
+              COUNT(DISTINCT login_norm) AS active_users
+            FROM latest_activity
+            GROUP BY 1, 2, 3
+            ORDER BY instance_name, active_users DESC, license_group, userProfile;
+            """,  # nosec B608 (month expr, case sql, and instance_sql are internal/generated)
+            instance_params_aggregate,
+        )
+
         aggregate_rows = _df_records(aggregate_df)
         latest_month = aggregate_rows[-1] if aggregate_rows else None
 
@@ -4763,6 +4964,8 @@ def build_users_formal_mau_monthly():
                 "instanceName": instance_name,
                 "latestMonth": latest_month,
                 "byInstance": _df_records(by_instance_df),
+                "byProfile": _df_records(latest_month_profiles_df),
+                "byInstanceProfile": _df_records(latest_month_instance_profiles_df),
                 "aggregate": aggregate_rows,
                 "available": True,
             }
@@ -4816,30 +5019,7 @@ def build_users_leaderboard():
 
         where_sql = " WHERE " + " AND ".join(where)
 
-        directory_cte = (
-            "directory AS (\n"
-            "  SELECT\n"
-            "    login_norm,\n"
-            "    display_name,\n"
-            "    email,\n"
-            "    user_profile,\n"
-            "    enabled\n"
-            "  FROM (\n"
-            "    SELECT\n"
-            "      login_norm,\n"
-            "      display_name,\n"
-            "      email,\n"
-            "      user_profile,\n"
-            "      enabled,\n"
-            "      ROW_NUMBER() OVER (\n"
-            "        PARTITION BY login_norm\n"
-            "        ORDER BY enabled DESC, run_ts DESC, instance_name\n"
-            "      ) AS rn\n"
-            "    FROM final_users_directory\n"
-            "  ) ranked\n"
-            "  WHERE rn = 1\n"
-            ")\n"
-        )
+        directory_cte = _users_directory_cte_sql()
 
         base_sql = (
             "WITH agg AS (\n"
@@ -5416,21 +5596,23 @@ def build_user_detail(login: str):
                 summary["days"] = int(days or 30)
 
         instances_df = _query_df(
-            """
-            SELECT
-              instance_name AS instanceName,
-              login,
-              login_norm AS loginNorm,
-              display_name AS displayName,
-              email,
-              enabled,
-              user_profile AS userProfile,
-              group_names AS groupNames,
-              run_ts AS runTs
-            FROM final_users_directory
-            WHERE login_norm = ?
-            ORDER BY enabled DESC, instance_name, run_ts DESC;
-            """.strip(),
+            (
+                "WITH "
+                + _users_directory_cte_sql()
+                + "SELECT\n"
+                + "  instance_name AS instanceName,\n"
+                + "  login,\n"
+                + "  login_norm AS loginNorm,\n"
+                + "  display_name AS displayName,\n"
+                + "  email,\n"
+                + "  enabled,\n"
+                + "  user_profile AS userProfile,\n"
+                + "  group_names AS groupNames,\n"
+                + "  run_ts AS runTs\n"
+                + "FROM directory\n"
+                + "WHERE login_norm = ?\n"
+                + "ORDER BY enabled DESC, instance_name, run_ts DESC;"
+            ),
             [login_norm],
         )
         instance_rows = _df_records(instances_df)
