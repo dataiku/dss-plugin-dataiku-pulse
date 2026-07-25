@@ -42,9 +42,9 @@ _MAX_LOOKBACK_DAYS = 365
 _MAX_LOOKBACK_MONTHS = 24
 
 
-def _users_directory_cte_sql(*, cte_name: str = 'directory') -> str:
+def _users_facets_instances_sql() -> str:
     return (
-        f"{cte_name} AS (\n"
+        "WITH directory AS (\n"
         "  WITH src AS (\n"
         "    SELECT\n"
         "      instance_name,\n"
@@ -83,6 +83,67 @@ def _users_directory_cte_sql(*, cte_name: str = 'directory') -> str:
         "  FROM ranked\n"
         "  WHERE rn = 1\n"
         ")\n"
+        "SELECT DISTINCT instance_name\n"
+        "FROM directory\n"
+        "WHERE instance_name IS NOT NULL\n"
+        "ORDER BY 1;"
+    )
+
+
+def _user_detail_instances_sql() -> str:
+    return (
+        "WITH directory AS (\n"
+        "  WITH src AS (\n"
+        "    SELECT\n"
+        "      instance_name,\n"
+        "      users_login AS login,\n"
+        "      lower(trim(users_login)) AS login_norm,\n"
+        "      users_displayname AS display_name,\n"
+        "      users_email AS email,\n"
+        "      users_enabled = 'True' AS enabled,\n"
+        "      users_userprofile AS user_profile,\n"
+        "      users_groups AS group_names,\n"
+        "      run_ts,\n"
+        f"      CASE WHEN instance_name IN ({_hub_instances_sql_list()}) THEN 1 ELSE 0 END AS is_hub\n"
+        "    FROM base_users_instance_metadata_history\n"
+        "    WHERE users_login IS NOT NULL\n"
+        "      AND length(trim(users_login)) > 0\n"
+        "  ),\n"
+        "  ranked AS (\n"
+        "    SELECT\n"
+        "      *,\n"
+        "      ROW_NUMBER() OVER (\n"
+        "        PARTITION BY login_norm\n"
+        "        ORDER BY run_ts DESC, is_hub DESC, instance_name ASC\n"
+        "      ) AS rn\n"
+        "    FROM src\n"
+        "  )\n"
+        "  SELECT\n"
+        "    instance_name,\n"
+        "    login,\n"
+        "    login_norm,\n"
+        "    display_name,\n"
+        "    email,\n"
+        "    enabled,\n"
+        "    user_profile,\n"
+        "    group_names,\n"
+        "    run_ts\n"
+        "  FROM ranked\n"
+        "  WHERE rn = 1\n"
+        ")\n"
+        "SELECT\n"
+        "  instance_name AS instanceName,\n"
+        "  login,\n"
+        "  login_norm AS loginNorm,\n"
+        "  display_name AS displayName,\n"
+        "  email,\n"
+        "  enabled,\n"
+        "  user_profile AS userProfile,\n"
+        "  group_names AS groupNames,\n"
+        "  run_ts AS runTs\n"
+        "FROM directory\n"
+        "WHERE login_norm = ?\n"
+        "ORDER BY enabled DESC, instance_name, run_ts DESC;"
     )
 
 
@@ -92,6 +153,371 @@ def _ensure_consumption_products_views(_create_connection) -> None:
         ensure_consumption_product_views(conn)
     finally:
         conn.close()
+
+
+
+
+def _activity_source_kind(_query_df) -> str:
+    if _duckdb_relation_exists(_query_df, "final_build_development_activity_events"):
+        return "final_build"
+    return "fallback_join"
+
+
+def _activity_source_from_sql(source_kind: str) -> str:
+    if source_kind == "final_build":
+        return "FROM final_build_development_activity_events\n"
+    return (
+        "FROM fact_dev_activity_events e\n"
+        "LEFT JOIN dim_category_to_capability m\n"
+        "  ON lower(trim(m.dataiku_category)) = lower(trim(e.dataiku_category))\n"
+    )
+
+
+def _activity_source_select_sql(source_kind: str) -> str:
+    if source_kind == "final_build":
+        return ""
+    return (
+        "    e.timestamp,\n"
+        "    e.instance_name,\n"
+        "    e.login,\n"
+        "    e.project_key,\n"
+        "    e.msgtype,\n"
+        "    e.msgtypebase AS base_tag,\n"
+        "    COALESCE(m.category_display_name, e.dataiku_category) AS dataiku_category,\n"
+        "    COALESCE(m.capability_display_name, m.capability, 'Uncategorized') AS capability\n"
+    )
+
+
+def _wrap_activity_query(source_kind: str, body_sql: str) -> str:
+    if source_kind == "final_build":
+        return body_sql.format(from_sql=_activity_source_from_sql(source_kind))
+    return (
+        "WITH activity_source AS (\n"
+        "  SELECT\n"
+        + _activity_source_select_sql(source_kind)
+        + _activity_source_from_sql(source_kind)
+        + ")\n"
+        + body_sql.format(from_sql="FROM activity_source\n")
+    )
+
+
+def _user_drilldown_daily_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,\n"
+        "  COUNT(*) AS value\n"
+        "{from_sql}"
+        "WHERE login = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+        "GROUP BY 1\n"
+        "ORDER BY 1;",
+    )
+
+
+def _user_drilldown_capabilities_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  capability AS label,\n"
+        "  COUNT(*) AS value\n"
+        "{from_sql}"
+        "WHERE login = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+        "GROUP BY 1\n"
+        "ORDER BY value DESC;",
+    )
+
+
+def _user_drilldown_categories_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  dataiku_category AS label,\n"
+        "  COUNT(*) AS value\n"
+        "{from_sql}"
+        "WHERE login = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+        "GROUP BY 1\n"
+        "ORDER BY value DESC;",
+    )
+
+
+def _user_drilldown_tags_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  base_tag AS label,\n"
+        "  COUNT(*) AS value\n"
+        "{from_sql}"
+        "WHERE login = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+        "GROUP BY 1\n"
+        "ORDER BY value DESC;",
+    )
+
+
+def _development_capability_summary_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  COUNT(*) AS events,\n"
+        "  COUNT(DISTINCT login) AS users,\n"
+        "  COUNT(DISTINCT project_key) AS projects,\n"
+        "  COUNT(DISTINCT instance_name) AS instances\n"
+        "{from_sql}"
+        "WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY;",
+    )
+
+
+def _development_capability_daily_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,\n"
+        "  COUNT(*) AS value\n"
+        "{from_sql}"
+        "WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+        "GROUP BY 1\n"
+        "ORDER BY 1;",
+    )
+
+
+def _development_capability_categories_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  dataiku_category AS label,\n"
+        "  COUNT(*) AS value\n"
+        "{from_sql}"
+        "WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+        "GROUP BY 1\n"
+        "ORDER BY value DESC;",
+    )
+
+
+def _development_capability_tags_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  base_tag AS label,\n"
+        "  COUNT(*) AS value\n"
+        "{from_sql}"
+        "WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+        "GROUP BY 1\n"
+        "ORDER BY value DESC;",
+    )
+
+
+def _development_capability_top_users_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  login AS label,\n"
+        "  COUNT(*) AS value\n"
+        "{from_sql}"
+        "WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+        "GROUP BY 1\n"
+        "ORDER BY value DESC\n"
+        "LIMIT 50;",
+    )
+
+
+def _development_user_summary_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  COUNT(*) AS events,\n"
+        "  COUNT(DISTINCT project_key) AS projects,\n"
+        "  COUNT(DISTINCT instance_name) AS instances\n"
+        "{from_sql}"
+        "WHERE login = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY;",
+    )
+
+
+def _development_activity_daily_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,\n"
+        "  COUNT(*) AS value\n"
+        "{from_sql}"
+        "WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+        "GROUP BY 1\n"
+        "ORDER BY 1;",
+    )
+
+
+def _development_activity_by_capability_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  capability AS label,\n"
+        "  COUNT(*) AS value\n"
+        "{from_sql}"
+        "WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+        "GROUP BY 1\n"
+        "ORDER BY value DESC, label;",
+    )
+
+
+def _development_activity_by_category_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  concat_ws(' / ', capability, dataiku_category) AS label,\n"
+        "  COUNT(*) AS value\n"
+        "{from_sql}"
+        "WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+        "GROUP BY 1\n"
+        "ORDER BY value DESC, label;",
+    )
+
+
+def _development_activity_top_users_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  login AS label,\n"
+        "  COUNT(*) AS value\n"
+        "{from_sql}"
+        "WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+        "GROUP BY 1\n"
+        "ORDER BY value DESC, label\n"
+        "LIMIT 50;",
+    )
+
+
+def _consumption_process_usage_summary_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  COUNT(*) AS events,\n"
+        "  COUNT(DISTINCT capability) AS active_capabilities,\n"
+        "  COUNT(DISTINCT login) AS active_users,\n"
+        "  COUNT(DISTINCT project_key) AS active_projects,\n"
+        "  COUNT(DISTINCT instance_name) AS active_instances\n"
+        "{from_sql}"
+        "WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY;",
+    )
+
+
+def _consumption_process_usage_by_capability_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  capability AS label,\n"
+        "  COUNT(*) AS value,\n"
+        "  COUNT(DISTINCT login) AS activeUsers,\n"
+        "  COUNT(DISTINCT project_key) AS projects,\n"
+        "  COUNT(DISTINCT instance_name) AS instances\n"
+        "{from_sql}"
+        "WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+        "GROUP BY 1\n"
+        "ORDER BY value DESC, label;",
+    )
+
+
+def _consumption_process_usage_daily_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,\n"
+        "  COUNT(*) AS value\n"
+        "{from_sql}"
+        "WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+        "GROUP BY 1\n"
+        "ORDER BY 1;",
+    )
+
+
+def _consumption_process_usage_top_users_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  capability AS label,\n"
+        "  COUNT(DISTINCT login) AS value\n"
+        "{from_sql}"
+        "WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+        "GROUP BY 1\n"
+        "ORDER BY value DESC, label;",
+    )
+
+
+def _consumption_process_usage_top_projects_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  capability AS label,\n"
+        "  COUNT(DISTINCT project_key) AS value\n"
+        "{from_sql}"
+        "WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+        "GROUP BY 1\n"
+        "ORDER BY value DESC, label;",
+    )
+
+
+def _consumption_process_usage_top_instances_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  capability AS label,\n"
+        "  COUNT(DISTINCT instance_name) AS value\n"
+        "{from_sql}"
+        "WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+        "GROUP BY 1\n"
+        "ORDER BY value DESC, label;",
+    )
+
+
+def _consumption_capability_summary_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  COUNT(*) AS events,\n"
+        "  COUNT(DISTINCT login) AS users,\n"
+        "  COUNT(DISTINCT project_key) AS projects,\n"
+        "  COUNT(DISTINCT instance_name) AS instances\n"
+        "{from_sql}"
+        "WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY;",
+    )
+
+
+def _consumption_capability_daily_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,\n"
+        "  COUNT(*) AS value\n"
+        "{from_sql}"
+        "WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+        "GROUP BY 1\n"
+        "ORDER BY 1;",
+    )
+
+
+def _consumption_capability_top_users_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  login AS label,\n"
+        "  COUNT(*) AS value\n"
+        "{from_sql}"
+        "WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+        "GROUP BY 1\n"
+        "ORDER BY value DESC\n"
+        "LIMIT 50;",
+    )
+
+
+def _consumption_capability_top_projects_sql(source_kind: str) -> str:
+    return _wrap_activity_query(
+        source_kind,
+        "SELECT\n"
+        "  concat_ws(':', instance_name, project_key) AS label,\n"
+        "  COUNT(*) AS value\n"
+        "{from_sql}"
+        "WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY\n"
+        "GROUP BY 1\n"
+        "ORDER BY value DESC\n"
+        "LIMIT 50;",
+    )
 
 
 def _development_activity_source_sql(_query_df) -> str:
@@ -3368,88 +3794,36 @@ def consumption_process_usage():
         _ensure_ready_if_enabled()
 
         days = _parse_days_arg(default=30)
-        activity_source_sql = _development_activity_source_sql(_query_df)
+        activity_source_kind = _activity_source_kind(_query_df)
 
         summary_df = _query_df(
-            f"""
-            SELECT
-              COUNT(*) AS events,
-              COUNT(DISTINCT capability) AS active_capabilities,
-              COUNT(DISTINCT login) AS active_users,
-              COUNT(DISTINCT project_key) AS active_projects,
-              COUNT(DISTINCT instance_name) AS active_instances
-            FROM {activity_source_sql}
-            WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY;
-            """.strip(),
+            _consumption_process_usage_summary_sql(activity_source_kind),
             [days],
         )
         summary = _df_records(summary_df)[0] if len(summary_df) else {}
 
         by_capability_df = _query_df(
-            f"""
-            SELECT
-              capability AS label,
-              COUNT(*) AS value,
-              COUNT(DISTINCT login) AS activeUsers,
-              COUNT(DISTINCT project_key) AS projects,
-              COUNT(DISTINCT instance_name) AS instances
-            FROM {activity_source_sql}
-            WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
-            GROUP BY 1
-            ORDER BY value DESC, label;
-            """.strip(),
+            _consumption_process_usage_by_capability_sql(activity_source_kind),
             [days],
         )
 
         activity_daily_df = _query_df(
-            f"""
-            SELECT
-              CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,
-              COUNT(*) AS value
-            FROM {activity_source_sql}
-            WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
-            GROUP BY 1
-            ORDER BY 1;
-            """.strip(),
+            _consumption_process_usage_daily_sql(activity_source_kind),
             [days],
         )
 
         top_by_users_df = _query_df(
-            f"""
-            SELECT
-              capability AS label,
-              COUNT(DISTINCT login) AS value
-            FROM {activity_source_sql}
-            WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
-            GROUP BY 1
-            ORDER BY value DESC, label;
-            """.strip(),
+            _consumption_process_usage_top_users_sql(activity_source_kind),
             [days],
         )
 
         top_by_projects_df = _query_df(
-            f"""
-            SELECT
-              capability AS label,
-              COUNT(DISTINCT project_key) AS value
-            FROM {activity_source_sql}
-            WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
-            GROUP BY 1
-            ORDER BY value DESC, label;
-            """.strip(),
+            _consumption_process_usage_top_projects_sql(activity_source_kind),
             [days],
         )
 
         top_by_instances_df = _query_df(
-            f"""
-            SELECT
-              capability AS label,
-              COUNT(DISTINCT instance_name) AS value
-            FROM {activity_source_sql}
-            WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
-            GROUP BY 1
-            ORDER BY value DESC, label;
-            """.strip(),
+            _consumption_process_usage_top_instances_sql(activity_source_kind),
             [days],
         )
 
@@ -3495,60 +3869,26 @@ def consumption_process_usage_capability(capability: str):
             return _err("Missing capability")
 
         days = _parse_days_arg(default=30)
-        activity_source_sql = _development_activity_source_sql(_query_df)
+        activity_source_kind = _activity_source_kind(_query_df)
 
         summary_df = _query_df(
-            f"""
-            SELECT
-              COUNT(*) AS events,
-              COUNT(DISTINCT login) AS users,
-              COUNT(DISTINCT project_key) AS projects,
-              COUNT(DISTINCT instance_name) AS instances
-            FROM {activity_source_sql}
-            WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY;
-            """.strip(),
+            _consumption_capability_summary_sql(activity_source_kind),
             [capability, days],
         )
         summary = _df_records(summary_df)[0] if len(summary_df) else {}
 
         activity_daily_df = _query_df(
-            f"""
-            SELECT
-              CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,
-              COUNT(*) AS value
-            FROM {activity_source_sql}
-            WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
-            GROUP BY 1
-            ORDER BY 1;
-            """.strip(),
+            _consumption_capability_daily_sql(activity_source_kind),
             [capability, days],
         )
 
         top_users_df = _query_df(
-            f"""
-            SELECT
-              login AS label,
-              COUNT(*) AS value
-            FROM {activity_source_sql}
-            WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
-            GROUP BY 1
-            ORDER BY value DESC
-            LIMIT 50;
-            """.strip(),
+            _consumption_capability_top_users_sql(activity_source_kind),
             [capability, days],
         )
 
         top_projects_df = _query_df(
-            """
-            SELECT
-              concat_ws(':', instance_name, project_key) AS label,
-              COUNT(*) AS value
-            FROM {activity_source_sql}
-            WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
-            GROUP BY 1
-            ORDER BY value DESC
-            LIMIT 50;
-            """.strip(),
+            _consumption_capability_top_projects_sql(activity_source_kind),
             [capability, days],
         )
 
@@ -3573,58 +3913,25 @@ def build_development_activity():
         _ensure_ready_if_enabled()
 
         days = _parse_days_arg(default=30)
-        activity_source_sql = _development_activity_source_sql(_query_df)
+        activity_source_kind = _activity_source_kind(_query_df)
 
         activity_daily_df = _query_df(
-            f"""
-            SELECT
-              CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,
-              COUNT(*) AS value
-            FROM {activity_source_sql}
-            WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
-            GROUP BY 1
-            ORDER BY 1;
-            """.strip(),
+            _development_activity_daily_sql(activity_source_kind),
             [days],
         )
 
         by_capability_df = _query_df(
-            f"""
-            SELECT
-              capability AS label,
-              COUNT(*) AS value
-            FROM {activity_source_sql}
-            WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
-            GROUP BY 1
-            ORDER BY value DESC, label;
-            """.strip(),
+            _development_activity_by_capability_sql(activity_source_kind),
             [days],
         )
 
         by_category_df = _query_df(
-            f"""
-            SELECT
-              concat_ws(' / ', capability, dataiku_category) AS label,
-              COUNT(*) AS value
-            FROM {activity_source_sql}
-            WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
-            GROUP BY 1
-            ORDER BY value DESC, label;
-            """.strip(),
+            _development_activity_by_category_sql(activity_source_kind),
             [days],
         )
 
         top_users_df = _query_df(
-            f"""
-            SELECT
-              login AS label,
-              COUNT(*) AS value
-            FROM {activity_source_sql}
-            WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
-            GROUP BY 1
-            ORDER BY value DESC, label
-            LIMIT 50;
-            """.strip(),
+            _development_activity_top_users_sql(activity_source_kind),
             [days],
         )
 
@@ -3660,72 +3967,31 @@ def build_development_activity_capability(capability: str):
             return _err("Missing capability")
 
         days = _parse_days_arg(default=30)
-        activity_source_sql = _development_activity_source_sql(_query_df)
+        activity_source_kind = _activity_source_kind(_query_df)
 
         summary_df = _query_df(
-            f"""
-            SELECT
-              COUNT(*) AS events,
-              COUNT(DISTINCT login) AS users,
-              COUNT(DISTINCT project_key) AS projects,
-              COUNT(DISTINCT instance_name) AS instances
-            FROM {activity_source_sql}
-            WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY;
-            """.strip(),
+            _development_capability_summary_sql(activity_source_kind),
             [capability, days],
         )
         summary = _df_records(summary_df)[0] if len(summary_df) else None
 
         activity_daily_df = _query_df(
-            f"""
-            SELECT
-              CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,
-              COUNT(*) AS value
-            FROM {activity_source_sql}
-            WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
-            GROUP BY 1
-            ORDER BY 1;
-            """.strip(),
+            _development_capability_daily_sql(activity_source_kind),
             [capability, days],
         )
 
         categories_df = _query_df(
-            f"""
-            SELECT
-              dataiku_category AS label,
-              COUNT(*) AS value
-            FROM {activity_source_sql}
-            WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
-            GROUP BY 1
-            ORDER BY value DESC;
-            """.strip(),
+            _development_capability_categories_sql(activity_source_kind),
             [capability, days],
         )
 
         tags_df = _query_df(
-            f"""
-            SELECT
-              base_tag AS label,
-              COUNT(*) AS value
-            FROM {activity_source_sql}
-            WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
-            GROUP BY 1
-            ORDER BY value DESC;
-            """.strip(),
+            _development_capability_tags_sql(activity_source_kind),
             [capability, days],
         )
 
         top_users_df = _query_df(
-            f"""
-            SELECT
-              login AS label,
-              COUNT(*) AS value
-            FROM {activity_source_sql}
-            WHERE capability = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
-            GROUP BY 1
-            ORDER BY value DESC
-            LIMIT 50;
-            """.strip(),
+            _development_capability_top_users_sql(activity_source_kind),
             [capability, days],
         )
 
@@ -3763,70 +4029,31 @@ def build_development_activity_user(login: str):
 
         days = int(request.args.get("days") or 30)
         days = max(1, min(365, days))
-        activity_source_sql = _development_activity_source_sql(_query_df)
+        activity_source_kind = _activity_source_kind(_query_df)
 
         summary_df = _query_df(
-            f"""
-            SELECT
-              COUNT(*) AS events,
-              COUNT(DISTINCT project_key) AS projects,
-              COUNT(DISTINCT instance_name) AS instances
-            FROM {activity_source_sql}
-            WHERE login = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY;
-            """.strip(),
+            _development_user_summary_sql(activity_source_kind),
             [login, days],
         )
         summary = _df_records(summary_df)[0] if len(summary_df) else None
 
         activity_daily_df = _query_df(
-            f"""
-            SELECT
-              CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,
-              COUNT(*) AS value
-            FROM {activity_source_sql}
-            WHERE login = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
-            GROUP BY 1
-            ORDER BY 1;
-            """.strip(),
+            _user_drilldown_daily_sql(activity_source_kind),
             [login, days],
         )
 
         capabilities_df = _query_df(
-            f"""
-            SELECT
-              capability AS label,
-              COUNT(*) AS value
-            FROM {activity_source_sql}
-            WHERE login = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
-            GROUP BY 1
-            ORDER BY value DESC;
-            """.strip(),
+            _user_drilldown_capabilities_sql(activity_source_kind),
             [login, days],
         )
 
         categories_df = _query_df(
-            f"""
-            SELECT
-              dataiku_category AS label,
-              COUNT(*) AS value
-            FROM {activity_source_sql}
-            WHERE login = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
-            GROUP BY 1
-            ORDER BY value DESC;
-            """.strip(),
+            _user_drilldown_categories_sql(activity_source_kind),
             [login, days],
         )
 
         tags_df = _query_df(
-            f"""
-            SELECT
-              base_tag AS label,
-              COUNT(*) AS value
-            FROM {activity_source_sql}
-            WHERE login = ? AND timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY
-            GROUP BY 1
-            ORDER BY value DESC;
-            """.strip(),
+            _user_drilldown_tags_sql(activity_source_kind),
             [login, days],
         )
 
@@ -3919,16 +4146,7 @@ def build_users_facets():
         _ensure_ready_if_enabled()
 
         instances = (
-            _query_df(
-                (
-                    "WITH "
-                    + _users_directory_cte_sql()
-                    + "SELECT DISTINCT instance_name\n"
-                    + "FROM directory\n"
-                    + "WHERE instance_name IS NOT NULL\n"
-                    + "ORDER BY 1;"
-                )
-            )["instance_name"]
+            _query_df(_users_facets_instances_sql())["instance_name"]
             .dropna()
             .astype(str)
             .tolist()
@@ -5596,23 +5814,7 @@ def build_user_detail(login: str):
                 summary["days"] = int(days or 30)
 
         instances_df = _query_df(
-            (
-                "WITH "
-                + _users_directory_cte_sql()
-                + "SELECT\n"
-                + "  instance_name AS instanceName,\n"
-                + "  login,\n"
-                + "  login_norm AS loginNorm,\n"
-                + "  display_name AS displayName,\n"
-                + "  email,\n"
-                + "  enabled,\n"
-                + "  user_profile AS userProfile,\n"
-                + "  group_names AS groupNames,\n"
-                + "  run_ts AS runTs\n"
-                + "FROM directory\n"
-                + "WHERE login_norm = ?\n"
-                + "ORDER BY enabled DESC, instance_name, run_ts DESC;"
-            ),
+            _user_detail_instances_sql(),
             [login_norm],
         )
         instance_rows = _df_records(instances_df)
