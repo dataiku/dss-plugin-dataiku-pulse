@@ -620,16 +620,6 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
         settings.PULSE_GOLD_TABLES_FOLDER_ID or settings.PULSE_GOLD_TABLES_FOLDER_NAME,
     )
 
-    bootstrap_result = shared_prepare_duckdb(
-        project_key=settings.PULSE_SOURCE_PROJECT_KEY,
-        folder_lookup=settings.PULSE_GOLD_TABLES_FOLDER_ID or settings.PULSE_GOLD_TABLES_FOLDER_NAME,
-        read_only=False,
-        reset=False,
-        db_path=settings.DUCKDB_PATH,
-        purpose="dashboard",
-        configure_storage_access=True,
-    )
-    bootstrap_result.conn.close()
     _set_status_callback("waiting_lock", "Waiting for DuckDB init lock")
 
     try:
@@ -641,6 +631,16 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                 "DuckDB ensure_database_ready: acquired init lock after %.3fs",
                 time.time() - started,
             )
+            bootstrap_result = shared_prepare_duckdb(
+                project_key=settings.PULSE_SOURCE_PROJECT_KEY,
+                folder_lookup=settings.PULSE_GOLD_TABLES_FOLDER_ID or settings.PULSE_GOLD_TABLES_FOLDER_NAME,
+                read_only=False,
+                reset=False,
+                db_path=settings.DUCKDB_PATH,
+                purpose="dashboard",
+                configure_storage_access=True,
+            )
+            bootstrap_result.conn.close()
             initialize_database()
 
             if not load_gold_tables:
@@ -845,14 +845,21 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                     _set_status_callback("building_views", "Building dashboard views")
                     views_report = build_views_from_specs(conn)
                     logger.info(
-                        "DuckDB ensure_database_ready: view build completed in %.3fs with ok=%s",
+                        "DuckDB ensure_database_ready: view build completed in %.3fs with ok=%s statements=%s skipped=%s errors=%s",
                         time.time() - views_started,
                         views_report.get("ok"),
+                        views_report.get("statements"),
+                        len(cast(list[object], views_report.get("skipped", []))),
+                        len(cast(list[object], views_report.get("errors", []))),
                     )
                     if not bool(views_report.get("ok", False)):
                         logger.error(
                             "DuckDB ensure_database_ready: view build errors=%s",
                             views_report.get("errors"),
+                        )
+                        logger.error(
+                            "DuckDB ensure_database_ready: view build skipped=%s",
+                            views_report.get("skipped"),
                         )
 
                     ok = bool(views_report.get("ok", False))
