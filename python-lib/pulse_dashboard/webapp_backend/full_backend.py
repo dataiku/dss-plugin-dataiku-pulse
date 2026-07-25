@@ -2036,7 +2036,9 @@ def debug_duckdb_query():
 def build_assets_facets():
     try:
         _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
-        _ensure_ready_if_enabled()
+        assets_ready, init_report = _ensure_relation_ready(_query_df, "final_build_catalog")
+        if not assets_ready:
+            return _ok({"available": False, "reason": "final_build_catalog_missing", "init": init_report})
 
         instances = (
             _query_df("SELECT DISTINCT instance_name FROM final_build_catalog ORDER BY 1;")["instance_name"]
@@ -2073,7 +2075,9 @@ def build_assets_facets():
 def build_assets():
     try:
         _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
-        _ensure_ready_if_enabled()
+        assets_ready, init_report = _ensure_relation_ready(_query_df, "final_build_catalog")
+        if not assets_ready:
+            return _ok({"available": False, "reason": "final_build_catalog_missing", "init": init_report})
 
         q = (request.args.get("q") or "").strip()
         owner = (request.args.get("owner") or "").strip()
@@ -2166,7 +2170,9 @@ def build_assets():
 def build_assets_metadata_summary():
     try:
         _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
-        _ensure_ready_if_enabled()
+        assets_ready, init_report = _ensure_relation_ready(_query_df, "final_build_catalog")
+        if not assets_ready:
+            return _ok({"available": False, "reason": "final_build_catalog_missing", "init": init_report})
 
         rows_df = _query_df(
             (
@@ -4027,6 +4033,12 @@ def _duckdb_relation_exists(query_df, relation_name: str) -> bool:
         [relation_name, relation_name],
     )
     return rows is not None and not rows.empty
+
+def _ensure_relation_ready(query_df, relation_name: str) -> tuple[bool, dict[str, Any] | None]:
+    init_report = _ensure_ready_if_enabled()
+    if _duckdb_relation_exists(query_df, relation_name):
+        return True, init_report
+    return False, init_report
 
 
 def _parse_login_norm(value: str) -> str:
