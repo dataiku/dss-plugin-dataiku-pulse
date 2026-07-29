@@ -81,6 +81,64 @@ def _sql_ident(name: str) -> str:
     return '"' + str(name).replace('"', '""') + '"'
 
 
+def _sql_string_literal(value: object) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _build_product_index_branch_sql(
+    *,
+    instance_name_ident: str,
+    project_key_ident: str,
+    product_type_literal: str,
+    key_ident: str,
+    name_ident: str,
+    subtype_expr: str,
+    owner_expr: str,
+    last_modified_by_expr: str,
+    created_at_expr: str,
+    updated_at_expr: str,
+    source_table_ident: str,
+    where_clause: str,
+) -> str:
+    lines = [
+        "SELECT",
+        f"  {instance_name_ident} AS instance_name,",
+        f"  {project_key_ident} AS project_key,",
+        f"  {product_type_literal} AS product_type,",
+        f"  {key_ident} AS product_key,",
+        f"  {name_ident} AS product_name,",
+        f"  {subtype_expr} AS product_subtype,",
+        f"  {owner_expr} AS owner_login,",
+        f"  {last_modified_by_expr} AS last_modified_by_login,",
+        f"  try_cast({created_at_expr} AS TIMESTAMP) AS created_at,",
+        f"  try_cast({updated_at_expr} AS TIMESTAMP) AS updated_at",
+        f"FROM {source_table_ident}",
+        f"WHERE {where_clause}",
+    ]
+    return "\n".join(lines)
+
+
+def _build_base_product_index_view_sql(union_sql: str) -> str:
+    lines = [
+        'CREATE OR REPLACE VIEW "base_product_index" AS',
+        'SELECT instance_name, project_key, product_type, product_key, product_name, product_subtype,',
+        '       owner_login, last_modified_by_login, created_at, updated_at',
+        'FROM (',
+        '  SELECT',
+        '    *,',
+        '    row_number() OVER (',
+        '      PARTITION BY instance_name, project_key, product_type, product_key',
+        '      ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST, product_name',
+        '    ) AS _rn',
+        '  FROM (',
+        union_sql,
+        '  ) u',
+        ') d',
+        'WHERE _rn = 1;',
+    ]
+    return "\n".join(lines)
+
+
 def _build_v_object_activity_events(conn: duckdb.DuckDBPyConnection) -> dict:
     """Create/replace `v_object_activity_events`.
 
@@ -319,20 +377,19 @@ def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
 
         where = "1=1" if _is_nullish(where_sql) else str(where_sql).strip()
 
-        branch = (  # nosec B608
-            "SELECT\n"
-            f"  {_sql_ident(str(instance_name_col).strip())} AS instance_name,\n"
-            f"  {_sql_ident(str(project_key_col).strip())} AS project_key,\n"
-            f"  '{product_type}' AS product_type,\n"
-            f"  {_sql_ident(str(key_col).strip())} AS product_key,\n"
-            f"  {_sql_ident(str(name_col).strip())} AS product_name,\n"
-            f"  {_optional_col(source_table, subtype_col, label='subtype_col')} AS product_subtype,\n"
-            f"  {_optional_col(source_table, owner_col, label='owner_col')} AS owner_login,\n"
-            f"  {_optional_col(source_table, last_modified_by_col, label='last_modified_by_col')} AS last_modified_by_login,\n"
-            f"  try_cast({_optional_col(source_table, created_at_col, label='created_at_col')} AS TIMESTAMP) AS created_at,\n"
-            f"  try_cast({_optional_col(source_table, updated_at_col, label='updated_at_col')} AS TIMESTAMP) AS updated_at\n"
-            f"FROM {_sql_ident(source_table)}\n"
-            f"WHERE {where}"
+        branch = _build_product_index_branch_sql(
+            instance_name_ident=_sql_ident(str(instance_name_col).strip()),
+            project_key_ident=_sql_ident(str(project_key_col).strip()),
+            product_type_literal=_sql_string_literal(product_type),
+            key_ident=_sql_ident(str(key_col).strip()),
+            name_ident=_sql_ident(str(name_col).strip()),
+            subtype_expr=_optional_col(source_table, subtype_col, label="subtype_col"),
+            owner_expr=_optional_col(source_table, owner_col, label="owner_col"),
+            last_modified_by_expr=_optional_col(source_table, last_modified_by_col, label="last_modified_by_col"),
+            created_at_expr=_optional_col(source_table, created_at_col, label="created_at_col"),
+            updated_at_expr=_optional_col(source_table, updated_at_col, label="updated_at_col"),
+            source_table_ident=_sql_ident(source_table),
+            where_clause=where,
         )
 
         branches.append(branch)
@@ -371,25 +428,9 @@ def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
     union_sql = "\nUNION ALL\n".join(branches)
 
     # De-dupe by key so we don't showcase the same product multiple times.
-    sql = (  # nosec B608
-        "CREATE OR REPLACE VIEW \"base_product_index\" AS\n"
-        "SELECT instance_name, project_key, product_type, product_key, product_name, product_subtype,\n"
-        "       owner_login, last_modified_by_login, created_at, updated_at\n"
-        "FROM (\n"
-        "  SELECT\n"
-        "    *,\n"
-        "    row_number() OVER (\n"
-        "      PARTITION BY instance_name, project_key, product_type, product_key\n"
-        "      ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST, product_name\n"
-        "    ) AS _rn\n"
-        "  FROM (\n"
-        f"{union_sql}\n"
-        "  ) u\n"
-        ") d\n"
-        "WHERE _rn = 1;"
-    )
+    sql = _build_base_product_index_view_sql(union_sql)
 
-    conn.execute(sql)  # nosec B608
+    conn.execute(sql)
 
     return {
         "ok": True,
