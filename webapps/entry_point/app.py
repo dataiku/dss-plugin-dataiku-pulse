@@ -278,53 +278,53 @@ def build_assets_list():
     elif sort == "name_asc":
         order_by = "t.object_name ASC NULLS LAST"
 
-    count_df = query_df(
-        f"""
-        SELECT COUNT(*) AS n
-        FROM (
-          SELECT
-            idx.*, COALESCE(act.activity_30d, 0) AS activity_30d
-          FROM base_asset_index idx
-          LEFT JOIN asset_activity_30d act
-            ON act.instance_name = idx.instance_name
-           AND act.project_key = idx.project_key
-           AND act.object_type = idx.object_type
-           AND act.object_key = idx.object_key
-        ) t
-        {where_sql};
-        """,
-        params,
+    asset_count_sql = "\n".join(
+        [
+            "SELECT COUNT(*) AS n",
+            "FROM (",
+            "  SELECT",
+            "    idx.*, COALESCE(act.activity_30d, 0) AS activity_30d",
+            "  FROM base_asset_index idx",
+            "  LEFT JOIN asset_activity_30d act",
+            "    ON act.instance_name = idx.instance_name",
+            "   AND act.project_key = idx.project_key",
+            "   AND act.object_type = idx.object_type",
+            "   AND act.object_key = idx.object_key",
+            ") t",
+            where_sql + ";",
+        ]
     )
+    count_df = query_df(asset_count_sql, params)
     total = int(count_df.iloc[0]["n"]) if len(count_df.index) else 0
 
-    rows_df = query_df(
-        f"""
-        SELECT
-          md5(concat_ws('|', t.instance_name, t.project_key, t.object_type, t.object_key)) AS assetId,
-          t.instance_name AS instanceName,
-          t.project_key AS projectKey,
-          t.object_type AS objectType,
-          t.object_key AS objectKey,
-          t.object_name AS objectName,
-          t.owner_login AS ownerLogin,
-          t.updated_at AS updatedAt,
-          t.activity_30d AS activity30d
-        FROM (
-          SELECT
-            idx.*, COALESCE(act.activity_30d, 0) AS activity_30d
-          FROM base_asset_index idx
-          LEFT JOIN asset_activity_30d act
-            ON act.instance_name = idx.instance_name
-           AND act.project_key = idx.project_key
-           AND act.object_type = idx.object_type
-           AND act.object_key = idx.object_key
-        ) t
-        {where_sql}
-        ORDER BY {order_by}
-        LIMIT ? OFFSET ?;
-        """,
-        params + [limit, offset],
+    asset_rows_sql = "\n".join(
+        [
+            "SELECT",
+            "  md5(concat_ws('|', t.instance_name, t.project_key, t.object_type, t.object_key)) AS assetId,",
+            "  t.instance_name AS instanceName,",
+            "  t.project_key AS projectKey,",
+            "  t.object_type AS objectType,",
+            "  t.object_key AS objectKey,",
+            "  t.object_name AS objectName,",
+            "  t.owner_login AS ownerLogin,",
+            "  t.updated_at AS updatedAt,",
+            "  t.activity_30d AS activity30d",
+            "FROM (",
+            "  SELECT",
+            "    idx.*, COALESCE(act.activity_30d, 0) AS activity_30d",
+            "  FROM base_asset_index idx",
+            "  LEFT JOIN asset_activity_30d act",
+            "    ON act.instance_name = idx.instance_name",
+            "   AND act.project_key = idx.project_key",
+            "   AND act.object_type = idx.object_type",
+            "   AND act.object_key = idx.object_key",
+            ") t",
+            where_sql,
+            "ORDER BY " + order_by,
+            "LIMIT ? OFFSET ?;",
+        ]
     )
+    rows_df = query_df(asset_rows_sql, params + [limit, offset])
 
     return jsonify({"ok": True, "total": total, "rows": _df_records(rows_df)})
 
@@ -413,28 +413,29 @@ def build_products_list():
     elif sort == "name_asc":
         order_by = "product_name ASC NULLS LAST"
 
-    count_df = query_df(f"SELECT COUNT(*) AS n FROM final_build_products_catalog {where_sql};", params)
+    product_count_sql = "\n".join(["SELECT COUNT(*) AS n FROM final_build_products_catalog", where_sql + ";"])
+    count_df = query_df(product_count_sql, params)
     total = int(count_df.iloc[0]["n"]) if len(count_df.index) else 0
 
-    rows_df = query_df(
-        f"""
-        SELECT
-          product_id AS assetId,
-          instance_name AS instanceName,
-          project_key AS projectKey,
-          product_type AS objectType,
-          product_key AS objectKey,
-          product_name AS objectName,
-          owner_login AS ownerLogin,
-          updated_at AS updatedAt,
-          activity_30d AS activity30d
-        FROM final_build_products_catalog
-        {where_sql}
-        ORDER BY {order_by}
-        LIMIT ? OFFSET ?;
-        """,
-        params + [limit, offset],
+    product_rows_sql = "\n".join(
+        [
+            "SELECT",
+            "  product_id AS assetId,",
+            "  instance_name AS instanceName,",
+            "  project_key AS projectKey,",
+            "  product_type AS objectType,",
+            "  product_key AS objectKey,",
+            "  product_name AS objectName,",
+            "  owner_login AS ownerLogin,",
+            "  updated_at AS updatedAt,",
+            "  activity_30d AS activity30d",
+            "FROM final_build_products_catalog",
+            where_sql,
+            "ORDER BY " + order_by,
+            "LIMIT ? OFFSET ?;",
+        ]
     )
+    rows_df = query_df(product_rows_sql, params + [limit, offset])
 
     return jsonify({"ok": True, "total": total, "rows": _df_records(rows_df)})
 
