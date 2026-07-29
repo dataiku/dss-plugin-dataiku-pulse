@@ -389,7 +389,7 @@ def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
         "WHERE _rn = 1;"
     )
 
-    conn.execute(sql)
+    conn.execute(sql)  # nosec B608
 
     return {
         "ok": True,

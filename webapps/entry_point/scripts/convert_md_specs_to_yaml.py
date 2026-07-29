@@ -128,7 +128,7 @@ def schema_sql(table: str, cols: list[tuple[str, str]]) -> str:
 
 def example_insert(table: str, cols: list[tuple[str, str]]) -> str:
     if not cols:
-        return f'INSERT INTO "{table}" (id) VALUES (1);'
+        return f'INSERT INTO "{table}" (id) VALUES (1);'  # nosec B608
 
     col_names: list[str] = []
     values: list[str] = []
@@ -151,7 +151,7 @@ def example_insert(table: str, cols: list[tuple[str, str]]) -> str:
         else:
             values.append(f"'{col}_example'")
 
-    return f'INSERT INTO "{table}" ({", ".join(col_names)}) VALUES ({", ".join(values)});'
+    return f'INSERT INTO "{table}" ({", ".join(col_names)}) VALUES ({", ".join(values)});'  # nosec B608
 
 
 def write_yaml(

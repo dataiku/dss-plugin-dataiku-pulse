@@ -25,14 +25,14 @@ APP_NAME = os.getenv("PULSE_APP_NAME", "dataiku_pulse")
 # ----------------------------------------------------------------------------
 # Flask / webapp configuration
 # ----------------------------------------------------------------------------
-HOST = os.getenv("PULSE_HOST", "0.0.0.0")
+HOST = os.getenv("PULSE_HOST") or "127.0.0.1"
 PORT = int(os.getenv("PULSE_PORT", "8995"))
 
 
 # ----------------------------------------------------------------------------
 # DuckDB configuration
 # ----------------------------------------------------------------------------
-DUCKDB_DIR = Path(os.getenv("PULSE_DUCKDB_DIR", "/tmp/pulse"))
+DUCKDB_DIR = Path(os.getenv("PULSE_DUCKDB_DIR") or str(Path.cwd() / ".tmp" / "pulse"))
 DUCKDB_PATH = Path(os.getenv("PULSE_DUCKDB_PATH", str(DUCKDB_DIR / "dataiku_pulse.db")))
 
 # If set, avoid any writes (useful for future read-only modes)
