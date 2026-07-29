@@ -1,0 +1,69 @@
+base_asset_index:
+  description: >
+    This view normalizes “inventory” metadata into a single unioned asset index. It provides one row per asset, independent of activity.
+  depends_on:
+    - base_projects_metadata
+    - base_datasets_metadata
+    - base_recipes_metadata
+    - base_scenarios_metadata
+  build_order: 1020
+  sql: |
+    CREATE OR REPLACE VIEW "base_asset_index" AS
+    SELECT
+      instance_name,
+      project_key,
+      'project' AS object_type,
+      project_key AS object_key,
+      projects_name AS object_name,
+      NULL AS object_subtype,
+      projects_ownerlogin AS owner_login,
+      projects_versiontag_lastmodifiedby_login AS last_modified_by_login,
+      projects_creationtag_lastmodifiedon AS created_at,
+      projects_versiontag_lastmodifiedon AS updated_at
+    FROM base_projects_instance_metadata_history
+    
+    UNION ALL
+    SELECT
+      instance_name,
+      project_key,
+      'dataset' AS object_type,
+      datasets_name AS object_key,
+      datasets_name AS object_name,
+      datasets_type AS object_subtype,
+      datasets_versiontag_lastmodifiedby_login AS owner_login,
+      datasets_versiontag_lastmodifiedby_login AS last_modified_by_login,
+      datasets_creationtag_lastmodifiedon AS created_at,
+      datasets_versiontag_lastmodifiedon AS updated_at
+    FROM base_datasets_project_metadata_history
+    
+    UNION ALL
+    SELECT
+      instance_name,
+      project_key,
+      'recipe' AS object_type,
+      recipes_name AS object_key,
+      recipes_name AS object_name,
+      recipes_type AS object_subtype,
+      recipes_versiontag_lastmodifiedby_login AS owner_login,
+      recipes_versiontag_lastmodifiedby_login AS last_modified_by_login,
+      recipes_creationtag_lastmodifiedon AS created_at,
+      recipes_versiontag_lastmodifiedon AS updated_at
+    FROM base_recipes_project_metadata_history
+    
+    UNION ALL
+    SELECT
+      instance_name,
+      project_key,
+      'scenario' AS object_type,
+      scenarios_id AS object_key,
+      scenarios_name AS object_name,
+      scenarios_type AS object_subtype,
+      scenarios_runasuser AS owner_login,
+      scenarios_runasuser AS last_modified_by_login,
+      scenarios_createdon AS created_at,
+      scenarios_lastmodifiedon AS updated_at
+    FROM base_scenarios_project_metadata_history;
+  example_data: |
+    -- This object is a VIEW.
+    -- Minimal example: ensure upstream base table has at least one row.
+    INSERT INTO "base_projects_metadata" DEFAULT VALUES;

@@ -1,0 +1,21 @@
+base_agents_metadata:
+  description: >
+    Inventory of “agents” as a first-class deliverable.
+  depends_on: []
+  build_order: 10
+  sql: |
+    CREATE OR REPLACE TABLE "base_agents_metadata" AS
+    SELECT
+          CAST(NULL AS VARCHAR) AS instance_name,
+          CAST(NULL AS VARCHAR) AS project_key,
+          CAST(NULL AS VARCHAR) AS agent_id,
+          CAST(NULL AS VARCHAR) AS agent_name,
+          CAST(NULL AS VARCHAR) AS agent_type,
+          CAST(NULL AS VARCHAR) AS owner_login,
+          CAST(NULL AS TIMESTAMP) AS created_at,
+          CAST(NULL AS TIMESTAMP) AS updated_at,
+          CAST(NULL AS VARCHAR) AS last_modified_by_login,
+          CAST(NULL AS VARCHAR) AS details_json
+    WHERE 1=0;
+  example_data: |
+    INSERT INTO "base_agents_metadata" (instance_name, project_key, agent_id, agent_name, agent_type, owner_login, created_at, updated_at, last_modified_by_login, details_json) VALUES ('dss-prod', 'FIN', 'agent_id_example', 'agent_name_example', 'agent_type_example', 'alice', TIMESTAMP '2026-03-23 12:00:00', TIMESTAMP '2026-03-23 12:00:00', 'alice', 'details_json_example');

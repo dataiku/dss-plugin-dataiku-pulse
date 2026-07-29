@@ -104,15 +104,23 @@ Pulse is designed for environments where a central project acts as the analytica
 
 ## Local Development Notes
 
-In this Code Studio workspace, the editable React frontend source lives outside this repo at:
+Each developer can point Pulse scripts at a personal plugin environment by creating `.local/plugin_env_path.txt` in the repo root with one absolute path to the desired venv.
+A sample file is provided at `.local/plugin_env_path.txt.example`.
 
-- `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/`
+Fallback order used by local scripts:
+- `PULSE_ENV_PATH_FILE`
+- `dataiku-pulse/.local/plugin_env_path.txt`
+- legacy `dataiku-pulse.extras/plugin_env_path.txt`
+
+In this Code Studio workspace, the editable React frontend source lives in this repo at:
+
+- `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse/webapps/entry_point/frontend/`
 
 To rebuild and sync the dashboard build used by the plugin:
 
 ```bash
-bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/scripts/build_frontend.sh
-scripts/sync_pulse_dashboard_build.sh /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/build
+bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse/webapps/entry_point/scripts/build_frontend.sh
+scripts/webapp/sync_pulse_dashboard_build.sh /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse/webapps/entry_point/frontend/build
 ```
 
 ## Documentation

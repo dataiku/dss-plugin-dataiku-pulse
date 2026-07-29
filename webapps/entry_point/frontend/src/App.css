@@ -1,0 +1,968 @@
+:root {
+  --pulse-bg-page: #eff3f8;
+  --pulse-bg-surface: #f7f9fc;
+  --pulse-bg-elevated: #ffffff;
+  --pulse-text: #1f2937;
+  --pulse-text-muted: #6b7280;
+  --pulse-text-inverse: #ffffff;
+  --pulse-border: #dee6f0;
+  --pulse-border-strong: #cfd8e3;
+  --pulse-accent: #1e88e5;
+  --pulse-accent-soft: rgba(30, 136, 229, 0.09);
+  --pulse-accent-softer: rgba(30, 136, 229, 0.05);
+  --pulse-shadow: 0 12px 30px rgba(17, 24, 39, 0.12);
+}.App-link {
+  color: var(--pulse-accent);
+  text-decoration: none;
+}
+
+.App-link:hover {
+  text-decoration: underline;
+}
+
+.PulseNav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--pulse-bg-surface);
+  border-bottom: 1px solid var(--pulse-border);
+}
+
+.PulseNav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+}
+
+.PulseNav-brand {
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--pulse-text);
+  text-decoration: none;
+}
+
+.PulseNav-brand:hover {
+  text-decoration: underline;
+}
+
+.PulseNav-menus {
+  display: flex;
+  gap: 10px;
+}
+
+.PulseNav-note {
+  display: none;
+}
+
+.PulseNav-menu {
+  position: relative;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.PulseNav-menuLabel {
+  color: var(--pulse-text);
+  font-weight: 600;
+}
+
+.PulseNav-menu:hover {
+  background: rgba(17, 24, 39, 0.04);
+}
+
+.PulseNav-dropdown {
+  display: none;
+  position: absolute;
+  /* No hover gap: dropdown touches the menu */
+  top: 100%;
+  right: 0;
+  min-width: 260px;
+  /* extend hover area between label and dropdown */
+  margin-top: 0;
+  padding-top: 6px;
+  background: var(--pulse-bg-elevated);
+  border: 1px solid var(--pulse-border);
+  border-radius: 8px;
+  overflow: hidden;
+  padding: 6px 0;
+  box-shadow: var(--pulse-shadow);
+}
+
+.PulseNav-menu:hover .PulseNav-dropdown {
+  display: block;
+}
+
+.PulseNav-item {
+  display: block;
+  padding: 10px 12px;
+  color: var(--pulse-text);
+  text-decoration: none;
+  border-bottom: 1px solid var(--pulse-border);
+}
+
+.PulseNav-item:last-child {
+  border-bottom: none;
+}
+
+.PulseNav-item:hover {
+  background: rgba(17, 24, 39, 0.04);
+}
+
+.PulseNav-itemTitle {
+  font-weight: 600;
+}
+
+.PulseNav-itemDesc {
+  font-size: 12px;
+  color: var(--pulse-text-muted);
+  margin-top: 2px;
+}
+
+.PulsePage {
+  padding: 18px 16px 40px;
+  background: var(--pulse-bg-page);
+  min-height: calc(100vh - 50px);
+  color: var(--pulse-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji",
+    "Segoe UI Emoji";
+}
+
+.PulseHero {
+  max-width: 900px;
+  margin: 0 auto 16px;
+  padding: 18px;
+  border: 1px solid var(--pulse-border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, var(--pulse-accent-soft), rgba(255, 255, 255, 0));
+}
+
+.PulseTabs {
+  max-width: 900px;
+  margin: -6px auto 16px;
+  padding: 0 18px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.PulseTab {
+  appearance: none;
+  border: 1px solid var(--pulse-border);
+  background: var(--pulse-bg-surface);
+  color: var(--pulse-text);
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.PulseTab:hover {
+  border-color: var(--pulse-border-strong);
+  background: rgba(17, 24, 39, 0.03);
+}
+
+.PulseTabActive {
+  border-color: rgba(30, 136, 229, 0.55);
+  background: var(--pulse-accent-soft);
+}
+
+.PulseHero h1 {
+  margin: 0;
+}
+
+.PulseHero p {
+  margin: 6px 0 0;
+  color: var(--pulse-text-muted);
+}
+
+.PulseCard {
+  max-width: 900px;
+  margin: 0 auto 14px;
+  padding: 16px;
+  border: 1px solid var(--pulse-border);
+  border-radius: 12px;
+  background: var(--pulse-bg-surface);
+  box-shadow: 0 1px 0 rgba(17, 24, 39, 0.02);
+}
+
+/* Wide pages: allow cards/hero/tabs to fill screen */
+.PulseWide .PulseHero,
+.PulseWide .PulseTabs,
+.PulseWide .PulseCard {
+  max-width: none;
+}
+
+/* Wide pages: allow catalog grid to fill screen */
+.PulseWide .PulseGrid {
+  max-width: none;
+}
+
+.PulseMuted {
+  color: var(--pulse-text-muted);
+  font-size: 12px;
+}
+
+.PulseCallout {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--pulse-border);
+  border-radius: 10px;
+  background: rgba(30, 136, 229, 0.05);
+}
+
+.PulseCalloutTitle {
+  margin-bottom: 6px;
+  color: var(--pulse-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.PulseCalloutList {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--pulse-text-muted);
+  font-size: 12px;
+}
+
+.PulseCalloutList li + li {
+  margin-top: 4px;
+}
+
+.PulseError {
+  color: #c62828;
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.PulseCard h2,
+.PulseCard h3 {
+  margin-top: 0;
+}
+
+.PulseMono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  color: var(--pulse-text-muted);
+  margin-top: 6px;
+}
+
+.PulseBadge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--pulse-border);
+  background: rgba(30, 136, 229, 0.08);
+  color: var(--pulse-text);
+  font-size: 12px;
+}
+
+.PulseBadgeAction {
+  cursor: pointer;
+}
+
+.PulseBadgeAction:hover {
+  border-color: rgba(30, 136, 229, 0.55);
+  background: var(--pulse-accent-soft);
+}
+
+.PulseInfoTip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--pulse-text-muted);
+  background: rgba(148, 163, 184, 0.25);
+  cursor: help;
+  vertical-align: middle;
+}
+
+.PulseInfoTip:focus,
+.PulseInfoTip:hover {
+  background: rgba(148, 163, 184, 0.45);
+  outline: none;
+}
+
+/* (intentionally left blank; PulseMuted defined above) */
+
+.PulseGrid {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  /* Center the whole Catalog grid on wide monitors */
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* Embedded Catalog (inside another page/tab): use full page width */
+.PulseGridEmbedded {
+  max-width: none;
+}
+
+.PulseFilterRailEmbedded {
+  top: 0;
+}
+
+/* Embedded catalog cards: match grid spacing */
+.PulseCardTight {
+  max-width: none;
+  margin: 0 0 14px 0;
+}
+
+.PulseFilterRail {
+  position: sticky;
+  top: 62px;
+}
+
+/* In the Catalog grid, cards should fill the column (no auto-centering) */
+.PulseGrid .PulseCard {
+  max-width: none;
+  margin: 0 0 14px 0;
+}
+
+/* Responsive: stack filters above results on narrow screens */
+@media (max-width: 1100px) {
+  .PulseGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .PulseFilterRail {
+    position: static;
+    top: auto;
+  }
+
+  .PulseSidebarDrawer {
+    width: min(320px, calc(100vw - 32px));
+  }
+
+  .PulseSidebarContentShifted {
+    margin-left: 0;
+  }
+}
+
+.PulseLabel {
+  display: block;
+  font-size: 12px;
+  color: var(--pulse-text-muted);
+  margin-top: 10px;
+}
+
+.PulseInput,
+.PulseSelect {
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--pulse-border);
+  background: var(--pulse-bg-surface);
+  color: var(--pulse-text);
+}
+
+.PulseInput:focus,
+.PulseSelect:focus {
+  outline: none;
+  border-color: rgba(30, 136, 229, 0.55);
+  box-shadow: 0 0 0 3px rgba(30, 136, 229, 0.12);
+}
+
+.PulseCheckboxList {
+  margin-top: 6px;
+  max-height: 130px;
+  overflow: auto;
+  border: 1px solid var(--pulse-border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: var(--pulse-bg-surface);
+}
+
+.PulseCheckboxRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--pulse-text);
+  padding: 4px 0;
+}
+
+.PulseButton {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--pulse-border);
+  background: rgba(30, 136, 229, 0.10);
+  color: var(--pulse-text);
+  cursor: pointer;
+}
+
+.PulseButton:hover {
+  border-color: rgba(30, 136, 229, 0.55);
+  background: rgba(30, 136, 229, 0.14);
+}
+
+.PulseButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.PulseResultsHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.PulseSidebarLayout {
+  position: relative;
+}
+
+.PulseSidebarDrawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 30;
+  width: 320px;
+  height: 100vh;
+  background: var(--pulse-bg-surface);
+  border-right: 1px solid var(--pulse-border);
+  box-shadow: 8px 0 24px rgba(17, 24, 39, 0.08);
+  transition: transform 0.24s ease;
+}
+
+.PulseSidebarDrawerOpen {
+  transform: translateX(0);
+}
+
+.PulseSidebarDrawerClosed {
+  transform: translateX(calc(-100% - 8px));
+}
+
+.PulseSidebarInner {
+  height: 100%;
+  overflow-y: auto;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.PulseSidebarContent {
+  transition: margin-left 0.24s ease, width 0.24s ease;
+}
+
+.PulseSidebarContentShifted {
+  margin-left: 334px;
+}
+
+.PulseSidebarContentFull {
+  margin-left: 0;
+}
+
+.PulseSidebarTabWrap {
+  position: fixed;
+  left: 0;
+  top: 50%;
+  z-index: 31;
+  transform: translateY(-50%);
+  transition: opacity 0.18s ease;
+}
+
+.PulseSidebarTabWrapHidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.PulseSidebarTab {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  padding: 10px 8px;
+  border: 1px solid var(--pulse-border);
+  border-left: none;
+  border-radius: 0 10px 10px 0;
+  background: var(--pulse-bg-surface);
+  color: var(--pulse-text);
+  cursor: pointer;
+  box-shadow: 4px 0 12px rgba(17, 24, 39, 0.08);
+}
+
+.PulseSidebarTab:hover {
+  border-color: rgba(30, 136, 229, 0.55);
+  background: rgba(30, 136, 229, 0.10);
+}
+
+.PulseTableWrap {
+  overflow: auto;
+  margin-top: 12px;
+  border: 1px solid var(--pulse-border);
+  border-radius: 10px;
+}
+
+.PulseTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.PulseTableSortButton {
+  all: unset;
+  cursor: pointer;
+  color: var(--pulse-text-muted);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.PulseTableSortButton:hover {
+  color: var(--pulse-accent);
+}
+
+.PulseTableSortButtonActive {
+  color: var(--pulse-text);
+  font-weight: 700;
+}
+
+.PulseTableSortIndicator {
+  color: var(--pulse-text-muted);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.PulseTableSortIndicatorActive {
+  color: var(--pulse-accent);
+}
+
+.PulseTable thead th {
+  text-align: left;
+  padding: 10px;
+  background: rgba(17, 24, 39, 0.03);
+  border-bottom: 1px solid var(--pulse-border);
+  position: sticky;
+  top: 0;
+}
+
+.PulseTable tbody td {
+  padding: 10px;
+  border-bottom: 1px solid var(--pulse-border);
+  vertical-align: top;
+}
+
+.PulseTable tbody tr:hover {
+  background: var(--pulse-accent-softer);
+}
+
+.PulseSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.PulseSummaryTile {
+  text-align: left;
+  border: 1px solid var(--pulse-border);
+  background: rgba(17, 24, 39, 0.03);
+  color: var(--pulse-text);
+  border-radius: 12px;
+  padding: 12px;
+  cursor: pointer;
+}
+
+.PulseSummaryTile:hover {
+  border-color: rgba(30, 136, 229, 0.55);
+  background: rgba(30, 136, 229, 0.06);
+}
+
+.PulseSummaryTileActive {
+  border-color: rgba(30, 136, 229, 0.70);
+  background: var(--pulse-accent-soft);
+}
+
+.PulseSummaryTileStatic {
+  cursor: default;
+}
+
+.PulseSummaryTileStatic:hover {
+  border-color: var(--pulse-border);
+  background: rgba(17, 24, 39, 0.03);
+}
+
+.PulseSummaryCount {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.PulseSummaryLabel {
+  margin-top: 6px;
+  color: var(--pulse-text-muted);
+}
+
+.PulseSummaryDetail {
+  margin-top: 4px;
+  color: var(--pulse-text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.PulseSummaryTileCompact {
+  padding: 8px;
+}
+
+.PulseSummaryTileCompact .PulseSummaryCount {
+  font-size: 18px;
+}
+
+.PulseSummaryTileCompact .PulseSummaryLabel {
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.PulseVizGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.PulseChartCard {
+  border: 1px solid var(--pulse-border);
+  background: var(--pulse-bg-surface);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.PulseChartTitle {
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.PulseBarList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.PulseBarRow {
+  display: grid;
+  grid-template-columns: 120px 1fr 44px;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--pulse-border);
+  background: rgba(17, 24, 39, 0.03);
+}
+
+.PulseBarRowAction {
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
+  appearance: none;
+  font: inherit;
+  color: inherit;
+}
+
+.PulseBarRowAction:hover {
+  border-color: var(--pulse-border-strong);
+  background: var(--pulse-accent-softer);
+}
+
+.PulseBarLabel {
+  color: var(--pulse-text);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.PulseBarTrack {
+  height: 10px;
+  background: rgba(17, 24, 39, 0.06);
+  border: 1px solid var(--pulse-border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.PulseBarFill {
+  height: 100%;
+  background: rgba(30, 136, 229, 0.85);
+}
+
+.PulseBarValue {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--pulse-text);
+  font-size: 12px;
+}
+
+.PulseRiskTableSection {
+  margin-top: 18px;
+}
+
+.PulseRiskTableSection:first-of-type {
+  margin-top: 0;
+}
+
+.PulseRiskTableSectionElevated {
+  border: 1px solid var(--pulse-border);
+  border-radius: 14px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.PulseRiskSectionHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.PulseRiskSectionBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(30, 136, 229, 0.22);
+  background: rgba(30, 136, 229, 0.1);
+  color: var(--pulse-text);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.PulseRiskFooter {
+  margin-top: 8px;
+}
+
+.PulseRiskPager {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.PulseLineWrapEnhanced {
+  width: 100%;
+}
+
+.PulseLineSvg {
+  width: 100%;
+  height: 180px;
+  display: block;
+  border: 1px solid var(--pulse-border);
+  border-radius: 10px;
+  background: rgba(17, 24, 39, 0.03);
+}
+
+.PulseLineGrid {
+  stroke: rgba(148, 163, 184, 0.35);
+  stroke-width: 1;
+}
+
+.PulseLineArea {
+  fill: rgba(30, 136, 229, 0.08);
+}
+
+.PulseLineStroke {
+  fill: none;
+  stroke: rgba(30, 136, 229, 0.96);
+  stroke-width: 3;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.PulseLinePoint {
+  fill: rgba(30, 136, 229, 1);
+  stroke: var(--pulse-bg-surface);
+  stroke-width: 2;
+}
+
+.PulseLineTickLabel {
+  fill: var(--pulse-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.PulseLineTickLabelY {
+  text-anchor: end;
+}
+
+.PulseMonthlyChartWrap {
+  width: 100%;
+}
+
+.PulseMonthlyChartSvg {
+  width: 100%;
+  height: auto;
+  display: block;
+  border: 1px solid var(--pulse-border);
+  border-radius: 10px;
+  background: rgba(17, 24, 39, 0.03);
+}
+
+.PulseMonthlyChartGrid {
+  stroke: rgba(148, 163, 184, 0.45);
+  stroke-width: 1;
+}
+
+.PulseMonthlyChartAxis {
+  stroke: rgba(100, 116, 139, 0.9);
+  stroke-width: 1;
+}
+
+.PulseMonthlyChartAxisTick {
+  stroke: rgba(100, 116, 139, 0.9);
+  stroke-width: 1;
+}
+
+.PulseMonthlyChartLine {
+  fill: none;
+  stroke: rgba(30, 136, 229, 0.95);
+  stroke-width: 3;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.PulseMonthlyChartPoint {
+  fill: rgba(30, 136, 229, 1);
+  stroke: var(--pulse-bg-surface);
+  stroke-width: 2;
+}
+
+.PulseMonthlyChartTickLabel {
+  fill: var(--pulse-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.PulseMonthlyChartTickLabelY {
+  text-anchor: end;
+}
+
+.PulseMonthlyChartAxisLabel {
+  fill: var(--pulse-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.PulseRowSelected {
+  background: var(--pulse-accent-soft);
+}
+
+.PulseDetailGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.PulseActivityMatrix {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.PulseActivityColumn {
+  border: 1px solid var(--pulse-border);
+  background: rgba(17, 24, 39, 0.03);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.PulseActivityColumnTitle {
+  font-weight: 700;
+  color: var(--pulse-text);
+  margin-bottom: 10px;
+}
+
+.PulseActivityMetricRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--pulse-border);
+}
+
+.PulseActivityMetricRow:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.PulseActivityWindow {
+  color: var(--pulse-text-muted);
+  font-size: 12px;
+}
+
+.PulseActivityValue {
+  color: var(--pulse-text);
+  font-size: 20px;
+  font-weight: 800;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.PulseLinkButton {
+  all: unset;
+  cursor: pointer;
+  color: var(--pulse-accent);
+  font-weight: 600;
+}
+
+.PulseLinkButton:hover {
+  text-decoration: underline;
+}
+
+.PulseModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.35);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 18px;
+}
+
+.PulseModal {
+  width: min(1400px, 96vw);
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--pulse-bg-surface);
+  border: 1px solid var(--pulse-border);
+  border-radius: 12px;
+  box-shadow: 0 18px 45px rgba(17, 24, 39, 0.18);
+}
+
+.PulseModalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--pulse-border);
+}
+
+.PulseModalTitle {
+  font-weight: 700;
+  color: var(--pulse-text);
+}
+
+.PulseModalBody {
+  padding: 14px;
+  color: var(--pulse-text);
+}
+
+
+.PulseButtonToggleActive {
+  background: var(--pulse-accent);
+  border-color: var(--pulse-accent);
+  color: var(--pulse-text-inverse);
+  box-shadow: 0 6px 16px rgba(30, 136, 229, 0.25);
+}
+
+.PulseButtonToggleActive:hover {
+  background: #1976d2;
+  border-color: #1976d2;
+}

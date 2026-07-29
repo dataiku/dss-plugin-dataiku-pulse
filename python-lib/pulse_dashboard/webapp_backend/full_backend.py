@@ -1572,7 +1572,7 @@ def serve_packaged_build(filename: str):  # pragma: no cover
     if not _BUILD_DIR.is_dir():
         return (
             "Pulse dashboard build not found. Expected: "
-            f"{_BUILD_DIR}. Run scripts/sync_pulse_dashboard_build.sh to populate it.",
+            f"{_BUILD_DIR}. Run scripts/webapp/sync_pulse_dashboard_build.sh to populate it.",
             404,
         )
 
@@ -1602,7 +1602,7 @@ def serve_frontend(path: str):  # pragma: no cover
     if not _BUILD_DIR.is_dir():
         return (
             "Pulse dashboard build not found. Expected: "
-            f"{_BUILD_DIR}. Run scripts/sync_pulse_dashboard_build.sh to populate it.",
+            f"{_BUILD_DIR}. Run scripts/webapp/sync_pulse_dashboard_build.sh to populate it.",
             404,
         )
 

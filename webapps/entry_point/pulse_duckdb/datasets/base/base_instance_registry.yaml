@@ -1,0 +1,17 @@
+base_instance_registry:
+  description: >
+    Registry of DSS instances known to Pulse.
+  depends_on: []
+  build_order: 70
+  sql: |
+    CREATE OR REPLACE TABLE "base_instance_registry" AS
+    SELECT
+          CAST(NULL AS VARCHAR) AS instance_name,
+          CAST(NULL AS VARCHAR) AS instance_display_name,
+          CAST(NULL AS VARCHAR) AS instance_env,
+          CAST(NULL AS VARCHAR) AS dss_version,
+          CAST(NULL AS VARCHAR) AS instance_url,
+          CAST(NULL AS BOOLEAN) AS active
+    WHERE 1=0;
+  example_data: |
+    INSERT INTO "base_instance_registry" (instance_name, instance_display_name, instance_env, dss_version, instance_url, active) VALUES ('dss-prod', 'instance_display_name_example', 'instance_env_example', 'dss_version_example', 'instance_url_example', true);

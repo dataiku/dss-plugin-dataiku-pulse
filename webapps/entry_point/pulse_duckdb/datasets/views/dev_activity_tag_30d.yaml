@@ -1,0 +1,20 @@
+dev_activity_tag_30d:
+  description: >
+    Last-30-days rollup by capability + category + base tag.
+  depends_on:
+    - final_build_development_activity_events
+  build_order: 1070
+  sql: |
+    CREATE OR REPLACE VIEW "dev_activity_tag_30d" AS
+    SELECT
+      capability,
+      dataiku_category,
+      base_tag,
+      COUNT(*) FILTER (WHERE timestamp >= now() - INTERVAL 30 DAY) AS event_count_30d,
+      COUNT(DISTINCT login) FILTER (WHERE timestamp >= now() - INTERVAL 30 DAY) AS active_users_30d
+    FROM final_build_development_activity_events
+    GROUP BY 1,2,3
+    ORDER BY event_count_30d DESC;
+  example_data: |
+    -- This object is a VIEW.
+    -- Insert example rows into its upstream base tables.
