@@ -501,7 +501,8 @@ def _fetch_description(*, instance_name: str, project_key: str | None, object_ty
 
     description_sql = "\n".join(
         [
-            "SELECT extras FROM " + table,
+            "SELECT extras FROM",
+            table,
             "WHERE " + " AND ".join(where),
             "LIMIT 1;",
         ]

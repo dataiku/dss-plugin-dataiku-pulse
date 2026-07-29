@@ -72,47 +72,48 @@ def _user_detail_instances_sql() -> str:
 
 
 def _users_directory_cte_sql(*, cte_name: str = "directory") -> str:
-    return (  # nosec B608 (cte_name is internal; hub instances are escaped plugin config)
-        f"{cte_name} AS (\n"
-        "  WITH src AS (\n"
-        "    SELECT\n"
-        "      instance_name,\n"
-        "      users_login AS login,\n"
-        "      lower(trim(users_login)) AS login_norm,\n"
-        "      users_displayname AS display_name,\n"
-        "      users_email AS email,\n"
-        "      users_enabled = 'True' AS enabled,\n"
-        "      users_userprofile AS user_profile,\n"
-        "      users_groups AS group_names,\n"
-        "      run_ts,\n"
-        f"      CASE WHEN instance_name IN ({_hub_instances_sql_list()}) THEN 1 ELSE 0 END AS is_hub\n"
-        "    FROM base_users_instance_metadata_history\n"
-        "    WHERE users_login IS NOT NULL\n"
-        "      AND length(trim(users_login)) > 0\n"
-        "  ),\n"
-        "  ranked AS (\n"
-        "    SELECT\n"
-        "      *,\n"
-        "      ROW_NUMBER() OVER (\n"
-        "        PARTITION BY login_norm\n"
-        "        ORDER BY run_ts DESC, is_hub DESC, instance_name ASC\n"
-        "      ) AS rn\n"
-        "    FROM src\n"
-        "  )\n"
-        "  SELECT\n"
-        "    instance_name,\n"
-        "    login,\n"
-        "    login_norm,\n"
-        "    display_name,\n"
-        "    email,\n"
-        "    enabled,\n"
-        "    user_profile,\n"
-        "    group_names,\n"
-        "    run_ts\n"
-        "  FROM ranked\n"
-        "  WHERE rn = 1\n"
-        ")\n"
-    )
+    lines = [
+        cte_name + " AS (",
+        "  WITH src AS (",
+        "    SELECT",
+        "      instance_name,",
+        "      users_login AS login,",
+        "      lower(trim(users_login)) AS login_norm,",
+        "      users_displayname AS display_name,",
+        "      users_email AS email,",
+        "      users_enabled = 'True' AS enabled,",
+        "      users_userprofile AS user_profile,",
+        "      users_groups AS group_names,",
+        "      run_ts,",
+        "      CASE WHEN instance_name IN (" + _hub_instances_sql_list() + ") THEN 1 ELSE 0 END AS is_hub",
+        "    FROM base_users_instance_metadata_history",
+        "    WHERE users_login IS NOT NULL",
+        "      AND length(trim(users_login)) > 0",
+        "  ),",
+        "  ranked AS (",
+        "    SELECT",
+        "      *,",
+        "      ROW_NUMBER() OVER (",
+        "        PARTITION BY login_norm",
+        "        ORDER BY run_ts DESC, is_hub DESC, instance_name ASC",
+        "      ) AS rn",
+        "    FROM src",
+        "  )",
+        "  SELECT",
+        "    instance_name,",
+        "    login,",
+        "    login_norm,",
+        "    display_name,",
+        "    email,",
+        "    enabled,",
+        "    user_profile,",
+        "    group_names,",
+        "    run_ts",
+        "  FROM ranked",
+        "  WHERE rn = 1",
+        ")",
+    ]
+    return "\n".join(lines) + "\n"
 
 def _ensure_consumption_products_views(_create_connection) -> None:
     conn = _create_connection(read_only=False)
