@@ -37,10 +37,6 @@ def _sql_ident(name: str) -> str:
     return '"' + str(name).replace('"', '""') + '"'
 
 
-def _count_rows_sql(name: str) -> str:
-    return "SELECT COUNT(*) FROM " + _sql_ident(name) + ";"
-
-
 def _load_base_spec_sql(table_name: str) -> str:
     path = _BASE_SPECS_DIR / f"{table_name}.yaml"
     doc = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -103,7 +99,8 @@ def _maybe_seed_demo_dev_activity(conn) -> dict:
 
     def _count_rows(name: str) -> int:
         try:
-            return int(conn.execute(_count_rows_sql(name)).fetchone()[0])
+            sql = "\n".join(["SELECT COUNT(*) FROM", _sql_ident(name) + ";"])
+            return int(conn.execute(sql).fetchone()[0])
         except Exception:
             return 0
 

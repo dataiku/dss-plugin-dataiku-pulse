@@ -40,14 +40,6 @@ def _create_read_parquet_view_sql(*, table_name: str, parquet_glob: str) -> str:
     return "\n".join(lines)
 
 
-def _create_table_from_tmp_df_sql(table_name: str) -> str:
-    return "CREATE TABLE " + _sql_ident(table_name) + " AS SELECT * FROM _tmp_df;"
-
-
-def _count_rows_sql(table_name: str) -> str:
-    return "SELECT COUNT(*) FROM " + _sql_ident(table_name) + ";"
-
-
 def _extract_table_name(path: str) -> str | None:
     """Infer DuckDB table name from managed folder path.
 
@@ -136,7 +128,13 @@ def _load_csv_to_table(conn: duckdb.DuckDBPyConnection, folder, *, path: str, ta
         tmp_path.write_bytes(resp.content)
 
         # `read_csv_auto` infers TIMESTAMP/BOOLEAN/etc better than pandas.
-        sql = "CREATE TABLE " + _sql_ident(table_name) + " AS SELECT * FROM read_csv_auto(?, header=true);"
+        sql = "\n".join(
+            [
+                "CREATE TABLE",
+                _sql_ident(table_name),
+                "AS SELECT * FROM read_csv_auto(?, header=true);",
+            ]
+        )
         conn.execute(sql, [str(tmp_path)])
     finally:
         try:
@@ -302,19 +300,22 @@ def load_gold_tables(
             if suffix == ".parquet":
                 df = _load_df_from_parquet(folder, rel_path)
                 conn.register("_tmp_df", df)
-                conn.execute(_create_table_from_tmp_df_sql(table_name))
+                sql = "\n".join(["CREATE TABLE", _sql_ident(table_name), "AS SELECT * FROM _tmp_df;"])
+                conn.execute(sql)
                 conn.unregister("_tmp_df")
                 rows = len(df)
 
             elif suffix == ".csv" and settings.PULSE_GOLD_LOAD_USE_DUCKDB_CSV_AUTO:
                 _load_csv_to_table(conn, folder, path=rel_path, table_name=table_name)
-                rows = conn.execute(_count_rows_sql(table_name)).fetchone()[0]
+                sql = "\n".join(["SELECT COUNT(*) FROM", _sql_ident(table_name) + ";"])
+                rows = conn.execute(sql).fetchone()[0]
 
             elif suffix == ".csv":
                 # Fallback: pandas-based loader
                 df = pd.read_csv(io.BytesIO(folder.get_file(rel_path).content))
                 conn.register("_tmp_df", df)
-                conn.execute(_create_table_from_tmp_df_sql(table_name))
+                sql = "\n".join(["CREATE TABLE", _sql_ident(table_name), "AS SELECT * FROM _tmp_df;"])
+                conn.execute(sql)
                 conn.unregister("_tmp_df")
                 rows = len(df)
 
