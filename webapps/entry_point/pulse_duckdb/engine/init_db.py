@@ -20,6 +20,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 
 import yaml
+from shared_duckdb.sql_utils import quote_identifier
 
 from pulse_duckdb.engine.create_conn import create_connection
 
@@ -34,7 +35,7 @@ _BASE_SPECS_DIR = _BASE_DIR / "datasets" / "base"
 
 
 def _sql_ident(name: str) -> str:
-    return '"' + str(name).replace('"', '""') + '"'
+    return quote_identifier(name)
 
 
 def _load_base_spec_sql(table_name: str) -> str:

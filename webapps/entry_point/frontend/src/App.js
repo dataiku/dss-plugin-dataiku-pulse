@@ -1111,11 +1111,6 @@ function ViewDuckDBTab({ apiBase }) {
   const [tableInfo, setTableInfo] = useState(null);
   const [loadingTables, setLoadingTables] = useState(false);
   const [loadingInfo, setLoadingInfo] = useState(false);
-  const [querySql, setQuerySql] = useState('SELECT * FROM fact_user_activity_daily LIMIT 25');
-  const [queryRows, setQueryRows] = useState([]);
-  const [queryColumns, setQueryColumns] = useState([]);
-  const [queryLoading, setQueryLoading] = useState(false);
-  const [queryMeta, setQueryMeta] = useState(null);
   const [error, setError] = useState('');
 
   const loadTables = async () => {
@@ -1199,34 +1194,6 @@ function ViewDuckDBTab({ apiBase }) {
     });
     return rows;
   }, [tableStats, tableStatsSort]);
-
-  const runQuery = useCallback(async () => {
-    setQueryLoading(true);
-    setError('');
-    try {
-      const res = await fetch(apiUrl(apiBase, '/api/debug/duckdb/query'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sql: querySql }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || 'Failed to run query');
-      setQueryRows(data.rows || []);
-      setQueryColumns(data.columns || []);
-      setQueryMeta({
-        rowCount: Number(data.rowCount || 0),
-        limit: Number(data.limit || 0),
-        truncated: data.truncated === true,
-      });
-    } catch (e) {
-      setError(e.message || 'Failed to run query');
-      setQueryRows([]);
-      setQueryColumns([]);
-      setQueryMeta(null);
-    } finally {
-      setQueryLoading(false);
-    }
-  }, [apiBase, querySql]);
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
@@ -1322,53 +1289,6 @@ function ViewDuckDBTab({ apiBase }) {
         </div>
       ) : null}
 
-      <h3 style={{ marginTop: 16 }}>Query DuckDB</h3>
-      <div className="PulseMuted" style={{ marginTop: 8 }}>
-        Allowed statements: <code>SELECT</code>, <code>WITH ... SELECT</code>, <code>SHOW</code>, <code>DESCRIBE</code>, <code>EXPLAIN</code>. Results are capped server-side.
-      </div>
-      <textarea
-        value={querySql}
-        onChange={(e) => setQuerySql(e.target.value)}
-        rows={8}
-        spellCheck={false}
-        style={{ width: '100%', marginTop: 12, fontFamily: 'monospace', fontSize: 13, padding: 12 }}
-      />
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12 }}>
-        <button onClick={runQuery} disabled={queryLoading}>
-          {queryLoading ? 'Running...' : 'Run query'}
-        </button>
-        {queryMeta ? (
-          <span className="PulseMuted">
-            {queryMeta.rowCount.toLocaleString()} row(s){queryMeta.truncated ? ` returned (limited to ${queryMeta.limit})` : ''}
-          </span>
-        ) : null}
-      </div>
-      {queryColumns.length ? (
-        <div style={{ overflowX: 'auto', marginTop: 12 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ background: '#f8fafc' }}>
-                {queryColumns.map((column) => (
-                  <th key={column} style={{ textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid #dbe2ea' }}>
-                    {column}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {queryRows.map((row, index) => (
-                <tr key={index}>
-                  {queryColumns.map((column) => (
-                    <td key={`${index}-${column}`} style={{ padding: '8px 10px', borderBottom: '1px solid #eef2f7', verticalAlign: 'top' }}>
-                      {row?.[column] == null ? '—' : String(row[column])}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : null}
     </div>
   );
 }

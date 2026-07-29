@@ -23,6 +23,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 
 import yaml
+from shared_duckdb.sql_utils import quote_identifier
 
 from .create_conn import create_connection
 from .init_state import set_init_in_progress
@@ -126,11 +127,11 @@ def _ensure_table_exists(conn, *, table_name: str) -> bool:
             return False
         # If an object exists but isn't a table, drop it.
         try:
-            conn.execute(f'DROP VIEW IF EXISTS "{table_name}";')
+            conn.execute(f'DROP VIEW IF EXISTS {quote_identifier(table_name)};')
         except Exception:
             pass
         try:
-            conn.execute(f'DROP TABLE IF EXISTS "{table_name}";')
+            conn.execute(f'DROP TABLE IF EXISTS {quote_identifier(table_name)};')
         except Exception:
             pass
 
@@ -176,7 +177,9 @@ def _maybe_create_license_views(conn) -> dict[str, object]:
         if target_name in existing or source_name not in existing:
             continue
 
-        conn.execute(f'CREATE VIEW "{target_name}" AS SELECT * FROM "{source_name}";')  # nosec B608
+        target_ident = quote_identifier(target_name)
+        source_ident = quote_identifier(source_name)
+        conn.execute(f"CREATE VIEW {target_ident} AS SELECT * FROM {source_ident};")  # nosec B608
         created.append(target_name)
 
     if (
@@ -233,8 +236,8 @@ def _replace_view_from_query(conn, *, view_name: str, source_table: str, select_
         )
         return
 
-    conn.execute(f'DROP VIEW IF EXISTS "{view_name}";')
-    conn.execute(f'CREATE VIEW "{view_name}" AS {select_sql}')  # nosec B608
+    conn.execute(f'DROP VIEW IF EXISTS {quote_identifier(view_name)};')
+    conn.execute(f'CREATE VIEW {quote_identifier(view_name)} AS {select_sql}')  # nosec B608
 
 
 def _maybe_create_inventory_views(conn) -> None:

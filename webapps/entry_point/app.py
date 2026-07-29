@@ -1262,15 +1262,7 @@ def duckdb_tables():
 
 @app.route("/api/debug/duckdb/query")
 def duckdb_query():
-    q = (request.args.get("q") or "").strip()
-    if not q:
-        return jsonify({"ok": False, "error": "Missing query parameter 'q'"}), 400
-
-    try:
-        df = query_df(q)
-        return jsonify({"ok": True, "rows": _df_records(df)})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+    return jsonify({"ok": False, "error": "Raw SQL debug queries are disabled; use table introspection endpoints instead."}), 403
 
 
 @app.route("/api/debug/duckdb/table/<table_name>")

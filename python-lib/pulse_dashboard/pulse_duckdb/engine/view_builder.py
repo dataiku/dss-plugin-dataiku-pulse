@@ -18,6 +18,7 @@ from pathlib import Path
 
 import duckdb
 import yaml
+from shared_duckdb.sql_utils import quote_identifier
 
 
 logger = logging.getLogger(__name__)
@@ -93,8 +94,7 @@ def _relation_exists(conn: duckdb.DuckDBPyConnection, *, name: str) -> bool:
 
 
 def _sql_ident(name: str) -> str:
-    # identifiers in our pipeline are controlled (table/column names), but keep it safe anyway
-    return '"' + str(name).replace('"', '""') + '"'
+    return quote_identifier(name)
 
 
 def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:

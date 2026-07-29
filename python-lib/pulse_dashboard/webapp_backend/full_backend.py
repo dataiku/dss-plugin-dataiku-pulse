@@ -21,6 +21,7 @@ from typing import Any, cast
 
 import yaml
 from flask import Blueprint, Flask, jsonify, request, send_file, send_from_directory
+from shared_duckdb.sql_utils import quote_identifier, validate_identifier
 
 from pulse_dashboard.reporting import build_users_report_pdf_bytes
 
@@ -1852,13 +1853,8 @@ _PRODUCT_TO_EVENT_OBJECT_TYPE = {
 }
 
 
-_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-
 def _safe_ident(name: str) -> str:
-    if not _IDENTIFIER_RE.match(name):
-        raise ValueError(f"Unsafe identifier: {name}")
-    return name
+    return validate_identifier(name)
 
 
 def _duckdb_init_in_progress() -> bool:
@@ -1994,8 +1990,8 @@ def debug_duckdb_tables():
 
         for table_name in table_names:
             safe_table_name = _safe_ident(table_name)
-            columns_df = conn.execute(f'PRAGMA table_info("{safe_table_name}");').df()  # nosec B608 (table_name is validated)
-            row_count_row = conn.execute(f'SELECT COUNT(*) AS n FROM "{safe_table_name}";').fetchone()  # nosec B608 (table_name is validated)
+            columns_df = conn.execute(f"PRAGMA table_info({quote_identifier(safe_table_name)});").df()  # nosec B608 (table_name is validated)
+            row_count_row = conn.execute(f"SELECT COUNT(*) AS n FROM {quote_identifier(safe_table_name)};").fetchone()  # nosec B608 (table_name is validated)
             size_row = conn.execute(
                 """
                 SELECT estimated_size
@@ -2033,8 +2029,8 @@ def debug_duckdb_table(table_name: str):
 
     conn = _create_connection(read_only=True)
     try:
-        cols_df = conn.execute(f'PRAGMA table_info("{table_name}");').df()  # nosec B608 (table_name is validated)
-        sample_df = conn.execute(f'SELECT * FROM "{table_name}" LIMIT 10;').df()  # nosec B608 (table_name is validated)
+        cols_df = conn.execute(f"PRAGMA table_info({quote_identifier(table_name)});").df()  # nosec B608 (table_name is validated)
+        sample_df = conn.execute(f"SELECT * FROM {quote_identifier(table_name)} LIMIT 10;").df()  # nosec B608 (table_name is validated)
     finally:
         conn.close()
 

@@ -18,6 +18,7 @@ from pathlib import Path
 
 import duckdb
 import yaml
+from shared_duckdb.sql_utils import quote_identifier, validate_identifier
 
 from ... import settings
 from .create_conn import create_connection
@@ -33,13 +34,8 @@ _BASE_SPECS_DIR = _DATASETS_DIR / "base"
 _VIEW_SPECS_DIR = _DATASETS_DIR / "views"
 
 
-_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-
 def _safe_ident(name: str) -> str:
-    if not _IDENTIFIER_RE.match(name):
-        raise ValueError(f"Unsafe identifier: {name}")
-    return name
+    return validate_identifier(name)
 
 
 def _type_to_duckdb(type_str: str) -> str:
@@ -169,12 +165,12 @@ def reset_duckdb(conn: duckdb.DuckDBPyConnection) -> dict:
 
     for name in sorted(views):
         _safe_ident(name)
-        conn.execute(f'DROP VIEW IF EXISTS "{name}";')
+        conn.execute(f'DROP VIEW IF EXISTS {quote_identifier(name)};')
         dropped["views"].append(name)
 
     for name in sorted(tables):
         _safe_ident(name)
-        conn.execute(f'DROP TABLE IF EXISTS "{name}";')
+        conn.execute(f'DROP TABLE IF EXISTS {quote_identifier(name)};')
         dropped["tables"].append(name)
 
     return dropped
@@ -247,8 +243,8 @@ def _create_table(conn: duckdb.DuckDBPyConnection, table_name: str, columns: lis
         # Minimal placeholder
         columns = [("id", "INTEGER")]
 
-    cols_sql = ",\n  ".join([f'"{c}" {t}' for c, t in columns])
-    conn.execute(f'CREATE TABLE "{table_name}" (\n  {cols_sql}\n);')
+    cols_sql = ",\n  ".join([f'{quote_identifier(c)} {t}' for c, t in columns])
+    conn.execute(f'CREATE TABLE {quote_identifier(table_name)} (\n  {cols_sql}\n);')
 
 
 def _insert_dummy_rows(
@@ -264,8 +260,8 @@ def _insert_dummy_rows(
 
     col_names = [c for c, _ in columns]
     placeholders = ", ".join(["?"] * len(col_names))
-    col_list = ", ".join([f'"{c}"' for c in col_names])
-    sql = f'INSERT INTO "{table_name}" ({col_list}) VALUES ({placeholders});'  # nosec B608 (table_name validated)
+    col_list = ", ".join([quote_identifier(c) for c in col_names])
+    sql = f'INSERT INTO {quote_identifier(table_name)} ({col_list}) VALUES ({placeholders});'  # nosec B608 (table_name validated)
 
     for i in range(n_rows):
         values = [_dummy_value(c, t, i, ctx) for c, t in columns]
