@@ -1009,71 +1009,71 @@ def build_users_leaderboard():
 
     where_sql = "WHERE " + " AND ".join(where)
 
-    df_viewing = query_df(
-        f"""
-        WITH agg AS (
-          SELECT
-            lower(trim(login)) AS login_norm,
-            MIN(trim(login)) AS login,
-            SUM(viewing_actions_count) AS viewing,
-            SUM(developing_actions_count) AS developing,
-            MAX(day) AS last_activity_day,
-            COUNT(DISTINCT instance_name) AS instances
-          FROM final_build_user_activity_daily
-          {where_sql}
-          GROUP BY 1
-        )
-        SELECT
-          a.login_norm AS login,
-          u.display_name AS displayName,
-          u.email AS email,
-          u.user_profile AS userProfile,
-          u.enabled AS enabled,
-          a.viewing AS value,
-          a.developing AS developing,
-          a.instances AS instances,
-          a.last_activity_day AS lastActivityDay
-        FROM agg a
-        LEFT JOIN base_users u
-          ON lower(trim(u.login)) = a.login_norm
-        ORDER BY value DESC NULLS LAST
-        LIMIT 50;
-        """.strip(),
-        params,
+    viewing_sql = "\n".join(
+        [
+            "WITH agg AS (",
+            "  SELECT",
+            "    lower(trim(login)) AS login_norm,",
+            "    MIN(trim(login)) AS login,",
+            "    SUM(viewing_actions_count) AS viewing,",
+            "    SUM(developing_actions_count) AS developing,",
+            "    MAX(day) AS last_activity_day,",
+            "    COUNT(DISTINCT instance_name) AS instances",
+            "  FROM final_build_user_activity_daily",
+            f"  {where_sql}",
+            "  GROUP BY 1",
+            ")",
+            "SELECT",
+            "  a.login_norm AS login,",
+            "  u.display_name AS displayName,",
+            "  u.email AS email,",
+            "  u.user_profile AS userProfile,",
+            "  u.enabled AS enabled,",
+            "  a.viewing AS value,",
+            "  a.developing AS developing,",
+            "  a.instances AS instances,",
+            "  a.last_activity_day AS lastActivityDay",
+            "FROM agg a",
+            "LEFT JOIN base_users u",
+            "  ON lower(trim(u.login)) = a.login_norm",
+            "ORDER BY value DESC NULLS LAST",
+            "LIMIT 50;",
+        ]
     )
+    df_viewing = query_df(viewing_sql, params)
 
-    df_developing = query_df(
-        f"""
-        WITH agg AS (
-          SELECT
-            lower(trim(login)) AS login_norm,
-            MIN(trim(login)) AS login,
-            SUM(viewing_actions_count) AS viewing,
-            SUM(developing_actions_count) AS developing,
-            MAX(day) AS last_activity_day,
-            COUNT(DISTINCT instance_name) AS instances
-          FROM final_build_user_activity_daily
-          {where_sql}
-          GROUP BY 1
-        )
-        SELECT
-          a.login_norm AS login,
-          u.display_name AS displayName,
-          u.email AS email,
-          u.user_profile AS userProfile,
-          u.enabled AS enabled,
-          a.developing AS value,
-          a.viewing AS viewing,
-          a.instances AS instances,
-          a.last_activity_day AS lastActivityDay
-        FROM agg a
-        LEFT JOIN base_users u
-          ON lower(trim(u.login)) = a.login_norm
-        ORDER BY value DESC NULLS LAST
-        LIMIT 50;
-        """.strip(),
-        params,
+    developing_sql = "\n".join(
+        [
+            "WITH agg AS (",
+            "  SELECT",
+            "    lower(trim(login)) AS login_norm,",
+            "    MIN(trim(login)) AS login,",
+            "    SUM(viewing_actions_count) AS viewing,",
+            "    SUM(developing_actions_count) AS developing,",
+            "    MAX(day) AS last_activity_day,",
+            "    COUNT(DISTINCT instance_name) AS instances",
+            "  FROM final_build_user_activity_daily",
+            f"  {where_sql}",
+            "  GROUP BY 1",
+            ")",
+            "SELECT",
+            "  a.login_norm AS login,",
+            "  u.display_name AS displayName,",
+            "  u.email AS email,",
+            "  u.user_profile AS userProfile,",
+            "  u.enabled AS enabled,",
+            "  a.developing AS value,",
+            "  a.viewing AS viewing,",
+            "  a.instances AS instances,",
+            "  a.last_activity_day AS lastActivityDay",
+            "FROM agg a",
+            "LEFT JOIN base_users u",
+            "  ON lower(trim(u.login)) = a.login_norm",
+            "ORDER BY value DESC NULLS LAST",
+            "LIMIT 50;",
+        ]
     )
+    df_developing = query_df(developing_sql, params)
 
     return jsonify(
         {
@@ -1106,17 +1106,17 @@ def build_user_detail(login: str):
 
     where_sql = "WHERE " + " AND ".join(where)
 
-    df_summary = query_df(
-        f"""
-        SELECT
-          SUM(viewing_actions_count) AS viewing,
-          SUM(developing_actions_count) AS developing,
-          COUNT(DISTINCT instance_name) AS instances
-        FROM final_build_user_activity_daily
-        {where_sql};
-        """.strip(),
-        params,
+    summary_sql = "\n".join(
+        [
+            "SELECT",
+            "  SUM(viewing_actions_count) AS viewing,",
+            "  SUM(developing_actions_count) AS developing,",
+            "  COUNT(DISTINCT instance_name) AS instances",
+            "FROM final_build_user_activity_daily",
+            where_sql + ";",
+        ]
     )
+    df_summary = query_df(summary_sql, params)
 
     df_user = query_df(
         """
