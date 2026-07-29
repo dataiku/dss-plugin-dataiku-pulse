@@ -14,6 +14,21 @@ import settings
 logger = logging.getLogger(__name__)
 
 
+def _sql_string_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _build_read_parquet_view_sql(*, view_name: str, parquet_glob: str) -> str:
+    lines = [
+        f"CREATE OR REPLACE VIEW {view_name} AS",
+        "SELECT",
+        "  *,",
+        "  make_date(CAST(year AS INTEGER), CAST(month AS INTEGER), CAST(day AS INTEGER)) AS partition_date",
+        f"FROM read_parquet({_sql_string_literal(parquet_glob)}, hive_partitioning = true);",
+    ]
+    return "\n".join(lines)
+
+
 def _resolve_silver_folder() -> object:
     lookup = settings.PULSE_SILVER_FOLDER_ID or settings.PULSE_SILVER_FOLDER_NAME
 
@@ -139,13 +154,10 @@ def create_event_mapping_views(conn: duckdb.DuckDBPyConnection, *, cache_root: P
     )
 
     # Always create an "all categories" view.
-    sql_all = f"""
-    CREATE OR REPLACE VIEW v_event_mapping__all AS
-    SELECT
-      *,
-      make_date(CAST(year AS INTEGER), CAST(month AS INTEGER), CAST(day AS INTEGER)) AS partition_date
-    FROM read_parquet('{glob_all.as_posix()}', hive_partitioning = true);
-    """.strip()
+    sql_all = _build_read_parquet_view_sql(
+        view_name="v_event_mapping__all",
+        parquet_glob=glob_all.as_posix(),
+    )
 
     created: list[str] = []
     errors: list[dict] = []
@@ -176,13 +188,10 @@ def create_event_mapping_views(conn: duckdb.DuckDBPyConnection, *, cache_root: P
             / "*.parquet"
         )
 
-        sql = f"""
-        CREATE OR REPLACE VIEW {view_name} AS
-        SELECT
-          *,
-          make_date(CAST(year AS INTEGER), CAST(month AS INTEGER), CAST(day AS INTEGER)) AS partition_date
-        FROM read_parquet('{glob_mod.as_posix()}', hive_partitioning = true);
-        """.strip()
+        sql = _build_read_parquet_view_sql(
+            view_name=view_name,
+            parquet_glob=glob_mod.as_posix(),
+        )
 
         try:
             conn.execute(sql)

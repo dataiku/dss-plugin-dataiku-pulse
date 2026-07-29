@@ -286,25 +286,27 @@ def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
     if not _table_exists(conn, name=registry_table):
         return {"ok": True, "enabled": False, "reason": "registry_missing"}
 
-    rows = conn.execute(
-        f"""
-        SELECT
-          product_type,
-          source_table,
-          instance_name_col,
-          project_key_col,
-          key_col,
-          name_col,
-          subtype_col,
-          owner_col,
-          last_modified_by_col,
-          created_at_col,
-          updated_at_col,
-          where_sql
-        FROM {_sql_ident(registry_table)}
-        ORDER BY product_type;
-        """.strip()
-    ).fetchall()
+    registry_table_ident = _sql_ident(registry_table)
+    sql = "\n".join(
+        [
+            "SELECT",
+            "  product_type,",
+            "  source_table,",
+            "  instance_name_col,",
+            "  project_key_col,",
+            "  key_col,",
+            "  name_col,",
+            "  subtype_col,",
+            "  owner_col,",
+            "  last_modified_by_col,",
+            "  created_at_col,",
+            "  updated_at_col,",
+            "  where_sql",
+            f"FROM {registry_table_ident}",
+            "ORDER BY product_type;",
+        ]
+    )
+    rows = conn.execute(sql).fetchall()
 
     included: list[dict] = []
     skipped: list[dict] = []

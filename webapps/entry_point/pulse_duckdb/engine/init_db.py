@@ -33,6 +33,10 @@ _BASE_DIR = Path(__file__).resolve().parents[1]
 _BASE_SPECS_DIR = _BASE_DIR / "datasets" / "base"
 
 
+def _sql_ident(name: str) -> str:
+    return '"' + str(name).replace('"', '""') + '"'
+
+
 def _load_base_spec_sql(table_name: str) -> str:
     path = _BASE_SPECS_DIR / f"{table_name}.yaml"
     doc = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -95,7 +99,8 @@ def _maybe_seed_demo_dev_activity(conn) -> dict:
 
     def _count_rows(name: str) -> int:
         try:
-            return int(conn.execute(f'SELECT COUNT(*) FROM "{name}";').fetchone()[0])
+            sql = "SELECT COUNT(*) FROM " + _sql_ident(name) + ";"
+            return int(conn.execute(sql).fetchone()[0])
         except Exception:
             return 0
 
