@@ -41,11 +41,11 @@ def _create_read_parquet_view_sql(*, table_name: str, parquet_glob: str) -> str:
 
 
 def _create_table_from_tmp_df_sql(table_name: str) -> str:
-    return f"CREATE TABLE {_sql_ident(table_name)} AS SELECT * FROM _tmp_df;"
+    return "CREATE TABLE " + _sql_ident(table_name) + " AS SELECT * FROM _tmp_df;"
 
 
 def _count_rows_sql(table_name: str) -> str:
-    return f"SELECT COUNT(*) FROM {_sql_ident(table_name)};"
+    return "SELECT COUNT(*) FROM " + _sql_ident(table_name) + ";"
 
 
 def _extract_table_name(path: str) -> str | None:
@@ -136,10 +136,8 @@ def _load_csv_to_table(conn: duckdb.DuckDBPyConnection, folder, *, path: str, ta
         tmp_path.write_bytes(resp.content)
 
         # `read_csv_auto` infers TIMESTAMP/BOOLEAN/etc better than pandas.
-        conn.execute(
-            f'CREATE TABLE "{table_name}" AS SELECT * FROM read_csv_auto(?, header=true);',
-            [str(tmp_path)],
-        )
+        sql = "CREATE TABLE " + _sql_ident(table_name) + " AS SELECT * FROM read_csv_auto(?, header=true);"
+        conn.execute(sql, [str(tmp_path)])
     finally:
         try:
             os.remove(tmp_path)

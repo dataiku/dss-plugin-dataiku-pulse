@@ -247,8 +247,9 @@ def _create_table(conn: duckdb.DuckDBPyConnection, table_name: str, columns: lis
         # Minimal placeholder
         columns = [("id", "INTEGER")]
 
-    cols_sql = ",\n  ".join([f'"{c}" {t}' for c, t in columns])
-    conn.execute(f'CREATE TABLE "{table_name}" (\n  {cols_sql}\n);')
+    cols_sql = ",\n  ".join(['"' + c + '" ' + t for c, t in columns])
+    sql = "CREATE TABLE \"" + table_name + "\" (\n  " + cols_sql + "\n);"
+    conn.execute(sql)
 
 
 def _insert_dummy_rows(
@@ -264,8 +265,8 @@ def _insert_dummy_rows(
 
     col_names = [c for c, _ in columns]
     placeholders = ", ".join(["?"] * len(col_names))
-    col_list = ", ".join([f'"{c}"' for c in col_names])
-    sql = f'INSERT INTO "{table_name}" ({col_list}) VALUES ({placeholders});'
+    col_list = ", ".join(['"' + c + '"' for c in col_names])
+    sql = "INSERT INTO \"" + table_name + "\" (" + col_list + ") VALUES (" + placeholders + ");"
 
     for i in range(n_rows):
         values = [_dummy_value(c, t, i, ctx) for c, t in columns]

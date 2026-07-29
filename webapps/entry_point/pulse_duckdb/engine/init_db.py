@@ -38,7 +38,7 @@ def _sql_ident(name: str) -> str:
 
 
 def _count_rows_sql(name: str) -> str:
-    return f"SELECT COUNT(*) FROM {_sql_ident(name)};"
+    return "SELECT COUNT(*) FROM " + _sql_ident(name) + ";"
 
 
 def _load_base_spec_sql(table_name: str) -> str:
