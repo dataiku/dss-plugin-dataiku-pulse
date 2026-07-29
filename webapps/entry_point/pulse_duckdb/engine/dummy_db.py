@@ -266,7 +266,13 @@ def _insert_dummy_rows(
     col_names = [c for c, _ in columns]
     placeholders = ", ".join(["?"] * len(col_names))
     col_list = ", ".join(['"' + c + '"' for c in col_names])
-    sql = "INSERT INTO \"" + table_name + "\" (" + col_list + ") VALUES (" + placeholders + ");"
+    sql = "\n".join(
+        [
+            "INSERT INTO",
+            '"' + table_name + '"',
+            f"({col_list}) VALUES ({placeholders});",
+        ]
+    )
 
     for i in range(n_rows):
         values = [_dummy_value(c, t, i, ctx) for c, t in columns]

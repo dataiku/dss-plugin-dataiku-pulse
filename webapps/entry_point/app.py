@@ -1137,19 +1137,19 @@ def build_user_detail(login: str):
         [login_norm],
     )
 
-    df_daily = query_df(
-        f"""
-        SELECT
-          CAST(day AS VARCHAR) AS label,
-          SUM(viewing_actions_count) AS viewing,
-          SUM(developing_actions_count) AS developing
-        FROM final_build_user_activity_daily
-        {where_sql}
-        GROUP BY 1
-        ORDER BY 1;
-        """.strip(),
-        params,
+    daily_sql = "\n".join(
+        [
+            "SELECT",
+            "  CAST(day AS VARCHAR) AS label,",
+            "  SUM(viewing_actions_count) AS viewing,",
+            "  SUM(developing_actions_count) AS developing",
+            "FROM final_build_user_activity_daily",
+            where_sql,
+            "GROUP BY 1",
+            "ORDER BY 1;",
+        ]
     )
+    df_daily = query_df(daily_sql, params)
 
     return jsonify(
         {
@@ -1186,21 +1186,21 @@ def build_user_top_projects(login: str):
 
     where_sql = "WHERE " + " AND ".join(where)
 
-    df = query_df(
-        f"""
-        SELECT
-          instance_name AS instanceName,
-          project_key AS projectKey,
-          SUM(viewing_actions_count) AS viewing,
-          SUM(developing_actions_count) AS developing
-        FROM fact_user_activity_project_daily
-        {where_sql}
-        GROUP BY 1, 2
-        ORDER BY developing DESC NULLS LAST, viewing DESC NULLS LAST
-        LIMIT ?;
-        """.strip(),
-        [*params, limit],
+    top_projects_sql = "\n".join(
+        [
+            "SELECT",
+            "  instance_name AS instanceName,",
+            "  project_key AS projectKey,",
+            "  SUM(viewing_actions_count) AS viewing,",
+            "  SUM(developing_actions_count) AS developing",
+            "FROM fact_user_activity_project_daily",
+            where_sql,
+            "GROUP BY 1, 2",
+            "ORDER BY developing DESC NULLS LAST, viewing DESC NULLS LAST",
+            "LIMIT ?;",
+        ]
     )
+    df = query_df(top_projects_sql, [*params, limit])
 
     return jsonify({"ok": True, "rows": _df_records(df)})
 
@@ -1296,7 +1296,8 @@ def duckdb_table_info(table_name: str):
         sample_error = None
         sample_df = None
         try:
-            sample_df = conn.execute(f"SELECT * FROM {ident} LIMIT 10;").df()
+            sample_sql = "\n".join(["SELECT * FROM", ident, "LIMIT 10;"])
+            sample_df = conn.execute(sample_sql).df()
         except Exception as e:
             # Views that depend on missing upstream tables can still exist but fail at query time.
             sample_error = str(e)
