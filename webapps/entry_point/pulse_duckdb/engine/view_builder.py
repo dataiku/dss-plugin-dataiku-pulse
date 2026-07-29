@@ -319,7 +319,7 @@ def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
 
         where = "1=1" if _is_nullish(where_sql) else str(where_sql).strip()
 
-        branch = (
+        branch = (  # nosec B608
             "SELECT\n"
             f"  {_sql_ident(str(instance_name_col).strip())} AS instance_name,\n"
             f"  {_sql_ident(str(project_key_col).strip())} AS project_key,\n"
@@ -371,7 +371,7 @@ def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
     union_sql = "\nUNION ALL\n".join(branches)
 
     # De-dupe by key so we don't showcase the same product multiple times.
-    sql = (
+    sql = (  # nosec B608
         "CREATE OR REPLACE VIEW \"base_product_index\" AS\n"
         "SELECT instance_name, project_key, product_type, product_key, product_name, product_subtype,\n"
         "       owner_login, last_modified_by_login, created_at, updated_at\n"
