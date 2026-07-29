@@ -458,25 +458,23 @@ def _fetch_usage_and_related_assets(*, project_key: str | None, object_type: str
         where += " AND project_key = ?"
         params.append(project_key)
 
-    usage_df = query_df(
-        f"SELECT COUNT(*) AS n FROM v_object_activity_events WHERE {where};",
-        params,
-    )
+    usage_sql = "\n".join(["SELECT COUNT(*) AS n FROM v_object_activity_events WHERE", where + ";"])
+    usage_df = query_df(usage_sql, params)
     usage = int(usage_df.iloc[0]["n"]) if len(usage_df.index) else 0
 
-    related_df = query_df(
-        f"""
-        SELECT
-          instance_name AS instanceName,
-          project_key AS projectKey,
-          COUNT(*) AS eventCount
-        FROM v_object_activity_events
-        WHERE {where}
-        GROUP BY 1, 2
-        ORDER BY eventCount DESC, instanceName, projectKey;
-        """.strip(),
-        params,
+    related_sql = "\n".join(
+        [
+            "SELECT",
+            "  instance_name AS instanceName,",
+            "  project_key AS projectKey,",
+            "  COUNT(*) AS eventCount",
+            "FROM v_object_activity_events",
+            "WHERE " + where,
+            "GROUP BY 1, 2",
+            "ORDER BY eventCount DESC, instanceName, projectKey;",
+        ]
     )
+    related_df = query_df(related_sql, params)
 
     return usage, _df_records(related_df)
 
@@ -500,10 +498,14 @@ def _fetch_description(*, instance_name: str, project_key: str | None, object_ty
         where.append("project_key = ?")
         params.append(project_key)
 
-    df = query_df(
-        f"SELECT extras FROM {table} WHERE {' AND '.join(where)} LIMIT 1;",
-        params,
+    description_sql = "\n".join(
+        [
+            "SELECT extras FROM " + table,
+            "WHERE " + " AND ".join(where),
+            "LIMIT 1;",
+        ]
     )
+    df = query_df(description_sql, params)
     if not len(df.index):
         return None
 
@@ -521,22 +523,22 @@ def build_assets_details():
     _start_duckdb_init_async()
 
     # Find the selected asset keys.
-    df = query_df(
-        f"""
-        SELECT
-          instance_name AS instanceName,
-          project_key AS projectKey,
-          object_type AS objectType,
-          object_key AS objectKey,
-          object_name AS objectName,
-          owner_login AS ownerLogin,
-          updated_at AS updatedAt
-        FROM base_asset_index
-        WHERE {_asset_id_expr_for_build_assets()} = ?
-        LIMIT 1;
-        """.strip(),
-        [asset_id],
+    asset_lookup_sql = "\n".join(
+        [
+            "SELECT",
+            "  instance_name AS instanceName,",
+            "  project_key AS projectKey,",
+            "  object_type AS objectType,",
+            "  object_key AS objectKey,",
+            "  object_name AS objectName,",
+            "  owner_login AS ownerLogin,",
+            "  updated_at AS updatedAt",
+            "FROM base_asset_index",
+            "WHERE " + _asset_id_expr_for_build_assets() + " = ?",
+            "LIMIT 1;",
+        ]
     )
+    df = query_df(asset_lookup_sql, [asset_id])
 
     if not len(df.index):
         return jsonify({"ok": False, "error": "Asset not found"}), 404
@@ -584,22 +586,22 @@ def build_products_details():
 
     _start_duckdb_init_async()
 
-    df = query_df(
-        f"""
-        SELECT
-          instance_name AS instanceName,
-          project_key AS projectKey,
-          product_type AS objectType,
-          product_key AS objectKey,
-          product_name AS objectName,
-          owner_login AS ownerLogin,
-          updated_at AS updatedAt
-        FROM final_build_products_catalog
-        WHERE product_id = ?
-        LIMIT 1;
-        """.strip(),
-        [asset_id],
+    product_lookup_sql = "\n".join(
+        [
+            "SELECT",
+            "  instance_name AS instanceName,",
+            "  project_key AS projectKey,",
+            "  product_type AS objectType,",
+            "  product_key AS objectKey,",
+            "  product_name AS objectName,",
+            "  owner_login AS ownerLogin,",
+            "  updated_at AS updatedAt",
+            "FROM final_build_products_catalog",
+            "WHERE product_id = ?",
+            "LIMIT 1;",
+        ]
     )
+    df = query_df(product_lookup_sql, [asset_id])
 
     if not len(df.index):
         return jsonify({"ok": False, "error": "Product not found"}), 404
