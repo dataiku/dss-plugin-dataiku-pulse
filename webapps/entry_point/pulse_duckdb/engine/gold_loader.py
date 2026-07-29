@@ -23,6 +23,31 @@ from pulse_duckdb.engine.plugin_storage import gold_blob_url, gold_partitioned_g
 logger = logging.getLogger(__name__)
 
 
+def _sql_ident(name: str) -> str:
+    return '"' + str(name).replace('"', '""') + '"'
+
+
+def _sql_string_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _create_read_parquet_view_sql(*, table_name: str, parquet_glob: str) -> str:
+    lines = [
+        f"CREATE OR REPLACE VIEW {_sql_ident(table_name)} AS",
+        "SELECT *",
+        f"FROM read_parquet({_sql_string_literal(parquet_glob)}, hive_partitioning = true);",
+    ]
+    return "\n".join(lines)
+
+
+def _create_table_from_tmp_df_sql(table_name: str) -> str:
+    return f"CREATE TABLE {_sql_ident(table_name)} AS SELECT * FROM _tmp_df;"
+
+
+def _count_rows_sql(table_name: str) -> str:
+    return f"SELECT COUNT(*) FROM {_sql_ident(table_name)};"
+
+
 def _extract_table_name(path: str) -> str | None:
     """Infer DuckDB table name from managed folder path.
 
@@ -221,13 +246,7 @@ def load_gold_tables(
                     return
 
             glob = gold_partitioned_glob(dataset=table_name)
-            conn.execute(
-                f"""
-                CREATE OR REPLACE VIEW \"{table_name}\" AS
-                SELECT *
-                FROM read_parquet('{glob}', hive_partitioning = true);
-                """.strip()
-            )
+            conn.execute(_create_read_parquet_view_sql(table_name=table_name, parquet_glob=glob))
             loaded.append({"table": table_name, "path": "(read_parquet partitions)", "rows": 0})
         except Exception as e:
             logger.exception("Failed creating partitioned view for %s", table_name)
@@ -285,19 +304,19 @@ def load_gold_tables(
             if suffix == ".parquet":
                 df = _load_df_from_parquet(folder, rel_path)
                 conn.register("_tmp_df", df)
-                conn.execute(f'CREATE TABLE "{table_name}" AS SELECT * FROM _tmp_df;')
+                conn.execute(_create_table_from_tmp_df_sql(table_name))
                 conn.unregister("_tmp_df")
                 rows = len(df)
 
             elif suffix == ".csv" and settings.PULSE_GOLD_LOAD_USE_DUCKDB_CSV_AUTO:
                 _load_csv_to_table(conn, folder, path=rel_path, table_name=table_name)
-                rows = conn.execute(f'SELECT COUNT(*) FROM "{table_name}";').fetchone()[0]
+                rows = conn.execute(_count_rows_sql(table_name)).fetchone()[0]
 
             elif suffix == ".csv":
                 # Fallback: pandas-based loader
                 df = pd.read_csv(io.BytesIO(folder.get_file(rel_path).content))
                 conn.register("_tmp_df", df)
-                conn.execute(f'CREATE TABLE "{table_name}" AS SELECT * FROM _tmp_df;')
+                conn.execute(_create_table_from_tmp_df_sql(table_name))
                 conn.unregister("_tmp_df")
                 rows = len(df)
 
