@@ -1,0 +1,11 @@
+final_build_catalog:
+  description: >
+    This document describes the DuckDB *view(s)* needed to power the **Build → Catalog** “phone book” UI.
+  depends_on: []
+  build_order: 1100
+  sql: |
+    CREATE OR REPLACE VIEW "final_build_catalog" AS
+    SELECT 1 AS dummy;
+  example_data: |
+    -- This object is a VIEW.
+    -- Insert example rows into its upstream base tables.

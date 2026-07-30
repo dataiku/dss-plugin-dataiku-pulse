@@ -15,6 +15,7 @@ final_build_formal_mau_daily:
         instance_name,
         lower(trim(users_login)) AS login_norm,
         users_enabled,
+        users_email,
         users_trialstatus_exists,
         ROW_NUMBER() OVER (
           PARTITION BY instance_name, lower(trim(users_login))
@@ -45,7 +46,11 @@ final_build_formal_mau_daily:
      AND a.instance_name = f.instance_name
      AND a.login_norm = f.login_norm
     WHERE u.users_enabled = 'True'
-      AND COALESCE(u.users_trialstatus_exists, 'False') != 'True';
+      AND COALESCE(u.users_trialstatus_exists, 'False') != 'True'
+      AND NOT regexp_matches(
+        lower(trim(COALESCE(u.users_email, ''))),
+        '@dataiku(\\.[^@\\s]+)+$'
+      );
   example_data: |
     -- This object is a VIEW.
     -- Insert example rows into its upstream base tables.

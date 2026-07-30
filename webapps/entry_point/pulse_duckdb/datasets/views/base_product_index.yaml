@@ -1,0 +1,96 @@
+base_product_index:
+  description: >
+    This view normalizes **product** inventory (deliverables/end-products) into a single unioned index, similar to `base_asset_index` but **products-only**.
+  depends_on:
+    - base_projects_instance_metadata_history
+    - base_api_services_project_metadata_history
+    - base_agent_tools_project_metadata_history
+    - base_insights_project_metadata_history
+    - base_webapps_project_metadata_history
+    - base_apps_instance_metadata_history
+    - v_event_mapping__all
+  build_order: 1030
+  sql: |
+    CREATE OR REPLACE VIEW "base_product_index" AS
+    
+    -- API services (best available proxy for endpoints for now)
+    SELECT
+      instance_name,
+      project_key,
+      'api_service' AS product_type,
+      api_services_id AS product_key,
+      api_services_name AS product_name,
+      api_services_authmethod AS product_subtype,
+      NULL AS owner_login,
+      NULL AS last_modified_by_login,
+      NULL::TIMESTAMP AS created_at,
+      NULL::TIMESTAMP AS updated_at
+    FROM base_api_services_project_metadata_history
+    
+    UNION ALL
+    
+    -- Agent tools (best available proxy for agents/products for now)
+    SELECT
+      instance_name,
+      project_key,
+      'agent_tool' AS product_type,
+      agent_tools_id AS product_key,
+      agent_tools_name AS product_name,
+      agent_tools_type AS product_subtype,
+      NULL AS owner_login,
+      NULL AS last_modified_by_login,
+      NULL::TIMESTAMP AS created_at,
+      NULL::TIMESTAMP AS updated_at
+    FROM base_agent_tools_project_metadata_history
+    
+    UNION ALL
+    
+    -- Insights (proxy for dashboards)
+    SELECT
+      instance_name,
+      project_key,
+      'insight' AS product_type,
+      insights_id AS product_key,
+      insights_name AS product_name,
+      insights_type AS product_subtype,
+      insights_createdby_login AS owner_login,
+      insights_lastmodifiedby_login AS last_modified_by_login,
+      insights_createdon AS created_at,
+      insights_lastmodifiedon AS updated_at
+    FROM base_insights_project_metadata_history
+    
+    UNION ALL
+    
+    -- DSS webapps
+    SELECT
+      instance_name,
+      project_key,
+      'web_application' AS product_type,
+      webapps_id AS product_key,
+      webapps_name AS product_name,
+      webapps_type AS product_subtype,
+      webapps_createdby_login AS owner_login,
+      webapps_lastmodifiedby_login AS last_modified_by_login,
+      webapps_createdon AS created_at,
+      webapps_lastmodifiedon AS updated_at
+    FROM base_webapps_project_metadata_history
+
+    UNION ALL
+
+    -- Packaged applications
+    SELECT
+      instance_name,
+      NULL::VARCHAR AS project_key,
+      'dataiku_application' AS product_type,
+      apps_appid AS product_key,
+      apps_label AS product_name,
+      apps_origin AS product_subtype,
+      NULL AS owner_login,
+      NULL AS last_modified_by_login,
+      NULL::TIMESTAMP AS created_at,
+      NULL::TIMESTAMP AS updated_at
+    FROM base_apps_instance_metadata_history;
+  example_data: |
+    -- This object is a VIEW.
+    -- Minimal example: ensure upstream base table has at least one row.
+    INSERT INTO "base_projects_metadata" DEFAULT VALUES;

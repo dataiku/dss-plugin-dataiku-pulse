@@ -1,0 +1,23 @@
+base_datasets_metadata:
+  description: >
+    Curated dataset inventory across DSS instances.
+  depends_on: []
+  build_order: 50
+  sql: |
+    CREATE OR REPLACE TABLE "base_datasets_metadata" AS
+    SELECT
+          CAST(NULL AS VARCHAR) AS instance_name,
+          CAST(NULL AS VARCHAR) AS project_key,
+          CAST(NULL AS VARCHAR) AS dataset_name,
+          CAST(NULL AS VARCHAR) AS dataset_display_name,
+          CAST(NULL AS VARCHAR) AS dataset_type,
+          CAST(NULL AS BOOLEAN) AS dataset_managed,
+          CAST(NULL AS VARCHAR) AS dataset_last_modified_by_login,
+          CAST(NULL AS TIMESTAMP) AS dataset_created_at,
+          CAST(NULL AS TIMESTAMP) AS dataset_updated_at,
+          CAST(NULL AS VARCHAR) AS dataset_smart_name,
+          CAST(NULL AS VARCHAR) AS dataset_subtype,
+          CAST(NULL AS BOOLEAN) AS is_feature_group
+    WHERE 1=0;
+  example_data: |
+    INSERT INTO "base_datasets_metadata" (instance_name, project_key, dataset_name, dataset_display_name, dataset_type, dataset_managed, dataset_last_modified_by_login, dataset_created_at, dataset_updated_at, dataset_smart_name, dataset_subtype, is_feature_group) VALUES ('dss-prod', 'FIN', 'dataset_name_example', 'dataset_display_name_example', 'dataset_type_example', true, 'dataset_last_modified_by_login_example', TIMESTAMP '2026-03-23 12:00:00', TIMESTAMP '2026-03-23 12:00:00', 'dataset_smart_name_example', 'dataset_subtype_example', true);

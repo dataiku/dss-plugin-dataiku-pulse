@@ -1,0 +1,20 @@
+final_build_user_activity_daily:
+  description: >
+    UI-ready daily user activity rollup derived from `fact_user_activity_daily`.
+    This is "all projects" (project_key intentionally not included yet).
+  depends_on:
+    - fact_user_activity_daily
+  build_order: 1120
+  sql: |
+    CREATE OR REPLACE VIEW "final_build_user_activity_daily" AS
+    SELECT
+      day,
+      instance_name,
+      login,
+      viewing_actions_count,
+      developing_actions_count,
+      developing_actions_count::DOUBLE / NULLIF(viewing_actions_count::DOUBLE, 0.0) AS developing_ratio
+    FROM fact_user_activity_daily;
+  example_data: |
+    -- This object is a VIEW.
+    -- Insert example rows into its upstream base tables.

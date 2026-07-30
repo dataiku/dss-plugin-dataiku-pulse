@@ -1,0 +1,24 @@
+asset_activity_30d:
+  description: >
+    This view aggregates `v_object_activity_events` to an asset-level activity summary. It is designed to be left-joined into `final_build_catalog`.
+  depends_on:
+    - v_object_activity_events
+  build_order: 1010
+  sql: |
+    CREATE OR REPLACE VIEW "asset_activity_30d" AS
+    SELECT
+      instance_name,
+      project_key,
+      object_type,
+      object_key,
+      COUNT(*) FILTER (WHERE timestamp >= now() - INTERVAL 30 DAY) AS activity_30d,
+      COUNT(DISTINCT login) FILTER (WHERE timestamp >= now() - INTERVAL 30 DAY) AS active_users_30d,
+      MAX(timestamp) AS last_activity_at
+    FROM v_object_activity_events
+    WHERE object_type IS NOT NULL
+      AND object_key IS NOT NULL
+    GROUP BY 1,2,3,4;
+  example_data: |
+    -- This object is a VIEW.
+    -- Minimal example: ensure upstream base table has at least one row.
+    INSERT INTO "v_object_activity_events" DEFAULT VALUES;

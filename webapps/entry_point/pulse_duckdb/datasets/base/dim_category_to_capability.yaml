@@ -1,0 +1,18 @@
+dim_category_to_capability:
+  description: >
+    Dimension table mapping **curated categories** to **top-level capabilities**.
+  depends_on: []
+  build_order: 160
+  sql: |
+    CREATE OR REPLACE TABLE "dim_category_to_capability" AS
+    SELECT
+          CAST(NULL AS VARCHAR) AS dataiku_category,
+          CAST(NULL AS VARCHAR) AS capability,
+          CAST(NULL AS INTEGER) AS capability_order,
+          CAST(NULL AS INTEGER) AS category_order,
+          CAST(NULL AS VARCHAR) AS capability_display_name,
+          CAST(NULL AS VARCHAR) AS category_display_name,
+          CAST(NULL AS BOOLEAN) AS is_dev_activity
+    WHERE 1=0;
+  example_data: |
+    INSERT INTO "dim_category_to_capability" (dataiku_category, capability, capability_order, category_order, capability_display_name, category_display_name, is_dev_activity) VALUES ('dataiku_category_example', 'capability_example', 1, 1, 'capability_display_name_example', 'category_display_name_example', true);

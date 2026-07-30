@@ -1,0 +1,17 @@
+final_build_products_metrics:
+  description: >
+    This document describes the DuckDB queries/views needed to power **Build → Products → Metrics**.
+  depends_on:
+    - final_build_products_catalog
+  build_order: 1130
+  sql: |
+    CREATE OR REPLACE VIEW products_by_type AS
+    SELECT
+      product_type,
+      COUNT(*) AS product_count
+    FROM final_build_products_catalog
+    GROUP BY 1
+    ORDER BY product_count DESC;
+  example_data: |
+    -- This object is a VIEW.
+    -- Insert example rows into its upstream base tables.

@@ -1,0 +1,24 @@
+base_projects_metadata:
+  description: >
+    This base table represents the curated project inventory across DSS instances.
+  depends_on: []
+  build_order: 100
+  sql: |
+    CREATE OR REPLACE TABLE "base_projects_metadata" AS
+    SELECT
+          CAST(NULL AS VARCHAR) AS instance_name,
+          CAST(NULL AS VARCHAR) AS project_key,
+          CAST(NULL AS VARCHAR) AS project_name,
+          CAST(NULL AS VARCHAR) AS project_owner_login,
+          CAST(NULL AS VARCHAR) AS project_owner_display_name,
+          CAST(NULL AS VARCHAR) AS project_creation_login,
+          CAST(NULL AS VARCHAR) AS project_last_modified_by_login,
+          CAST(NULL AS TIMESTAMP) AS project_created_at,
+          CAST(NULL AS TIMESTAMP) AS project_updated_at,
+          CAST(NULL AS VARCHAR) AS project_type,
+          CAST(NULL AS VARCHAR) AS project_app_type,
+          CAST(NULL AS BOOLEAN) AS tutorial_project,
+          CAST(NULL AS VARCHAR) AS commit_mode
+    WHERE 1=0;
+  example_data: |
+    INSERT INTO "base_projects_metadata" (instance_name, project_key, project_name, project_owner_login, project_owner_display_name, project_creation_login, project_last_modified_by_login, project_created_at, project_updated_at, project_type, project_app_type, tutorial_project) VALUES ('dss-prod', 'FIN', 'project_name_example', 'project_owner_login_example', 'project_owner_display_name_example', 'project_creation_login_example', 'project_last_modified_by_login_example', TIMESTAMP '2026-03-23 12:00:00', TIMESTAMP '2026-03-23 12:00:00', 'project_type_example', 'project_app_type_example', true);

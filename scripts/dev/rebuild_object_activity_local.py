@@ -16,7 +16,7 @@ def _load_recipe_module(repo_root: Path):
 
 
 def main() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = Path(__file__).resolve().parents[2]
 
     os.environ.setdefault("PULSE_DUCKDB_READ_ONLY", "0")
 

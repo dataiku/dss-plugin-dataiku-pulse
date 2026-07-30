@@ -91,6 +91,7 @@ Pulse is a **Dataiku DSS plugin** executing inside DSS and relying on `dataiku` 
 ### Environment Context
 - Default Dataiku Python: /opt/dataiku/pyenv (container image)
 - Plugin Workspace Env: project-lib-versioned/python/dataiku-pulse.extras/plugin_dataiku-pulse_managed
+- Preferred local env pointer: `dataiku-pulse/.local/plugin_env_path.txt` (gitignored, one absolute venv path per developer)
 - Always use an environment that includes dataiku when running commands.
 
 ### Primary Folders & Target Paths
@@ -102,7 +103,7 @@ Pulse is a **Dataiku DSS plugin** executing inside DSS and relying on `dataiku` 
 - custom-recipes/ - Plugin recipes (notably create-gold-tables)
 - webapps/pulse-dashboard/ - DSS webapp wrapper + Flask backend
 - resource/pulse-dashboard/build/ - Committed built frontend assets served by the plugin. Never edit directly.
-- /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/ - Editable React source used to produce the frontend.
+- /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse/webapps/entry_point/frontend/ - Editable React source used to produce the frontend.
 
 ### Localized Scoped Rules
 - webapps/pulse-dashboard/AGENTS.md applies to webapps/pulse-dashboard/ and resource/pulse-dashboard/
@@ -131,11 +132,11 @@ For GOLD-table and web-application issues, do not assume a patch is needed first
 
 Do not hand-edit minified or generated assets under resource/pulse-dashboard/build/. 
 
-When modifying the external React frontend source at /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/, you must automatically rebuild and sync the compiled asset directory before handing work back:
+When modifying the external React frontend source at /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse/webapps/entry_point/frontend/, you must automatically rebuild and sync the compiled asset directory before handing work back:
 
 ```bash
-bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/scripts/build_frontend.sh
-bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/scripts/sync_pulse_dashboard_build.sh /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/build
+bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse/webapps/entry_point/scripts/build_frontend.sh
+bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse/scripts/webapp/sync_pulse_dashboard_build.sh /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse/webapps/entry_point/frontend/build
 ```
 - Keep webapps/pulse-dashboard/ in the plugin repo dedicated to backend/wrapper changes only.
 - Do not leave frontend source edits applied without syncing the compiled build during the same task.
@@ -217,7 +218,7 @@ pytest path/to/test_file.py -k test_name_substring
 ### Dashboard Backend Dev Execution
 Outside DSS, execution requires python-lib/ on PYTHONPATH and access to the dataiku environment:
 ```bash
-python -m flask --app webapps/pulse-dashboard/backend.py run --port 8995
+bash scripts/webapp/run_backend.sh
 ```
 
 If verification fails: Stop. Explain. Do not continue stacking fixes.

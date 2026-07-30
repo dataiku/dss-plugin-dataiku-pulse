@@ -23,6 +23,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 
 import yaml
+from shared_duckdb.sql_utils import quote_identifier
 
 from .create_conn import create_connection
 from .init_state import set_init_in_progress
@@ -39,7 +40,6 @@ _BASE_SPECS_DIR = _BASE_DIR / "datasets" / "base"
 _EXPECTED_STARTUP_TABLES = {
     "final_build_catalog",
     "final_build_products_catalog",
-    "dev_activity_capability_daily",
     "final_build_development_activity_events",
 }
 
@@ -127,11 +127,11 @@ def _ensure_table_exists(conn, *, table_name: str) -> bool:
             return False
         # If an object exists but isn't a table, drop it.
         try:
-            conn.execute(f'DROP VIEW IF EXISTS "{table_name}";')
+            conn.execute(f'DROP VIEW IF EXISTS {quote_identifier(table_name)};')
         except Exception:
             pass
         try:
-            conn.execute(f'DROP TABLE IF EXISTS "{table_name}";')
+            conn.execute(f'DROP TABLE IF EXISTS {quote_identifier(table_name)};')
         except Exception:
             pass
 
@@ -177,7 +177,9 @@ def _maybe_create_license_views(conn) -> dict[str, object]:
         if target_name in existing or source_name not in existing:
             continue
 
-        conn.execute(f'CREATE VIEW "{target_name}" AS SELECT * FROM "{source_name}";')  # nosec B608
+        target_ident = quote_identifier(target_name)
+        source_ident = quote_identifier(source_name)
+        conn.execute(f"CREATE VIEW {target_ident} AS SELECT * FROM {source_ident};")  # nosec B608
         created.append(target_name)
 
     if (
@@ -234,8 +236,8 @@ def _replace_view_from_query(conn, *, view_name: str, source_table: str, select_
         )
         return
 
-    conn.execute(f'DROP VIEW IF EXISTS "{view_name}";')
-    conn.execute(f'CREATE VIEW "{view_name}" AS {select_sql}')  # nosec B608
+    conn.execute(f'DROP VIEW IF EXISTS {quote_identifier(view_name)};')
+    conn.execute(f'CREATE VIEW {quote_identifier(view_name)} AS {select_sql}')  # nosec B608
 
 
 def _maybe_create_inventory_views(conn) -> None:
@@ -334,6 +336,69 @@ def _maybe_create_inventory_views(conn) -> None:
         source_table="fact_object_activity_events",
         select_sql="SELECT * FROM fact_object_activity_events",
     )
+
+
+def ensure_consumption_product_views(conn) -> dict[str, object]:
+    from .config_driven_views import build_base_product_index, build_product_activity_30d
+
+    _maybe_create_inventory_views(conn)
+
+    if _object_type(conn, "base_object_activity_events") and not _object_type(conn, "v_object_activity_events"):
+        conn.execute('CREATE VIEW "v_object_activity_events" AS SELECT * FROM "base_object_activity_events";')
+
+    base_product_report = build_base_product_index(conn)
+    product_activity_report = build_product_activity_30d(conn)
+
+    conn.execute(
+        """
+        CREATE OR REPLACE VIEW "final_build_products_catalog" AS
+        WITH idx AS (
+          SELECT * FROM base_product_index
+        ),
+        act AS (
+          SELECT * FROM product_activity_30d
+        )
+        SELECT
+          md5(concat_ws('|', idx.instance_name, idx.project_key, idx.product_type, idx.product_key)) AS product_id,
+          idx.instance_name,
+          idx.project_key,
+          idx.product_type,
+          idx.product_key,
+          idx.product_name,
+          idx.product_subtype,
+          idx.owner_login,
+          idx.last_modified_by_login,
+          idx.created_at,
+          idx.updated_at,
+          COALESCE(act.activity_30d, 0) AS activity_30d,
+          COALESCE(act.active_users_30d, 0) AS active_users_30d,
+          act.last_activity_at,
+          p.project_name
+        FROM idx
+        LEFT JOIN act
+          ON act.instance_name = idx.instance_name
+         AND act.project_key = idx.project_key
+         AND act.product_type = idx.product_type
+         AND act.product_key = idx.product_key
+        LEFT JOIN (
+          SELECT
+            instance_name,
+            project_key,
+            project_name
+          FROM base_projects_metadata
+        ) p
+          ON p.instance_name = idx.instance_name
+         AND p.project_key = idx.project_key;
+        """.strip()
+    )
+
+    return {
+        "ok": True,
+        "base_product_index": base_product_report,
+        "product_activity_30d": product_activity_report,
+        "v_object_activity_events": bool(_object_type(conn, "v_object_activity_events")),
+        "final_build_products_catalog": bool(_object_type(conn, "final_build_products_catalog")),
+    }
 
 
 def _maybe_seed_demo_dev_activity(conn) -> dict:
@@ -558,16 +623,6 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
         settings.PULSE_GOLD_TABLES_FOLDER_ID or settings.PULSE_GOLD_TABLES_FOLDER_NAME,
     )
 
-    bootstrap_result = shared_prepare_duckdb(
-        project_key=settings.PULSE_SOURCE_PROJECT_KEY,
-        folder_lookup=settings.PULSE_GOLD_TABLES_FOLDER_ID or settings.PULSE_GOLD_TABLES_FOLDER_NAME,
-        read_only=False,
-        reset=False,
-        db_path=settings.DUCKDB_PATH,
-        purpose="dashboard",
-        configure_storage_access=True,
-    )
-    bootstrap_result.conn.close()
     _set_status_callback("waiting_lock", "Waiting for DuckDB init lock")
 
     try:
@@ -579,6 +634,16 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                 "DuckDB ensure_database_ready: acquired init lock after %.3fs",
                 time.time() - started,
             )
+            bootstrap_result = shared_prepare_duckdb(
+                project_key=settings.PULSE_SOURCE_PROJECT_KEY,
+                folder_lookup=settings.PULSE_GOLD_TABLES_FOLDER_ID or settings.PULSE_GOLD_TABLES_FOLDER_NAME,
+                read_only=False,
+                reset=False,
+                db_path=settings.DUCKDB_PATH,
+                purpose="dashboard",
+                configure_storage_access=True,
+            )
+            bootstrap_result.conn.close()
             initialize_database()
 
             if not load_gold_tables:
@@ -783,14 +848,21 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                     _set_status_callback("building_views", "Building dashboard views")
                     views_report = build_views_from_specs(conn)
                     logger.info(
-                        "DuckDB ensure_database_ready: view build completed in %.3fs with ok=%s",
+                        "DuckDB ensure_database_ready: view build completed in %.3fs with ok=%s statements=%s skipped=%s errors=%s",
                         time.time() - views_started,
                         views_report.get("ok"),
+                        views_report.get("statements"),
+                        len(cast(list[object], views_report.get("skipped", []))),
+                        len(cast(list[object], views_report.get("errors", []))),
                     )
                     if not bool(views_report.get("ok", False)):
                         logger.error(
                             "DuckDB ensure_database_ready: view build errors=%s",
                             views_report.get("errors"),
+                        )
+                        logger.error(
+                            "DuckDB ensure_database_ready: view build skipped=%s",
+                            views_report.get("skipped"),
                         )
 
                     ok = bool(views_report.get("ok", False))

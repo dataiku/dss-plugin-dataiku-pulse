@@ -1,0 +1,15 @@
+v_object_activity_events:
+  description: >
+    Event-level activity derived from audit logs.
+
+    NOTE: This view is created dynamically by `pulse_duckdb.engine.view_builder`.
+    It prefers `fact_object_activity_events` from GOLD, and falls back to
+    `v_event_mapping__all` when the fact table is not available.
+
+  depends_on: []
+  build_order: 1005
+  sql: |
+    -- Created dynamically in Python.
+    SELECT 1;
+  example_data: |
+    -- This object is a VIEW built from audit logs.
