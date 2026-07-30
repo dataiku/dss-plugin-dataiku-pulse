@@ -1,0 +1,28 @@
+dev_activity_top_users_30d:
+  description: >
+    Top users (“builders”) in the last 30 days.
+  depends_on:
+    - final_build_development_activity_events
+  build_order: 1080
+  sql: |
+    CREATE OR REPLACE VIEW "dev_activity_top_users_30d" AS
+    WITH x AS (
+      SELECT
+        login,
+        capability,
+        CAST(date_trunc('day', timestamp) AS DATE) AS day,
+        timestamp
+      FROM final_build_development_activity_events
+      WHERE timestamp >= now() - INTERVAL 30 DAY
+    )
+    SELECT
+      login,
+      COUNT(*) AS event_count_30d,
+      COUNT(DISTINCT day) AS active_days_30d,
+      COUNT(DISTINCT capability) AS capabilities_touched_30d
+    FROM x
+    GROUP BY 1
+    ORDER BY event_count_30d DESC;
+  example_data: |
+    -- This object is a VIEW.
+    -- Insert example rows into its upstream base tables.

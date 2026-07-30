@@ -18,7 +18,7 @@ In this workspace, the editable frontend source does **not** live in this repo. 
 - `webapps/pulse-dashboard/body.html` is a loader HTML (not a symlink).
   - It loads `resource/pulse-dashboard/build/asset-manifest.json` from plugin resources and injects the hashed JS/CSS entrypoints.
 - The React build is copied into the plugin under `resource/pulse-dashboard/build/`.
-  - Use `scripts/sync_pulse_dashboard_build.sh <abs/path/to/build>` to refresh.
+  - Use `scripts/webapp/sync_pulse_dashboard_build.sh <abs/path/to/build>` to refresh.
 
 ## Notes
 
@@ -40,14 +40,14 @@ In this workspace, the editable frontend source does **not** live in this repo. 
 The plugin repository intentionally stores only the built frontend under `resource/pulse-dashboard/build/`. Do not edit that build output directly.
 
 In this Code Studio workspace, the React source used to produce that build lives at:
-- `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/`
+- `/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse/webapps/entry_point/frontend/`
 
 Rebuild + sync flow:
-- Build: `bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/scripts/build_frontend.sh`
-- Sync into plugin: `bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/scripts/sync_pulse_dashboard_build.sh /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/webapps/entry_point/frontend/build`
+- Build: `bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse/webapps/entry_point/scripts/build_frontend.sh`
+- Sync into plugin: `bash /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse/scripts/webapp/sync_pulse_dashboard_build.sh /home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse/webapps/entry_point/frontend/build`
 
 Practical rules:
-- Frontend feature/UI work happens in `dataiku-pulse.extras/webapps/entry_point/frontend/`.
+- Frontend feature/UI work happens in `dataiku-pulse/webapps/entry_point/frontend/`.
 - Backend/wrapper work happens in `dataiku-pulse/webapps/pulse-dashboard/`.
 - The served packaged assets must end up in `dataiku-pulse/resource/pulse-dashboard/build/`.
 - A duplicate build under `dataiku-pulse.extras/resource/pulse-dashboard/` is not the served source of truth and should not be relied on.

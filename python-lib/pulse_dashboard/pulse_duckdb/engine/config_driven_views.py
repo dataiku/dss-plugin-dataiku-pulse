@@ -27,6 +27,7 @@ from typing import Any
 
 import duckdb
 import yaml
+from shared_duckdb.sql_utils import quote_identifier
 
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ _CONFIGS_DIR = Path(__file__).resolve().parents[2] / "configs"
 
 
 def _sql_ident(name: str) -> str:
-    return '"' + str(name).replace('"', '""') + '"'
+    return quote_identifier(name)
 
 
 def _table_exists(conn: duckdb.DuckDBPyConnection, *, name: str) -> bool:

@@ -1,0 +1,16 @@
+base_user_group_membership:
+  description: >
+    User-to-group membership mapping.
+  depends_on: []
+  build_order: 130
+  sql: |
+    CREATE OR REPLACE TABLE "base_user_group_membership" AS
+    SELECT
+          CAST(NULL AS VARCHAR) AS instance_name,
+          CAST(NULL AS VARCHAR) AS login,
+          CAST(NULL AS VARCHAR) AS group_name,
+          CAST(NULL AS TIMESTAMP) AS valid_from,
+          CAST(NULL AS TIMESTAMP) AS valid_to
+    WHERE 1=0;
+  example_data: |
+    INSERT INTO "base_user_group_membership" (instance_name, login, group_name, valid_from, valid_to) VALUES ('dss-prod', 'alice', 'group_name_example', TIMESTAMP '2026-03-23 12:00:00', TIMESTAMP '2026-03-23 12:00:00');

@@ -13,6 +13,7 @@ from pathlib import Path, PurePosixPath
 import dataiku
 import duckdb
 import pandas as pd
+from shared_duckdb.sql_utils import quote_identifier
 
 from ... import settings
 
@@ -150,9 +151,9 @@ def _load_parquet_to_table(
         params.append(str(tmp_path))
 
         if append:
-            conn.execute(f'INSERT INTO "{table_name}" {sql_select};', params)  # nosec B608 (table_name validated)
+            conn.execute(f'INSERT INTO {quote_identifier(table_name)} {sql_select};', params)  # nosec B608 (table_name validated)
         else:
-            conn.execute(f'CREATE TABLE "{table_name}" AS {sql_select};', params)  # nosec B608 (table_name validated)
+            conn.execute(f'CREATE TABLE {quote_identifier(table_name)} AS {sql_select};', params)  # nosec B608 (table_name validated)
     finally:
         try:
             os.remove(tmp_path)
@@ -188,7 +189,7 @@ def _load_csv_to_table(
 
         # `read_csv_auto` infers TIMESTAMP/BOOLEAN/etc better than pandas.
         conn.execute(
-            f'CREATE TABLE "{table_name}" AS SELECT * FROM read_csv_auto(?, header=true);',  # nosec B608 (table_name validated)
+            f'CREATE TABLE {quote_identifier(table_name)} AS SELECT * FROM read_csv_auto(?, header=true);',  # nosec B608 (table_name validated)
             [str(tmp_path)],
         )
     finally:

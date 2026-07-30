@@ -1,0 +1,26 @@
+Pulse base tables checklist
+
+Source: pulse_duckdb/datasets/base/*.yaml
+
+Base tables to build (target GOLD managed-folder objects should be named to match these DuckDB table names):
+
+- base_agents_metadata
+- base_api_endpoints_metadata
+- base_dashboards_metadata
+- base_dataiku_applications_metadata
+- base_datasets_metadata
+- base_groups
+- base_instance_registry
+- base_mlmodels_metadata
+- base_object_activity_events
+- base_projects_metadata
+- base_recipes_metadata
+- base_scenarios_metadata
+- base_user_group_membership
+- base_users
+- base_webapps_metadata
+
+Non-`base_` base-layer tables (present today, should be renamed to `base_*` later):
+
+- dim_category_to_capability  -> base_category_to_capability
+- fact_dev_activity_events    -> base_dev_activity_events

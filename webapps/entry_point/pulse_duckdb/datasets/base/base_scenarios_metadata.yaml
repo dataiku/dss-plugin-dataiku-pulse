@@ -1,0 +1,23 @@
+base_scenarios_metadata:
+  description: >
+    Curated scenario inventory across DSS instances.
+  depends_on: []
+  build_order: 120
+  sql: |
+    CREATE OR REPLACE TABLE "base_scenarios_metadata" AS
+    SELECT
+          CAST(NULL AS VARCHAR) AS instance_name,
+          CAST(NULL AS VARCHAR) AS project_key,
+          CAST(NULL AS VARCHAR) AS scenario_id,
+          CAST(NULL AS VARCHAR) AS scenario_name,
+          CAST(NULL AS VARCHAR) AS scenario_type,
+          CAST(NULL AS BOOLEAN) AS scenario_active,
+          CAST(NULL AS VARCHAR) AS scenario_run_as_login,
+          CAST(NULL AS TIMESTAMP) AS scenario_created_at,
+          CAST(NULL AS TIMESTAMP) AS scenario_updated_at,
+          CAST(NULL AS TIMESTAMP) AS scenario_next_run,
+          CAST(NULL AS TIMESTAMP) AS scenario_last_run_start,
+          CAST(NULL AS BOOLEAN) AS scenario_running
+    WHERE 1=0;
+  example_data: |
+    INSERT INTO "base_scenarios_metadata" (instance_name, project_key, scenario_id, scenario_name, scenario_type, scenario_active, scenario_run_as_login, scenario_created_at, scenario_updated_at, scenario_next_run, scenario_last_run_start, scenario_running) VALUES ('dss-prod', 'FIN', 'scenario_id_example', 'scenario_name_example', 'scenario_type_example', true, 'scenario_run_as_login_example', TIMESTAMP '2026-03-23 12:00:00', TIMESTAMP '2026-03-23 12:00:00', TIMESTAMP '2026-03-23 12:00:00', TIMESTAMP '2026-03-23 12:00:00', true);

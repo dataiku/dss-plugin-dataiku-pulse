@@ -1,6 +1,6 @@
-"""Create DuckDB views from YAML specs in `pulse_duckdb/datasets/views`.
+"""Create DuckDB views from YAML specs in `pulse_duckdb/datasets/base/views`.
 
-The `pulse_duckdb/datasets/views/*.yaml` files are the source of truth for view definitions.
+The `pulse_duckdb/datasets/base/views/*.yaml` files are the source of truth for view definitions.
 This module executes the `sql` field in a dependency-aware way.
 
 Intended usage:
@@ -18,13 +18,14 @@ from pathlib import Path
 
 import duckdb
 import yaml
+from shared_duckdb.sql_utils import quote_identifier
 
 
 logger = logging.getLogger(__name__)
 
 
 _BASE_DIR = Path(__file__).resolve().parents[1]
-_VIEW_SPECS_DIR = _BASE_DIR / "datasets" / "views"
+_VIEW_SPECS_DIR = _BASE_DIR / "datasets" / "base" / "views"
 
 
 def _split_sql_statements(sql: str) -> list[str]:
@@ -93,8 +94,7 @@ def _relation_exists(conn: duckdb.DuckDBPyConnection, *, name: str) -> bool:
 
 
 def _sql_ident(name: str) -> str:
-    # identifiers in our pipeline are controlled (table/column names), but keep it safe anyway
-    return '"' + str(name).replace('"', '""') + '"'
+    return quote_identifier(name)
 
 
 def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
@@ -264,7 +264,7 @@ def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
 
 
 def build_views_from_specs(conn: duckdb.DuckDBPyConnection) -> dict:
-    """Execute all view SQL from `pulse_duckdb/datasets/views/*.yaml`.
+    """Execute all view SQL from `pulse_duckdb/datasets/base/views/*.yaml`.
 
     If an existing object has the same name but is a TABLE (eg. mistakenly loaded
     from CSV), we drop it before creating the view.

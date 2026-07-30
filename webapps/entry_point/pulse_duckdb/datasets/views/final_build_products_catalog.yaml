@@ -1,0 +1,41 @@
+final_build_products_catalog:
+  description: >
+    This document describes the DuckDB view(s) needed to power **Build → Products → Catalog**.
+  depends_on: []
+  build_order: 1120
+  sql: |
+    CREATE OR REPLACE VIEW "final_build_products_catalog" AS
+    WITH idx AS (
+      SELECT * FROM base_product_index
+    ),
+    act AS (
+      SELECT * FROM product_activity_30d
+    )
+    SELECT
+      md5(concat_ws('|', idx.instance_name, idx.project_key, idx.product_type, idx.product_key)) AS product_id,
+      idx.instance_name,
+      idx.project_key,
+      idx.product_type,
+      idx.product_key,
+      idx.product_name,
+      idx.product_subtype,
+      idx.owner_login,
+      idx.last_modified_by_login,
+      idx.created_at,
+      idx.updated_at,
+      COALESCE(act.activity_30d, 0) AS activity_30d,
+      COALESCE(act.active_users_30d, 0) AS active_users_30d,
+      act.last_activity_at,
+      p.projects_name AS project_name
+    FROM idx
+    LEFT JOIN act
+      ON act.instance_name = idx.instance_name
+     AND act.project_key = idx.project_key
+     AND act.product_type = idx.product_type
+     AND act.product_key = idx.product_key
+    LEFT JOIN base_projects_instance_metadata_history p
+      ON p.instance_name = idx.instance_name
+     AND p.project_key = idx.project_key;
+  example_data: |
+    -- This object is a VIEW.
+    -- Insert example rows into its upstream base tables.
