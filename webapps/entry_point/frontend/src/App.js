@@ -174,6 +174,54 @@ function Modal({ title, onClose, children }) {
   );
 }
 
+function RightFilterPanel({ expanded, onToggle, filterPanel, children, width = 320 }) {
+  return (
+    <>
+      <div className={`PulseRightPanelTabWrap ${expanded ? 'PulseRightPanelTabWrapHidden' : ''}`}>
+        <button className="PulseRightPanelTab" type="button" onClick={() => onToggle(true)}>
+          Filters ◀
+        </button>
+      </div>
+
+      <div className={`PulseRightPanelLayout ${expanded ? 'PulseRightPanelLayoutOpen' : 'PulseRightPanelLayoutClosed'}`} style={{ '--pulse-right-panel-width': `${width}px` }}>
+        <div className={`PulseRightPanelContent ${expanded ? 'PulseRightPanelContentNarrow' : 'PulseRightPanelContentFull'}`}>
+          {children}
+        </div>
+
+        <aside className={`PulseRightPanelDrawer ${expanded ? 'PulseRightPanelDrawerOpen' : 'PulseRightPanelDrawerClosed'}`}>
+          <div className="PulseRightPanelInner">
+            <div className="PulseResultsHeader">
+              <h2 style={{ marginBottom: 0 }}>Filters</h2>
+              <button className="PulseButton" type="button" onClick={() => onToggle(false)}>
+                ▶
+              </button>
+            </div>
+            {filterPanel}
+          </div>
+        </aside>
+      </div>
+    </>
+  );
+}
+
+function FilterPageLayout({ filtersExpanded, onOpenFilters, onCloseFilters, filterContent, children }) {
+  return (
+    <RightFilterPanel
+      expanded={filtersExpanded}
+      onToggle={(nextOpen) => {
+        if (nextOpen) {
+          onOpenFilters();
+        } else {
+          onCloseFilters();
+        }
+      }}
+      filterPanel={filterContent}
+    >
+      {children}
+    </RightFilterPanel>
+  );
+}
+
 function UserInformationSection({
   detail,
   detailInstances,
@@ -503,21 +551,12 @@ function BuildAssetsInventoryPage({
         </div>
       ) : null}
 
-      <div className={`PulseSidebarTabWrap ${filtersExpanded ? 'PulseSidebarTabWrapHidden' : ''}`}>
-        <button className="PulseSidebarTab" type="button" onClick={() => setFiltersExpanded(true)}>
-          ▶ Filters
-        </button>
-      </div>
-
-      <div className={`PulseSidebarLayout ${filtersExpanded ? 'PulseSidebarLayoutOpen' : 'PulseSidebarLayoutClosed'}`}>
-        <aside className={`PulseSidebarDrawer ${filtersExpanded ? 'PulseSidebarDrawerOpen' : 'PulseSidebarDrawerClosed'}`}>
-          <div className="PulseSidebarInner">
-            <div className="PulseResultsHeader">
-              <h2 style={{ marginBottom: 0 }}>Filters</h2>
-              <button className="PulseButton" type="button" onClick={() => setFiltersExpanded(false)}>
-                ◀
-              </button>
-            </div>
+      <FilterPageLayout
+        filtersExpanded={filtersExpanded}
+        onOpenFilters={() => setFiltersExpanded(true)}
+        onCloseFilters={() => setFiltersExpanded(false)}
+        filterContent={(
+          <>
             {loading ? <div className="PulseMuted" style={{ marginTop: 8 }}>Loading…</div> : null}
             {error ? <div className="PulseError">{error}</div> : null}
             <div className={embedded ? 'PulseFilterRail PulseFilterRailEmbedded' : 'PulseFilterRail'}>
@@ -620,11 +659,10 @@ function BuildAssetsInventoryPage({
                 </div>
               </div>
             </div>
-          </div>
-        </aside>
-
-        <div className={`PulseSidebarContent ${filtersExpanded ? 'PulseSidebarContentShifted' : 'PulseSidebarContentFull'}`}>
-          <div className="PulseResults">
+          </>
+        )}
+      >
+        <div className="PulseResults">
           <div className={embedded ? 'PulseCard PulseCardTight' : 'PulseCard'}>
             <div className="PulseResultsHeader">
               <div>
@@ -859,8 +897,7 @@ function BuildAssetsInventoryPage({
             </Modal>
           ) : null}
         </div>
-      </div>
-      </div>
+      </FilterPageLayout>
     </div>
   );
 }
@@ -2640,21 +2677,12 @@ function UsersActivityPage({ apiBase }) {
           See who is using your Dataiku instances, how active they are, and what types of users make up that activity. On this page, creator and consumer labels describe observed behavior, not license assignment.
         </p>
       </div>
-      <div className={`PulseSidebarTabWrap ${filtersExpanded ? 'PulseSidebarTabWrapHidden' : ''}`}>
-        <button className="PulseSidebarTab" type="button" onClick={() => setFiltersExpanded(true)}>
-          ▶ Filters
-        </button>
-      </div>
-
-      <div className={`PulseSidebarLayout ${filtersExpanded ? 'PulseSidebarLayoutOpen' : 'PulseSidebarLayoutClosed'}`}>
-        <aside className={`PulseSidebarDrawer ${filtersExpanded ? 'PulseSidebarDrawerOpen' : 'PulseSidebarDrawerClosed'}`}>
-          <div className="PulseSidebarInner">
-            <div className="PulseResultsHeader">
-              <h2 style={{ marginBottom: 0 }}>Filters</h2>
-              <button className="PulseButton" type="button" onClick={() => setFiltersExpanded(false)}>
-                ◀
-              </button>
-            </div>
+      <FilterPageLayout
+        filtersExpanded={filtersExpanded}
+        onOpenFilters={() => setFiltersExpanded(true)}
+        onCloseFilters={() => setFiltersExpanded(false)}
+        filterContent={(
+          <>
             {loading ? <div className="PulseMuted" style={{ marginTop: 8 }}>Loading…</div> : null}
             {error ? <div className="PulseError">{error}</div> : null}
             <div className="PulseMuted" style={{ marginTop: 8 }}>
@@ -2719,10 +2747,9 @@ function UsersActivityPage({ apiBase }) {
                   </div>
                 ) : null}
             </>
-          </div>
-        </aside>
-
-        <div className={`PulseSidebarContent ${filtersExpanded ? 'PulseSidebarContentShifted' : 'PulseSidebarContentFull'}`}>
+          </>
+        )}
+      >
       <div className="PulseCard">
         <h2>Current User Activity</h2>
         <div className="PulseMuted" style={{ marginBottom: 10 }}>
@@ -3072,9 +3099,7 @@ function UsersActivityPage({ apiBase }) {
         </Modal>
       ) : null}
 
-      </div>
-    </div>
-
+      </FilterPageLayout>
     </div>
   );
 }
@@ -3260,21 +3285,12 @@ function DevelopmentActivityPage({ apiBase }) {
         </p>
       </div>
 
-      <div className={`PulseSidebarTabWrap ${filtersExpanded ? 'PulseSidebarTabWrapHidden' : ''}`}>
-        <button className="PulseSidebarTab" type="button" onClick={() => setFiltersExpanded(true)}>
-          ▶ Filters
-        </button>
-      </div>
-
-      <div className={`PulseSidebarLayout ${filtersExpanded ? 'PulseSidebarLayoutOpen' : 'PulseSidebarLayoutClosed'}`}>
-        <aside className={`PulseSidebarDrawer ${filtersExpanded ? 'PulseSidebarDrawerOpen' : 'PulseSidebarDrawerClosed'}`}>
-          <div className="PulseSidebarInner">
-            <div className="PulseResultsHeader">
-              <h2 style={{ marginBottom: 0 }}>Filters</h2>
-              <button className="PulseButton" type="button" onClick={() => setFiltersExpanded(false)}>
-                ◀
-              </button>
-            </div>
+      <FilterPageLayout
+        filtersExpanded={filtersExpanded}
+        onOpenFilters={() => setFiltersExpanded(true)}
+        onCloseFilters={() => setFiltersExpanded(false)}
+        filterContent={(
+          <>
             {loading ? <div className="PulseMuted" style={{ marginTop: 8 }}>Loading…</div> : null}
             {error ? <div className="PulseError">{error}</div> : null}
             <div className="PulseMuted" style={{ marginBottom: 10 }}>
@@ -3288,10 +3304,9 @@ function DevelopmentActivityPage({ apiBase }) {
                 <option value={90}>Last 90 days</option>
               </select>
             </label>
-          </div>
-        </aside>
-
-        <div className={`PulseSidebarContent ${filtersExpanded ? 'PulseSidebarContentShifted' : 'PulseSidebarContentFull'}`}>
+          </>
+        )}
+      >
           <div className="PulseCard">
         <h2>Activity Over Time</h2>
         <div className="PulseMuted" style={{ marginBottom: 10 }}>
@@ -3608,8 +3623,7 @@ function DevelopmentActivityPage({ apiBase }) {
         </Modal>
       ) : null}
 
-      </div>
-      </div>
+      </FilterPageLayout>
     </div>
   );
 }
@@ -4591,21 +4605,12 @@ function ConsumptionActivityPage({ apiBase }) {
         </p>
       </div>
 
-      <div className={`PulseSidebarTabWrap ${filtersExpanded ? 'PulseSidebarTabWrapHidden' : ''}`}>
-        <button className="PulseSidebarTab" type="button" onClick={() => setFiltersExpanded(true)}>
-          ▶ Filters
-        </button>
-      </div>
-
-      <div className={`PulseSidebarLayout ${filtersExpanded ? 'PulseSidebarLayoutOpen' : 'PulseSidebarLayoutClosed'}`}>
-        <aside className={`PulseSidebarDrawer ${filtersExpanded ? 'PulseSidebarDrawerOpen' : 'PulseSidebarDrawerClosed'}`}>
-          <div className="PulseSidebarInner">
-            <div className="PulseResultsHeader">
-              <h2 style={{ marginBottom: 0 }}>Filters</h2>
-              <button className="PulseButton" type="button" onClick={() => setFiltersExpanded(false)}>
-                ◀
-              </button>
-            </div>
+      <FilterPageLayout
+        filtersExpanded={filtersExpanded}
+        onOpenFilters={() => setFiltersExpanded(true)}
+        onCloseFilters={() => setFiltersExpanded(false)}
+        filterContent={(
+          <>
             {loading ? <div className="PulseMuted" style={{ marginTop: 8 }}>Loading…</div> : null}
             {error ? <div className="PulseError">{error}</div> : null}
             <div className="PulseMuted" style={{ marginBottom: 10 }}>
@@ -4689,10 +4694,9 @@ function ConsumptionActivityPage({ apiBase }) {
                 </div>
               </div>
             </div>
-          </div>
-        </aside>
-
-        <div className={`PulseSidebarContent ${filtersExpanded ? 'PulseSidebarContentShifted' : 'PulseSidebarContentFull'}`}>
+          </>
+        )}
+      >
           <div className="PulseResults">
           <div className="PulseCard">
             <h2>Portfolio Overview</h2>
@@ -4917,9 +4921,6 @@ function ConsumptionActivityPage({ apiBase }) {
               <button className="PulseButton" type="button" disabled={topProductsPage >= topProductsTotalPages} onClick={() => setTopProductsPage((page) => Math.min(topProductsTotalPages, page + 1))}>Next</button>
             </div>
           </div>
-        </div>
-      </div>
-      </div>
 
       {selectedCapability ? (
         <Modal title={`${selectedCapability} capability`} onClose={() => { setSelectedCapability(null); setCapabilityDetails(null); }}>
@@ -5064,6 +5065,8 @@ function ConsumptionActivityPage({ apiBase }) {
           ) : null}
         </Modal>
       ) : null}
+        </div>
+      </FilterPageLayout>
     </div>
   );
 }
@@ -5102,34 +5105,276 @@ function inferCodeStudioPortBase(pathname) {
   return null;
 }
 
-function DropdownNav({ items, homeHref }) {
+function getUserDisplayName(authState) {
+  const user = authState && authState.data && authState.data.user ? authState.data.user : null;
+  if (!user) return 'Guest';
+  return user.displayName || user.login || user.email || 'Guest';
+}
+
+function getNavGroupIcon(label) {
+  switch (label) {
+    case 'Pulse':
+      return '🏠';
+    case 'User Insights':
+      return '👥';
+    case 'Product Lifecycle':
+      return '🧩';
+    case 'LLM Mesh':
+      return '✨';
+    case 'Debug':
+      return '🛠️';
+    default:
+      return '•';
+  }
+}
+
+function getNavItemIcon(label) {
+  switch (label) {
+    case 'Home':
+      return '🏠';
+    case 'FAQ':
+      return '❓';
+    case 'Disclaimer':
+      return '📌';
+    case 'Export':
+      return '📤';
+    case 'Activity Performance':
+      return '📈';
+    case 'License Performance':
+      return '🪪';
+    case 'Assets':
+      return '🗂️';
+    case 'Products':
+      return '📦';
+    case 'Development Activity':
+      return '🛠️';
+    case 'Consumption Activity':
+      return '📊';
+    case 'Overview':
+      return '✨';
+    case 'Reload DuckDB':
+      return '🔄';
+    case 'Preview DuckDB':
+      return '🔍';
+    default:
+      return '•';
+  }
+}
+
+function LeftNavRail({ groups, collapsed, onToggle, activeGroup, onGroupToggle }) {
+  if (!groups.length) {
+    return (
+      <aside className={`PulseRail ${collapsed ? 'PulseRailCollapsed' : ''}`}>
+        <div className="PulseRailBody" />
+        <div className="PulseRailFooter">
+          <button
+            type="button"
+            className="PulseRailToggle"
+            onClick={onToggle}
+            aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+            title={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+          >
+            <span className="PulseRailToggleIcon">{collapsed ? '»' : '«'}</span>
+            {!collapsed ? <span>Collapse</span> : null}
+          </button>
+        </div>
+      </aside>
+    );
+  }
+
+  const hasGroups = groups.length > 0;
+  const onGroupButtonClick = (groupLabel) => {
+    if (collapsed) {
+      onToggle();
+      onGroupToggle(groupLabel, true);
+      return;
+    }
+    onGroupToggle(groupLabel, false);
+  };
+
   return (
-    <div className="PulseNav">
-      <div className="PulseNav-inner">
-        <a href={homeHref} className="PulseNav-brand">Pulse</a>
+    <aside className={`PulseRail ${collapsed ? 'PulseRailCollapsed' : ''}`}>
+      <div className="PulseRailBody">
+        {hasGroups ? groups.map((group) => {
+          const isExpanded = activeGroup === group.label;
+          return (
+            <div key={group.label} className="PulseRailSection">
+              <button
+                type="button"
+                className={`PulseRailSectionButton ${isExpanded ? 'PulseRailSectionButtonActive' : ''}`}
+                onClick={() => onGroupButtonClick(group.label)}
+                aria-expanded={isExpanded}
+                aria-label={group.label}
+                title={group.label}
+              >
+                <span className="PulseRailSectionButtonLeft">
+                  <span className="PulseRailItemIcon" aria-hidden="true">{getNavGroupIcon(group.label)}</span>
+                  {!collapsed ? <span className="PulseRailSectionLabel">{group.label}</span> : null}
+                </span>
+                {!collapsed ? <span className="PulseRailSectionChevron">{isExpanded ? '−' : '+'}</span> : null}
+              </button>
 
-        <div className="PulseNav-menus">
-          {items.map((menu) => (
-            <div key={menu.label} className="PulseNav-menu">
-              <div className="PulseNav-menuLabel">{menu.label}</div>
-              <div className="PulseNav-dropdown">
-                {menu.items.map((item) => (
-                  <a key={item.href} href={item.href} className="PulseNav-item">
-                    <div className="PulseNav-itemTitle">{item.label}</div>
-                    {item.description ? (
-                      <div className="PulseNav-itemDesc">{item.description}</div>
-                    ) : null}
-                  </a>
-                ))}
-              </div>
+              {isExpanded && !collapsed ? (
+                <div className="PulseRailSectionContent">
+                  <div className="PulseRailItems">
+                    {group.items.map((item) => (
+                      item.onClick ? (
+                        <button
+                          key={item.key || item.label}
+                          type="button"
+                          className={`PulseRailItem PulseRailItemButton ${item.isActive ? 'PulseRailItemActive' : ''}`}
+                          onClick={item.onClick}
+                          title={item.description || item.label}
+                        >
+                          <span className="PulseRailItemIcon" aria-hidden="true">{getNavItemIcon(item.label) || getNavGroupIcon(group.label)}</span>
+                          <span className="PulseRailItemLabel">{item.label}</span>
+                        </button>
+                      ) : (
+                        <a
+                          key={item.href}
+                          href={item.href}
+                          className="PulseRailItem"
+                          title={item.description || item.label}
+                          aria-label={item.label}
+                        >
+                          <span className="PulseRailItemIcon" aria-hidden="true">{getNavItemIcon(item.label) || getNavGroupIcon(group.label)}</span>
+                          <span className="PulseRailItemLabel">{item.label}</span>
+                        </a>
+                      )
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
-          ))}
+          );
+        }) : null}
+      </div>
+      <div className="PulseRailFooter">
+        <button
+          type="button"
+          className="PulseRailToggle"
+          onClick={onToggle}
+          aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+          title={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+        >
+          <span className="PulseRailToggleIcon">{collapsed ? '»' : '«'}</span>
+          {!collapsed ? <span>Collapse</span> : null}
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+function DropdownNav({ groups, homeHref, workspaceOptions, workspace, onWorkspaceChange, userLabel, railCollapsed, onRailToggle, activeGroup, onGroupToggle, children }) {
+  return (
+    <div className="PulseShell">
+      <header className="PulseHeader">
+        <div className="PulseHeaderBrand">
+          <a href={homeHref} className="PulseHeaderBrandLink" aria-label="Dataiku Pulse Dashboard home">
+            <span className="PulseHeaderBrandIcon" aria-hidden="true">❤️</span>
+            <span className="PulseHeaderBrandText">Dataiku Pulse Dashboard</span>
+          </a>
         </div>
 
-        <div className="PulseNav-note">
-          Navigation uses hash routes for preview (3000).
+        <div className="PulseHeaderMeta">
+          {workspaceOptions && workspaceOptions.length ? (
+            <label className="PulseHeaderWorkspace">
+              <span className="PulseHeaderMetaLabel">Workspace</span>
+              <select
+                className="PulseSelect"
+                value={workspace}
+                onChange={(e) => onWorkspaceChange(e.target.value)}
+              >
+                {workspaceOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <div className="PulseHeaderUser" title={userLabel}>
+            <span className="PulseHeaderMetaLabel">User</span>
+            <span className="PulseHeaderUserValue">{userLabel}</span>
+          </div>
         </div>
+      </header>
+
+      <div className="PulseShellBody">
+        <LeftNavRail
+          groups={groups}
+          collapsed={railCollapsed}
+          onToggle={onRailToggle}
+          activeGroup={activeGroup}
+          onGroupToggle={onGroupToggle}
+        />
+        <main className="PulseShellContent">{children}</main>
       </div>
+    </div>
+  );
+}
+
+function MyInformationPage({ pageKey, onPageChange }) {
+  const pages = {
+    'my-activity-development': {
+      title: 'Activity & Product Lifecycle Development',
+      description:
+        'Review your personal Dataiku activity and the development work you have contributed across the product lifecycle.',
+      placeholder: 'Personal activity and development insights will be added in a later step.',
+    },
+    'my-license': {
+      title: 'License',
+      description: 'Review your assigned Dataiku license information and personal license-related activity.',
+      placeholder: 'Personal license information will be added in a later step.',
+    },
+    'my-assets': {
+      title: 'Assets',
+      description: 'Review the Dataiku assets you have created, owned, or contributed to.',
+      placeholder: 'Personal asset insights will be added in a later step.',
+    },
+    'my-products': {
+      title: 'Products',
+      description: 'Review the products and outputs you have created or helped develop.',
+      placeholder: 'Personal product insights will be added in a later step.',
+    },
+    'my-consumption': {
+      title: 'Consumption',
+      description: 'Review how your products and outputs are being consumed by others.',
+      placeholder: 'Personal consumption insights will be added in a later step.',
+    },
+    'my-llm-overview': {
+      title: 'Overview',
+      description: 'Review your personal LLM Mesh usage, models, projects, tokens, and cost.',
+      placeholder: 'Coming soon',
+    },
+  };
+
+  const activePage = pages[pageKey] || pages['my-activity-development'];
+
+  return (
+    <div className="PulseWide">
+      <div className="PulseHero">
+        <h1>My Information</h1>
+        <p>View your personal Dataiku activity, products, and LLM usage.</p>
+      </div>
+
+      <PulseSection title={activePage.title}>
+        <p>{activePage.description}</p>
+        <p>{activePage.placeholder}</p>
+      </PulseSection>
+    </div>
+  );
+}
+
+function AdministrationPlaceholderPage() {
+  return (
+    <div className="PulseWide">
+      <div className="PulseHero">
+        <h1>Administration</h1>
+        <p>Manage Pulse infrastructure, database operations, and administrative diagnostics.</p>
+      </div>
+
+      <PulseSection title="Temporary content">
+        <p>Administration tools will be added in a later step.</p>
+      </PulseSection>
     </div>
   );
 }
@@ -5600,21 +5845,12 @@ function UsersLicensePage({ apiBase }) {
         </p>
       </div>
 
-      <div className={`PulseSidebarTabWrap ${filtersExpanded ? 'PulseSidebarTabWrapHidden' : ''}`}>
-        <button className="PulseSidebarTab" type="button" onClick={() => setFiltersExpanded(true)}>
-          ▶ Filters
-        </button>
-      </div>
-
-      <div className={`PulseSidebarLayout ${filtersExpanded ? 'PulseSidebarLayoutOpen' : 'PulseSidebarLayoutClosed'}`}>
-        <aside className={`PulseSidebarDrawer ${filtersExpanded ? 'PulseSidebarDrawerOpen' : 'PulseSidebarDrawerClosed'}`}>
-          <div className="PulseSidebarInner">
-            <div className="PulseResultsHeader">
-              <h2 style={{ marginBottom: 0 }}>Filters</h2>
-              <button className="PulseButton" type="button" onClick={() => setFiltersExpanded(false)}>
-                ◀
-              </button>
-            </div>
+      <FilterPageLayout
+        filtersExpanded={filtersExpanded}
+        onOpenFilters={() => setFiltersExpanded(true)}
+        onCloseFilters={() => setFiltersExpanded(false)}
+        filterContent={(
+          <>
             {loading ? <div className="PulseMuted" style={{ marginTop: 8 }}>Loading…</div> : null}
             {error ? <div className="PulseError">{error}</div> : null}
             <div className="PulseMuted" style={{ marginTop: 8 }}>
@@ -5652,10 +5888,9 @@ function UsersLicensePage({ apiBase }) {
                 You have unapplied filter changes.
               </div>
             ) : null}
-          </div>
-        </aside>
-
-        <div className={`PulseSidebarContent ${filtersExpanded ? 'PulseSidebarContentShifted' : 'PulseSidebarContentFull'}`}>
+          </>
+        )}
+      >
 
       <LicensePerformanceSection
         selectedInstance={selectedInstance}
@@ -5930,22 +6165,150 @@ function UsersLicensePage({ apiBase }) {
         </Modal>
       ) : null}
 
-        </div>
-      </div>
+      </FilterPageLayout>
     </div>
   );
 }
 
-function AppLayout({ navItems, homeHref, children }) {
+function AppLayout({ groups, homeHref, workspaceOptions, workspace, onWorkspaceChange, userLabel, railCollapsed, onRailToggle, activeGroup, onGroupToggle, children }) {
   return (
-    <div>
-      <DropdownNav items={navItems} homeHref={homeHref} />
+    <DropdownNav
+      groups={groups}
+      homeHref={homeHref}
+      workspaceOptions={workspaceOptions}
+      workspace={workspace}
+      onWorkspaceChange={onWorkspaceChange}
+      userLabel={userLabel}
+      railCollapsed={railCollapsed}
+      onRailToggle={onRailToggle}
+      activeGroup={activeGroup}
+      onGroupToggle={onGroupToggle}
+    >
       <div className="PulsePage">{children}</div>
-    </div>
+    </DropdownNav>
   );
 }
 
-function HomePage() {
+// TEMP AUTH DEBUG START
+function TempAuthDebugPanel({ authState }) {
+  const renderValue = (value, fallback = '—') => {
+    if (value === null || value === undefined || value === '') return fallback;
+    return String(value);
+  };
+
+  const renderBool = (value) => (value ? 'Yes' : 'No');
+
+  const panelStyle = {
+    marginTop: '24px',
+    padding: '20px',
+    border: '1px solid #d0d7de',
+    borderRadius: '8px',
+    background: '#fff',
+  };
+
+  const tableStyle = {
+    width: '100%',
+    borderCollapse: 'collapse',
+  };
+
+  const cellStyle = {
+    padding: '6px 0',
+    borderBottom: '1px solid #eef2f6',
+    verticalAlign: 'top',
+  };
+
+  const sectionTitleStyle = {
+    margin: '16px 0 8px',
+    fontSize: '14px',
+    fontWeight: 600,
+  };
+
+  const rawStyle = {
+    marginTop: '12px',
+    padding: '12px',
+    background: '#f6f8fa',
+    borderRadius: '6px',
+    overflowX: 'auto',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+  };
+
+  const status = authState.status;
+  const data = authState.data;
+  const user = data && data.user ? data.user : null;
+  const configuredGroups = data && data.configuredGroups ? data.configuredGroups : {};
+  const permissions = data && data.permissions ? data.permissions : {};
+  const groups = user && Array.isArray(user.groups) ? user.groups : [];
+
+  return (
+    <PulseSection title="Authentication Debug — Temporary">
+      <div style={panelStyle}>
+        {status === 'loading' ? <div className="PulseMuted">Loading authentication details…</div> : null}
+
+        {status === 'error' ? <div className="PulseAlert">Failed loading authentication details: {authState.error}</div> : null}
+
+        {status === 'malformed' ? (
+          <div className="PulseAlert">Received a malformed authentication response from `/api/me`.</div>
+        ) : null}
+
+        {status === 'ready' ? (
+          <>
+            <div style={sectionTitleStyle}>Authentication</div>
+            <table style={tableStyle}>
+              <tbody>
+                <tr><td style={cellStyle}>Authenticated</td><td style={cellStyle}>{renderBool(Boolean(data.authenticated))}</td></tr>
+                <tr><td style={cellStyle}>Login</td><td style={cellStyle}>{renderValue(user && user.login)}</td></tr>
+                <tr><td style={cellStyle}>Display name</td><td style={cellStyle}>{renderValue(user && user.displayName)}</td></tr>
+                <tr><td style={cellStyle}>Email</td><td style={cellStyle}>{renderValue(user && user.email)}</td></tr>
+                <tr><td style={cellStyle}>Highest tier</td><td style={cellStyle}>{renderValue(permissions.highestTier)}</td></tr>
+              </tbody>
+            </table>
+
+            <div style={sectionTitleStyle}>Configured groups</div>
+            <table style={tableStyle}>
+              <tbody>
+                <tr><td style={cellStyle}>Organization</td><td style={cellStyle}>{renderValue(configuredGroups.organization)}</td></tr>
+                <tr><td style={cellStyle}>Administration</td><td style={cellStyle}>{renderValue(configuredGroups.administration)}</td></tr>
+              </tbody>
+            </table>
+
+            <div style={sectionTitleStyle}>Resolved permissions</div>
+            <table style={tableStyle}>
+              <tbody>
+                <tr><td style={cellStyle}>Self</td><td style={cellStyle}>{renderBool(Boolean(permissions.self))}</td></tr>
+                <tr><td style={cellStyle}>Organization</td><td style={cellStyle}>{renderBool(Boolean(permissions.organization))}</td></tr>
+                <tr><td style={cellStyle}>Administration</td><td style={cellStyle}>{renderBool(Boolean(permissions.administration))}</td></tr>
+              </tbody>
+            </table>
+
+            <div style={sectionTitleStyle}>User groups</div>
+            {groups.length ? (
+              <ul>
+                {groups.map((group) => (
+                  <li key={group}>{group}</li>
+                ))}
+              </ul>
+            ) : (
+              <div className="PulseMuted">No groups reported.</div>
+            )}
+
+            {!data.authenticated ? (
+              <div className="PulseMuted">This response indicates the current request is unauthenticated.</div>
+            ) : null}
+
+            <details>
+              <summary>Raw /api/me response</summary>
+              <pre style={rawStyle}>{JSON.stringify(data, null, 2)}</pre>
+            </details>
+          </>
+        ) : null}
+      </div>
+    </PulseSection>
+  );
+}
+// TEMP AUTH DEBUG END
+
+function HomePage({ authState }) {
   return (
     <div className="PulseWide">
       <div className="PulseHero">
@@ -5999,6 +6362,19 @@ function HomePage() {
           refer to the <strong>Disclaimer</strong> page.
         </p>
       </PulseSection>
+
+      <TempAuthDebugPanel authState={authState} />
+    </div>
+  );
+}
+
+function AuthenticationRequiredPage() {
+  return (
+    <div className="PulseWide">
+      <div className="PulseHero">
+        <h1>Authentication Required</h1>
+        <p>Please log in to Dataiku DSS to access Pulse.</p>
+      </div>
     </div>
   );
 }
@@ -6154,6 +6530,11 @@ function App() {
   const [userActivityEnabled, setUserActivityEnabled] = useState(false);
   const [debugEnabled, setDebugEnabled] = useState(false);
   const [llmMeshEnabled, setLlmMeshEnabled] = useState(false);
+  const [authState, setAuthState] = useState({ status: 'loading', data: null, error: '' });
+  const [workspace, setWorkspace] = useState('me');
+  const [myPage, setMyPage] = useState('my-activity-development');
+  const [railCollapsed, setRailCollapsed] = useState(false);
+  const [activeRailGroup, setActiveRailGroup] = useState('My Activities');
 
   const { apiBase, currentPortBase } = useMemo(() => {
     const backendPort = process.env.REACT_APP_BACKEND_PORT || '8995';
@@ -6228,6 +6609,37 @@ function App() {
   }, [apiBase]);
 
   useEffect(() => {
+    let cancelled = false;
+    setAuthState({ status: 'loading', data: null, error: '' });
+
+    async function loadMe() {
+      try {
+        const response = await fetch(apiUrl(apiBase, '/api/me'), { cache: 'no-cache' });
+        const data = await response.json();
+
+        if (cancelled) return;
+        if (!response.ok) {
+          throw new Error((data && data.error) || `Request failed (${response.status})`);
+        }
+        if (!data || typeof data !== 'object' || typeof data.authenticated !== 'boolean') {
+          setAuthState({ status: 'malformed', data, error: 'Malformed /api/me response' });
+          return;
+        }
+        setAuthState({ status: 'ready', data, error: '' });
+      } catch (error) {
+        if (!cancelled) {
+          setAuthState({ status: 'error', data: null, error: error.message || 'Failed loading /api/me' });
+        }
+      }
+    }
+
+    loadMe();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
+
+  useEffect(() => {
     const onHashChange = () => {
       setHashRoute(normalizeHashRoute(window.location.hash));
     };
@@ -6237,120 +6649,285 @@ function App() {
   }, []);
 
   const homeHref = currentPortBase ? `${currentPortBase}/` : './';
+  const permissions = authState.data && authState.data.permissions ? authState.data.permissions : {};
+  const isAuthenticated = authState.status === 'ready' && authState.data && authState.data.authenticated === true;
+  const userLabel = getUserDisplayName(authState);
+  const workspaceOptions = useMemo(() => {
+    if (!isAuthenticated) return [];
+    const options = [{ value: 'me', label: 'My Information' }];
+    if (permissions.organization === true) {
+      options.push({ value: 'organization', label: 'Organization' });
+    }
+    if (permissions.administration === true) {
+      options.push({ value: 'administration', label: 'Administration' });
+    }
+    return options;
+  }, [isAuthenticated, permissions.organization, permissions.administration]);
 
-  const pulseNav = {
-    label: 'Pulse',
-    items: [
-      {
-        href: `${homeHref}#`,
-        label: 'Home',
-        description: 'High-level overview of platform activity, highlighting key lifecycle and consumption trends at a glance',
-      },
-      {
-        href: `${homeHref}#faq`,
-        label: 'FAQ',
-        description: 'Answers common questions about metrics, definitions, and how data is derived',
-      },
-      {
-        href: `${homeHref}#disclaimer`,
-        label: 'Disclaimer',
-        description: 'Important notes about support scope, beta status, and how to interpret Pulse metrics',
-      },
-      {
-        href: `${homeHref}#export`,
-        label: 'Export',
-        description: 'Select filters and sections, then generate a downloadable PDF report',
-      },
-    ],
-  };
+  useEffect(() => {
+    if (!workspaceOptions.length) return;
+    const allowed = new Set(workspaceOptions.map((option) => option.value));
+    if (!allowed.has(workspace)) {
+      setWorkspace('me');
+    }
+  }, [workspace, workspaceOptions]);
 
-  const usersNav = {
-    label: 'User Insights',
-    items: [
-      {
-        href: `${homeHref}#users`,
-        label: 'Activity Performance',
-        description: 'Explore observed activity, engagement, and behavior trends across DSS instances',
-      },
-      {
-        href: `${homeHref}#users/licenses`,
-        label: 'License Performance',
-        description: 'Review enabled users, license profiles, and entitlement coverage across DSS instances',
-      },
-    ],
-  };
+  const organizationNavGroups = useMemo(() => {
+    const pulseNav = {
+      label: 'Pulse',
+      items: [
+        {
+          href: `${homeHref}#`,
+          label: 'Home',
+          description: 'High-level overview of platform activity, highlighting key lifecycle and consumption trends at a glance',
+        },
+        {
+          href: `${homeHref}#faq`,
+          label: 'FAQ',
+          description: 'Answers common questions about metrics, definitions, and how data is derived',
+        },
+        {
+          href: `${homeHref}#disclaimer`,
+          label: 'Disclaimer',
+          description: 'Important notes about support scope, beta status, and how to interpret Pulse metrics',
+        },
+        {
+          href: `${homeHref}#export`,
+          label: 'Export',
+          description: 'Select filters and sections, then generate a downloadable PDF report',
+        },
+      ],
+    };
 
-  const productLifecycleNav = {
-    label: 'Product Lifecycle',
-    items: [
-      {
-        href: `${homeHref}#product-lifecycle/assets`,
-        label: 'Assets',
-        description:
-          'Explore all assets (projects, datasets, recipes, etc.) across instances with filtering and details capabilities',
-      },
-      {
-        href: `${homeHref}#product-lifecycle/products`,
-        label: 'Products',
-        description:
-          'Identify and quantify the end products being built (dashboards, APIs, apps, agents) and how they are structured',
-      },
-      {
-        href: `${homeHref}#product-lifecycle/development-activity`,
-        label: 'Development Activity',
-        description: 'Analyze audit-driven build activity and capability adoption across the platform',
-      },
-      {
-        href: `${homeHref}#product-lifecycle/consumption-activity`,
-        label: 'Consumption Activity',
-        description: 'Understand who is consuming which products, and how consumption trends evolve over time',
-      },
-    ],
-  };
+    const usersNav = {
+      label: 'User Insights',
+      items: [
+        {
+          href: `${homeHref}#users`,
+          label: 'Activity Performance',
+          description: 'Explore observed activity, engagement, and behavior trends across DSS instances',
+        },
+        {
+          href: `${homeHref}#users/licenses`,
+          label: 'License Performance',
+          description: 'Review enabled users, license profiles, and entitlement coverage across DSS instances',
+        },
+      ],
+    };
 
-  const llmMeshNav = {
-    label: 'LLM Mesh',
-    items: [
-      {
-        href: `${homeHref}#llm-mesh`,
-        label: 'Overview',
-        description: 'Track LLM usage, projects, models, tokens, and estimated cost across the platform',
-      },
-    ],
-  };
+    const productLifecycleNav = {
+      label: 'Product Lifecycle',
+      items: [
+        {
+          href: `${homeHref}#product-lifecycle/assets`,
+          label: 'Assets',
+          description: 'Explore all assets (projects, datasets, recipes, etc.) across instances with filtering and details capabilities',
+        },
+        {
+          href: `${homeHref}#product-lifecycle/products`,
+          label: 'Products',
+          description: 'Identify and quantify the end products being built (dashboards, APIs, apps, agents) and how they are structured',
+        },
+        {
+          href: `${homeHref}#product-lifecycle/development-activity`,
+          label: 'Development Activity',
+          description: 'Analyze audit-driven build activity and capability adoption across the platform',
+        },
+        {
+          href: `${homeHref}#product-lifecycle/consumption-activity`,
+          label: 'Consumption Activity',
+          description: 'Understand who is consuming which products, and how consumption trends evolve over time',
+        },
+      ],
+    };
 
-  const debugNav = {
-    label: 'Debug',
-    items: [
+    const llmMeshNav = {
+      label: 'LLM Mesh',
+      items: [
+        {
+          href: `${homeHref}#llm-mesh`,
+          label: 'Overview',
+          description: 'Track LLM usage, projects, models, tokens, and estimated cost across the platform',
+        },
+      ],
+    };
+
+    const debugNav = {
+      label: 'Debug',
+      items: [
+        {
+          href: `${homeHref}#debug/reload`,
+          label: 'Reload DuckDB',
+          description: 'Manually refresh and rebuild the analytics layer from source data',
+        },
+        {
+          href: `${homeHref}#debug/preview`,
+          label: 'Preview DuckDB',
+          description: 'Inspect underlying tables and data powering the Pulse application',
+        },
+      ],
+    };
+
+    return [
+      pulseNav,
+      ...(userActivityEnabled ? [usersNav] : []),
+      productLifecycleNav,
+      ...(llmMeshEnabled ? [llmMeshNav] : []),
+      ...(debugEnabled ? [debugNav] : []),
+    ];
+  }, [debugEnabled, homeHref, llmMeshEnabled, userActivityEnabled]);
+
+  const myInformationNavGroups = useMemo(() => ([
       {
-        href: `${homeHref}#debug/reload`,
-        label: 'Reload DuckDB',
-        description: 'Manually refresh and rebuild the analytics layer from source data',
+        label: 'My Activities',
+        items: [
+          {
+            key: 'my-activity-development',
+            label: 'Activity & Product Lifecycle Development',
+            description: 'Review your personal Dataiku activity and product lifecycle development contributions',
+            isActive: myPage === 'my-activity-development',
+            onClick: () => {
+              setWorkspace('me');
+              setMyPage('my-activity-development');
+            },
+          },
+          {
+            key: 'my-license',
+            label: 'License',
+            description: 'Review your assigned Dataiku license information and personal license-related activity',
+            isActive: myPage === 'my-license',
+            onClick: () => {
+              setWorkspace('me');
+              setMyPage('my-license');
+            },
+          },
+        ],
       },
       {
-        href: `${homeHref}#debug/preview`,
-        label: 'Preview DuckDB',
-        description: 'Inspect underlying tables and data powering the Pulse application',
+        label: 'My Product Lifecycle',
+        items: [
+          {
+            key: 'my-assets',
+            label: 'Assets',
+            description: 'Review the Dataiku assets you have created, owned, or contributed to',
+            isActive: myPage === 'my-assets',
+            onClick: () => {
+              setWorkspace('me');
+              setMyPage('my-assets');
+            },
+          },
+          {
+            key: 'my-products',
+            label: 'Products',
+            description: 'Review the products and outputs you have created or helped develop',
+            isActive: myPage === 'my-products',
+            onClick: () => {
+              setWorkspace('me');
+              setMyPage('my-products');
+            },
+          },
+          {
+            key: 'my-consumption',
+            label: 'Consumption',
+            description: 'Review how your products and outputs are being consumed by others',
+            isActive: myPage === 'my-consumption',
+            onClick: () => {
+              setWorkspace('me');
+              setMyPage('my-consumption');
+            },
+          },
+        ],
       },
-    ],
-  };
+      {
+        label: 'My LLM Mesh',
+        items: [
+          {
+            key: 'my-llm-overview',
+            label: 'Overview',
+            description: 'Review your personal LLM Mesh usage, models, projects, tokens, and cost',
+            isActive: myPage === 'my-llm-overview',
+            onClick: () => {
+              setWorkspace('me');
+              setMyPage('my-llm-overview');
+            },
+          },
+        ],
+      },
+    ]), [myPage]);
 
-  // Use hash-based navigation so it works reliably behind preview servers
-  // (e.g. Code Studio proxy/3000). Path-based routing can break static assets
-  // when deep-linking.
-  const navItems = [
-    pulseNav,
-    ...(userActivityEnabled ? [usersNav] : []),
-    productLifecycleNav,
-    ...(llmMeshEnabled ? [llmMeshNav] : []),
-    ...(debugEnabled ? [debugNav] : []),
-  ];
+  const administrationNavGroups = useMemo(() => ([
+      {
+        label: 'Administration',
+        items: [
+          {
+            key: 'administration-home',
+            label: 'Overview',
+            description: 'Open the current administration page',
+            isActive: workspace === 'administration',
+            onClick: () => setWorkspace('administration'),
+          },
+        ],
+      },
+    ]), [workspace]);
 
-  const wrap = (page) => (
-    <AppLayout navItems={navItems} homeHref={homeHref}>
+  const activeWorkspaceNavGroups = useMemo(() => {
+    if (workspace === 'organization' && permissions.organization === true) return organizationNavGroups;
+    if (workspace === 'administration' && permissions.administration === true) return administrationNavGroups;
+    return myInformationNavGroups;
+  }, [administrationNavGroups, myInformationNavGroups, organizationNavGroups, permissions.administration, permissions.organization, workspace]);
+
+  useEffect(() => {
+    const allowed = new Set(activeWorkspaceNavGroups.map((group) => group.label));
+    if (!allowed.has(activeRailGroup)) {
+      setActiveRailGroup(activeWorkspaceNavGroups[0]?.label || '');
+    }
+  }, [activeRailGroup, activeWorkspaceNavGroups]);
+
+  const wrap = (page, currentWorkspace = workspace) => (
+    <AppLayout
+      groups={activeWorkspaceNavGroups}
+      homeHref={homeHref}
+      workspaceOptions={workspaceOptions}
+      workspace={currentWorkspace}
+      onWorkspaceChange={setWorkspace}
+      userLabel={userLabel}
+      railCollapsed={railCollapsed}
+      onRailToggle={() => setRailCollapsed((current) => !current)}
+      activeGroup={activeRailGroup}
+      onGroupToggle={(groupLabel, shouldForceOpen = false) => {
+        setActiveRailGroup((current) => {
+          if (shouldForceOpen) return groupLabel;
+          return current === groupLabel ? '' : groupLabel;
+        });
+      }}
+    >
       {page}
     </AppLayout>
   );
+
+  if (authState.status === 'loading') {
+    return wrap(
+      <div className="PulseWide">
+        <div className="PulseHero">
+          <h1>Loading</h1>
+          <p>Loading authenticated workspace access…</p>
+        </div>
+      </div>,
+      'me'
+    );
+  }
+
+  if (authState.status === 'error' || authState.status === 'malformed' || !isAuthenticated) {
+    return wrap(<AuthenticationRequiredPage />, 'me');
+  }
+
+  if (workspace === 'me') {
+    return wrap(<MyInformationPage pageKey={myPage} onPageChange={setMyPage} />, 'me');
+  }
+
+  if (workspace === 'administration') {
+    return wrap(<AdministrationPlaceholderPage />, 'administration');
+  }
 
   // Hash-based routing (works with static servers)
   const route = hashRoute;
@@ -6360,7 +6937,7 @@ function App() {
     if (window.location.hash) {
       window.location.hash = '';
     }
-    return wrap(<HomePage />);
+    return wrap(<HomePage authState={authState} />, 'organization');
   };
 
   if (route === 'debug/reload') {
@@ -6377,52 +6954,52 @@ function App() {
   }
 
   if (route === 'faq') {
-    return wrap(<FaqPage />);
+    return wrap(<FaqPage />, 'organization');
   }
 
   if (route === 'disclaimer') {
-    return wrap(<DisclaimerPage />);
+    return wrap(<DisclaimerPage />, 'organization');
   }
 
   if (route === 'export') {
-    return wrap(<ExportPage apiBase={apiBase} />);
+    return wrap(<ExportPage apiBase={apiBase} />, 'organization');
   }
 
   if (route === 'product-lifecycle/assets') {
-    return wrap(<BuildAssetsInventoryPage apiBase={apiBase} />);
+    return wrap(<BuildAssetsInventoryPage apiBase={apiBase} />, 'organization');
   }
 
   if (route === 'product-lifecycle/products') {
-    return wrap(<ProductOutputsPage apiBase={apiBase} />);
+    return wrap(<ProductOutputsPage apiBase={apiBase} />, 'organization');
   }
 
   if (route === 'product-lifecycle/development-activity') {
-    return wrap(<DevelopmentActivityPage apiBase={apiBase} />);
+    return wrap(<DevelopmentActivityPage apiBase={apiBase} />, 'organization');
   }
 
   if (route === 'product-lifecycle/consumption-activity') {
-    return wrap(<ConsumptionActivityPage apiBase={apiBase} />);
+    return wrap(<ConsumptionActivityPage apiBase={apiBase} />, 'organization');
   }
 
   if (route === 'llm-mesh') {
     if (!startupFlagsLoaded) return showHome();
     if (!llmMeshEnabled) return showHome();
-    return wrap(<LlmMeshPage apiBase={apiBase} />);
+    return wrap(<LlmMeshPage apiBase={apiBase} />, 'organization');
   }
 
    if (route === 'users') {
     if (!startupFlagsLoaded) return showHome();
     if (!userActivityEnabled) return showHome();
-    return wrap(<UsersActivityPage apiBase={apiBase} />);
+    return wrap(<UsersActivityPage apiBase={apiBase} />, 'organization');
   }
 
   if (route === 'users/licenses') {
     if (!startupFlagsLoaded) return showHome();
     if (!userActivityEnabled) return showHome();
-    return wrap(<UsersLicensePage apiBase={apiBase} />);
+    return wrap(<UsersLicensePage apiBase={apiBase} />, 'organization');
   }
 
-  return wrap(<HomePage />);
+  return wrap(<HomePage authState={authState} />, 'organization');
 }
 
 export default App;
