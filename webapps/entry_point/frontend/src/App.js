@@ -5161,8 +5161,8 @@ function getNavItemIcon(label) {
   }
 }
 
-function LeftNavRail({ groups, collapsed, onToggle, activeGroup, onGroupToggle }) {
-  if (!groups.length) {
+function LeftNavRail({ groups, globalGroups, collapsed, onToggle, activeGroup, onGroupToggle }) {
+  if (!groups.length && !globalGroups.length) {
     return (
       <aside className={`PulseRail ${collapsed ? 'PulseRailCollapsed' : ''}`}>
         <div className="PulseRailBody" />
@@ -5183,6 +5183,7 @@ function LeftNavRail({ groups, collapsed, onToggle, activeGroup, onGroupToggle }
   }
 
   const hasGroups = groups.length > 0;
+  const hasGlobalGroups = globalGroups.length > 0;
   const onGroupButtonClick = (groupLabel) => {
     if (collapsed) {
       onToggle();
@@ -5208,7 +5209,7 @@ function LeftNavRail({ groups, collapsed, onToggle, activeGroup, onGroupToggle }
                 title={group.label}
               >
                 <span className="PulseRailSectionButtonLeft">
-                  <span className="PulseRailItemIcon" aria-hidden="true">{getNavGroupIcon(group.label)}</span>
+                  {collapsed ? <span className="PulseRailItemIcon" aria-hidden="true">{getNavGroupIcon(group.label)}</span> : null}
                   {!collapsed ? <span className="PulseRailSectionLabel">{group.label}</span> : null}
                 </span>
                 {!collapsed ? <span className="PulseRailSectionChevron">{isExpanded ? '−' : '+'}</span> : null}
@@ -5226,7 +5227,7 @@ function LeftNavRail({ groups, collapsed, onToggle, activeGroup, onGroupToggle }
                           onClick={item.onClick}
                           title={item.description || item.label}
                         >
-                          <span className="PulseRailItemIcon" aria-hidden="true">{getNavItemIcon(item.label) || getNavGroupIcon(group.label)}</span>
+                          {collapsed ? <span className="PulseRailItemIcon" aria-hidden="true">{getNavItemIcon(item.label) || getNavGroupIcon(group.label)}</span> : null}
                           <span className="PulseRailItemLabel">{item.label}</span>
                         </button>
                       ) : (
@@ -5237,7 +5238,7 @@ function LeftNavRail({ groups, collapsed, onToggle, activeGroup, onGroupToggle }
                           title={item.description || item.label}
                           aria-label={item.label}
                         >
-                          <span className="PulseRailItemIcon" aria-hidden="true">{getNavItemIcon(item.label) || getNavGroupIcon(group.label)}</span>
+                          {collapsed ? <span className="PulseRailItemIcon" aria-hidden="true">{getNavItemIcon(item.label) || getNavGroupIcon(group.label)}</span> : null}
                           <span className="PulseRailItemLabel">{item.label}</span>
                         </a>
                       )
@@ -5250,6 +5251,50 @@ function LeftNavRail({ groups, collapsed, onToggle, activeGroup, onGroupToggle }
         }) : null}
       </div>
       <div className="PulseRailFooter">
+        {hasGlobalGroups ? (
+          <div className="PulseRailGlobalSection">
+            {globalGroups.map((group) => {
+              const isExpanded = activeGroup === group.label;
+              return (
+                <div key={group.label} className="PulseRailSection">
+                  <button
+                    type="button"
+                    className={`PulseRailSectionButton ${isExpanded ? 'PulseRailSectionButtonActive' : ''}`}
+                    onClick={() => onGroupButtonClick(group.label)}
+                    aria-expanded={isExpanded}
+                    aria-label={group.label}
+                    title={group.label}
+                  >
+                    <span className="PulseRailSectionButtonLeft">
+                      {collapsed ? <span className="PulseRailItemIcon" aria-hidden="true">{getNavGroupIcon(group.label)}</span> : null}
+                      {!collapsed ? <span className="PulseRailSectionLabel">{group.label}</span> : null}
+                    </span>
+                    {!collapsed ? <span className="PulseRailSectionChevron">{isExpanded ? '−' : '+'}</span> : null}
+                  </button>
+
+                  {isExpanded && !collapsed ? (
+                    <div className="PulseRailSectionContent">
+                      <div className="PulseRailItems">
+                        {group.items.map((item) => (
+                          <a
+                            key={item.href}
+                            href={item.href}
+                            className={`PulseRailItem ${item.isActive ? 'PulseRailItemActive' : ''}`}
+                            title={item.description || item.label}
+                            aria-label={item.label}
+                          >
+                            {collapsed ? <span className="PulseRailItemIcon" aria-hidden="true">{getNavItemIcon(item.label) || getNavGroupIcon(group.label)}</span> : null}
+                            <span className="PulseRailItemLabel">{item.label}</span>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
         <button
           type="button"
           className="PulseRailToggle"
@@ -5265,7 +5310,7 @@ function LeftNavRail({ groups, collapsed, onToggle, activeGroup, onGroupToggle }
   );
 }
 
-function DropdownNav({ groups, homeHref, workspaceOptions, workspace, onWorkspaceChange, userLabel, railCollapsed, onRailToggle, activeGroup, onGroupToggle, children }) {
+function DropdownNav({ groups, globalGroups, homeHref, workspaceOptions, workspace, onWorkspaceChange, userLabel, railCollapsed, onRailToggle, activeGroup, onGroupToggle, children }) {
   return (
     <div className="PulseShell">
       <header className="PulseHeader">
@@ -5301,6 +5346,7 @@ function DropdownNav({ groups, homeHref, workspaceOptions, workspace, onWorkspac
       <div className="PulseShellBody">
         <LeftNavRail
           groups={groups}
+          globalGroups={globalGroups}
           collapsed={railCollapsed}
           onToggle={onRailToggle}
           activeGroup={activeGroup}
@@ -6170,10 +6216,11 @@ function UsersLicensePage({ apiBase }) {
   );
 }
 
-function AppLayout({ groups, homeHref, workspaceOptions, workspace, onWorkspaceChange, userLabel, railCollapsed, onRailToggle, activeGroup, onGroupToggle, children }) {
+function AppLayout({ groups, globalGroups, homeHref, workspaceOptions, workspace, onWorkspaceChange, userLabel, railCollapsed, onRailToggle, activeGroup, onGroupToggle, children }) {
   return (
     <DropdownNav
       groups={groups}
+      globalGroups={globalGroups}
       homeHref={homeHref}
       workspaceOptions={workspaceOptions}
       workspace={workspace}
@@ -6672,7 +6719,7 @@ function App() {
     }
   }, [workspace, workspaceOptions]);
 
-  const organizationNavGroups = useMemo(() => {
+  const globalPulseNavGroups = useMemo(() => {
     const pulseNav = {
       label: 'Pulse',
       items: [
@@ -6680,25 +6727,33 @@ function App() {
           href: `${homeHref}#`,
           label: 'Home',
           description: 'High-level overview of platform activity, highlighting key lifecycle and consumption trends at a glance',
+          isActive: hashRoute === '',
         },
         {
           href: `${homeHref}#faq`,
           label: 'FAQ',
           description: 'Answers common questions about metrics, definitions, and how data is derived',
+          isActive: hashRoute === 'faq',
         },
         {
           href: `${homeHref}#disclaimer`,
           label: 'Disclaimer',
           description: 'Important notes about support scope, beta status, and how to interpret Pulse metrics',
+          isActive: hashRoute === 'disclaimer',
         },
         {
           href: `${homeHref}#export`,
           label: 'Export',
           description: 'Select filters and sections, then generate a downloadable PDF report',
+          isActive: hashRoute === 'export',
         },
       ],
     };
 
+    return [pulseNav];
+  }, [hashRoute, homeHref]);
+
+  const organizationNavGroups = useMemo(() => {
     const usersNav = {
       label: 'User Insights',
       items: [
@@ -6752,30 +6807,12 @@ function App() {
       ],
     };
 
-    const debugNav = {
-      label: 'Debug',
-      items: [
-        {
-          href: `${homeHref}#debug/reload`,
-          label: 'Reload DuckDB',
-          description: 'Manually refresh and rebuild the analytics layer from source data',
-        },
-        {
-          href: `${homeHref}#debug/preview`,
-          label: 'Preview DuckDB',
-          description: 'Inspect underlying tables and data powering the Pulse application',
-        },
-      ],
-    };
-
     return [
-      pulseNav,
       ...(userActivityEnabled ? [usersNav] : []),
       productLifecycleNav,
       ...(llmMeshEnabled ? [llmMeshNav] : []),
-      ...(debugEnabled ? [debugNav] : []),
     ];
-  }, [debugEnabled, homeHref, llmMeshEnabled, userActivityEnabled]);
+  }, [homeHref, llmMeshEnabled, userActivityEnabled]);
 
   const myInformationNavGroups = useMemo(() => ([
       {
@@ -6868,7 +6905,22 @@ function App() {
           },
         ],
       },
-    ]), [workspace]);
+      ...(debugEnabled ? [{
+        label: 'Debug',
+        items: [
+          {
+            href: `${homeHref}#debug/reload`,
+            label: 'Reload DuckDB',
+            description: 'Manually refresh and rebuild the analytics layer from source data',
+          },
+          {
+            href: `${homeHref}#debug/preview`,
+            label: 'Preview DuckDB',
+            description: 'Inspect underlying tables and data powering the Pulse application',
+          },
+        ],
+      }] : []),
+    ]), [debugEnabled, homeHref, workspace]);
 
   const activeWorkspaceNavGroups = useMemo(() => {
     if (workspace === 'organization' && permissions.organization === true) return organizationNavGroups;
@@ -6877,15 +6929,16 @@ function App() {
   }, [administrationNavGroups, myInformationNavGroups, organizationNavGroups, permissions.administration, permissions.organization, workspace]);
 
   useEffect(() => {
-    const allowed = new Set(activeWorkspaceNavGroups.map((group) => group.label));
+    const allowed = new Set([...activeWorkspaceNavGroups, ...globalPulseNavGroups].map((group) => group.label));
     if (!allowed.has(activeRailGroup)) {
       setActiveRailGroup(activeWorkspaceNavGroups[0]?.label || '');
     }
-  }, [activeRailGroup, activeWorkspaceNavGroups]);
+  }, [activeRailGroup, activeWorkspaceNavGroups, globalPulseNavGroups]);
 
   const wrap = (page, currentWorkspace = workspace) => (
     <AppLayout
       groups={activeWorkspaceNavGroups}
+      globalGroups={globalPulseNavGroups}
       homeHref={homeHref}
       workspaceOptions={workspaceOptions}
       workspace={currentWorkspace}
@@ -6921,48 +6974,49 @@ function App() {
     return wrap(<AuthenticationRequiredPage />, 'me');
   }
 
-  if (workspace === 'me') {
+  const route = hashRoute;
+  const isGlobalPulseRoute = route === '' || route === 'faq' || route === 'disclaimer' || route === 'export';
+  const isAdministrationDebugRoute = route === 'debug/reload' || route === 'debug/preview';
+
+  if (workspace === 'me' && !isGlobalPulseRoute) {
     return wrap(<MyInformationPage pageKey={myPage} onPageChange={setMyPage} />, 'me');
   }
 
-  if (workspace === 'administration') {
+  if (workspace === 'administration' && !isGlobalPulseRoute && !isAdministrationDebugRoute) {
     return wrap(<AdministrationPlaceholderPage />, 'administration');
   }
-
-  // Hash-based routing (works with static servers)
-  const route = hashRoute;
 
   const showHome = () => {
     // Redirect to home when feature is not enabled.
     if (window.location.hash) {
       window.location.hash = '';
     }
-    return wrap(<HomePage authState={authState} />, 'organization');
+    return wrap(<HomePage authState={authState} />);
   };
 
   if (route === 'debug/reload') {
     // Wait for /api/startup/flags to resolve so we don't flicker.
     if (!startupFlagsLoaded) return showHome();
-    if (!debugEnabled) return showHome();
-    return wrap(<DebugReloadPage apiBase={apiBase} />);
+    if (!debugEnabled || workspace !== 'administration' || permissions.administration !== true) return showHome();
+    return wrap(<DebugReloadPage apiBase={apiBase} />, 'administration');
   }
 
   if (route === 'debug/preview') {
     if (!startupFlagsLoaded) return showHome();
-    if (!debugEnabled) return showHome();
-    return wrap(<DebugPreviewPage apiBase={apiBase} />);
+    if (!debugEnabled || workspace !== 'administration' || permissions.administration !== true) return showHome();
+    return wrap(<DebugPreviewPage apiBase={apiBase} />, 'administration');
   }
 
   if (route === 'faq') {
-    return wrap(<FaqPage />, 'organization');
+    return wrap(<FaqPage />);
   }
 
   if (route === 'disclaimer') {
-    return wrap(<DisclaimerPage />, 'organization');
+    return wrap(<DisclaimerPage />);
   }
 
   if (route === 'export') {
-    return wrap(<ExportPage apiBase={apiBase} />, 'organization');
+    return wrap(<ExportPage apiBase={apiBase} />);
   }
 
   if (route === 'product-lifecycle/assets') {
@@ -6999,7 +7053,7 @@ function App() {
     return wrap(<UsersLicensePage apiBase={apiBase} />, 'organization');
   }
 
-  return wrap(<HomePage authState={authState} />, 'organization');
+  return wrap(<HomePage authState={authState} />);
 }
 
 export default App;
