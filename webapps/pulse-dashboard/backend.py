@@ -137,10 +137,36 @@ def _normalize_hostname(value: str) -> str:
     return str(normalized_host or "").strip().lower().rstrip(".")
 
 
-def _get_normalized_request_hostname() -> str | None:
-    request_host = getattr(request, "host", None)
-    normalized_host = _normalize_hostname(str(request_host or ""))
-    return normalized_host or None
+def _resolve_request_host_context() -> dict[str, str | None]:
+    forwarded_host = str(request.headers.get("X-Forwarded-Host") or "").strip()
+    host_header = str(request.headers.get("Host") or "").strip()
+    request_host = str(getattr(request, "host", None) or "").strip()
+    forwarded_proto = str(request.headers.get("X-Forwarded-Proto") or "").strip()
+
+    effective_host = ""
+    effective_host_source = "request.host"
+    if forwarded_host:
+        effective_host = forwarded_host.split(",")[0].strip()
+        effective_host_source = "X-Forwarded-Host"
+    elif host_header:
+        effective_host = host_header
+        effective_host_source = "Host"
+    else:
+        effective_host = request_host
+
+    normalized_effective_host = _normalize_hostname(effective_host)
+    normalized_request_host = _normalize_hostname(request_host)
+
+    return {
+        "requestHost": request_host or None,
+        "hostHeader": host_header or None,
+        "forwardedHost": forwarded_host or None,
+        "forwardedProto": forwarded_proto or None,
+        "effectiveHost": effective_host or None,
+        "effectiveHostSource": effective_host_source,
+        "normalizedEffectiveHost": normalized_effective_host or None,
+        "normalizedRequestHost": normalized_request_host or None,
+    }
 
 
 def _read_internal_preview_config() -> dict[str, object]:
@@ -158,6 +184,43 @@ def _read_internal_preview_config() -> dict[str, object]:
         "login": str((configured_values.get("internal_preview_login") or {}).get("value") or "").strip(),
         "tier": str((configured_values.get("internal_preview_access_tier") or {}).get("value") or "organization").strip().lower(),
     }
+
+
+def _project_key_from_handle(project: Any) -> str | None:
+    if project is None:
+        return None
+    for attr_name in ("project_key", "projectKey"):
+        value = getattr(project, attr_name, None)
+        if value:
+            return str(value)
+    get_project_key = getattr(project, "get_project_key", None)
+    if callable(get_project_key):
+        try:
+            value = get_project_key()
+        except Exception:
+            value = None
+        if value:
+            return str(value)
+    return None
+
+
+def _summarize_preview_failure(preview_config: dict[str, object], host_context: dict[str, str | None]) -> str:
+    preview_enabled = preview_config.get("enabled") is True
+    preview_host = str(preview_config.get("host") or "")
+    preview_login = str(preview_config.get("login") or "").strip()
+    normalized_request_host = str(host_context.get("normalizedEffectiveHost") or "")
+
+    if not preview_enabled:
+        return "preview_disabled"
+    if not preview_host:
+        return "configured_host_missing"
+    if not preview_login:
+        return "login_missing"
+    if not normalized_request_host:
+        return "request_host_missing"
+    if normalized_request_host != preview_host:
+        return "host_mismatch"
+    return "unknown"
 
 
 def _resolve_preview_permissions(access_tier: object) -> dict[str, object]:
@@ -255,11 +318,33 @@ def _resolve_effective_request_context() -> dict[str, object]:
         logger.info("/api/me auth resolution returned non-dict payload: %s", type(auth_info).__name__)
 
     preview_config = _read_internal_preview_config()
-    normalized_request_host = _get_normalized_request_hostname()
-    preview_enabled = bool(preview_config.get("enabled"))
+    host_context = _resolve_request_host_context()
+    normalized_request_host = str(host_context.get("normalizedEffectiveHost") or "") or None
+    preview_enabled = preview_config.get("enabled") is True
     preview_host = str(preview_config.get("host") or "")
-    preview_login = str(preview_config.get("login") or "")
+    preview_login = str(preview_config.get("login") or "").strip()
     preview_tier = str(preview_config.get("tier") or "self")
+
+    project_handle = _get_default_project_handle()
+    project_key = _project_key_from_handle(project_handle)
+    preview_failure = _summarize_preview_failure(preview_config, host_context)
+
+    logger.info(
+        "/api/me preview config enabled=%s configured_host=%s request_host=%s host_header=%s forwarded_host=%s forwarded_proto=%s normalized_configured_host=%s normalized_effective_host=%s login_configured=%s access_tier=%s project_key=%s preview_failure=%s effective_host_source=%s",
+        preview_enabled,
+        preview_host or None,
+        host_context.get("requestHost"),
+        host_context.get("hostHeader"),
+        host_context.get("forwardedHost"),
+        host_context.get("forwardedProto"),
+        preview_host or None,
+        host_context.get("normalizedEffectiveHost"),
+        bool(preview_login),
+        preview_tier,
+        project_key,
+        preview_failure,
+        host_context.get("effectiveHostSource"),
+    )
 
     if preview_enabled and normalized_request_host and preview_host and preview_login and normalized_request_host == preview_host:
         logger.info(
@@ -297,6 +382,20 @@ def _resolve_effective_request_context() -> dict[str, object]:
         "configuredGroups": configured_groups,
         "realIdentity": None,
         "authFailed": False,
+        "previewDiagnostics": {
+            "enabled": preview_enabled,
+            "configuredHostPresent": bool(preview_host),
+            "loginConfigured": bool(preview_login),
+            "tier": preview_tier,
+            "requestHost": host_context.get("requestHost"),
+            "forwardedHost": host_context.get("forwardedHost"),
+            "normalizedConfiguredHost": preview_host or None,
+            "normalizedRequestHost": host_context.get("normalizedEffectiveHost"),
+            "hostMatched": bool(preview_host and normalized_request_host and normalized_request_host == preview_host),
+            "effectiveHostSource": host_context.get("effectiveHostSource"),
+            "projectKey": project_key,
+            "failedCondition": preview_failure,
+        },
     }
 
 
@@ -307,6 +406,12 @@ def _get_default_project_handle() -> Any:
             project = get_default_project()
             if hasattr(project, "get_variables"):
                 return project
+
+        default_project_key = getattr(dataiku, "default_project_key", None)
+        if callable(default_project_key):
+            project_key = default_project_key()
+            if project_key:
+                return dataiku.api_client().get_project(str(project_key))
 
         client = dataiku.api_client()
         return getattr(client, "get_default_project")()
