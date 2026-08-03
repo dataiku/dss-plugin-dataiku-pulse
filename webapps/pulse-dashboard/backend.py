@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from urllib.parse import splitport
+from urllib.parse import splitport, urlparse
 from pathlib import Path
 from typing import Any, cast
 
@@ -71,8 +71,12 @@ def _resolve_authenticated_user() -> dict[str, object] | None:
 
     try:
         auth_info = dataiku.api_client().get_auth_info_from_browser_headers(request_headers, with_secrets=False)
-    except Exception:
-        logger.exception("Unable to resolve authenticated Dataiku user")
+    except Exception as exc:
+        exception_name = type(exc).__name__
+        if exception_name == "NotAuthenticatedException":
+            logger.info("/api/me DSS authentication unavailable for current request: %s", exception_name)
+        else:
+            logger.exception("Unable to resolve authenticated Dataiku user")
         return None
 
     if not isinstance(auth_info, dict):
@@ -139,18 +143,31 @@ def _normalize_hostname(value: str) -> str:
 
 def _resolve_request_host_context() -> dict[str, str | None]:
     forwarded_host = str(request.headers.get("X-Forwarded-Host") or "").strip()
+    referer = str(request.headers.get("Referer") or "").strip()
     host_header = str(request.headers.get("Host") or "").strip()
     request_host = str(getattr(request, "host", None) or "").strip()
     forwarded_proto = str(request.headers.get("X-Forwarded-Proto") or "").strip()
 
+    referer_host: str | None = None
+    if referer:
+        try:
+            parsed_referer_host = urlparse(referer).hostname
+            if parsed_referer_host:
+                referer_host = str(parsed_referer_host).strip() or None
+        except Exception:
+            logger.debug("Unable to parse Referer hostname for Internal Preview", exc_info=True)
+
     effective_host = ""
-    effective_host_source = "request.host"
+    effective_host_source = "request_host"
     if forwarded_host:
-        effective_host = forwarded_host.split(",")[0].strip()
-        effective_host_source = "X-Forwarded-Host"
+        effective_host = forwarded_host.split(",", 1)[0].strip()
+        effective_host_source = "x_forwarded_host"
+    elif referer_host:
+        effective_host = referer_host
+        effective_host_source = "referer"
     elif host_header:
         effective_host = host_header
-        effective_host_source = "Host"
+        effective_host_source = "host"
     else:
         effective_host = request_host
 
@@ -162,6 +179,7 @@ def _resolve_request_host_context() -> dict[str, str | None]:
         "hostHeader": host_header or None,
         "forwardedHost": forwarded_host or None,
         "forwardedProto": forwarded_proto or None,
+        "refererHost": referer_host,
         "effectiveHost": effective_host or None,
         "effectiveHostSource": effective_host_source,
         "normalizedEffectiveHost": normalized_effective_host or None,
@@ -330,12 +348,14 @@ def _resolve_effective_request_context() -> dict[str, object]:
     preview_failure = _summarize_preview_failure(preview_config, host_context)
 
     logger.info(
-        "/api/me preview config enabled=%s configured_host=%s request_host=%s host_header=%s forwarded_host=%s forwarded_proto=%s normalized_configured_host=%s normalized_effective_host=%s login_configured=%s access_tier=%s project_key=%s preview_failure=%s effective_host_source=%s",
+        "/api/me preview config enabled=%s configured_host=%s request_host=%s host_header=%s forwarded_host=%s referer_present=%s referer_host=%s forwarded_proto=%s normalized_configured_host=%s normalized_effective_host=%s login_configured=%s access_tier=%s project_key=%s preview_failure=%s effective_host_source=%s host_matched=%s",
         preview_enabled,
         preview_host or None,
         host_context.get("requestHost"),
         host_context.get("hostHeader"),
         host_context.get("forwardedHost"),
+        bool(request.headers.get("Referer")),
+        host_context.get("refererHost"),
         host_context.get("forwardedProto"),
         preview_host or None,
         host_context.get("normalizedEffectiveHost"),
@@ -344,6 +364,7 @@ def _resolve_effective_request_context() -> dict[str, object]:
         project_key,
         preview_failure,
         host_context.get("effectiveHostSource"),
+        bool(preview_host and normalized_request_host and normalized_request_host == preview_host),
     )
 
     if preview_enabled and normalized_request_host and preview_host and preview_login and normalized_request_host == preview_host:
@@ -389,6 +410,7 @@ def _resolve_effective_request_context() -> dict[str, object]:
             "tier": preview_tier,
             "requestHost": host_context.get("requestHost"),
             "forwardedHost": host_context.get("forwardedHost"),
+            "refererHost": host_context.get("refererHost"),
             "normalizedConfiguredHost": preview_host or None,
             "normalizedRequestHost": host_context.get("normalizedEffectiveHost"),
             "hostMatched": bool(preview_host and normalized_request_host and normalized_request_host == preview_host),
