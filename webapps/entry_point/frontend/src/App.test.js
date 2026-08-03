@@ -88,6 +88,14 @@ describe('Pulse page registry', () => {
     expect(pulseHome.href).toBe('./#home');
   });
 
+  test('global pulse pages retain hash hrefs for progressive enhancement', () => {
+    const pages = build();
+    expect(pages.find((page) => page.key === 'pulse-home')?.href).toBe('./#home');
+    expect(pages.find((page) => page.key === 'pulse-faq')?.href).toBe('./#faq');
+    expect(pages.find((page) => page.key === 'pulse-disclaimer')?.href).toBe('./#disclaimer');
+    expect(pages.find((page) => page.key === 'pulse-export')?.href).toBe('./#export');
+  });
+
   test('administration overview remains a local administration page', () => {
     const pages = build();
     const adminOverview = pages.find((page) => page.key === 'admin-overview');

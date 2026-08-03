@@ -65,7 +65,8 @@
             "type": "STRING",
             "description": "Internal preview only. Exact hostname allowed to activate preview mode when normal DSS authentication does not resolve a user.",
             "mandatory": false,
-            "defaultValue": ""
+            "defaultValue": "",
+            "visibilityCondition": "model.enable_internal_preview"
         },
         {
             "name": "internal_preview_login",
@@ -73,7 +74,8 @@
             "type": "STRING",
             "description": "Internal preview only. Effective Pulse login used for analytics and My Information when preview mode activates. This is not DSS impersonation.",
             "mandatory": false,
-            "defaultValue": ""
+            "defaultValue": "",
+            "visibilityCondition": "model.enable_internal_preview"
         },
         {
             "name": "internal_preview_access_tier",
@@ -86,7 +88,8 @@
                 { "value": "self", "label": "Self" },
                 { "value": "organization", "label": "Organization" },
                 { "value": "administration", "label": "Administration" }
-            ]
+            ],
+            "visibilityCondition": "model.enable_internal_preview"
         },
         {
             "name": "pulse_project_key",

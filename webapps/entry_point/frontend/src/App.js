@@ -5357,40 +5357,6 @@ function ConsumptionActivityPage({ apiBase }) {
   );
 }
 
-function inferCodeStudioPortBase(pathname) {
-  // Two common Code Studio URL shapes:
-  // 1) Direct port mapping:
-  //    /code-studios/<PROJECT_KEY>/<STUDIO_ID>/<port>/...
-  // 2) Proxy mapping:
-  //    /code-studios/<PROJECT_KEY>/<STUDIO_ID>/8080/proxy/<port>/...
-
-  const proxyMatch = pathname.match(/^(\/code-studios\/[^/]+\/[^/]+\/8080\/proxy)\/(\d+)(?:\/|$)/);
-  if (proxyMatch) {
-    const prefix = proxyMatch[1];
-    const port = proxyMatch[2];
-    return {
-      mode: 'proxy',
-      prefix,
-      port,
-      base: `${prefix}/${port}`,
-    };
-  }
-
-  const directMatch = pathname.match(/^(\/code-studios\/[^/]+\/[^/]+)\/(\d+)(?:\/|$)/);
-  if (directMatch) {
-    const prefix = directMatch[1];
-    const port = directMatch[2];
-    return {
-      mode: 'direct',
-      prefix,
-      port,
-      base: `${prefix}/${port}`,
-    };
-  }
-
-  return null;
-}
-
 function getUserDisplayName(authState) {
   const user = authState && authState.data && authState.data.user ? authState.data.user : null;
   if (!user) return 'Guest';
@@ -5518,11 +5484,15 @@ function LeftNavRail({ groups, globalGroups, collapsed, onToggle, activeGroup, o
                         </button>
                       ) : (
                         <a
-                          key={item.href}
-                          href={item.href}
+                          key={item.key || item.href || item.label}
+                          href={item.href || '#'}
                           className="PulseRailItem"
                           title={item.description || item.label}
                           aria-label={item.label}
+                          onClick={item.onClick ? (event) => {
+                            event.preventDefault();
+                            item.onClick();
+                          } : undefined}
                         >
                           {collapsed ? <span className="PulseRailItemIcon" aria-hidden="true">{getNavItemIcon(item.label) || getNavGroupIcon(group.label)}</span> : null}
                           <span className="PulseRailItemLabel">{item.label}</span>
@@ -5563,11 +5533,15 @@ function LeftNavRail({ groups, globalGroups, collapsed, onToggle, activeGroup, o
                       <div className="PulseRailItems">
                         {group.items.map((item) => (
                           <a
-                            key={item.href}
-                            href={item.href}
+                            key={item.key || item.href || item.label}
+                            href={item.href || '#'}
                             className={`PulseRailItem ${item.isActive ? 'PulseRailItemActive' : ''}`}
                             title={item.description || item.label}
                             aria-label={item.label}
+                            onClick={item.onClick ? (event) => {
+                              event.preventDefault();
+                              item.onClick();
+                            } : undefined}
                           >
                             {collapsed ? <span className="PulseRailItemIcon" aria-hidden="true">{getNavItemIcon(item.label) || getNavGroupIcon(group.label)}</span> : null}
                             <span className="PulseRailItemLabel">{item.label}</span>
@@ -5596,12 +5570,20 @@ function LeftNavRail({ groups, globalGroups, collapsed, onToggle, activeGroup, o
   );
 }
 
-function DropdownNav({ groups, globalGroups, homeHref, workspaceOptions, workspace, onWorkspaceChange, userLabel, railCollapsed, onRailToggle, activeGroup, onGroupToggle, children }) {
+function DropdownNav({ groups, globalGroups, homeHref, onHomeClick, workspaceOptions, workspace, onWorkspaceChange, userLabel, railCollapsed, onRailToggle, activeGroup, onGroupToggle, children }) {
   return (
     <div className="PulseShell">
       <header className="PulseHeader">
         <div className="PulseHeaderBrand">
-          <a href={homeHref} className="PulseHeaderBrandLink" aria-label="Dataiku Pulse Dashboard home">
+          <a
+            href={homeHref || '#'}
+            className="PulseHeaderBrandLink"
+            aria-label="Dataiku Pulse Dashboard home"
+            onClick={onHomeClick ? (event) => {
+              event.preventDefault();
+              onHomeClick();
+            } : undefined}
+          >
             <span className="PulseHeaderBrandIcon" aria-hidden="true">❤️</span>
             <span className="PulseHeaderBrandText">Dataiku Pulse Dashboard</span>
           </a>
@@ -6619,12 +6601,13 @@ function UsersLicensePage({ apiBase }) {
   );
 }
 
-function AppLayout({ groups, globalGroups, homeHref, workspaceOptions, workspace, onWorkspaceChange, userLabel, railCollapsed, onRailToggle, activeGroup, onGroupToggle, children }) {
+function AppLayout({ groups, globalGroups, homeHref, onHomeClick, workspaceOptions, workspace, onWorkspaceChange, userLabel, railCollapsed, onRailToggle, activeGroup, onGroupToggle, children }) {
   return (
     <DropdownNav
       groups={groups}
       globalGroups={globalGroups}
       homeHref={homeHref}
+      onHomeClick={onHomeClick}
       workspaceOptions={workspaceOptions}
       workspace={workspace}
       onWorkspaceChange={onWorkspaceChange}
@@ -6813,7 +6796,6 @@ function HomePage({ authState }) {
         </p>
       </PulseSection>
 
-      <TempAuthDebugPanel authState={authState} />
     </div>
   );
 }
@@ -7618,6 +7600,7 @@ function App() {
         })),
       }))}
       homeHref={homeHref}
+      onHomeClick={() => navigateToPage(pagesByKey.get('pulse-home'))}
       workspaceOptions={workspaceOptions}
       workspace={currentWorkspace}
       onWorkspaceChange={handleWorkspaceChange}
