@@ -65,73 +65,6 @@ def index(_path: str | None = None) -> Any:
     return send_from_directory(app.root_path, "body.html")
 
 
-def _resolve_authenticated_user() -> dict[str, object] | None:
-    request_headers = dict(request.headers)
-    safe_header_names = sorted(
-        header_name
-        for header_name in request_headers.keys()
-        if str(header_name).lower() not in _SENSITIVE_HEADER_NAMES
-    )
-    logger.info("/api/me auth resolution started; version=%s safe_header_names=%s", INTERNAL_PREVIEW_DEBUG_VERSION, safe_header_names)
-
-    try:
-        auth_info = dataiku.api_client().get_auth_info_from_browser_headers(request_headers, with_secrets=False)
-    except Exception as exc:
-        exception_name = type(exc).__name__
-        exception_text = str(exc)
-        if exception_name == "NotAuthenticatedException" or "NotAuthenticatedException" in exception_text:
-            logger.info("No authenticated DSS browser session; evaluating Internal Preview")
-        else:
-            logger.exception("Unexpected DSS authentication failure")
-        return None
-
-    if not isinstance(auth_info, dict):
-        logger.info("/api/me auth resolution returned non-dict payload: %s", type(auth_info).__name__)
-        return None
-
-    associated_user_raw = auth_info.get("associatedDSSUser")
-    associated_user = associated_user_raw if isinstance(associated_user_raw, dict) else {}
-
-    username = str(auth_info.get("authIdentifier") or "").strip()
-    if not username:
-        logger.info("/api/me auth resolution did not provide authIdentifier")
-        return None
-
-    groups_raw = auth_info.get("groups")
-    groups = [str(group).strip() for group in groups_raw if str(group).strip()] if isinstance(groups_raw, list) else []
-
-    user_info: dict[str, object] = {
-        "login": username,
-        "groups": groups,
-    }
-
-    display_name = str(
-        associated_user.get("displayName")
-        or auth_info.get("displayName")
-        or auth_info.get("display_name")
-        or ""
-    ).strip()
-    if display_name:
-        user_info["displayName"] = display_name
-
-    email = str(associated_user.get("email") or auth_info.get("email") or "").strip()
-    if email:
-        user_info["email"] = email
-
-    auth_debug_summary = {
-        "authIdentifier": username,
-        "authMethod": str(auth_info.get("authMethod") or "").strip(),
-        "authSource": str(auth_info.get("authSource") or "").strip(),
-        "via": str(auth_info.get("via") or "").strip(),
-        "groups": groups,
-        "associatedDSSUserKeys": sorted(
-            key for key in associated_user.keys() if str(key) not in _SENSITIVE_AUTH_KEYS
-        ),
-    }
-    logger.info("/api/me auth resolution summary=%s", auth_debug_summary)
-    return user_info
-
-
 def _normalize_optional_bool(value: object) -> bool:
     if isinstance(value, bool):
         return value
@@ -269,23 +202,21 @@ def _resolve_effective_request_context() -> dict[str, object]:
         for header_name in request_headers.keys()
         if str(header_name).lower() not in _SENSITIVE_HEADER_NAMES
     )
-    logger.info("/api/me auth resolution started; safe_header_names=%s", safe_header_names)
+    logger.info("/api/me auth resolution started; version=%s safe_header_names=%s", INTERNAL_PREVIEW_DEBUG_VERSION, safe_header_names)
 
+    auth_info: dict[str, Any] | None = None
     try:
-        auth_info = dataiku.api_client().get_auth_info_from_browser_headers(request_headers, with_secrets=False)
-    except Exception:
-        logger.exception("Unable to resolve authenticated Dataiku user")
-        return {
-            "ok": False,
-            "authenticated": False,
-            "previewMode": False,
-            "authSource": None,
-            "user": None,
-            "permissions": _resolve_permissions(None),
-            "configuredGroups": configured_groups,
-            "realIdentity": None,
-            "authFailed": True,
-        }
+        raw_auth_info = dataiku.api_client().get_auth_info_from_browser_headers(request_headers, with_secrets=False)
+        if isinstance(raw_auth_info, dict):
+            auth_info = raw_auth_info
+        else:
+            logger.info("/api/me auth resolution returned non-dict payload: %s", type(raw_auth_info).__name__)
+    except Exception as exc:
+        exception_text = str(exc)
+        if "NotAuthenticatedException" in exception_text:
+            logger.info("No authenticated DSS browser session; evaluating Internal Preview")
+        else:
+            logger.exception("Unexpected error resolving authenticated DSS user")
 
     if isinstance(auth_info, dict):
         associated_user_raw = auth_info.get("associatedDSSUser")
@@ -338,8 +269,6 @@ def _resolve_effective_request_context() -> dict[str, object]:
             }
 
         logger.info("/api/me auth resolution did not provide authIdentifier")
-    else:
-        logger.info("/api/me auth resolution returned non-dict payload: %s", type(auth_info).__name__)
 
     logger.info("Evaluating Internal Preview after DSS authentication result")
     preview_config = _read_internal_preview_config()
