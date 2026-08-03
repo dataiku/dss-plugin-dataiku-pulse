@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from urllib.parse import splitport
 from pathlib import Path
 from typing import Any, cast
 
@@ -121,6 +122,184 @@ def _resolve_authenticated_user() -> dict[str, object] | None:
     return user_info
 
 
+def _normalize_optional_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value == 1
+    normalized = str(value or "").strip().lower()
+    return normalized in {"true", "1", "yes", "on"}
+
+
+def _normalize_hostname(value: str) -> str:
+    host = str(value or "").strip().lower().rstrip(".")
+    normalized_host, _port = splitport(host)
+    return str(normalized_host or "").strip().lower().rstrip(".")
+
+
+def _get_normalized_request_hostname() -> str | None:
+    request_host = getattr(request, "host", None)
+    normalized_host = _normalize_hostname(str(request_host or ""))
+    return normalized_host or None
+
+
+def _read_internal_preview_config() -> dict[str, object]:
+    configured_values = _read_standard_project_variables(
+        [
+            "enable_internal_preview",
+            "internal_preview_host",
+            "internal_preview_login",
+            "internal_preview_access_tier",
+        ]
+    )
+    return {
+        "enabled": _normalize_optional_bool((configured_values.get("enable_internal_preview") or {}).get("value")),
+        "host": _normalize_hostname(str((configured_values.get("internal_preview_host") or {}).get("value") or "")),
+        "login": str((configured_values.get("internal_preview_login") or {}).get("value") or "").strip(),
+        "tier": str((configured_values.get("internal_preview_access_tier") or {}).get("value") or "organization").strip().lower(),
+    }
+
+
+def _resolve_preview_permissions(access_tier: object) -> dict[str, object]:
+    normalized_tier = str(access_tier or "").strip().lower()
+    if normalized_tier == "administration":
+        return {"self": True, "organization": True, "administration": True, "highestTier": "administration"}
+    if normalized_tier == "organization":
+        return {"self": True, "organization": True, "administration": False, "highestTier": "organization"}
+    return {"self": True, "organization": False, "administration": False, "highestTier": "self"}
+
+
+def _resolve_effective_request_context() -> dict[str, object]:
+    configured_values = _read_standard_project_variables(["organization_owner", "administration_owner"])
+    configured_groups = {
+        "organization": str((configured_values.get("organization_owner") or {}).get("value") or "").strip() or None,
+        "administration": str((configured_values.get("administration_owner") or {}).get("value") or "").strip() or None,
+    }
+
+    request_headers = dict(request.headers)
+    safe_header_names = sorted(
+        header_name
+        for header_name in request_headers.keys()
+        if str(header_name).lower() not in _SENSITIVE_HEADER_NAMES
+    )
+    logger.info("/api/me auth resolution started; safe_header_names=%s", safe_header_names)
+
+    try:
+        auth_info = dataiku.api_client().get_auth_info_from_browser_headers(request_headers, with_secrets=False)
+    except Exception:
+        logger.exception("Unable to resolve authenticated Dataiku user")
+        return {
+            "ok": False,
+            "authenticated": False,
+            "previewMode": False,
+            "authSource": None,
+            "user": None,
+            "permissions": _resolve_permissions(None),
+            "configuredGroups": configured_groups,
+            "realIdentity": None,
+            "authFailed": True,
+        }
+
+    if isinstance(auth_info, dict):
+        associated_user_raw = auth_info.get("associatedDSSUser")
+        associated_user = associated_user_raw if isinstance(associated_user_raw, dict) else {}
+
+        username = str(auth_info.get("authIdentifier") or "").strip()
+        if username:
+            groups_raw = auth_info.get("groups")
+            groups = [str(group).strip() for group in groups_raw if str(group).strip()] if isinstance(groups_raw, list) else []
+
+            user_info: dict[str, object] = {
+                "login": username,
+                "groups": groups,
+            }
+
+            display_name = str(
+                associated_user.get("displayName")
+                or auth_info.get("displayName")
+                or auth_info.get("display_name")
+                or ""
+            ).strip()
+            if display_name:
+                user_info["displayName"] = display_name
+
+            email = str(associated_user.get("email") or auth_info.get("email") or "").strip()
+            if email:
+                user_info["email"] = email
+
+            auth_debug_summary = {
+                "authIdentifier": username,
+                "authMethod": str(auth_info.get("authMethod") or "").strip(),
+                "authSource": str(auth_info.get("authSource") or "").strip(),
+                "via": str(auth_info.get("via") or "").strip(),
+                "groups": groups,
+                "associatedDSSUserKeys": sorted(
+                    key for key in associated_user.keys() if str(key) not in _SENSITIVE_AUTH_KEYS
+                ),
+            }
+            logger.info("/api/me auth resolution summary=%s", auth_debug_summary)
+            return {
+                "ok": True,
+                "authenticated": True,
+                "previewMode": False,
+                "authSource": "dss",
+                "user": user_info,
+                "permissions": _resolve_permissions(user_info),
+                "configuredGroups": configured_groups,
+                "realIdentity": user_info,
+                "authFailed": False,
+            }
+
+        logger.info("/api/me auth resolution did not provide authIdentifier")
+    else:
+        logger.info("/api/me auth resolution returned non-dict payload: %s", type(auth_info).__name__)
+
+    preview_config = _read_internal_preview_config()
+    normalized_request_host = _get_normalized_request_hostname()
+    preview_enabled = bool(preview_config.get("enabled"))
+    preview_host = str(preview_config.get("host") or "")
+    preview_login = str(preview_config.get("login") or "")
+    preview_tier = str(preview_config.get("tier") or "self")
+
+    if preview_enabled and normalized_request_host and preview_host and preview_login and normalized_request_host == preview_host:
+        logger.info(
+            "Internal preview mode activated; hostname=%s effective_login=%s access_tier=%s",
+            normalized_request_host,
+            preview_login,
+            preview_tier,
+        )
+        preview_user = {
+            "login": preview_login,
+            "displayName": preview_login,
+            "email": None,
+            "groups": [],
+            "isPreview": True,
+        }
+        return {
+            "ok": True,
+            "authenticated": True,
+            "previewMode": True,
+            "authSource": "internal_preview",
+            "user": preview_user,
+            "permissions": _resolve_preview_permissions(preview_tier),
+            "configuredGroups": configured_groups,
+            "realIdentity": None,
+            "authFailed": False,
+        }
+
+    return {
+        "ok": False,
+        "authenticated": False,
+        "previewMode": False,
+        "authSource": None,
+        "user": None,
+        "permissions": _resolve_permissions(None),
+        "configuredGroups": configured_groups,
+        "realIdentity": None,
+        "authFailed": False,
+    }
+
+
 def _get_default_project_handle() -> Any:
     try:
         get_default_project = getattr(dataiku, "get_default_project", None)
@@ -209,30 +388,7 @@ def _resolve_permissions(user_info: dict[str, object] | None) -> dict[str, objec
 @app.route("/api/me")
 def current_user() -> Any:
     logger.info("/api/me called from remote_addr=%s", request.remote_addr)
-    user_info = _resolve_authenticated_user()
-    permissions = _resolve_permissions(user_info)
-    configured_values = _read_standard_project_variables(["organization_owner", "administration_owner"])
-    configured_groups = {
-        "organization": str((configured_values.get("organization_owner") or {}).get("value") or "").strip() or None,
-        "administration": str((configured_values.get("administration_owner") or {}).get("value") or "").strip() or None,
-    }
-
-    if user_info is None:
-        response_payload = {
-            "ok": False,
-            "authenticated": False,
-            "user": None,
-            "permissions": permissions,
-        }
-        return jsonify(response_payload)
-
-    response_payload = {
-        "ok": True,
-        "authenticated": True,
-        "user": user_info,
-        "configuredGroups": configured_groups,
-        "permissions": permissions,
-    }
+    response_payload = _resolve_effective_request_context()
     return jsonify(response_payload)
 
 

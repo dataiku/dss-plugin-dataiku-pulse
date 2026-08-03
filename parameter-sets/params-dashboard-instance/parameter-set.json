@@ -52,6 +52,43 @@
             "defaultValue": ""
         },
         {
+            "name": "enable_internal_preview",
+            "label": "Enable Internal Preview",
+            "type": "BOOLEAN",
+            "description": "Internal preview only. When enabled, unauthenticated requests on the exact configured preview host may use the configured effective Pulse user instead of remaining unauthenticated.",
+            "mandatory": true,
+            "defaultValue": false
+        },
+        {
+            "name": "internal_preview_host",
+            "label": "Internal Preview Host",
+            "type": "STRING",
+            "description": "Internal preview only. Exact hostname allowed to activate preview mode when normal DSS authentication does not resolve a user.",
+            "mandatory": false,
+            "defaultValue": ""
+        },
+        {
+            "name": "internal_preview_login",
+            "label": "Internal Preview Effective Login",
+            "type": "STRING",
+            "description": "Internal preview only. Effective Pulse login used for analytics and My Information when preview mode activates. This is not DSS impersonation.",
+            "mandatory": false,
+            "defaultValue": ""
+        },
+        {
+            "name": "internal_preview_access_tier",
+            "label": "Internal Preview Access Tier",
+            "type": "SELECT",
+            "description": "Internal preview only. Workspace permissions granted to preview sessions. This does not create DSS group membership.",
+            "mandatory": true,
+            "defaultValue": "organization",
+            "selectChoices": [
+                { "value": "self", "label": "Self" },
+                { "value": "organization", "label": "Organization" },
+                { "value": "administration", "label": "Administration" }
+            ]
+        },
+        {
             "name": "pulse_project_key",
             "label": "Dataiku Pulse Dashboard Project Key",
             "type": "STRING",

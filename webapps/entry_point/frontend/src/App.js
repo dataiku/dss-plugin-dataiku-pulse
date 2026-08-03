@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 
 
@@ -294,11 +294,11 @@ function UserInformationSection({
                 </thead>
                 <tbody>
                   {detailInstances.map((r, idx) => (
-                    <tr key={`${r.instanceName || r.instance_name || 'inst'}__${idx}`}>
-                      <td><Badge>{r.instanceName || '-'}</Badge></td>
-                      <td>{r.displayName || '-'}</td>
+                    <tr key={`${r.instance_name || r.instanceName || 'inst'}__${r.login || idx}`}>
+                      <td><Badge>{r.instance_name || r.instanceName || '-'}</Badge></td>
+                      <td>{r.display_name || r.displayName || '-'}</td>
                       <td>{r.email || '-'}</td>
-                      <td>{r.userProfile || '-'}</td>
+                      <td>{r.user_profile || r.userProfile || '-'}</td>
                       <td>{r.enabled == null ? '-' : (r.enabled ? 'Yes' : 'No')}</td>
                     </tr>
                   ))}
@@ -307,12 +307,277 @@ function UserInformationSection({
             </div>
           ) : (
             <div className="PulseMuted">
-              {hasDirectoryCoverage ? 'No additional instance-level directory rows were identified.' : 'No directory coverage is available for this actor in the loaded history.'}
+              {hasDirectoryCoverage ? 'No instance-level directory records were found for this user.' : 'No directory coverage is available for this actor in the loaded history.'}
             </div>
           )}
         </>
       ) : null}
     </PulseSection>
+  );
+}
+
+function UserDashboard({
+  apiBase = '',
+  login,
+  mode = 'organization',
+  selectedInstance = '',
+  windowValue = 'last_3_months',
+  title,
+  subtitle,
+  showContextBadges = true,
+  showCloseButton = false,
+  onClose,
+}) {
+  const [userDetail, setUserDetail] = useState(null);
+  const [topProjects, setTopProjects] = useState([]);
+  const [userTrendMode, setUserTrendMode] = useState('developing');
+  const [showUserInformation, setShowUserInformation] = useState(false);
+  const [loadingSections, setLoadingSections] = useState({});
+  const [error, setError] = useState('');
+
+  const beginLoad = useCallback((key) => {
+    setLoadingSections((prev) => ({ ...prev, [key]: true }));
+  }, []);
+
+  const endLoad = useCallback((key) => {
+    setLoadingSections((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
+  const setRequestError = useCallback((message) => {
+    setError(message || 'Unexpected user dashboard error');
+  }, []);
+
+  const clearRequestError = useCallback(() => {
+    setError('');
+  }, []);
+
+  const isAbortError = (e) => e?.name === 'AbortError';
+
+  const fetchJson = useCallback(async (path, { params, signal } = {}) => {
+    const suffix = params ? `?${params.toString()}` : '';
+    const response = await fetch(apiUrl(apiBase, `${path}${suffix}`), { signal });
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.error || `Failed loading ${path}`);
+    return data;
+  }, [apiBase]);
+
+  useEffect(() => {
+    setUserDetail(null);
+    setTopProjects([]);
+    setUserTrendMode('developing');
+    setShowUserInformation(false);
+    clearRequestError();
+
+    if (!login) {
+      return undefined;
+    }
+
+    const detailController = new AbortController();
+    const projectsController = new AbortController();
+    const params = new URLSearchParams();
+    params.set('window', windowValue);
+    if (selectedInstance) params.set('instance_name', selectedInstance);
+
+    beginLoad('userDetail');
+    fetchJson(`/api/build/users/${encodeURIComponent(login)}`, { params, signal: detailController.signal })
+      .then((data) => {
+        setUserDetail(data);
+      })
+      .catch((e) => {
+        if (!isAbortError(e)) setRequestError(e.message);
+      })
+      .finally(() => endLoad('userDetail'));
+
+    beginLoad('topProjects');
+    fetchJson(`/api/build/users/${encodeURIComponent(login)}/top-projects`, { params, signal: projectsController.signal })
+      .then((data) => {
+        setTopProjects(data.rows || []);
+      })
+      .catch((e) => {
+        if (!isAbortError(e)) setRequestError(e.message);
+      })
+      .finally(() => endLoad('topProjects'));
+
+    return () => {
+      detailController.abort();
+      projectsController.abort();
+    };
+  }, [beginLoad, clearRequestError, endLoad, fetchJson, login, selectedInstance, setRequestError, windowValue]);
+
+  const loading = Object.keys(loadingSections).length > 0;
+  const detail = userDetail?.user || null;
+  const detailInstances = userDetail?.instances || [];
+  const summary = userDetail?.summary || null;
+  const activityDailyCreating = (userDetail?.activityDaily || []).map((p) => ({
+    label: p.label,
+    value: Number(p.developing ?? 0),
+  }));
+  const activityDailyConsuming = (userDetail?.activityDaily || []).map((p) => ({
+    label: p.label,
+    value: Number(p.viewing ?? 0),
+  }));
+  const activityMonthlyCreating = (userDetail?.activityMonthly || []).map((p) => ({
+    label: String(p.month || '').slice(0, 7),
+    value: Number(p.developing ?? 0),
+  }));
+  const activityMonthlyConsuming = (userDetail?.activityMonthly || []).map((p) => ({
+    label: String(p.month || '').slice(0, 7),
+    value: Number(p.viewing ?? 0),
+  }));
+  const hasActivityInWindow = Boolean((summary?.total_actions ?? ((summary?.viewing ?? 0) + (summary?.developing ?? 0))) > 0);
+  const activityWindowLabel = summary?.months ? `${summary.months} month${summary.months === 1 ? '' : 's'}` : `${summary?.days || 30} day${(summary?.days || 30) === 1 ? '' : 's'}`;
+  const normalizedWindowBadge = windowValue.replaceAll('_', ' ');
+  const resolvedTitle = title || `${detail?.display_name || detail?.login || login} Dashboard`;
+  const resolvedSubtitle = subtitle || (mode === 'self'
+    ? 'Your personal Dataiku Pulse activity overview.'
+    : 'Detailed user activity overview.');
+
+  if (!login) {
+    return <div className="PulseMuted">User login is not available.</div>;
+  }
+
+  return (
+    <div>
+      {title || subtitle ? (
+        <div className="PulseHero">
+          <h1>{resolvedTitle}</h1>
+          {resolvedSubtitle ? <p>{resolvedSubtitle}</p> : null}
+        </div>
+      ) : null}
+
+      {error ? <div className="PulseError">{error}</div> : null}
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        {showContextBadges ? <Badge>{login}</Badge> : null}
+        {showContextBadges ? <Badge>{normalizedWindowBadge}</Badge> : null}
+        {showContextBadges && detail?.display_name && detail?.login && detail.display_name !== detail.login ? <Badge>{detail.login}</Badge> : null}
+        {showContextBadges ? (selectedInstance ? <Badge>{selectedInstance}</Badge> : <Badge>All instances</Badge>) : null}
+        {showCloseButton ? <button className="PulseButton" type="button" onClick={onClose}>Close</button> : null}
+      </div>
+
+      {loading && !userDetail ? <div className="PulseMuted" style={{ marginBottom: 12 }}>Loading user dashboard…</div> : null}
+
+      <UserInformationSection
+        detail={detail}
+        detailInstances={detailInstances}
+        selectedInstance={selectedInstance}
+        expanded={showUserInformation}
+        onToggle={() => setShowUserInformation((v) => !v)}
+        loadingMessage="Loading user details…"
+      />
+
+      <PulseSection title="User activity summary">
+        {summary ? (
+          <>
+            <div className="PulseMuted" style={{ marginBottom: 10 }}>
+              Activity totals for the selected {activityWindowLabel} window{selectedInstance ? ` on ${selectedInstance}` : ' across all instances'}.
+              {!hasActivityInWindow ? ' No consuming or creating activity was found in this window.' : ''}
+            </div>
+            <div className="PulseDetailGrid">
+              <div>
+                <div className="PulseMuted">Viewing actions</div>
+                <div style={{ fontWeight: 800, fontSize: 20 }}>{Number(summary.viewing || 0).toLocaleString()}</div>
+              </div>
+              <div>
+                <div className="PulseMuted">Creation actions</div>
+                <div style={{ fontWeight: 800, fontSize: 20 }}>{Number(summary.developing || 0).toLocaleString()}</div>
+              </div>
+              <div>
+                <div className="PulseMuted">Total actions</div>
+                <div style={{ fontWeight: 800, fontSize: 20 }}>{Number(summary.total_actions || 0).toLocaleString()}</div>
+              </div>
+              <div>
+                <div className="PulseMuted">Primary activity type</div>
+                <div style={{ fontWeight: 800, fontSize: 20 }}>{summary.activity_mode ? String(summary.activity_mode).replace('_', ' ') : '-'}</div>
+              </div>
+              <div>
+                <div className="PulseMuted">Active instances</div>
+                <div style={{ fontWeight: 800, fontSize: 20 }}>{Number(summary.instances || 0).toLocaleString()}</div>
+              </div>
+              <div>
+                <div className="PulseMuted">Active projects</div>
+                <div style={{ fontWeight: 800, fontSize: 20 }}>{Number(summary.projects || 0).toLocaleString()}</div>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="PulseMuted">{loading ? 'Loading activity summary…' : 'No activity summary is available for this user.'}</div>
+        )}
+      </PulseSection>
+
+      <PulseSection title="Activity trend">
+        {hasActivityInWindow ? (
+          <>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+              <button
+                className={`PulseButton ${userTrendMode === 'developing' ? 'PulseButtonToggleActive' : ''}`}
+                type="button"
+                onClick={() => setUserTrendMode('developing')}
+              >
+                Creation
+              </button>
+              <button
+                className={`PulseButton ${userTrendMode === 'viewing' ? 'PulseButtonToggleActive' : ''}`}
+                type="button"
+                onClick={() => setUserTrendMode('viewing')}
+              >
+                Viewing
+              </button>
+            </div>
+            <div className="PulseVizGrid">
+              <LineChart
+                title={userTrendMode === 'viewing' ? 'Viewing activity by day' : 'Creation activity by day'}
+                points={userTrendMode === 'viewing' ? activityDailyConsuming : activityDailyCreating}
+              />
+              <LineChart
+                title={userTrendMode === 'viewing' ? 'Viewing activity by month' : 'Creation activity by month'}
+                points={userTrendMode === 'viewing' ? activityMonthlyConsuming : activityMonthlyCreating}
+              />
+            </div>
+          </>
+        ) : (
+          <div className="PulseMuted">
+            {loading ? 'Loading activity trend…' : `No consuming or creating activity was identified for this user in the selected window${selectedInstance ? ` on ${selectedInstance}` : ''}.`}
+          </div>
+        )}
+      </PulseSection>
+
+      <PulseSection title="Most active projects">
+        <div className="PulseMuted" style={{ marginBottom: 8 }}>
+          Projects are shown by instance and project key.
+        </div>
+        {topProjects.length ? (
+          <div className="PulseTableWrap">
+            <table className="PulseTable">
+              <thead>
+                <tr>
+                  <th>Instance</th>
+                  <th>Project Key</th>
+                  <th>Creating</th>
+                  <th>Consuming</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topProjects.map((r) => (
+                  <tr key={`${r.instanceName}__${r.projectKey}`}>
+                    <td><Badge>{r.instanceName}</Badge></td>
+                    <td><Badge>{r.projectKey}</Badge></td>
+                    <td>{r.developing}</td>
+                    <td>{r.viewing}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="PulseMuted">{loading ? 'Loading project activity…' : 'No project activity is available for this user in the selected window.'}</div>
+        )}
+      </PulseSection>
+    </div>
   );
 }
 
@@ -1142,13 +1407,24 @@ function ReloadDuckDBTab({ apiBase }) {
 
 function ViewDuckDBTab({ apiBase }) {
   const [tables, setTables] = useState([]);
-  const [tableStats, setTableStats] = useState([]);
-  const [tableStatsSort, setTableStatsSort] = useState({ column: 'estimatedSizeBytes', direction: 'desc' });
+  const [views, setViews] = useState([]);
   const [selected, setSelected] = useState('');
   const [tableInfo, setTableInfo] = useState(null);
   const [loadingTables, setLoadingTables] = useState(false);
   const [loadingInfo, setLoadingInfo] = useState(false);
+  const [queryText, setQueryText] = useState('');
+  const [runningQuery, setRunningQuery] = useState(false);
+  const [queryResult, setQueryResult] = useState(null);
+  const [queryError, setQueryError] = useState('');
   const [error, setError] = useState('');
+
+  const objects = useMemo(
+    () => [
+      ...tables.map((name) => ({ name, type: 'table' })),
+      ...views.map((name) => ({ name, type: 'view' })),
+    ],
+    [tables, views]
+  );
 
   const loadTables = async () => {
     setLoadingTables(true);
@@ -1158,9 +1434,13 @@ function ViewDuckDBTab({ apiBase }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Failed to load tables');
       setTables(data.tables || []);
-      setTableStats(data.tableStats || []);
-      if ((data.tables || []).length && !selected) {
-        setSelected(data.tables[0]);
+      setViews(data.views || []);
+      const objectNames = [
+        ...((data.tables || []).map((name) => ({ name, type: 'table' }))),
+        ...((data.views || []).map((name) => ({ name, type: 'view' }))),
+      ];
+      if (objectNames.length && !selected) {
+        setSelected(objectNames[0].name);
       }
     } catch (e) {
       setError(e.message);
@@ -1198,131 +1478,320 @@ function ViewDuckDBTab({ apiBase }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected]);
 
-  const toggleTableStatsSort = useCallback((column) => {
-    setTableStatsSort((current) => {
-      if (current.column === column) {
-        return {
-          column,
-          direction: current.direction === 'asc' ? 'desc' : 'asc',
-        };
+  const selectedObject = useMemo(
+    () => objects.find((object) => object.name === selected) || null,
+    [objects, selected]
+  );
+
+  const selectedSummaryRows = useMemo(() => {
+    if (!tableInfo?.summary) return [];
+    const summary = tableInfo.summary;
+    return [
+      ['Object name', summary.objectName ?? '—'],
+      ['Object type', summary.objectType ?? '—'],
+      ['Column count', summary.columnCount ?? '—'],
+      ['Row count', summary.rowCount ?? '—'],
+      ['Estimated size', summary.estimatedSizeBytes == null ? '—' : `${(Number(summary.estimatedSizeBytes) / (1024 * 1024)).toFixed(2)} MB`],
+      ['Schema', summary.schemaName ?? '—'],
+      ['Database', summary.databaseName ?? '—'],
+    ];
+  }, [tableInfo]);
+
+  const normalizeSchemaRow = useCallback((row) => {
+    const columnName = row?.column ?? row?.name ?? row?.column_name ?? null;
+    const typeName = row?.type ?? row?.data_type ?? null;
+    const notNullValue = row?.notnull ?? row?.not_null ?? row?.nullable;
+    const defaultValue = row?.default ?? row?.dflt_value ?? row?.column_default;
+    const primaryKeyValue = row?.pk ?? row?.primaryKey;
+
+    const nullableLabel = (() => {
+      if (notNullValue === true || notNullValue === 1 || notNullValue === '1') return 'Not Null';
+      if (notNullValue === false || notNullValue === 0 || notNullValue === '0') return 'Nullable';
+      if (typeof notNullValue === 'string') {
+        const normalized = notNullValue.trim().toUpperCase();
+        if (normalized === 'NO' || normalized === 'TRUE') return 'Not Null';
+        if (normalized === 'YES' || normalized === 'FALSE') return 'Nullable';
       }
-      return {
-        column,
-        direction: column === 'table' ? 'asc' : 'desc',
-      };
-    });
+      return '—';
+    })();
+
+    const primaryKeyLabel = (() => {
+      if (primaryKeyValue == null) return '—';
+      if (primaryKeyValue === true) return 'Yes';
+      if (primaryKeyValue === false) return 'No';
+      const numeric = Number(primaryKeyValue);
+      if (Number.isFinite(numeric)) return numeric > 0 ? 'Yes' : 'No';
+      return '—';
+    })();
+
+    return {
+      column: columnName ?? '—',
+      type: typeName ?? '—',
+      nullable: nullableLabel,
+      default: defaultValue == null || defaultValue === '' ? '—' : String(defaultValue),
+      primaryKey: primaryKeyLabel,
+    };
   }, []);
 
-  const sortedTableStats = useMemo(() => {
-    const rows = [...tableStats];
-    const { column, direction } = tableStatsSort;
-    rows.sort((left, right) => {
-      if (column === 'table') {
-        return compareNullableStrings(left.table, right.table, direction);
-      }
+  const normalizedSchemaRows = useMemo(
+    () => (tableInfo?.columns || []).map((row) => normalizeSchemaRow(row)),
+    [normalizeSchemaRow, tableInfo]
+  );
 
-      const leftValue = Number(left?.[column] ?? -1);
-      const rightValue = Number(right?.[column] ?? -1);
-      if (leftValue === rightValue) {
-        return compareNullableStrings(left.table, right.table, 'asc');
+  const runQuery = async () => {
+    setRunningQuery(true);
+    setQueryError('');
+    setQueryResult(null);
+    try {
+      const queryUrl = new URL(
+        apiUrl(apiBase, '/api/debug/duckdb/query'),
+        window.location.href
+      );
+      queryUrl.search = new URLSearchParams({ sql: queryText }).toString();
+      const res = await fetch(queryUrl.toString(), {
+        method: 'GET',
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+      });
+      const contentType = (res.headers.get('content-type') || '').toLowerCase();
+      if (!contentType.includes('application/json')) {
+        const bodyText = await res.text();
+        const safePreview = bodyText.replace(/\s+/g, ' ').trim().slice(0, 200) || '(empty body)';
+        throw new Error(`Unexpected response: HTTP ${res.status}, Content-Type ${contentType || 'unknown'}, Body ${safePreview}`);
       }
-      const base = leftValue < rightValue ? -1 : 1;
-      return direction === 'desc' ? -base : base;
-    });
-    return rows;
-  }, [tableStats, tableStatsSort]);
+      const data = await res.json();
+      if (!res.ok || data?.ok !== true) {
+        throw new Error(data?.error || 'Failed to run query');
+      }
+      setQueryResult(data);
+    } catch (e) {
+      setQueryError(e.message);
+    } finally {
+      setRunningQuery(false);
+    }
+  };
+
+  const insertSampleQuery = useCallback(() => {
+    if (!selected) return;
+    const quoted = `"${String(selected).replace(/"/g, '""')}"`;
+    setQueryText(`SELECT *\nFROM ${quoted}\nLIMIT 100;`);
+  }, [selected]);
 
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto' }}>
-      <h2>View DuckDB</h2>
+    <div style={{ maxWidth: 1400, margin: '0 auto' }}>
+      <h2>Preview DuckDB</h2>
+      {error && <p style={{ color: 'salmon' }}>{error}</p>}
+
+      <h3 style={{ marginTop: 16 }}>Selected Table Inspection</h3>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <button onClick={loadTables} disabled={loadingTables}>
           {loadingTables ? 'Refreshing...' : 'Refresh tables'}
         </button>
         <label>
-          Table:{' '}
+          DuckDB object:{' '}
           <select value={selected} onChange={(e) => setSelected(e.target.value)}>
-            {tables.map((t) => (
-              <option key={t} value={t}>
-                {t}
+            {!objects.length ? <option value="">No objects available</option> : null}
+            {objects.map((object) => (
+              <option key={`${object.type}:${object.name}`} value={object.name}>
+                {object.name}
               </option>
             ))}
           </select>
         </label>
+        <button onClick={insertSampleQuery} disabled={!selected}>
+          Insert SELECT sample
+        </button>
       </div>
 
-      <h3 style={{ marginTop: 16 }}>Table summary</h3>
-      {tableStats.length ? (
-        <div style={{ overflowX: 'auto', marginTop: 12 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-            <thead>
-              <tr style={{ background: '#f8fafc' }}>
-                <th style={{ textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid #dbe2ea' }}>
-                  <SortableHeader label="Table" column="table" sortState={tableStatsSort} onToggle={toggleTableStatsSort} />
-                </th>
-                <th style={{ textAlign: 'right', padding: '8px 10px', borderBottom: '1px solid #dbe2ea' }}>
-                  <SortableHeader label="Columns" column="columnCount" sortState={tableStatsSort} onToggle={toggleTableStatsSort} />
-                </th>
-                <th style={{ textAlign: 'right', padding: '8px 10px', borderBottom: '1px solid #dbe2ea' }}>
-                  <SortableHeader label="Rows" column="rowCount" sortState={tableStatsSort} onToggle={toggleTableStatsSort} />
-                </th>
-                <th style={{ textAlign: 'right', padding: '8px 10px', borderBottom: '1px solid #dbe2ea' }}>
-                  <SortableHeader label="Estimated size" column="estimatedSizeBytes" sortState={tableStatsSort} onToggle={toggleTableStatsSort} />
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedTableStats.map((row) => (
-                <tr key={row.table}>
-                  <td style={{ padding: '8px 10px', borderBottom: '1px solid #eef2f7' }}>{row.table}</td>
-                  <td style={{ padding: '8px 10px', borderBottom: '1px solid #eef2f7', textAlign: 'right' }}>
-                    {Number(row.columnCount || 0).toLocaleString()}
-                  </td>
-                  <td style={{ padding: '8px 10px', borderBottom: '1px solid #eef2f7', textAlign: 'right' }}>
-                    {Number(row.rowCount || 0).toLocaleString()}
-                  </td>
-                  <td style={{ padding: '8px 10px', borderBottom: '1px solid #eef2f7', textAlign: 'right' }}>
-                    {row.estimatedSizeBytes == null
-                      ? '—'
-                      : `${(Number(row.estimatedSizeBytes) / (1024 * 1024)).toFixed(2)} MB`}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {!selected ? <p style={{ marginTop: 12 }}>Select a DuckDB table or view to inspect its structure.</p> : null}
+      {loadingInfo && selected ? <p>Loading...</p> : null}
+      {selectedObject && selectedSummaryRows.length ? (
+        <div
+          style={{
+            marginTop: 12,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: 12,
+          }}
+        >
+          {selectedSummaryRows.map(([label, value]) => (
+            <div
+              key={label}
+              style={{
+                border: '1px solid #dbe2ea',
+                borderRadius: 10,
+                padding: '12px 14px',
+                background: '#fff',
+              }}
+            >
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>{label}</div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: '#0f172a', wordBreak: 'break-word' }} title={String(value)}>
+                {String(value)}
+              </div>
+            </div>
+          ))}
         </div>
-      ) : loadingTables ? (
-        <p>Loading table summary...</p>
+      ) : null}
+      {tableInfo?.summary?.rowCountError ? (
+        <p style={{ marginTop: 10, color: '#64748b' }}>
+          Row count unavailable: {tableInfo.summary.rowCountError}
+        </p>
       ) : null}
 
-      {error && <p style={{ color: 'salmon' }}>{error}</p>}
-
-      <h3 style={{ marginTop: 16 }}>PRAGMA table_info</h3>
-      {loadingInfo && <p>Loading...</p>}
-      {tableInfo?.columns?.length ? (
-        <div style={{ overflowX: 'auto', marginTop: 12 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+      <h4 style={{ marginTop: 16 }}>PRAGMA table_info</h4>
+      {normalizedSchemaRows.length ? (
+        <div style={{ overflowX: 'auto', marginTop: 12, maxWidth: '100%' }}>
+          <table style={{ width: '100%', minWidth: 720, borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: '#f8fafc' }}>
-                {Object.keys(tableInfo.columns[0] || {}).map((column) => (
-                  <th key={column} style={{ textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid #dbe2ea' }}>
+                {['Column', 'Type', 'Nullable / Not Null', 'Default', 'Primary Key'].map((column) => (
+                  <th
+                    key={column}
+                    style={{
+                      textAlign: 'left',
+                      padding: '8px 10px',
+                      borderBottom: '1px solid #dbe2ea',
+                      position: 'sticky',
+                      top: 0,
+                      background: '#f8fafc',
+                      zIndex: 1,
+                    }}
+                  >
                     {column}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {tableInfo.columns.map((row, index) => (
+              {normalizedSchemaRows.map((row, index) => (
                 <tr key={index}>
-                  {Object.keys(tableInfo.columns[0] || {}).map((column) => (
-                    <td key={`${index}-${column}`} style={{ padding: '8px 10px', borderBottom: '1px solid #eef2f7', verticalAlign: 'top' }}>
-                      {row?.[column] == null ? '—' : String(row[column])}
-                    </td>
-                  ))}
+                  <td style={{ padding: '8px 10px', borderBottom: '1px solid #eef2f7', verticalAlign: 'top' }}>{row.column}</td>
+                  <td style={{ padding: '8px 10px', borderBottom: '1px solid #eef2f7', verticalAlign: 'top' }}>{row.type}</td>
+                  <td style={{ padding: '8px 10px', borderBottom: '1px solid #eef2f7', verticalAlign: 'top' }}>{row.nullable}</td>
+                  <td
+                    style={{
+                      padding: '8px 10px',
+                      borderBottom: '1px solid #eef2f7',
+                      verticalAlign: 'top',
+                      maxWidth: 320,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                    title={row.default === '—' ? '' : row.default}
+                  >
+                    {row.default}
+                  </td>
+                  <td style={{ padding: '8px 10px', borderBottom: '1px solid #eef2f7', verticalAlign: 'top' }}>{row.primaryKey}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      ) : selected ? (
+        <p style={{ marginTop: 12 }}>No columns returned for the selected object.</p>
+      ) : null}
+
+      <h3 style={{ marginTop: 24 }}>Read-Only SQL Query</h3>
+      <textarea
+        value={queryText}
+        onChange={(e) => setQueryText(e.target.value)}
+        placeholder={'SELECT * FROM "your_table" LIMIT 100;'}
+        spellCheck={false}
+        style={{
+          width: '100%',
+          minHeight: 220,
+          resize: 'vertical',
+          fontFamily: 'ui-monospace, SFMono-Regular, SFMono-Regular, Consolas, monospace',
+          fontSize: 13,
+          padding: 12,
+          borderRadius: 10,
+          border: '1px solid #cbd5e1',
+          boxSizing: 'border-box',
+        }}
+      />
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 10 }}>
+        <button onClick={runQuery} disabled={runningQuery || !queryText.trim()}>
+          {runningQuery ? 'Running...' : 'Run Query'}
+        </button>
+        {queryResult?.limit ? (
+          <span style={{ fontSize: 12, color: '#64748b' }}>Row limit: {queryResult.limit}</span>
+        ) : null}
+      </div>
+
+      {queryError ? <p style={{ color: 'salmon', marginTop: 12 }}>{queryError}</p> : null}
+      {queryResult ? (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 13, color: '#334155' }}>
+            <span>Status: Success</span>
+            <span>Returned rows: {Number(queryResult.returnedRowCount || 0).toLocaleString()}</span>
+            <span>Total rows: {Number(queryResult.rowCount || 0).toLocaleString()}</span>
+            <span>Truncated: {queryResult.truncated ? 'Yes' : 'No'}</span>
+          </div>
+          <div style={{ overflowX: 'auto', marginTop: 12, maxWidth: '100%' }}>
+            <table style={{ width: '100%', minWidth: 720, borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: '#f8fafc' }}>
+                  {(queryResult.columns || []).map((column) => (
+                    <th
+                      key={column}
+                      style={{
+                        textAlign: 'left',
+                        padding: '8px 10px',
+                        borderBottom: '1px solid #dbe2ea',
+                        position: 'sticky',
+                        top: 0,
+                        background: '#f8fafc',
+                        zIndex: 1,
+                      }}
+                    >
+                      {column}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(queryResult.rows || []).length ? (
+                  queryResult.rows.map((row, rowIndex) => (
+                    <tr key={rowIndex}>
+                      {(queryResult.columns || []).map((column) => {
+                        const value = row?.[column];
+                        const displayValue = value === null ? 'null' : value === '' ? '(empty string)' : String(value);
+                        return (
+                          <td
+                            key={`${rowIndex}-${column}`}
+                            style={{
+                              padding: '8px 10px',
+                              borderBottom: '1px solid #eef2f7',
+                              verticalAlign: 'top',
+                              maxWidth: 320,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              color: value === null ? '#7c3aed' : value === '' ? '#94a3b8' : '#0f172a',
+                              fontStyle: value === null || value === '' ? 'italic' : 'normal',
+                            }}
+                            title={displayValue}
+                          >
+                            {displayValue}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td
+                      colSpan={Math.max((queryResult.columns || []).length, 1)}
+                      style={{ padding: '12px 10px', color: '#64748b' }}
+                    >
+                      Query returned no rows.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : null}
 
@@ -1348,10 +1817,10 @@ function DebugPreviewPage({ apiBase }) {
   return (
     <div className="PulseWide">
       <div className="PulseHero">
-        <h1>Debug: Preview DB</h1>
-        <p>List tables and inspect their schemas.</p>
+        <h1>Preview DuckDB</h1>
+        <p>Inspect one DuckDB object at a time and run read-only SQL queries.</p>
       </div>
-      <PulseSection title="Tables">
+      <PulseSection title="Preview DuckDB">
         <ViewDuckDBTab apiBase={apiBase} />
       </PulseSection>
     </div>
@@ -2137,10 +2606,6 @@ function UsersActivityPage({ apiBase }) {
   const [stickinessSeries, setStickinessSeries] = useState([]);
   const [stickinessLatest, setStickinessLatest] = useState(null);
   const [selectedLogin, setSelectedLogin] = useState(null);
-  const [userDetail, setUserDetail] = useState(null);
-  const [topProjects, setTopProjects] = useState([]);
-  const [userTrendMode, setUserTrendMode] = useState('developing');
-  const [showUserInformation, setShowUserInformation] = useState(false);
   const [loadingSections, setLoadingSections] = useState({});
   const [error, setError] = useState('');
 
@@ -2194,10 +2659,6 @@ function UsersActivityPage({ apiBase }) {
     setActivityFilter(draftActivityFilter);
     setShowInstanceBreakdown(draftShowInstanceBreakdown);
     setSelectedLogin(null);
-    setUserDetail(null);
-    setTopProjects([]);
-    setUserTrendMode('developing');
-    setShowUserInformation(false);
   }, [draftActivityFilter, draftSelectedInstance, draftShowInstanceBreakdown, draftWindowKind]);
 
   const resetFilters = useCallback(() => {
@@ -2391,47 +2852,6 @@ function UsersActivityPage({ apiBase }) {
     return () => controller.abort();
   }, [activityFilter, beginLoad, clearRequestError, endLoad, fetchJson, selectedInstance, setRequestError, windowParam]);
 
-  useEffect(() => {
-    if (!selectedLogin) return undefined;
-
-    const detailController = new AbortController();
-    const projectsController = new AbortController();
-    const params = new URLSearchParams();
-    params.set('window', windowParam.window);
-    if (selectedInstance) params.set('instance_name', selectedInstance);
-
-    clearRequestError();
-    setUserDetail(null);
-    setTopProjects([]);
-    setUserTrendMode('developing');
-    setShowUserInformation(false);
-
-    beginLoad('userDetail');
-    fetchJson(`/api/build/users/${encodeURIComponent(selectedLogin)}`, { params, signal: detailController.signal })
-      .then((data) => {
-        setUserDetail(data);
-      })
-      .catch((e) => {
-        if (!isAbortError(e)) setRequestError(e.message);
-      })
-      .finally(() => endLoad('userDetail'));
-
-    beginLoad('topProjects');
-    fetchJson(`/api/build/users/${encodeURIComponent(selectedLogin)}/top-projects`, { params, signal: projectsController.signal })
-      .then((data) => {
-        setTopProjects(data.rows || []);
-      })
-      .catch((e) => {
-        if (!isAbortError(e)) setRequestError(e.message);
-      })
-      .finally(() => endLoad('topProjects'));
-
-    return () => {
-      detailController.abort();
-      projectsController.abort();
-    };
-  }, [beginLoad, clearRequestError, endLoad, fetchJson, selectedInstance, selectedLogin, setRequestError, windowParam]);
-
   const toBarRows = (rows, key = 'value') => {
     return (rows || []).map((r) => ({
       label: r.displayName || r.login || r.label,
@@ -2444,34 +2864,8 @@ function UsersActivityPage({ apiBase }) {
   const onUserClick = (row) => {
     const login = row?.login || row;
     if (!login) return;
-    setUserDetail(null);
-    setTopProjects([]);
-    setUserTrendMode('developing');
-    setShowUserInformation(false);
     setSelectedLogin(login);
   };
-
-  const detail = userDetail?.user || null;
-  const detailInstances = userDetail?.instances || [];
-  const summary = userDetail?.summary || null;
-  const activityDailyCreating = (userDetail?.activityDaily || []).map((p) => ({
-    label: p.label,
-    value: Number(p.developing ?? 0),
-  }));
-  const activityDailyConsuming = (userDetail?.activityDaily || []).map((p) => ({
-    label: p.label,
-    value: Number(p.viewing ?? 0),
-  }));
-  const activityMonthlyCreating = (userDetail?.activityMonthly || []).map((p) => ({
-    label: String(p.month || '').slice(0, 7),
-    value: Number(p.developing ?? 0),
-  }));
-  const activityMonthlyConsuming = (userDetail?.activityMonthly || []).map((p) => ({
-    label: String(p.month || '').slice(0, 7),
-    value: Number(p.viewing ?? 0),
-  }));
-  const hasActivityInWindow = Boolean((summary?.total_actions ?? ((summary?.viewing ?? 0) + (summary?.developing ?? 0))) > 0);
-  const activityWindowLabel = summary?.months ? `${summary.months} month${summary.months === 1 ? '' : 's'}` : `${summary?.days || 30} day${(summary?.days || 30) === 1 ? '' : 's'}`;
 
   const toMonthlyPoints = (rows) => {
     return (rows || []).map((r) => ({
@@ -2736,7 +3130,7 @@ function UsersActivityPage({ apiBase }) {
                     Reset
                   </button>
                   {selectedLogin ? (
-                    <button className="PulseButton" type="button" onClick={() => { setSelectedLogin(null); setUserDetail(null); setTopProjects([]); setUserTrendMode('developing'); setShowUserInformation(false); }}>
+                    <button className="PulseButton" type="button" onClick={() => { setSelectedLogin(null); }}>
                       Clear selection
                     </button>
                   ) : null}
@@ -2971,131 +3365,14 @@ function UsersActivityPage({ apiBase }) {
 
       {selectedLogin ? (
         <Modal title={`${selectedLogin} user card`} onClose={() => setSelectedLogin(null)}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-            <Badge>{selectedLogin}</Badge>
-            <Badge>{windowKind.replaceAll('_', ' ')}</Badge>{detail?.display_name && detail?.login && detail.display_name !== detail.login ? <Badge>{detail.login}</Badge> : null}
-            {selectedInstance ? <Badge>{selectedInstance}</Badge> : <Badge>All instances</Badge>}
-            <button className="PulseButton" type="button" onClick={() => setShowUserInformation((v) => !v)}>
-              {showUserInformation ? 'Hide details' : 'Show details'}
-            </button>
-          </div>
-
-          <UserInformationSection
-            detail={detail}
-            detailInstances={detailInstances}
+          <UserDashboard
+            apiBase={apiBase}
+            login={selectedLogin}
+            mode="organization"
             selectedInstance={selectedInstance}
-            expanded={showUserInformation}
-            onToggle={() => setShowUserInformation((v) => !v)}
-            loadingMessage="Loading user details…"
+            windowValue={windowParam.window}
+            showContextBadges={true}
           />
-
-          <PulseSection title="User activity summary">
-            {summary ? (
-              <>
-                <div className="PulseMuted" style={{ marginBottom: 10 }}>
-                  Activity totals for the selected {activityWindowLabel} window{selectedInstance ? ` on ${selectedInstance}` : ' across all instances'}.
-                  {!hasActivityInWindow ? ' No consuming or creating activity was found in this window.' : ''}
-                </div>
-                <div className="PulseDetailGrid">
-                  <div>
-                    <div className="PulseMuted">Viewing actions</div>
-                    <div style={{ fontWeight: 800, fontSize: 20 }}>{Number(summary.viewing || 0).toLocaleString()}</div>
-                  </div>
-                  <div>
-                    <div className="PulseMuted">Creation actions</div>
-                    <div style={{ fontWeight: 800, fontSize: 20 }}>{Number(summary.developing || 0).toLocaleString()}</div>
-                  </div>
-                  <div>
-                    <div className="PulseMuted">Total actions</div>
-                    <div style={{ fontWeight: 800, fontSize: 20 }}>{Number(summary.total_actions || 0).toLocaleString()}</div>
-                  </div>
-                  <div>
-                    <div className="PulseMuted">Primary activity type</div>
-                    <div style={{ fontWeight: 800, fontSize: 20 }}>{summary.activity_mode ? String(summary.activity_mode).replace('_', ' ') : '-'}</div>
-                  </div>
-                  <div>
-                    <div className="PulseMuted">Active instances</div>
-                    <div style={{ fontWeight: 800, fontSize: 20 }}>{Number(summary.instances || 0).toLocaleString()}</div>
-                  </div>
-                  <div>
-                    <div className="PulseMuted">Active projects</div>
-                    <div style={{ fontWeight: 800, fontSize: 20 }}>{Number(summary.projects || 0).toLocaleString()}</div>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="PulseMuted">No activity summary is available for this user.</div>
-            )}
-          </PulseSection>
-
-          <PulseSection title="Activity trend">
-            {hasActivityInWindow ? (
-              <>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-                  <button
-                    className={`PulseButton ${userTrendMode === 'developing' ? 'PulseButtonToggleActive' : ''}`}
-                    type="button"
-                    onClick={() => setUserTrendMode('developing')}
-                  >
-                    Creation
-                  </button>
-                  <button
-                    className={`PulseButton ${userTrendMode === 'viewing' ? 'PulseButtonToggleActive' : ''}`}
-                    type="button"
-                    onClick={() => setUserTrendMode('viewing')}
-                  >
-                    Viewing
-                  </button>
-                </div>
-                <div className="PulseVizGrid">
-                  <LineChart
-                    title={userTrendMode === 'viewing' ? 'Viewing activity by day' : 'Creation activity by day'}
-                    points={userTrendMode === 'viewing' ? activityDailyConsuming : activityDailyCreating}
-                  />
-                  <LineChart
-                    title={userTrendMode === 'viewing' ? 'Viewing activity by month' : 'Creation activity by month'}
-                    points={userTrendMode === 'viewing' ? activityMonthlyConsuming : activityMonthlyCreating}
-                  />
-                </div>
-              </>
-            ) : (
-              <div className="PulseMuted">
-                No consuming or creating activity was identified for this user in the selected window{selectedInstance ? ` on ${selectedInstance}` : ''}.
-              </div>
-            )}
-          </PulseSection>
-
-          <PulseSection title="Most active projects">
-            <div className="PulseMuted" style={{ marginBottom: 8 }}>
-              Projects are shown by instance and project key.
-            </div>
-            {topProjects.length ? (
-              <div className="PulseTableWrap">
-                <table className="PulseTable">
-                  <thead>
-                    <tr>
-                      <th>Instance</th>
-                      <th>Project Key</th>
-                      <th>Creating</th>
-                      <th>Consuming</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {topProjects.map((r) => (
-                      <tr key={`${r.instanceName}__${r.projectKey}`}>
-                        <td><Badge>{r.instanceName}</Badge></td>
-                        <td><Badge>{r.projectKey}</Badge></td>
-                        <td>{r.developing}</td>
-                        <td>{r.viewing}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="PulseMuted">No project activity is available for this user in the selected window.</div>
-            )}
-          </PulseSection>
         </Modal>
       ) : null}
 
@@ -5358,18 +5635,11 @@ function DropdownNav({ groups, globalGroups, homeHref, workspaceOptions, workspa
   );
 }
 
-function MyInformationPage({ pageKey, onPageChange }) {
+function MyInformationPage({ pageKey, userLabel, authState, apiBase, advancedLlmMeshEnabled }) {
   const pages = {
-    'my-activity-development': {
-      title: 'Activity & Product Lifecycle Development',
-      description:
-        'Review your personal Dataiku activity and the development work you have contributed across the product lifecycle.',
-      placeholder: 'Personal activity and development insights will be added in a later step.',
-    },
-    'my-license': {
-      title: 'License',
-      description: 'Review your assigned Dataiku license information and personal license-related activity.',
-      placeholder: 'Personal license information will be added in a later step.',
+    'my-overview': {
+      title: 'Overview',
+      description: 'Your personal Dataiku Pulse dashboard.',
     },
     'my-assets': {
       title: 'Assets',
@@ -5393,7 +5663,25 @@ function MyInformationPage({ pageKey, onPageChange }) {
     },
   };
 
-  const activePage = pages[pageKey] || pages['my-activity-development'];
+  const resolvedPageKey = pageKey === 'my-llm-overview' && !advancedLlmMeshEnabled ? 'my-overview' : pageKey;
+  const activePage = pages[resolvedPageKey] || pages['my-overview'];
+
+  if (resolvedPageKey === 'my-overview') {
+    const selfLogin = authState?.data?.user?.login || '';
+
+    return (
+      <div className="PulseWide">
+        <UserDashboard
+          apiBase={apiBase}
+          login={selfLogin}
+          mode="self"
+          title={`${userLabel} Dashboard`}
+          subtitle="Your personal Dataiku Pulse activity overview."
+          showContextBadges={false}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="PulseWide">
@@ -5410,16 +5698,107 @@ function MyInformationPage({ pageKey, onPageChange }) {
   );
 }
 
-function AdministrationPlaceholderPage() {
+function AdministrationPlaceholderPage({ apiBase }) {
+  const [topologyState, setTopologyState] = useState({ loading: true, data: null, error: '' });
+
+  const loadTopology = useCallback(async () => {
+    setTopologyState({ loading: true, data: null, error: '' });
+    try {
+      const response = await fetch(apiUrl(apiBase, '/api/admin/pulse-topology'), { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok || data?.ok !== true) {
+        throw new Error(data?.error || 'Failed to load Pulse topology');
+      }
+      setTopologyState({ loading: false, data, error: '' });
+    } catch (error) {
+      setTopologyState({ loading: false, data: null, error: error.message || 'Failed to load Pulse topology' });
+    }
+  }, [apiBase]);
+
+  useEffect(() => {
+    loadTopology();
+  }, [loadTopology]);
+
+  const topology = topologyState.data?.topology || { hub: { url: '', label: 'Pulse Hub' }, spokes: [] };
+  const hubUrl = topology.hub?.url || '';
+  const spokes = Array.isArray(topology.spokes) ? topology.spokes : [];
+  const summary = topologyState.data?.summary || { hubCount: hubUrl ? 1 : 0, workerCount: spokes.length, classifications: {} };
+  const radius = 180;
+  const centerX = 320;
+  const centerY = 240;
+  const diagramSpokes = spokes.length ? spokes : [];
+
+  const spokePositions = diagramSpokes.map((spoke, index) => {
+    const angle = (-Math.PI / 2) + ((Math.PI * 2) / Math.max(diagramSpokes.length, 1)) * index;
+    return {
+      ...spoke,
+      x: centerX + (radius * Math.cos(angle)),
+      y: centerY + (radius * Math.sin(angle)),
+    };
+  });
+
   return (
     <div className="PulseWide">
       <div className="PulseHero">
-        <h1>Administration</h1>
-        <p>Manage Pulse infrastructure, database operations, and administrative diagnostics.</p>
+        <h1>Administration Overview</h1>
+        <p>View the Pulse dashboard hub and the Dataiku worker instances connected for metadata collection.</p>
       </div>
 
-      <PulseSection title="Temporary content">
-        <p>Administration tools will be added in a later step.</p>
+      <PulseSection title="Pulse Topology">
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            <span>Hub count: {summary.hubCount || 0}</span>
+            <span>Connected workers: {summary.workerCount || 0}</span>
+            {Object.entries(summary.classifications || {}).map(([label, count]) => (
+              <span key={label}>{label}: {count}</span>
+            ))}
+          </div>
+          <button onClick={loadTopology} disabled={topologyState.loading}>{topologyState.loading ? 'Loading...' : 'Refresh'}</button>
+        </div>
+
+        {topologyState.error ? <p className="PulseAlert">{topologyState.error}</p> : null}
+        {!topologyState.loading && !topologyState.error && !hubUrl ? (
+          <p>Pulse topology configuration is incomplete.</p>
+        ) : null}
+        {!topologyState.loading && !topologyState.error && hubUrl && !spokes.length ? (
+          <p>Pulse Hub is configured, but no worker instances are currently listed.</p>
+        ) : null}
+        {topologyState.loading ? <p>Loading topology…</p> : null}
+
+        {!topologyState.loading && !topologyState.error && hubUrl ? (
+          <div style={{ overflowX: 'auto' }}>
+            <svg viewBox="0 0 640 480" style={{ width: '100%', minWidth: 640, height: 'auto' }} role="img" aria-label="Pulse hub and spoke topology">
+              {spokePositions.map((spoke, index) => (
+                <line key={`line-${index}`} x1={centerX} y1={centerY} x2={spoke.x} y2={spoke.y} stroke="#cbd5e1" strokeWidth="2" />
+              ))}
+              <g>
+                <circle cx={centerX} cy={centerY} r="64" fill="#dbeafe" stroke="#2563eb" strokeWidth="3" />
+                <text x={centerX} y={centerY - 10} textAnchor="middle" style={{ fontSize: 16, fontWeight: 700, fill: '#1e3a8a' }}>Pulse Hub</text>
+                <text x={centerX} y={centerY + 14} textAnchor="middle" style={{ fontSize: 12, fill: '#334155' }}>
+                  {hubUrl.length > 42 ? `${hubUrl.slice(0, 39)}...` : hubUrl}
+                </text>
+                <title>{hubUrl}</title>
+              </g>
+              {spokePositions.map((spoke, index) => (
+                <g key={`spoke-${index}`}>
+                  <circle cx={spoke.x} cy={spoke.y} r="52" fill="#f8fafc" stroke="#64748b" strokeWidth="2" />
+                  <text x={spoke.x} y={spoke.y - 12} textAnchor="middle" style={{ fontSize: 12, fontWeight: 700, fill: '#0f172a' }}>
+                    {spoke.classification || 'Worker'}
+                  </text>
+                  <text x={spoke.x} y={spoke.y + 6} textAnchor="middle" style={{ fontSize: 11, fill: '#334155' }}>
+                    {(spoke.url || '').length > 28 ? `${spoke.url.slice(0, 25)}...` : (spoke.url || '—')}
+                  </text>
+                  {spoke.presetName ? (
+                    <text x={spoke.x} y={spoke.y + 22} textAnchor="middle" style={{ fontSize: 10, fill: '#64748b' }}>
+                      {spoke.presetName.length > 20 ? `${spoke.presetName.slice(0, 17)}...` : spoke.presetName}
+                    </text>
+                  ) : null}
+                  <title>{[spoke.url, spoke.classification, spoke.presetName].filter(Boolean).join(' · ')}</title>
+                </g>
+              ))}
+            </svg>
+          </div>
+        ) : null}
       </PulseSection>
     </div>
   );
@@ -6562,97 +6941,277 @@ function ExportPage({ apiBase }) {
 
 
 function normalizeHashRoute(hash) {
-  // Examples:
-  // - "" => ""
-  // - "#/debug/reload" => "debug/reload"
-  return (hash || '')
-    .replace(/^#\/?/, '')
-    .replace(/^#/, '')
-    .replace(/^\//, '');
+  return String(hash || '').replace(/^#/, '').trim();
+}
+
+function normalizeHashRouteForRegistry(hash, isAuthenticated = false) {
+  const normalized = normalizeHashRoute(hash);
+  if (normalized === '' && isAuthenticated) {
+    return null;
+  }
+  return normalized;
+}
+
+function TemporaryPage({ title, description, status = 'This page is under development.' }) {
+  return (
+    <div className="PulseWide">
+      <div className="PulseHero">
+        <h1>{title}</h1>
+        <p>{description}</p>
+      </div>
+      <PulseSection title="Coming Soon">
+        <p>{status}</p>
+      </PulseSection>
+    </div>
+  );
+}
+
+function normalizePageRoute(route) {
+  return route == null ? null : String(route).replace(/^#/, '').trim();
+}
+
+export function buildPageRegistry({ homeHref, userActivityEnabled, llmMeshEnabled, debugEnabled }) {
+  const pages = [
+    {
+      key: 'pulse-home', workspace: 'global', group: 'Pulse', label: 'Home', route: 'home', permission: 'self', capability: null,
+      status: 'implemented', component: HomePage, isDefault: true,
+      description: 'High-level overview of platform activity, highlighting key lifecycle and consumption trends at a glance',
+      active: ({ route }) => route === 'home',
+    },
+    {
+      key: 'pulse-faq', workspace: 'global', group: 'Pulse', label: 'FAQ', route: 'faq', permission: 'self', capability: null,
+      status: 'implemented', component: FaqPage, isDefault: false,
+      description: 'Answers common questions about metrics, definitions, and how data is derived',
+      active: ({ route }) => route === 'faq',
+    },
+    {
+      key: 'pulse-disclaimer', workspace: 'global', group: 'Pulse', label: 'Disclaimer', route: 'disclaimer', permission: 'self', capability: null,
+      status: 'implemented', component: DisclaimerPage, isDefault: false,
+      description: 'Important notes about support scope, beta status, and how to interpret Pulse metrics',
+      active: ({ route }) => route === 'disclaimer',
+    },
+    {
+      key: 'pulse-export', workspace: 'global', group: 'Pulse', label: 'Export', route: 'export', permission: 'self', capability: null,
+      status: 'implemented', component: ExportPage, isDefault: false,
+      description: 'Select filters and sections, then generate a downloadable PDF report',
+      active: ({ route }) => route === 'export',
+    },
+    {
+      key: 'my-overview', workspace: 'me', group: 'My Information', label: 'Overview', route: null, localPage: 'my-overview', permission: 'self', capability: null,
+      status: 'implemented', component: MyInformationPage, componentProps: { pageKey: 'my-overview' }, isDefault: true,
+      description: 'View your personal Pulse landing page and upcoming individual insights',
+      active: ({ workspace, myPage }) => workspace === 'me' && myPage === 'my-overview',
+    },
+    {
+      key: 'my-assets', workspace: 'me', group: 'My Product Lifecycle', label: 'Assets', route: null, localPage: 'my-assets', permission: 'self', capability: null,
+      status: 'placeholder', component: TemporaryPage, placeholderTitle: 'Assets',
+      description: 'Review the Dataiku assets you have created, owned, or contributed to',
+      placeholderStatus: 'Personal asset insights are coming soon.', isDefault: false,
+      active: ({ workspace, myPage }) => workspace === 'me' && myPage === 'my-assets',
+    },
+    {
+      key: 'my-products', workspace: 'me', group: 'My Product Lifecycle', label: 'Products', route: null, localPage: 'my-products', permission: 'self', capability: null,
+      status: 'placeholder', component: TemporaryPage, placeholderTitle: 'Products',
+      description: 'Review the products and outputs you have created or helped develop',
+      placeholderStatus: 'Personal product insights are coming soon.', isDefault: false,
+      active: ({ workspace, myPage }) => workspace === 'me' && myPage === 'my-products',
+    },
+    {
+      key: 'my-consumption', workspace: 'me', group: 'My Product Lifecycle', label: 'Consumption', route: null, localPage: 'my-consumption', permission: 'self', capability: null,
+      status: 'placeholder', component: TemporaryPage, placeholderTitle: 'Consumption',
+      description: 'Review how your products and outputs are being consumed by others',
+      placeholderStatus: 'Personal consumption insights are coming soon.', isDefault: false,
+      active: ({ workspace, myPage }) => workspace === 'me' && myPage === 'my-consumption',
+    },
+    {
+      key: 'my-llm-overview', workspace: 'me', group: 'My LLM Mesh', label: 'Overview', route: null, localPage: 'my-llm-overview', permission: 'self', capability: 'llmMesh',
+      status: 'implemented', component: MyInformationPage, componentProps: { pageKey: 'my-llm-overview' }, isDefault: false,
+      description: 'Review your personal LLM Mesh usage, models, projects, tokens, and cost',
+      active: ({ workspace, myPage }) => workspace === 'me' && myPage === 'my-llm-overview',
+    },
+    {
+      key: 'org-users', workspace: 'organization', group: 'User Insights', label: 'Activity Performance', route: 'users', permission: 'organization', capability: 'userActivity',
+      status: 'implemented', component: UsersActivityPage, isDefault: true,
+      description: 'Explore observed activity, engagement, and behavior trends across DSS instances',
+      active: ({ route, workspace }) => workspace === 'organization' && route === 'users',
+    },
+    {
+      key: 'org-users-licenses', workspace: 'organization', group: 'User Insights', label: 'License Performance', route: 'users/licenses', permission: 'organization', capability: 'userActivity',
+      status: 'implemented', component: UsersLicensePage, isDefault: false,
+      description: 'Review enabled users, license profiles, and entitlement coverage across DSS instances',
+      active: ({ route, workspace }) => workspace === 'organization' && route === 'users/licenses',
+    },
+    {
+      key: 'org-assets', workspace: 'organization', group: 'Product Lifecycle', label: 'Assets', route: 'product-lifecycle/assets', permission: 'organization', capability: null,
+      status: 'implemented', component: BuildAssetsInventoryPage, isDefault: false,
+      description: 'Explore all assets (projects, datasets, recipes, etc.) across instances with filtering and details capabilities',
+      active: ({ route, workspace }) => workspace === 'organization' && route === 'product-lifecycle/assets',
+    },
+    {
+      key: 'org-products', workspace: 'organization', group: 'Product Lifecycle', label: 'Products', route: 'product-lifecycle/products', permission: 'organization', capability: null,
+      status: 'implemented', component: ProductOutputsPage, isDefault: false,
+      description: 'Identify and quantify the end products being built (dashboards, APIs, apps, agents) and how they are structured',
+      active: ({ route, workspace }) => workspace === 'organization' && route === 'product-lifecycle/products',
+    },
+    {
+      key: 'org-development-activity', workspace: 'organization', group: 'Product Lifecycle', label: 'Development Activity', route: 'product-lifecycle/development-activity', permission: 'organization', capability: null,
+      status: 'implemented', component: DevelopmentActivityPage, isDefault: false,
+      description: 'Analyze audit-driven build activity and capability adoption across the platform',
+      active: ({ route, workspace }) => workspace === 'organization' && route === 'product-lifecycle/development-activity',
+    },
+    {
+      key: 'org-consumption-activity', workspace: 'organization', group: 'Product Lifecycle', label: 'Consumption Activity', route: 'product-lifecycle/consumption-activity', permission: 'organization', capability: null,
+      status: 'implemented', component: ConsumptionActivityPage, isDefault: false,
+      description: 'Understand who is consuming which products, and how consumption trends evolve over time',
+      active: ({ route, workspace }) => workspace === 'organization' && route === 'product-lifecycle/consumption-activity',
+    },
+    {
+      key: 'org-llm-mesh', workspace: 'organization', group: 'LLM Mesh', label: 'Overview', route: 'llm-mesh', permission: 'organization', capability: 'llmMesh',
+      status: 'implemented', component: LlmMeshPage, isDefault: false,
+      description: 'Track LLM usage, projects, models, tokens, and estimated cost across the platform',
+      active: ({ route, workspace }) => workspace === 'organization' && route === 'llm-mesh',
+    },
+    {
+      key: 'admin-overview', workspace: 'administration', group: 'Administration', label: 'Overview', route: null, localPage: 'administration-overview', permission: 'administration', capability: null,
+      status: 'implemented', component: AdministrationPlaceholderPage, isDefault: true,
+      description: 'Open the current administration page',
+      active: ({ workspace, adminPage }) => workspace === 'administration' && adminPage === 'administration-overview',
+    },
+    {
+      key: 'admin-debug-reload', workspace: 'administration', group: 'Debug', label: 'Reload DuckDB', route: 'debug/reload', permission: 'administration', capability: 'debug',
+      status: 'implemented', component: DebugReloadPage, isDefault: false,
+      description: 'Manually refresh and rebuild the analytics layer from source data',
+      active: ({ route, workspace }) => workspace === 'administration' && route === 'debug/reload',
+    },
+    {
+      key: 'admin-debug-preview', workspace: 'administration', group: 'Debug', label: 'Preview DuckDB', route: 'debug/preview', permission: 'administration', capability: 'debug',
+      status: 'implemented', component: DebugPreviewPage, isDefault: false,
+      description: 'Inspect underlying tables and data powering the Pulse application',
+      active: ({ route, workspace }) => workspace === 'administration' && route === 'debug/preview',
+    },
+  ];
+
+  return pages.filter((page) => {
+    if (page.capability === 'llmMesh' && !llmMeshEnabled) return false;
+    if (page.capability === 'userActivity' && !userActivityEnabled) return false;
+    if (page.capability === 'debug' && !debugEnabled) return false;
+    return true;
+  }).map((page) => ({
+    ...page,
+    route: normalizePageRoute(page.route),
+    href: page.route !== null ? `${homeHref}#${page.route}` : null,
+  }));
+}
+
+export function checkPagePermission(page, permissions) {
+  if (!page || !permissions) return false;
+  if (page.permission === 'administration') return permissions.administration === true;
+  if (page.permission === 'organization') return permissions.organization === true;
+  return permissions.self !== false;
+}
+
+export function checkPageCapability(page, capabilities) {
+  if (!page) return false;
+  if (page.capability === 'llmMesh') return capabilities.llmMeshEnabled === true;
+  if (page.capability === 'userActivity') return capabilities.userActivityEnabled === true;
+  if (page.capability === 'debug') return capabilities.debugEnabled === true && capabilities.startupFlagsLoaded === true;
+  return true;
+}
+
+export function validatePageRegistry(pageRegistry) {
+  const warnings = [];
+  const pageKeys = new Set();
+  const routeKeys = new Set();
+  const defaultsByWorkspace = new Map();
+  for (const page of pageRegistry) {
+    if (pageKeys.has(page.key)) warnings.push(`duplicate page key: ${page.key}`);
+    pageKeys.add(page.key);
+    if (page.route !== null) {
+      if (routeKeys.has(page.route)) warnings.push(`duplicate route key: ${page.route}`);
+      routeKeys.add(page.route);
+    }
+    if (page.isDefault) {
+      defaultsByWorkspace.set(page.workspace, (defaultsByWorkspace.get(page.workspace) || 0) + 1);
+    }
+    if (!page.component) warnings.push(`missing component for page: ${page.key}`);
+    if (page.workspace === 'administration' && page.permission !== 'administration') {
+      warnings.push(`administration page missing administration permission: ${page.key}`);
+    }
+    if (page.group === 'LLM Mesh' || page.group === 'My LLM Mesh') {
+      if (page.capability !== 'llmMesh') warnings.push(`llm page missing llmMesh capability: ${page.key}`);
+    }
+  }
+  for (const workspace of ['global', 'me', 'organization', 'administration']) {
+    if ((defaultsByWorkspace.get(workspace) || 0) !== 1) {
+      warnings.push(`workspace ${workspace} must have exactly one default page`);
+    }
+  }
+  if (warnings.length && process.env.NODE_ENV !== 'production') {
+    warnings.forEach((warning) => console.error(`[pulse-route] ${warning}`));
+  }
+  if (process.env.NODE_ENV !== 'production' && console.table) {
+    console.table(pageRegistry.map((page) => ({ workspace: page.workspace, page: page.key, status: page.status, reachable: true })));
+  }
+  return warnings;
 }
 
 function App() {
   const [hashRoute, setHashRoute] = useState(normalizeHashRoute(window.location.hash));
-  const [startupFlagsLoaded, setStartupFlagsLoaded] = useState(false);
-  const [userActivityEnabled, setUserActivityEnabled] = useState(false);
-  const [debugEnabled, setDebugEnabled] = useState(false);
-  const [llmMeshEnabled, setLlmMeshEnabled] = useState(false);
   const [authState, setAuthState] = useState({ status: 'loading', data: null, error: '' });
-  const [workspace, setWorkspace] = useState('me');
-  const [myPage, setMyPage] = useState('my-activity-development');
+  const [startupFlagsLoaded, setStartupFlagsLoaded] = useState(false);
+  const [startupFlags, setStartupFlags] = useState({ userActivity: true, debug: false });
+  const [advancedLlmMeshCapability, setAdvancedLlmMeshCapability] = useState({ enabled: false, licensedInstances: [] });
   const [railCollapsed, setRailCollapsed] = useState(false);
-  const [activeRailGroup, setActiveRailGroup] = useState('My Activities');
+  const [workspace, setWorkspace] = useState('me');
+  const [myPage, setMyPage] = useState('my-overview');
+  const [adminPage, setAdminPage] = useState('administration-overview');
+  const [activeRailGroup, setActiveRailGroup] = useState('My Information');
+  const suppressNextHashChangeRef = useRef(false);
 
-  const { apiBase, currentPortBase } = useMemo(() => {
-    const backendPort = process.env.REACT_APP_BACKEND_PORT || '8995';
-    const portBaseInfo = inferCodeStudioPortBase(window.location.pathname);
-
-    // If REACT_APP_API_URL is set, it should be one of:
-    // - /code-studios/<PROJECT_KEY>/<STUDIO_ID>/8080/proxy/8995
-    // - /code-studios/<PROJECT_KEY>/<STUDIO_ID>/8995
-    const envBase = (process.env.REACT_APP_API_URL || '').replace(/\/$/, '');
-
-    if (envBase) {
-      return {
-        apiBase: envBase,
-        currentPortBase: portBaseInfo?.base || '',
-      };
+  const currentPortBase = useMemo(() => {
+    try {
+      if (window?.dataiku && typeof window.dataiku.getWebAppBackendUrl === 'function') {
+        const backendUrl = window.dataiku.getWebAppBackendUrl('');
+        return backendUrl ? backendUrl.replace(/\/api\/?$/, '') : '';
+      }
+    } catch (error) {
+      return '';
     }
-
-    if (portBaseInfo) {
-      // Keep the same URL "mode" (direct vs 8080/proxy) and swap the port.
-      return {
-        apiBase: `${portBaseInfo.prefix}/${backendPort}`,
-        currentPortBase: portBaseInfo.base,
-      };
-    }
-
-    return {
-      apiBase: '',
-      currentPortBase: '',
-    };
+    return '';
   }, []);
 
-  // Warn when running under preview (3000) without an explicit API base.
-  // In that setup, the frontend is served from proxy/3000 while the backend
-  // is on proxy/8995, so it cannot be inferred from window.location.
-  useEffect(() => {
-    if (!apiBase && !currentPortBase) {
-      // Not behind Code Studio paths at all; fine.
-      return;
-    }
-    if (!apiBase && currentPortBase) {
-      console.warn(
-        'Running behind Code Studio path without backend base. Set REACT_APP_API_URL to /code-studios/<PROJECT>/<STUDIO>/8995 (or /8080/proxy/8995)'
-      );
-    }
-  }, [apiBase, currentPortBase]);
-
+  const apiBase = useMemo(() => {
+    if (currentPortBase) return `${currentPortBase}/api`;
+    return './api';
+  }, [currentPortBase]);
 
   useEffect(() => {
-    setStartupFlagsLoaded(false);
-    fetch(apiUrl(apiBase, '/api/startup/flags'))
-      .then((r) => r.json())
-      .then((data) => {
-        if (!data || data.ok !== true) {
-          setUserActivityEnabled(false);
-          setDebugEnabled(false);
-          setLlmMeshEnabled(false);
-          setStartupFlagsLoaded(true);
-          return;
+    let cancelled = false;
+    async function loadFlags() {
+      try {
+        const response = await fetch(apiUrl(apiBase, '/api/startup/flags'), { cache: 'no-cache' });
+        const data = await response.json();
+        if (cancelled) return;
+        const flags = data && data.flags ? data.flags : {};
+        const config = data && data.config ? data.config : {};
+        setStartupFlags({
+          userActivity: flags.userActivity !== false,
+          debug: flags.debug === true,
+          llmMesh: flags.llmMesh === true,
+          config,
+        });
+      } catch (error) {
+        if (!cancelled) {
+          setStartupFlags({ userActivity: true, debug: false, llmMesh: false, config: {} });
         }
-        setUserActivityEnabled(data?.flags?.userActivity === true);
-        setDebugEnabled(data?.flags?.debug === true);
-        setLlmMeshEnabled(data?.flags?.llmMesh === true);
-        setStartupFlagsLoaded(true);
-      })
-      .catch(() => {
-        // Default to disabled if flags endpoint is unavailable.
-        setUserActivityEnabled(false);
-        setDebugEnabled(false);
-        setLlmMeshEnabled(false);
-        setStartupFlagsLoaded(true);
-      });
+      } finally {
+        if (!cancelled) setStartupFlagsLoaded(true);
+      }
+    }
+    loadFlags();
+    return () => {
+      cancelled = true;
+    };
   }, [apiBase]);
 
   useEffect(() => {
@@ -6663,20 +7222,15 @@ function App() {
       try {
         const response = await fetch(apiUrl(apiBase, '/api/me'), { cache: 'no-cache' });
         const data = await response.json();
-
         if (cancelled) return;
-        if (!response.ok) {
-          throw new Error((data && data.error) || `Request failed (${response.status})`);
-        }
+        if (!response.ok) throw new Error((data && data.error) || `Request failed (${response.status})`);
         if (!data || typeof data !== 'object' || typeof data.authenticated !== 'boolean') {
           setAuthState({ status: 'malformed', data, error: 'Malformed /api/me response' });
           return;
         }
         setAuthState({ status: 'ready', data, error: '' });
       } catch (error) {
-        if (!cancelled) {
-          setAuthState({ status: 'error', data: null, error: error.message || 'Failed loading /api/me' });
-        }
+        if (!cancelled) setAuthState({ status: 'error', data: null, error: error.message || 'Failed loading /api/me' });
       }
     }
 
@@ -6687,7 +7241,34 @@ function App() {
   }, [apiBase]);
 
   useEffect(() => {
+    let cancelled = false;
+    async function loadLlmCapability() {
+      try {
+        const response = await fetch(apiUrl(apiBase, '/api/startup/duckdb'), { cache: 'no-cache' });
+        const data = await response.json();
+        if (cancelled) return;
+        const capability = data && data.advancedLlmMesh ? data.advancedLlmMesh : null;
+        if (capability && capability.enabled === true) {
+          setAdvancedLlmMeshCapability({ enabled: true, licensedInstances: Array.isArray(capability.licensedInstances) ? capability.licensedInstances : [] });
+          return;
+        }
+      } catch (error) {
+      }
+      if (!cancelled) setAdvancedLlmMeshCapability({ enabled: false, licensedInstances: [] });
+    }
+    loadLlmCapability();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
+
+  useEffect(() => {
     const onHashChange = () => {
+      if (suppressNextHashChangeRef.current) {
+        suppressNextHashChangeRef.current = false;
+        setHashRoute(normalizeHashRoute(window.location.hash));
+        return;
+      }
       setHashRoute(normalizeHashRoute(window.location.hash));
     };
 
@@ -6696,231 +7277,260 @@ function App() {
   }, []);
 
   const homeHref = currentPortBase ? `${currentPortBase}/` : './';
-  const permissions = authState.data && authState.data.permissions ? authState.data.permissions : {};
+  const permissions = useMemo(() => (authState.data && authState.data.permissions ? authState.data.permissions : {}), [authState.data]);
   const isAuthenticated = authState.status === 'ready' && authState.data && authState.data.authenticated === true;
   const userLabel = getUserDisplayName(authState);
+  const userActivityEnabled = startupFlags.userActivity !== false;
+  const debugEnabled = startupFlags.debug === true;
+  const llmMeshEnabled = advancedLlmMeshCapability.enabled === true;
+  const capabilities = useMemo(
+    () => ({ startupFlagsLoaded, userActivityEnabled, debugEnabled, llmMeshEnabled }),
+    [debugEnabled, llmMeshEnabled, startupFlagsLoaded, userActivityEnabled]
+  );
+  const pageRegistry = useMemo(
+    () => buildPageRegistry({ homeHref, userActivityEnabled, llmMeshEnabled, debugEnabled }),
+    [debugEnabled, homeHref, llmMeshEnabled, userActivityEnabled]
+  );
+
+  useEffect(() => {
+    validatePageRegistry(pageRegistry);
+  }, [pageRegistry]);
+
+  const pagesByKey = useMemo(() => new Map(pageRegistry.map((page) => [page.key, page])), [pageRegistry]);
+  const pagesByRoute = useMemo(() => new Map(pageRegistry.filter((page) => page.route !== null).map((page) => [page.route, page])), [pageRegistry]);
+  const defaultPages = useMemo(() => {
+    const defaults = new Map();
+    pageRegistry.forEach((page) => {
+      if (page.isDefault) defaults.set(page.workspace, page);
+    });
+    return defaults;
+  }, [pageRegistry]);
+
   const workspaceOptions = useMemo(() => {
     if (!isAuthenticated) return [];
     const options = [{ value: 'me', label: 'My Information' }];
-    if (permissions.organization === true) {
-      options.push({ value: 'organization', label: 'Organization' });
-    }
-    if (permissions.administration === true) {
-      options.push({ value: 'administration', label: 'Administration' });
-    }
+    if (permissions.organization === true) options.push({ value: 'organization', label: 'Organization' });
+    if (permissions.administration === true) options.push({ value: 'administration', label: 'Administration' });
     return options;
   }, [isAuthenticated, permissions.organization, permissions.administration]);
+
+  const resolveFallbackPage = useCallback((workspaceName, reason, pageKey) => {
+    const fallbackWorkspace = workspaceName === 'global' ? 'global' : workspaceName;
+    const fallback = defaultPages.get(fallbackWorkspace) || defaultPages.get('global');
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(`[pulse-route] Falling back from unknown page: ${pageKey || reason}`);
+    }
+    return fallback;
+  }, [defaultPages]);
+
+  const getPageNavigationTarget = useCallback((page, currentWorkspaceOverride = workspace) => {
+    const fallbackMyPage = defaultPages.get('me')?.localPage || 'my-overview';
+    const fallbackAdminPage = defaultPages.get('administration')?.localPage || 'administration-overview';
+    const nextWorkspace = page.workspace === 'global' ? currentWorkspaceOverride : page.workspace;
+    return {
+      workspace: nextWorkspace,
+      pageKey: page.key,
+      route: page.route,
+      myPage: page.workspace === 'me' ? (page.localPage || fallbackMyPage) : fallbackMyPage,
+      adminPage: page.workspace === 'administration' ? (page.localPage || fallbackAdminPage) : fallbackAdminPage,
+      activeRailGroup: page.group,
+    };
+  }, [defaultPages, workspace]);
+
+  const applyNavigationTarget = useCallback((target, source = 'unknown') => {
+    if (!target) return;
+    if (process.env.NODE_ENV !== 'production') {
+      console.debug('[pulse-nav-target]', target);
+    }
+    if (process.env.NODE_ENV !== 'production') {
+      console.debug('[pulse-nav] transition', {
+        source,
+        previousWorkspace: workspace,
+        nextWorkspace: target.workspace,
+        pageKey: target.pageKey,
+        route: target.route,
+        myPage: target.myPage,
+        adminPage: target.adminPage,
+        activeRailGroup: target.activeRailGroup,
+      });
+    }
+
+    if (workspace !== target.workspace) setWorkspace(target.workspace);
+    if (myPage !== target.myPage) setMyPage(target.myPage);
+    if (adminPage !== target.adminPage) setAdminPage(target.adminPage);
+    if (activeRailGroup !== target.activeRailGroup) setActiveRailGroup(target.activeRailGroup);
+
+    const nextHash = target.route == null ? '' : `#${target.route}`;
+    if (window.location.hash !== nextHash) {
+      window.location.hash = nextHash;
+    } else if (hashRoute !== (target.route || '')) {
+      setHashRoute(target.route || '');
+    }
+  }, [activeRailGroup, adminPage, hashRoute, myPage, workspace]);
+
+  const switchWorkspace = useCallback((nextWorkspace) => {
+    const requestedWorkspace = nextWorkspace === 'organization'
+      ? 'organization'
+      : nextWorkspace === 'administration'
+        ? 'administration'
+        : 'me';
+
+    if (requestedWorkspace === 'organization' && permissions.organization !== true) return;
+    if (requestedWorkspace === 'administration' && permissions.administration !== true) return;
+
+    const defaults = {
+      me: { workspace: 'me', pageKey: 'my-overview', route: null, myPage: 'my-overview', adminPage: 'administration-overview', activeRailGroup: 'My Information' },
+      organization: { workspace: 'organization', pageKey: 'org-users', route: 'users', myPage: 'my-overview', adminPage: 'administration-overview', activeRailGroup: 'User Insights' },
+      administration: { workspace: 'administration', pageKey: 'admin-overview', route: null, myPage: 'my-overview', adminPage: 'administration-overview', activeRailGroup: 'Administration' },
+    };
+    const target = defaults[requestedWorkspace];
+    if (!target) return;
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.debug('[workspace-switch]', {
+        requestedWorkspace,
+        currentWorkspace: workspace,
+        targetPageKey: target.pageKey,
+        targetRoute: target.route,
+      });
+    }
+
+    setWorkspace(target.workspace);
+    setMyPage(target.myPage);
+    setAdminPage(target.adminPage);
+    setActiveRailGroup(target.activeRailGroup);
+
+    const nextHash = target.route == null ? '' : `#${target.route}`;
+    if (target.route == null) {
+      if (window.location.hash) {
+        suppressNextHashChangeRef.current = true;
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
+      setHashRoute('');
+    } else if (window.location.hash !== nextHash) {
+      suppressNextHashChangeRef.current = true;
+      window.location.hash = nextHash;
+      setHashRoute(target.route);
+    } else {
+      setHashRoute(target.route);
+    }
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.debug('[workspace-switch:committed]', {
+        workspace: target.workspace,
+        myPage: target.myPage,
+        adminPage: target.adminPage,
+        hashRoute: target.route || '',
+        activeRailGroup: target.activeRailGroup,
+      });
+    }
+  }, [permissions.administration, permissions.organization, workspace]);
+
+  const navigateToPage = useCallback((page, options = {}) => {
+    if (process.env.NODE_ENV !== 'production') {
+      console.debug('[pulse-link-click]', {
+        clickedKey: page?.key,
+        registryPage: page ? { key: page.key, route: page.route, workspace: page.workspace, group: page.group } : null,
+      });
+    }
+    if (!page) return;
+    if (!checkPagePermission(page, permissions) || !checkPageCapability(page, capabilities)) {
+      const fallback = resolveFallbackPage(page.workspace, 'unavailable', page.key);
+      if (fallback && fallback.key !== page.key) {
+        applyNavigationTarget(getPageNavigationTarget(fallback, workspace), options.source || 'fallback');
+      }
+      return;
+    }
+    applyNavigationTarget(getPageNavigationTarget(page, workspace), options.source || 'direct');
+  }, [applyNavigationTarget, capabilities, getPageNavigationTarget, permissions, resolveFallbackPage, workspace]);
+
+  const handleWorkspaceChange = useCallback((nextWorkspace) => {
+    switchWorkspace(nextWorkspace);
+  }, [switchWorkspace]);
 
   useEffect(() => {
     if (!workspaceOptions.length) return;
     const allowed = new Set(workspaceOptions.map((option) => option.value));
     if (!allowed.has(workspace)) {
-      setWorkspace('me');
+      switchWorkspace('me');
     }
-  }, [workspace, workspaceOptions]);
+  }, [switchWorkspace, workspace, workspaceOptions]);
 
-  const globalPulseNavGroups = useMemo(() => {
-    const pulseNav = {
-      label: 'Pulse',
-      items: [
-        {
-          href: `${homeHref}#`,
-          label: 'Home',
-          description: 'High-level overview of platform activity, highlighting key lifecycle and consumption trends at a glance',
-          isActive: hashRoute === '',
-        },
-        {
-          href: `${homeHref}#faq`,
-          label: 'FAQ',
-          description: 'Answers common questions about metrics, definitions, and how data is derived',
-          isActive: hashRoute === 'faq',
-        },
-        {
-          href: `${homeHref}#disclaimer`,
-          label: 'Disclaimer',
-          description: 'Important notes about support scope, beta status, and how to interpret Pulse metrics',
-          isActive: hashRoute === 'disclaimer',
-        },
-        {
-          href: `${homeHref}#export`,
-          label: 'Export',
-          description: 'Select filters and sections, then generate a downloadable PDF report',
-          isActive: hashRoute === 'export',
-        },
-      ],
-    };
+  const resolvedCurrentPage = useMemo(() => {
+    if (!isAuthenticated) return null;
 
-    return [pulseNav];
-  }, [hashRoute, homeHref]);
+    const normalizedRoute = normalizeHashRouteForRegistry(hashRoute, isAuthenticated);
+    const routePage = normalizedRoute == null ? null : pagesByRoute.get(normalizedRoute);
+    if (routePage) {
+      if (!checkPagePermission(routePage, permissions) || !checkPageCapability(routePage, capabilities)) {
+        return resolveFallbackPage(routePage.workspace, 'route-unavailable', routePage.key);
+      }
+      return routePage;
+    }
 
-  const organizationNavGroups = useMemo(() => {
-    const usersNav = {
-      label: 'User Insights',
-      items: [
-        {
-          href: `${homeHref}#users`,
-          label: 'Activity Performance',
-          description: 'Explore observed activity, engagement, and behavior trends across DSS instances',
-        },
-        {
-          href: `${homeHref}#users/licenses`,
-          label: 'License Performance',
-          description: 'Review enabled users, license profiles, and entitlement coverage across DSS instances',
-        },
-      ],
-    };
+    if (workspace === 'me') {
+      const page = pagesByKey.get(myPage) || resolveFallbackPage('me', 'unknown-page', myPage);
+      if (!page || !checkPagePermission(page, permissions) || !checkPageCapability(page, capabilities)) {
+        return resolveFallbackPage('me', 'unavailable', myPage);
+      }
+      return page;
+    }
 
-    const productLifecycleNav = {
-      label: 'Product Lifecycle',
-      items: [
-        {
-          href: `${homeHref}#product-lifecycle/assets`,
-          label: 'Assets',
-          description: 'Explore all assets (projects, datasets, recipes, etc.) across instances with filtering and details capabilities',
-        },
-        {
-          href: `${homeHref}#product-lifecycle/products`,
-          label: 'Products',
-          description: 'Identify and quantify the end products being built (dashboards, APIs, apps, agents) and how they are structured',
-        },
-        {
-          href: `${homeHref}#product-lifecycle/development-activity`,
-          label: 'Development Activity',
-          description: 'Analyze audit-driven build activity and capability adoption across the platform',
-        },
-        {
-          href: `${homeHref}#product-lifecycle/consumption-activity`,
-          label: 'Consumption Activity',
-          description: 'Understand who is consuming which products, and how consumption trends evolve over time',
-        },
-      ],
-    };
+    if (workspace === 'administration') {
+      const page = pagesByKey.get(adminPage) || resolveFallbackPage('administration', 'unknown-page', adminPage);
+      if (!page || !checkPagePermission(page, permissions) || !checkPageCapability(page, capabilities)) {
+        return resolveFallbackPage('administration', 'unavailable', adminPage);
+      }
+      return page;
+    }
 
-    const llmMeshNav = {
-      label: 'LLM Mesh',
-      items: [
-        {
-          href: `${homeHref}#llm-mesh`,
-          label: 'Overview',
-          description: 'Track LLM usage, projects, models, tokens, and estimated cost across the platform',
-        },
-      ],
-    };
+    if (workspace === 'organization') {
+      if (normalizedRoute == null) {
+        return resolveFallbackPage('organization', 'empty-route', 'organization-default');
+      }
+      return resolveFallbackPage('organization', 'unknown-route', normalizedRoute);
+    }
 
-    return [
-      ...(userActivityEnabled ? [usersNav] : []),
-      productLifecycleNav,
-      ...(llmMeshEnabled ? [llmMeshNav] : []),
-    ];
-  }, [homeHref, llmMeshEnabled, userActivityEnabled]);
+    return resolveFallbackPage('global', 'unknown-route', normalizedRoute || 'global-default');
+  }, [adminPage, capabilities, hashRoute, isAuthenticated, myPage, pagesByKey, pagesByRoute, permissions, resolveFallbackPage, workspace]);
 
-  const myInformationNavGroups = useMemo(() => ([
-      {
-        label: 'My Activities',
-        items: [
-          {
-            key: 'my-activity-development',
-            label: 'Activity & Product Lifecycle Development',
-            description: 'Review your personal Dataiku activity and product lifecycle development contributions',
-            isActive: myPage === 'my-activity-development',
-            onClick: () => {
-              setWorkspace('me');
-              setMyPage('my-activity-development');
-            },
-          },
-          {
-            key: 'my-license',
-            label: 'License',
-            description: 'Review your assigned Dataiku license information and personal license-related activity',
-            isActive: myPage === 'my-license',
-            onClick: () => {
-              setWorkspace('me');
-              setMyPage('my-license');
-            },
-          },
-        ],
-      },
-      {
-        label: 'My Product Lifecycle',
-        items: [
-          {
-            key: 'my-assets',
-            label: 'Assets',
-            description: 'Review the Dataiku assets you have created, owned, or contributed to',
-            isActive: myPage === 'my-assets',
-            onClick: () => {
-              setWorkspace('me');
-              setMyPage('my-assets');
-            },
-          },
-          {
-            key: 'my-products',
-            label: 'Products',
-            description: 'Review the products and outputs you have created or helped develop',
-            isActive: myPage === 'my-products',
-            onClick: () => {
-              setWorkspace('me');
-              setMyPage('my-products');
-            },
-          },
-          {
-            key: 'my-consumption',
-            label: 'Consumption',
-            description: 'Review how your products and outputs are being consumed by others',
-            isActive: myPage === 'my-consumption',
-            onClick: () => {
-              setWorkspace('me');
-              setMyPage('my-consumption');
-            },
-          },
-        ],
-      },
-      {
-        label: 'My LLM Mesh',
-        items: [
-          {
-            key: 'my-llm-overview',
-            label: 'Overview',
-            description: 'Review your personal LLM Mesh usage, models, projects, tokens, and cost',
-            isActive: myPage === 'my-llm-overview',
-            onClick: () => {
-              setWorkspace('me');
-              setMyPage('my-llm-overview');
-            },
-          },
-        ],
-      },
-    ]), [myPage]);
+  if (process.env.NODE_ENV !== 'production') {
+    console.debug('[pulse-route-state]', {
+      hash: window.location.hash,
+      hashRoute,
+      resolvedPageKey: resolvedCurrentPage?.key,
+      workspace,
+    });
+  }
 
-  const administrationNavGroups = useMemo(() => ([
-      {
-        label: 'Administration',
-        items: [
-          {
-            key: 'administration-home',
-            label: 'Overview',
-            description: 'Open the current administration page',
-            isActive: workspace === 'administration',
-            onClick: () => setWorkspace('administration'),
-          },
-        ],
-      },
-      ...(debugEnabled ? [{
-        label: 'Debug',
-        items: [
-          {
-            href: `${homeHref}#debug/reload`,
-            label: 'Reload DuckDB',
-            description: 'Manually refresh and rebuild the analytics layer from source data',
-          },
-          {
-            href: `${homeHref}#debug/preview`,
-            label: 'Preview DuckDB',
-            description: 'Inspect underlying tables and data powering the Pulse application',
-          },
-        ],
-      }] : []),
-    ]), [debugEnabled, homeHref, workspace]);
+  const buildNavGroups = useCallback((workspaceName) => {
+    const groups = [];
+    const grouped = new Map();
+    pageRegistry.forEach((page) => {
+      if (page.workspace !== workspaceName) return;
+      if (!checkPagePermission(page, permissions) || !checkPageCapability(page, capabilities)) return;
+      if (!grouped.has(page.group)) grouped.set(page.group, []);
+      grouped.get(page.group).push(page);
+    });
+    grouped.forEach((pages, groupLabel) => {
+      groups.push({
+        label: groupLabel,
+        items: pages.map((page) => ({
+          key: page.key,
+          href: page.href,
+          label: page.label,
+          description: page.description,
+          isActive: resolvedCurrentPage ? resolvedCurrentPage.key === page.key : false,
+        })),
+      });
+    });
+    return groups;
+  }, [capabilities, pageRegistry, permissions, resolvedCurrentPage]);
+
+  const globalPulseNavGroups = useMemo(() => buildNavGroups('global'), [buildNavGroups]);
+  const organizationNavGroups = useMemo(() => buildNavGroups('organization'), [buildNavGroups]);
+  const myInformationNavGroups = useMemo(() => buildNavGroups('me'), [buildNavGroups]);
+  const administrationNavGroups = useMemo(() => buildNavGroups('administration'), [buildNavGroups]);
 
   const activeWorkspaceNavGroups = useMemo(() => {
     if (workspace === 'organization' && permissions.organization === true) return organizationNavGroups;
@@ -6928,22 +7538,66 @@ function App() {
     return myInformationNavGroups;
   }, [administrationNavGroups, myInformationNavGroups, organizationNavGroups, permissions.administration, permissions.organization, workspace]);
 
-  useEffect(() => {
-    const allowed = new Set([...activeWorkspaceNavGroups, ...globalPulseNavGroups].map((group) => group.label));
-    if (!allowed.has(activeRailGroup)) {
-      setActiveRailGroup(activeWorkspaceNavGroups[0]?.label || '');
+  const displayedWorkspaceNavGroups = useMemo(() => {
+    if (resolvedCurrentPage && resolvedCurrentPage.workspace === 'global') {
+      return activeWorkspaceNavGroups;
     }
-  }, [activeRailGroup, activeWorkspaceNavGroups, globalPulseNavGroups]);
+    return activeWorkspaceNavGroups;
+  }, [activeWorkspaceNavGroups, resolvedCurrentPage]);
+
+  const allowedRailGroups = useMemo(
+    () => [...activeWorkspaceNavGroups, ...globalPulseNavGroups].map((group) => group.label),
+    [activeWorkspaceNavGroups, globalPulseNavGroups]
+  );
+
+  useEffect(() => {
+    if (!resolvedCurrentPage || !isAuthenticated) return;
+    const target = getPageNavigationTarget(resolvedCurrentPage, workspace);
+    const workspaceMatches = workspace === target.workspace;
+    const myMatches = myPage === target.myPage;
+    const adminMatches = adminPage === target.adminPage;
+    const routeMatches = hashRoute === (target.route || '');
+    if (!workspaceMatches || !myMatches || !adminMatches || !routeMatches) {
+      if (workspace !== resolvedCurrentPage.workspace && resolvedCurrentPage.workspace !== 'global') {
+        return;
+      }
+      applyNavigationTarget(target, 'state-reconcile');
+    }
+  }, [adminPage, applyNavigationTarget, getPageNavigationTarget, hashRoute, isAuthenticated, myPage, resolvedCurrentPage, workspace]);
+
+  useEffect(() => {
+    if (!allowedRailGroups.includes(activeRailGroup)) {
+      const nextGroup = resolvedCurrentPage
+        ? resolvedCurrentPage.group
+        : activeWorkspaceNavGroups[0]?.label || '';
+      if (nextGroup !== activeRailGroup) setActiveRailGroup(nextGroup);
+    }
+  }, [activeRailGroup, activeWorkspaceNavGroups, allowedRailGroups, resolvedCurrentPage]);
+
+  const isPreviewSession = Boolean(authState.data && authState.data.previewMode);
+  const effectiveUserLabel = isPreviewSession ? `${userLabel} · Internal Preview` : userLabel;
 
   const wrap = (page, currentWorkspace = workspace) => (
     <AppLayout
-      groups={activeWorkspaceNavGroups}
-      globalGroups={globalPulseNavGroups}
+      groups={displayedWorkspaceNavGroups.map((group) => ({
+        ...group,
+        items: group.items.map((item) => ({
+          ...item,
+          onClick: () => navigateToPage(pagesByKey.get(item.key)),
+        })),
+      }))}
+      globalGroups={globalPulseNavGroups.map((group) => ({
+        ...group,
+        items: group.items.map((item) => ({
+          ...item,
+          onClick: () => navigateToPage(pagesByKey.get(item.key)),
+        })),
+      }))}
       homeHref={homeHref}
       workspaceOptions={workspaceOptions}
       workspace={currentWorkspace}
-      onWorkspaceChange={setWorkspace}
-      userLabel={userLabel}
+      onWorkspaceChange={handleWorkspaceChange}
+      userLabel={effectiveUserLabel}
       railCollapsed={railCollapsed}
       onRailToggle={() => setRailCollapsed((current) => !current)}
       activeGroup={activeRailGroup}
@@ -6974,86 +7628,34 @@ function App() {
     return wrap(<AuthenticationRequiredPage />, 'me');
   }
 
-  const route = hashRoute;
-  const isGlobalPulseRoute = route === '' || route === 'faq' || route === 'disclaimer' || route === 'export';
-  const isAdministrationDebugRoute = route === 'debug/reload' || route === 'debug/preview';
+  const currentPage = resolvedCurrentPage;
 
-  if (workspace === 'me' && !isGlobalPulseRoute) {
-    return wrap(<MyInformationPage pageKey={myPage} onPageChange={setMyPage} />, 'me');
-  }
-
-  if (workspace === 'administration' && !isGlobalPulseRoute && !isAdministrationDebugRoute) {
-    return wrap(<AdministrationPlaceholderPage />, 'administration');
-  }
-
-  const showHome = () => {
-    // Redirect to home when feature is not enabled.
-    if (window.location.hash) {
-      window.location.hash = '';
-    }
+  if (!currentPage) {
     return wrap(<HomePage authState={authState} />);
-  };
-
-  if (route === 'debug/reload') {
-    // Wait for /api/startup/flags to resolve so we don't flicker.
-    if (!startupFlagsLoaded) return showHome();
-    if (!debugEnabled || workspace !== 'administration' || permissions.administration !== true) return showHome();
-    return wrap(<DebugReloadPage apiBase={apiBase} />, 'administration');
   }
 
-  if (route === 'debug/preview') {
-    if (!startupFlagsLoaded) return showHome();
-    if (!debugEnabled || workspace !== 'administration' || permissions.administration !== true) return showHome();
-    return wrap(<DebugPreviewPage apiBase={apiBase} />, 'administration');
+  const PageComponent = currentPage.component;
+  if (process.env.NODE_ENV !== 'production') {
+    console.debug('[pulse-render]', {
+      resolvedPageKey: currentPage?.key,
+      component: currentPage?.component?.name || null,
+    });
   }
+  const pageProps = currentPage.status === 'placeholder'
+    ? {
+        title: currentPage.placeholderTitle || currentPage.label,
+        description: currentPage.description,
+        status: currentPage.placeholderStatus,
+      }
+    : {
+        apiBase,
+        authState,
+        userLabel,
+        advancedLlmMeshEnabled: advancedLlmMeshCapability.enabled === true,
+        ...(currentPage.componentProps || {}),
+      };
 
-  if (route === 'faq') {
-    return wrap(<FaqPage />);
-  }
-
-  if (route === 'disclaimer') {
-    return wrap(<DisclaimerPage />);
-  }
-
-  if (route === 'export') {
-    return wrap(<ExportPage apiBase={apiBase} />);
-  }
-
-  if (route === 'product-lifecycle/assets') {
-    return wrap(<BuildAssetsInventoryPage apiBase={apiBase} />, 'organization');
-  }
-
-  if (route === 'product-lifecycle/products') {
-    return wrap(<ProductOutputsPage apiBase={apiBase} />, 'organization');
-  }
-
-  if (route === 'product-lifecycle/development-activity') {
-    return wrap(<DevelopmentActivityPage apiBase={apiBase} />, 'organization');
-  }
-
-  if (route === 'product-lifecycle/consumption-activity') {
-    return wrap(<ConsumptionActivityPage apiBase={apiBase} />, 'organization');
-  }
-
-  if (route === 'llm-mesh') {
-    if (!startupFlagsLoaded) return showHome();
-    if (!llmMeshEnabled) return showHome();
-    return wrap(<LlmMeshPage apiBase={apiBase} />, 'organization');
-  }
-
-   if (route === 'users') {
-    if (!startupFlagsLoaded) return showHome();
-    if (!userActivityEnabled) return showHome();
-    return wrap(<UsersActivityPage apiBase={apiBase} />, 'organization');
-  }
-
-  if (route === 'users/licenses') {
-    if (!startupFlagsLoaded) return showHome();
-    if (!userActivityEnabled) return showHome();
-    return wrap(<UsersLicensePage apiBase={apiBase} />, 'organization');
-  }
-
-  return wrap(<HomePage authState={authState} />);
+  return wrap(<PageComponent {...pageProps} />, workspace);
 }
 
 export default App;

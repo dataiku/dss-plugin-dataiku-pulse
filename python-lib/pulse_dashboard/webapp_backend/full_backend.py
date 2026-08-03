@@ -14,6 +14,7 @@ import re
 import sys
 import threading
 import time
+import ast
 from io import BytesIO
 from functools import wraps
 from pathlib import Path
@@ -41,35 +42,228 @@ logger = logging.getLogger(__name__)
 _MAX_PAGE_LIMIT = 250
 _MAX_LOOKBACK_DAYS = 365
 _MAX_LOOKBACK_MONTHS = 24
+_ADVANCED_LLM_MESH_ADDON_KEY = "advancedLLMMesh"
+_ADVANCED_LLM_MESH_LICENSE_TABLE = "base_license_addon_licenses_latest"
+_ADVANCED_LLM_MESH_DISABLED_CAPABILITY = {
+    "enabled": False,
+    "licensedInstances": [],
+}
+_ADVANCED_LLM_MESH_CAPABILITY_SQL = (
+    "SELECT instance_name, addon_enabled\n"
+    "FROM base_license_addon_licenses_latest\n"
+    "WHERE addon_key = ?;"
+)
+_advanced_llm_mesh_capability_cache: dict[str, Any] | None = None
 _USERS_FACETS_INSTANCES_SQL = (
     "SELECT DISTINCT instance_name\n"
     "FROM final_users_directory\n"
     "WHERE instance_name IS NOT NULL\n"
     "ORDER BY 1;"
 )
-_USER_DETAIL_INSTANCES_SQL = (
-    "SELECT\n"
-    "  instance_name AS instanceName,\n"
-    "  login,\n"
-    "  login_norm AS loginNorm,\n"
-    "  display_name AS displayName,\n"
-    "  email,\n"
-    "  enabled,\n"
-    "  user_profile AS userProfile,\n"
-    "  group_names AS groupNames,\n"
-    "  run_ts AS runTs\n"
-    "FROM final_users_directory\n"
-    "WHERE login_norm = ?\n"
-    "ORDER BY enabled DESC, instance_name, run_ts DESC;"
-)
-
-
 def _users_facets_instances_sql() -> str:
     return _USERS_FACETS_INSTANCES_SQL
 
 
-def _user_detail_instances_sql() -> str:
-    return _USER_DETAIL_INSTANCES_SQL
+def _invalidate_capability_cache() -> None:
+    global _advanced_llm_mesh_capability_cache
+    _advanced_llm_mesh_capability_cache = None
+
+
+def _normalize_optional_bool(value: Any) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+        return None
+
+    normalized = str(value).strip().lower()
+    if normalized in {"true", "1", "1.0"}:
+        return True
+    if normalized in {"false", "0", "0.0"}:
+        return False
+    return None
+
+
+def _normalize_truthy_license_flag(value: Any) -> bool:
+    normalized = _normalize_optional_bool(value)
+    if normalized is not None:
+        return normalized
+
+    text = str(value or "").strip()
+    if text in {"yes", "Yes"}:
+        return True
+    if text in {"no", "No"}:
+        return False
+    return False
+
+
+def get_advanced_llm_mesh_capability() -> dict[str, Any]:
+    global _advanced_llm_mesh_capability_cache
+
+    if _advanced_llm_mesh_capability_cache is not None:
+        return {
+            "enabled": bool(_advanced_llm_mesh_capability_cache.get("enabled")),
+            "licensedInstances": list(_advanced_llm_mesh_capability_cache.get("licensedInstances") or []),
+        }
+
+    try:
+        query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
+
+        if not _duckdb_relation_exists(query_df, _ADVANCED_LLM_MESH_LICENSE_TABLE):
+            _advanced_llm_mesh_capability_cache = dict(_ADVANCED_LLM_MESH_DISABLED_CAPABILITY)
+            return dict(_ADVANCED_LLM_MESH_DISABLED_CAPABILITY)
+
+        rows_df = query_df(_ADVANCED_LLM_MESH_CAPABILITY_SQL, [_ADVANCED_LLM_MESH_ADDON_KEY])
+        if rows_df is None or rows_df.empty:
+            _advanced_llm_mesh_capability_cache = dict(_ADVANCED_LLM_MESH_DISABLED_CAPABILITY)
+            return dict(_ADVANCED_LLM_MESH_DISABLED_CAPABILITY)
+
+        licensed_instances = sorted(
+            {
+                str(row.get("instance_name") or "").strip()
+                for row in _df_records(rows_df)
+                if str(row.get("instance_name") or "").strip() and _normalize_truthy_license_flag(row.get("addon_enabled"))
+            }
+        )
+        capability = {
+            "enabled": bool(licensed_instances),
+            "licensedInstances": licensed_instances,
+        }
+        _advanced_llm_mesh_capability_cache = capability
+        return {
+            "enabled": capability["enabled"],
+            "licensedInstances": list(capability["licensedInstances"]),
+        }
+    except Exception:
+        logger.exception("advanced LLM Mesh capability resolution failed")
+        _advanced_llm_mesh_capability_cache = dict(_ADVANCED_LLM_MESH_DISABLED_CAPABILITY)
+        return dict(_ADVANCED_LLM_MESH_DISABLED_CAPABILITY)
+
+
+def _parse_history_groups(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [str(v).strip() for v in parsed if str(v).strip()]
+        except Exception:
+            pass
+        try:
+            parsed = ast.literal_eval(raw)
+            if isinstance(parsed, list):
+                return [str(v).strip() for v in parsed if str(v).strip()]
+        except Exception:
+            pass
+        return [raw]
+    return [str(value).strip()] if str(value).strip() else []
+
+
+def _normalize_user_directory_record(row: dict[str, Any]) -> dict[str, Any]:
+    resulting_profile = str(row.get("users_resultinguserprofile") or "").strip()
+    fallback_profile = str(row.get("users_userprofile") or "").strip()
+    return {
+        "instance_name": row.get("instance_name"),
+        "login": row.get("users_login"),
+        "display_name": row.get("users_displayname"),
+        "email": row.get("users_email"),
+        "user_profile": resulting_profile or fallback_profile or None,
+        "enabled": _normalize_optional_bool(row.get("users_enabled")),
+        "source_type": row.get("users_sourcetype"),
+        "creation_date": row.get("users_creationdate"),
+        "last_successful_login": row.get("users_lastsuccessfullogin"),
+        "last_failed_login": row.get("users_lastfailedlogin"),
+        "last_session_activity": row.get("users_lastsessionactivity"),
+        "first_commit_date": row.get("users_first_commit_date"),
+        "last_commit_date": row.get("users_last_commit_date"),
+        "groups": _parse_history_groups(row.get("users_groups")),
+        "run_ts": row.get("run_ts"),
+        "partition_date": row.get("partition_date"),
+    }
+
+
+def _user_directory_record_rank_key(row: dict[str, Any]) -> tuple[int, int, int, int, str, str, str]:
+    return (
+        int(bool(str(row.get("display_name") or "").strip())),
+        int(bool(str(row.get("email") or "").strip())),
+        int(bool(str(row.get("user_profile") or "").strip())),
+        int(row.get("enabled") is not None),
+        str(row.get("run_ts") or ""),
+        str(row.get("partition_date") or ""),
+        str(row.get("instance_name") or ""),
+    )
+
+
+def _user_detail_instances_sql(*, include_instance_filter: bool) -> str:
+    optional_instance_filter = "AND instance_name = ?" if include_instance_filter else ""
+    sql = "\n".join(
+        [
+            "WITH ranked AS (",
+            "    SELECT",
+            "        instance_name,",
+            "        users_login,",
+            "        users_sourcetype,",
+            "        users_displayname,",
+            "        users_groups,",
+            "        users_userprofile,",
+            "        users_creationdate,",
+            "        users_enabled,",
+            "        users_resultinguserprofile,",
+            "        users_email,",
+            "        users_lastsuccessfullogin,",
+            "        users_lastfailedlogin,",
+            "        users_lastsessionactivity,",
+            "        users_first_commit_date,",
+            "        users_last_commit_date,",
+            "        run_ts,",
+            "        partition_date,",
+            "        ROW_NUMBER() OVER (",
+            "            PARTITION BY instance_name",
+            "            ORDER BY",
+            "                run_ts DESC NULLS LAST,",
+            "                partition_date DESC NULLS LAST,",
+            "                users_lastsessionactivity DESC NULLS LAST",
+            "        ) AS rn",
+            "    FROM base_users_instance_metadata_history",
+            "    WHERE lower(trim(users_login)) = lower(trim(?))",
+            f"    {optional_instance_filter}" if optional_instance_filter else "",
+            ")",
+            "SELECT",
+            "    instance_name,",
+            "    users_login,",
+            "    users_sourcetype,",
+            "    users_displayname,",
+            "    users_groups,",
+            "    users_userprofile,",
+            "    users_creationdate,",
+            "    users_enabled,",
+            "    users_resultinguserprofile,",
+            "    users_email,",
+            "    users_lastsuccessfullogin,",
+            "    users_lastfailedlogin,",
+            "    users_lastsessionactivity,",
+            "    users_first_commit_date,",
+            "    users_last_commit_date,",
+            "    run_ts,",
+            "    partition_date",
+            "FROM ranked",
+            "WHERE rn = 1",
+            "ORDER BY instance_name ASC;",
+        ]
+    )
+    return "\n".join(line for line in sql.splitlines() if line.strip())
 
 
 def _users_directory_cte_sql(*, cte_name: str = "directory") -> str:
@@ -1160,12 +1354,17 @@ def startup_flags():
         standard = _read_standard_project_variables()
         user_activity_enabled = True
         debug_enabled = standard.get("debug") is True
+        advanced_llm_mesh_capability = get_advanced_llm_mesh_capability()
         excluded_profiles = _read_user_profile_exclude_consumer(standard)
         return _ok(
             {
                 "flags": {
                     "userActivity": user_activity_enabled,
                     "debug": debug_enabled,
+                    "llmMesh": advanced_llm_mesh_capability.get("enabled") is True,
+                },
+                "capabilities": {
+                    "advancedLLMMesh": advanced_llm_mesh_capability,
                 },
                 "config": {
                     "userProfileExcludeConsumer": excluded_profiles,
@@ -1177,7 +1376,8 @@ def startup_flags():
         logger.exception("Failed reading startup flags")
         return _ok(
             {
-                "flags": {"userActivity": True, "debug": False},
+                "flags": {"userActivity": True, "debug": False, "llmMesh": False},
+                "capabilities": {"advancedLLMMesh": dict(_ADVANCED_LLM_MESH_DISABLED_CAPABILITY)},
                 "config": {"userProfileExcludeConsumer": ["READER", "AI_CONSUMER"], "licenseGroups": {"license_creator": [], "license_consumer": ["READER", "AI_CONSUMER"], "license_admin": []}},
             }
         )
@@ -1956,6 +2156,7 @@ def debug_duckdb_reload():
         dict[str, Any],
         _ensure_database_ready(load_gold_tables=True, replace_gold_tables=True),
     )
+    _invalidate_capability_cache()
 
     duration_sec = round(time.time() - started, 3)
     _startup_init_status.update(
@@ -5789,31 +5990,16 @@ def build_user_detail(login: str):
             else:
                 summary["days"] = int(days or 30)
 
-        instances_df = _query_df(
-            _user_detail_instances_sql(),
-            [login_norm],
-        )
-        instance_rows = _df_records(instances_df)
-
-        preferred_user = None
+        directory_params: list[Any] = [login_norm]
         if instance_name:
-            preferred_user = next((row for row in instance_rows if row.get("instanceName") == instance_name), None)
-        if preferred_user is None and instance_rows:
-            preferred_user = instance_rows[0]
+            directory_params.append(instance_name)
 
-        user = None
-        if preferred_user is not None:
-            user = {
-                "instance_name": preferred_user.get("instanceName"),
-                "login": preferred_user.get("login"),
-                "login_norm": preferred_user.get("loginNorm"),
-                "display_name": preferred_user.get("displayName"),
-                "email": preferred_user.get("email"),
-                "enabled": preferred_user.get("enabled"),
-                "user_profile": preferred_user.get("userProfile"),
-                "group_names": preferred_user.get("groupNames"),
-                "run_ts": preferred_user.get("runTs"),
-            }
+        instances_df = _query_df(
+            _user_detail_instances_sql(include_instance_filter=bool(instance_name)),
+            directory_params,
+        )
+        directory_records = [_normalize_user_directory_record(row) for row in _df_records(instances_df)]
+        user = max(directory_records, key=_user_directory_record_rank_key) if directory_records else None
 
         # Daily activity trend (UI only)
         daily_df = _query_df(
@@ -5847,7 +6033,8 @@ def build_user_detail(login: str):
         return _ok(
             {
                 "user": user,
-                "instances": _df_records(instances_df),
+                "instances": directory_records,
+                "directoryRecords": directory_records,
                 "summary": summary,
                 "activityDaily": _df_records(daily_df),
                 "activityMonthly": _df_records(monthly_df),
