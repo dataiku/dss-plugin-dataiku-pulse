@@ -12,6 +12,8 @@ from pulse_dashboard.webapp_backend import register_local_routes, register_route
 
 logger = logging.getLogger(__name__)
 
+INTERNAL_PREVIEW_DEBUG_VERSION = "preview-debug-2026-08-03-v2"
+
 _SENSITIVE_HEADER_NAMES = {
     "authorization",
     "cookie",
@@ -53,6 +55,9 @@ if not logger.handlers:
         logger.setLevel(gunicorn_error_logger.level)
         logger.propagate = False
 
+logger.info("Pulse DSS wrapper backend loaded from %s", __file__)
+logger.info("Internal Preview backend version=%s", INTERNAL_PREVIEW_DEBUG_VERSION)
+
 
 @app.route("/")
 @app.route("/<path:_path>")
@@ -67,16 +72,17 @@ def _resolve_authenticated_user() -> dict[str, object] | None:
         for header_name in request_headers.keys()
         if str(header_name).lower() not in _SENSITIVE_HEADER_NAMES
     )
-    logger.info("/api/me auth resolution started; safe_header_names=%s", safe_header_names)
+    logger.info("/api/me auth resolution started; version=%s safe_header_names=%s", INTERNAL_PREVIEW_DEBUG_VERSION, safe_header_names)
 
     try:
         auth_info = dataiku.api_client().get_auth_info_from_browser_headers(request_headers, with_secrets=False)
     except Exception as exc:
         exception_name = type(exc).__name__
-        if exception_name == "NotAuthenticatedException":
-            logger.info("/api/me DSS authentication unavailable for current request: %s", exception_name)
+        exception_text = str(exc)
+        if exception_name == "NotAuthenticatedException" or "NotAuthenticatedException" in exception_text:
+            logger.info("No authenticated DSS browser session; evaluating Internal Preview")
         else:
-            logger.exception("Unable to resolve authenticated Dataiku user")
+            logger.exception("Unexpected DSS authentication failure")
         return None
 
     if not isinstance(auth_info, dict):
@@ -335,6 +341,7 @@ def _resolve_effective_request_context() -> dict[str, object]:
     else:
         logger.info("/api/me auth resolution returned non-dict payload: %s", type(auth_info).__name__)
 
+    logger.info("Evaluating Internal Preview after DSS authentication result")
     preview_config = _read_internal_preview_config()
     host_context = _resolve_request_host_context()
     normalized_request_host = str(host_context.get("normalizedEffectiveHost") or "") or None
@@ -347,6 +354,17 @@ def _resolve_effective_request_context() -> dict[str, object]:
     project_key = _project_key_from_handle(project_handle)
     preview_failure = _summarize_preview_failure(preview_config, host_context)
 
+    logger.info(
+        "Internal Preview evaluation enabled=%s configured_host_present=%s login_configured=%s tier=%s effective_host_source=%s normalized_request_host=%r normalized_configured_host=%r host_matched=%s",
+        preview_enabled,
+        bool(preview_host),
+        bool(preview_login),
+        preview_tier,
+        host_context.get("effectiveHostSource"),
+        normalized_request_host,
+        preview_host or None,
+        bool(preview_host and normalized_request_host and normalized_request_host == preview_host),
+    )
     logger.info(
         "/api/me preview config enabled=%s configured_host=%s request_host=%s host_header=%s forwarded_host=%s referer_present=%s referer_host=%s forwarded_proto=%s normalized_configured_host=%s normalized_effective_host=%s login_configured=%s access_tier=%s project_key=%s preview_failure=%s effective_host_source=%s host_matched=%s",
         preview_enabled,
@@ -514,7 +532,7 @@ def _resolve_permissions(user_info: dict[str, object] | None) -> dict[str, objec
 
 @app.route("/api/me")
 def current_user() -> Any:
-    logger.info("/api/me called from remote_addr=%s", request.remote_addr)
+    logger.info("/api/me called version=%s remote_addr=%s", INTERNAL_PREVIEW_DEBUG_VERSION, request.remote_addr)
     response_payload = _resolve_effective_request_context()
     return jsonify(response_payload)
 
