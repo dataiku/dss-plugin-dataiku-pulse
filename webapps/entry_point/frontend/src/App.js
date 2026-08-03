@@ -1554,14 +1554,23 @@ function ViewDuckDBTab({ apiBase }) {
         headers: { Accept: 'application/json' },
       });
       const contentType = (res.headers.get('content-type') || '').toLowerCase();
+      const responseText = await res.text();
       if (!contentType.includes('application/json')) {
-        const bodyText = await res.text();
-        const safePreview = bodyText.replace(/\s+/g, ' ').trim().slice(0, 200) || '(empty body)';
-        throw new Error(`Unexpected response: HTTP ${res.status}, Content-Type ${contentType || 'unknown'}, Body ${safePreview}`);
+        const safePreview = responseText.replace(/\s+/g, ' ').trim().slice(0, 200) || '(empty body)';
+        throw new Error(`Unexpected response: HTTP ${res.status}, URL ${queryUrl.toString()}, Content-Type ${contentType || 'unknown'}, Body ${safePreview}`);
       }
-      const data = await res.json();
+      let data;
+      try {
+        data = responseText ? JSON.parse(responseText) : null;
+      } catch (_error) {
+        const safePreview = responseText.replace(/\s+/g, ' ').trim().slice(0, 200) || '(empty body)';
+        throw new Error(`Invalid JSON response: HTTP ${res.status}, URL ${queryUrl.toString()}, Content-Type ${contentType || 'unknown'}, Body ${safePreview}`);
+      }
       if (!res.ok || data?.ok !== true) {
-        throw new Error(data?.error || 'Failed to run query');
+        const message = typeof data?.error === 'string'
+          ? data.error
+          : data?.error?.message || 'Failed to run query';
+        throw new Error(message);
       }
       setQueryResult(data);
     } catch (e) {
@@ -5701,13 +5710,28 @@ function MyInformationPage({ pageKey, userLabel, authState, apiBase, advancedLlm
 function AdministrationPlaceholderPage({ apiBase }) {
   const [topologyState, setTopologyState] = useState({ loading: true, data: null, error: '' });
 
+  const sanitizeResponsePreview = (text) => String(text || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+
   const loadTopology = useCallback(async () => {
     setTopologyState({ loading: true, data: null, error: '' });
     try {
-      const response = await fetch(apiUrl(apiBase, '/api/admin/pulse-topology'), { cache: 'no-store' });
-      const data = await response.json();
-      if (!response.ok || data?.ok !== true) {
-        throw new Error(data?.error || 'Failed to load Pulse topology');
+      const requestUrl = apiUrl(apiBase, '/api/admin/pulse-topology');
+      const response = await fetch(requestUrl, { cache: 'no-store' });
+      const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+      const rawText = await response.text();
+
+      if (!response.ok || !contentType.includes('application/json')) {
+        throw new Error(
+          `Topology request failed (${response.status}) url=${requestUrl} contentType=${contentType || 'unknown'} preview=${sanitizeResponsePreview(rawText)}`
+        );
+      }
+
+      const data = rawText ? JSON.parse(rawText) : null;
+      if (!data || data.ok !== true) {
+        const message = data?.error?.message || data?.error || 'Failed to load Pulse topology';
+        throw new Error(
+          `Topology request failed (${response.status}) url=${requestUrl} contentType=${contentType || 'unknown'} message=${message}`
+        );
       }
       setTopologyState({ loading: false, data, error: '' });
     } catch (error) {

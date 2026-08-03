@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 import ast
+from collections import Counter
 from io import BytesIO
 from functools import wraps
 from pathlib import Path
@@ -38,6 +39,7 @@ _IS_LOCAL_DEV = False
 
 
 logger = logging.getLogger(__name__)
+logger.info("pulse_dashboard.webapp_backend.full_backend imported from %s", __file__)
 
 _MAX_PAGE_LIMIT = 250
 _MAX_LOOKBACK_DAYS = 365
@@ -324,6 +326,89 @@ def _activity_source_kind(_query_df) -> str:
     if _duckdb_relation_exists(_query_df, "final_build_development_activity_events"):
         return "final_build"
     return "fallback_join"
+
+
+def _current_user_auth_info() -> dict[str, Any] | None:
+    try:
+        import dataiku
+
+        request_headers = dict(request.headers)
+        auth_info = dataiku.api_client().get_auth_info_from_browser_headers(request_headers, with_secrets=False)
+        return auth_info if isinstance(auth_info, dict) else None
+    except Exception:
+        logger.exception("Unable to resolve current DSS user for administration check")
+        return None
+
+
+def _parse_group_names(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(group).strip() for group in value if str(group).strip()]
+    return []
+
+
+def _has_administration_access() -> bool:
+    standard = _read_standard_project_variables() or {}
+    administration_owner = standard.get("administration_owner")
+    if isinstance(administration_owner, dict):
+        administration_group = str(administration_owner.get("value") or "").strip().lower()
+    else:
+        administration_group = str(administration_owner or "").strip().lower()
+    if not administration_group:
+        return False
+
+    auth_info = _current_user_auth_info() or {}
+    groups = _parse_group_names(auth_info.get("groups") or auth_info.get("userGroups") or auth_info.get("groupNames"))
+    return any(str(group).strip().lower() == administration_group for group in groups)
+
+
+def _resolve_dashboard_topology_preset(plugin_handle: Any) -> tuple[str, str | None]:
+    try:
+        plugin_settings = plugin_handle.get_settings()
+        parameter_set = plugin_settings.get_parameter_set(parameter_set_name="params-dashboard-instance")
+        preset_names = parameter_set.list_preset_names() or []
+        if preset_names:
+            return str(preset_names[0]), None
+        return "primary", "No preset found in params-dashboard-instance; using 'primary'"
+    except Exception as exc:
+        return "primary", f"Could not resolve preset name; using 'primary': {exc!r}"
+
+
+def _sanitize_topology_config(plugin_config: dict[str, Any] | None) -> dict[str, Any]:
+    config = dict(plugin_config or {})
+    hub_url = str(config.get("pulse_project_url") or "").strip()
+    raw_workers = config.get("worker_hosts")
+    workers: list[dict[str, str]] = []
+    invalid_worker_entries = 0
+
+    if isinstance(raw_workers, list):
+        for entry in raw_workers:
+            if not isinstance(entry, dict):
+                invalid_worker_entries += 1
+                continue
+            worker_url = str(entry.get("worker_url") or "").strip()
+            if not worker_url:
+                invalid_worker_entries += 1
+                continue
+            workers.append(
+                {
+                    "url": worker_url,
+                    "classification": str(entry.get("worker_classification") or "").strip(),
+                    "presetName": str(entry.get("preset_name") or "").strip(),
+                }
+            )
+
+    return {
+        "hub": {"url": hub_url},
+        "workers": workers,
+        "diagnostics": {
+            "hub_url_found": bool(hub_url),
+            "worker_hosts_found": raw_workers is not None,
+            "worker_hosts_type": type(raw_workers).__name__ if raw_workers is not None else "missing",
+            "worker_entries_seen": len(raw_workers) if isinstance(raw_workers, list) else 0,
+            "valid_worker_urls": len(workers),
+            "invalid_worker_entries": invalid_worker_entries,
+        },
+    }
 
 
 def _activity_source_from_sql(source_kind: str) -> str:
@@ -2238,40 +2323,198 @@ def debug_duckdb_table(table_name: str):
     return _ok({"columns": _df_records(cols_df), "sample": _df_records(sample_df)})
 
 
-@bp.route("/api/debug/duckdb/query", methods=["POST"])
-@_handle_request_errors("duckdb query")
+@bp.route("/api/debug/duckdb/query", methods=["GET", "POST"])
 def debug_duckdb_query():
-    _require_debug_access()
-    _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
-    _ensure_ready_if_enabled()
-
-    if _duckdb_init_in_progress():
-        return _duckdb_busy_response()
-
-    payload = request.get_json(silent=True) or {}
-    sql = _validate_read_only_debug_sql(payload.get("sql"))
-
-    conn = _create_connection(read_only=True)
     try:
-        df = conn.execute(sql).df()
-    except ReadOnlySQLError as e:
-        raise RequestValidationError(str(e)) from e
-    finally:
-        conn.close()
+        _require_debug_access()
+        _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+        _ensure_ready_if_enabled()
 
-    truncated = int(len(df.index)) > _READ_ONLY_QUERY_LIMIT
-    limited_df = df.head(_READ_ONLY_QUERY_LIMIT).copy()
+        if _duckdb_init_in_progress():
+            return _duckdb_busy_response()
 
-    return _ok(
-        {
-            "sql": sql,
-            "limit": _READ_ONLY_QUERY_LIMIT,
-            "columns": list(limited_df.columns),
-            "rows": _df_records(limited_df),
-            "rowCount": int(len(limited_df.index)),
-            "truncated": truncated,
-        }
-    )
+        payload = request.get_json(silent=True) or {}
+        sql_input = request.args.get("sql") if request.method == "GET" else payload.get("sql")
+        sql = _validate_read_only_debug_sql(sql_input)
+
+        conn = _create_connection(read_only=True)
+        try:
+            df = conn.execute(sql).df()
+        except ReadOnlySQLError as exc:
+            raise RequestValidationError(str(exc)) from exc
+        except Exception as exc:
+            raise RequestValidationError(str(exc)) from exc
+        finally:
+            conn.close()
+
+        truncated = int(len(df.index)) > _READ_ONLY_QUERY_LIMIT
+        limited_df = df.head(_READ_ONLY_QUERY_LIMIT).copy()
+
+        return jsonify(
+            {
+                "ok": True,
+                "sql": sql,
+                "limit": _READ_ONLY_QUERY_LIMIT,
+                "columns": list(limited_df.columns),
+                "rows": _df_records(limited_df),
+                "rowCount": int(len(df.index)),
+                "returnedRowCount": int(len(limited_df.index)),
+                "truncated": truncated,
+            }
+        )
+    except RequestValidationError as exc:
+        return jsonify(
+            {
+                "ok": False,
+                "error": {
+                    "code": "DUCKDB_PREVIEW_QUERY_INVALID",
+                    "message": str(exc),
+                },
+            }
+        ), 400
+    except PermissionError as exc:
+        return jsonify(
+            {
+                "ok": False,
+                "error": {
+                    "code": "ADMIN_ACCESS_REQUIRED",
+                    "message": str(exc),
+                },
+            }
+        ), 403
+    except Exception:
+        logger.exception("DuckDB preview query failed")
+        return jsonify(
+            {
+                "ok": False,
+                "error": {
+                    "code": "DUCKDB_PREVIEW_QUERY_FAILED",
+                    "message": "The preview query could not be completed.",
+                },
+            }
+        ), 500
+
+
+logger.info("Registering route decorator for /api/admin/pulse-topology from %s", __file__)
+@bp.route("/api/admin/pulse-topology")
+def admin_pulse_topology():
+    try:
+        if not _has_administration_access():
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "ADMIN_ACCESS_REQUIRED",
+                        "message": "Administration access is required.",
+                    },
+                    "counts": {"hubs": 0, "workers": 0},
+                    "warnings": [],
+                    "diagnostics": {"route_reached": True},
+                }
+            ), 403
+
+        import dataiku
+
+        client = dataiku.api_client()
+        plugin_handle = client.get_plugin(plugin_id="dataiku-pulse")
+        parameter_set = plugin_handle.get_settings().get_parameter_set(parameter_set_name="params-dashboard-instance")
+        preset_name, preset_warning = _resolve_dashboard_topology_preset(plugin_handle)
+        preset = parameter_set.get_preset(preset_name)
+
+        if not preset:
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "TOPOLOGY_CONFIG_NOT_FOUND",
+                        "message": "Pulse topology configuration is unavailable.",
+                    },
+                    "diagnostics": {
+                        "parameter_set_found": True,
+                        "preset_found": False,
+                    },
+                }
+            ), 404
+
+        raw_config = getattr(preset, "plugin_config", None)
+        if not isinstance(raw_config, dict):
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "TOPOLOGY_CONFIG_INVALID",
+                        "message": "Pulse topology configuration is unavailable.",
+                    },
+                    "diagnostics": {
+                        "parameter_set_found": True,
+                        "preset_found": True,
+                        "plugin_config_type": type(raw_config).__name__ if raw_config is not None else "missing",
+                    },
+                }
+            ), 500
+
+        topology = _sanitize_topology_config(raw_config)
+        workers = topology.get("workers") or []
+        warnings: list[str] = []
+        if preset_warning:
+            warnings.append(preset_warning)
+
+        return jsonify(
+            {
+                "ok": True,
+                "hub": topology.get("hub") or {"url": ""},
+                "workers": workers,
+                "counts": {
+                    "hubs": 1 if (topology.get("hub") or {}).get("url") else 0,
+                    "workers": len(workers),
+                },
+                "warnings": warnings,
+                "diagnostics": {
+                    "parameter_set_found": True,
+                    "preset_found": True,
+                    **(topology.get("diagnostics") or {}),
+                },
+                "summary": {
+                    "hubCount": 1 if (topology.get("hub") or {}).get("url") else 0,
+                    "workerCount": len(workers),
+                    "classifications": dict(
+                        Counter(
+                            worker.get("classification")
+                            for worker in workers
+                            if str(worker.get("classification") or "").strip()
+                        )
+                    ),
+                },
+                "topology": {
+                    "hub": {
+                        "url": str((topology.get("hub") or {}).get("url") or "").strip(),
+                        "label": "Pulse Hub",
+                    },
+                    "spokes": [
+                        {
+                            "url": str(worker.get("url") or "").strip(),
+                            "classification": str(worker.get("classification") or "").strip(),
+                            "presetName": str(worker.get("presetName") or "").strip(),
+                        }
+                        for worker in workers
+                    ],
+                },
+            }
+        )
+    except Exception:
+        logger.exception("Unable to read Pulse topology configuration")
+        return jsonify(
+            {
+                "ok": False,
+                "error": {
+                    "code": "TOPOLOGY_ENDPOINT_FAILED",
+                    "message": "Unable to load the Pulse topology configuration.",
+                },
+                "counts": {"hubs": 0, "workers": 0},
+                "warnings": [],
+                "diagnostics": {"route_reached": True},
+            }
+        ), 500
 
 
 @bp.route("/api/build/assets/facets")
@@ -6151,6 +6394,7 @@ def register_routes(app: Flask, *, is_local_dev: bool = False) -> None:
     global _IS_LOCAL_DEV
     _IS_LOCAL_DEV = is_local_dev
     app.register_blueprint(bp)
+    logger.info("Pulse backend routes registered from %s; url_map=%s", __file__, sorted(str(rule) for rule in app.url_map.iter_rules()))
     # In local Flask dev, there is no DSS body.html warmup flow, so kick off a
     # best-effort background init. In DSS/visual-webapp mode,  owns
     # the blocking startup init via ; avoid racing it with
