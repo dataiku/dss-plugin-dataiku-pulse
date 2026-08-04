@@ -1,11 +1,19 @@
-import { buildPageRegistry, checkPageCapability, checkPagePermission, validatePageRegistry } from './App';
+import React from 'react';
+import { render, screen, waitFor } from '@testing-library/react';
+import App, { buildPageRegistry, checkPageCapability, checkPagePermission, validatePageRegistry } from './App';
+
+function buildSharedPulseItems(pages, permissions, activeWorkspace) {
+  return pages
+    .filter((page) => page.workspace === 'global' || (page.key === 'pulse-export' && activeWorkspace === 'organization'))
+    .filter((page) => checkPagePermission(page, permissions))
+    .map((page) => page.key);
+}
 
 describe('Pulse page registry', () => {
   const build = (overrides = {}) => buildPageRegistry({
     homeHref: './',
     userActivityEnabled: true,
     llmMeshEnabled: true,
-    debugEnabled: true,
     ...overrides,
   });
 
@@ -37,6 +45,41 @@ describe('Pulse page registry', () => {
     expect(pages.filter((page) => page.workspace === 'administration').every((page) => !checkPagePermission(page, permissions))).toBe(true);
   });
 
+  test('export is registered only once under organization', () => {
+    const pages = build();
+    const exportPages = pages.filter((page) => page.key === 'pulse-export');
+    expect(exportPages).toHaveLength(1);
+    expect(exportPages[0]).toMatchObject({
+      workspace: 'organization',
+      group: 'Pulse',
+      route: 'export',
+      permission: 'organization',
+    });
+  });
+
+  test('export uses the existing shared Pulse navigation group', () => {
+    const pages = build();
+    const items = buildSharedPulseItems(pages, { self: true, organization: true, administration: false }, 'organization');
+    expect(items).toEqual(['pulse-home', 'pulse-faq', 'pulse-disclaimer', 'pulse-export']);
+  });
+
+  test('organization does not create a duplicate workspace-specific Pulse group', () => {
+    const pages = build();
+    const organizationPulsePages = pages.filter((page) => page.workspace === 'organization' && page.group === 'Pulse');
+    expect(organizationPulsePages).toEqual([
+      expect.objectContaining({ key: 'pulse-export' }),
+    ]);
+  });
+
+  test('export is inaccessible without organization permission including administration-only users', () => {
+    const pages = build();
+    const exportPage = pages.find((page) => page.key === 'pulse-export');
+    expect(exportPage).toBeDefined();
+    expect(checkPagePermission(exportPage, { self: true, organization: false, administration: false })).toBe(false);
+    expect(checkPagePermission(exportPage, { self: true, organization: false, administration: true })).toBe(false);
+    expect(checkPagePermission(exportPage, { self: true, organization: true, administration: true })).toBe(true);
+  });
+
   test('administration user can access all permission-gated pages', () => {
     const pages = build();
     const permissions = { self: true, organization: true, administration: true };
@@ -46,13 +89,71 @@ describe('Pulse page registry', () => {
   test('llm mesh pages disappear when capability disabled', () => {
     const pages = build({ llmMeshEnabled: false });
     expect(pages.some((page) => page.key === 'my-llm-overview')).toBe(false);
-    expect(pages.some((page) => page.key === 'org-llm-mesh')).toBe(false);
+    expect(pages.some((page) => page.key === 'organization-llm-mesh-usage-summary')).toBe(false);
+    expect(pages.some((page) => page.key === 'organization-llm-mesh-usage-breakdown')).toBe(false);
+    expect(pages.some((page) => page.key === 'organization-llm-mesh-reliability-controls')).toBe(false);
+    expect(pages.some((page) => page.key === 'organization-llm-mesh-activity-records')).toBe(false);
   });
 
-  test('debug pages disappear when debug disabled', () => {
-    const pages = build({ debugEnabled: false });
-    expect(pages.some((page) => page.key === 'admin-debug-reload')).toBe(false);
-    expect(pages.some((page) => page.key === 'admin-debug-preview')).toBe(false);
+  test('llm mesh pages keep expected labels', () => {
+    const pages = build({ llmMeshEnabled: true });
+    expect(pages.find((page) => page.key === 'my-llm-overview')?.label).toBe('My Usage');
+    expect(pages.find((page) => page.key === 'organization-llm-mesh-usage-summary')?.label).toBe('Usage Summary');
+    expect(pages.find((page) => page.key === 'organization-llm-mesh-usage-breakdown')?.label).toBe('Usage Breakdown');
+    expect(pages.find((page) => page.key === 'organization-llm-mesh-reliability-controls')?.label).toBe('Reliability & Controls');
+    expect(pages.find((page) => page.key === 'organization-llm-mesh-activity-records')?.label).toBe('Activity Records');
+  });
+
+  test('eligible user sees my llm mesh when capability enabled', () => {
+    const pages = build({ llmMeshEnabled: true });
+    const permissions = { self: true, organization: false, administration: false };
+    const page = pages.find((entry) => entry.key === 'my-llm-overview');
+    expect(page).toBeDefined();
+    expect(checkPagePermission(page, permissions)).toBe(true);
+    expect(checkPageCapability(page, { llmMeshEnabled: true, userActivityEnabled: true, startupFlagsLoaded: true })).toBe(true);
+  });
+
+  test('organization llm mesh pages require organization permission and capability', () => {
+    const pages = build({ llmMeshEnabled: true });
+    const pageKeys = [
+      'organization-llm-mesh-usage-summary',
+      'organization-llm-mesh-usage-breakdown',
+      'organization-llm-mesh-reliability-controls',
+      'organization-llm-mesh-activity-records',
+    ];
+    pageKeys.forEach((key) => {
+      const page = pages.find((entry) => entry.key === key);
+      expect(page).toBeDefined();
+      expect(checkPagePermission(page, { self: true, organization: false, administration: false })).toBe(false);
+      expect(checkPagePermission(page, { self: true, organization: true, administration: false })).toBe(true);
+      expect(checkPageCapability(page, { llmMeshEnabled: false, userActivityEnabled: true, startupFlagsLoaded: true })).toBe(false);
+      expect(checkPageCapability(page, { llmMeshEnabled: true, userActivityEnabled: true, startupFlagsLoaded: true })).toBe(true);
+    });
+  });
+
+  test('organization llm mesh pages appear in the correct order', () => {
+    const pages = build({ llmMeshEnabled: true });
+    const llmMeshLabels = pages
+      .filter((page) => page.workspace === 'organization' && page.group === 'LLM Mesh')
+      .map((page) => page.label);
+    expect(llmMeshLabels).toEqual([
+      'Usage Summary',
+      'Usage Breakdown',
+      'Reliability & Controls',
+      'Activity Records',
+    ]);
+  });
+
+  test('old adoption page is no longer registered', () => {
+    const pages = build({ llmMeshEnabled: true });
+    expect(pages.some((page) => page.key === 'org-llm-mesh')).toBe(false);
+    expect(pages.some((page) => page.key === 'organization-llm-mesh-adoption')).toBe(false);
+  });
+
+  test('administration duckdb pages are not filtered by debug capability', () => {
+    const pages = build();
+    expect(pages.some((page) => page.key === 'admin-debug-reload')).toBe(true);
+    expect(pages.some((page) => page.key === 'admin-debug-preview')).toBe(true);
   });
 
   test('user activity pages disappear when capability disabled', () => {
@@ -63,7 +164,7 @@ describe('Pulse page registry', () => {
 
   test('all visible pages pass capability checks in authorized context', () => {
     const pages = build();
-    const capabilities = { llmMeshEnabled: true, userActivityEnabled: true, debugEnabled: true, startupFlagsLoaded: true };
+    const capabilities = { llmMeshEnabled: true, userActivityEnabled: true, startupFlagsLoaded: true };
     expect(pages.every((page) => checkPageCapability(page, capabilities))).toBe(true);
   });
 
@@ -107,7 +208,32 @@ describe('Pulse page registry', () => {
   test('global pulse pages are registry-owned and preserve workspace externally', () => {
     const pages = build();
     const globals = pages.filter((page) => page.workspace === 'global').map((page) => page.key);
-    expect(globals).toEqual(expect.arrayContaining(['pulse-home', 'pulse-faq', 'pulse-disclaimer', 'pulse-export']));
+    expect(globals).toEqual(expect.arrayContaining(['pulse-home', 'pulse-faq', 'pulse-disclaimer']));
+    expect(globals).not.toContain('pulse-export');
+  });
+
+  test('export does not appear under my information or administration workspaces', () => {
+    const pages = build();
+    expect(pages.some((page) => page.key === 'pulse-export' && page.workspace === 'me')).toBe(false);
+    expect(pages.some((page) => page.key === 'pulse-export' && page.workspace === 'administration')).toBe(false);
+  });
+
+  test('shared Pulse group excludes export outside organization workspace', () => {
+    const pages = build();
+    const selfOnly = { self: true, organization: false, administration: false };
+    const adminOnly = { self: true, organization: false, administration: true };
+    expect(buildSharedPulseItems(pages, selfOnly, 'me')).toEqual(['pulse-home', 'pulse-faq', 'pulse-disclaimer']);
+    expect(buildSharedPulseItems(pages, adminOnly, 'administration')).toEqual(['pulse-home', 'pulse-faq', 'pulse-disclaimer']);
+  });
+
+  test('shared Pulse group keeps home faq and disclaimer visible across workspaces', () => {
+    const pages = build();
+    const orgItems = buildSharedPulseItems(pages, { self: true, organization: true, administration: false }, 'organization');
+    const meItems = buildSharedPulseItems(pages, { self: true, organization: false, administration: false }, 'me');
+    const adminItems = buildSharedPulseItems(pages, { self: true, organization: true, administration: true }, 'administration');
+    expect(orgItems).toEqual(expect.arrayContaining(['pulse-home', 'pulse-faq', 'pulse-disclaimer']));
+    expect(meItems).toEqual(['pulse-home', 'pulse-faq', 'pulse-disclaimer']);
+    expect(adminItems).toEqual(['pulse-home', 'pulse-faq', 'pulse-disclaimer']);
   });
 
   test('pulse faq registry entry resolves as a global page with faq route', () => {
@@ -143,5 +269,160 @@ describe('Pulse page registry', () => {
     const pages = build();
     const defaults = pages.filter((page) => page.isDefault).map((page) => page.key);
     expect(defaults).toEqual(expect.arrayContaining(['pulse-home', 'my-overview', 'org-users', 'admin-overview']));
+  });
+});
+
+describe('Organization LLM Mesh placeholder pages', () => {
+  const originalLocation = window.location;
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    delete window.location;
+    window.location = { hash: '#llm-mesh/usage-summary' };
+    global.fetch = jest.fn((url) => {
+      const target = String(url);
+      if (target.includes('/api/me')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            authenticated: true,
+            user: { login: 'tester', displayName: 'Tester' },
+            permissions: { self: true, organization: true, administration: false },
+          }),
+        });
+      }
+      if (target.includes('/api/startup/flags')) {
+        return Promise.resolve({ ok: true, json: async () => ({ capabilities: { advancedLLMMesh: { enabled: true, licensedInstances: ['instance-a'] } } }) });
+      }
+      if (target.includes('/api/debug/startup-flags')) {
+        return Promise.resolve({ ok: true, json: async () => ({ ok: true, flags: {} }) });
+      }
+      if (target.includes('/api/home')) {
+        return Promise.resolve({ ok: true, json: async () => ({ ok: true }) });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ ok: true }) });
+    });
+    window.dataiku = {
+      getWebAppBackendUrl: () => '',
+      getUserDisplayName: () => 'Tester',
+    };
+  });
+
+  afterEach(() => {
+    window.location = originalLocation;
+    global.fetch = originalFetch;
+    delete window.dataiku;
+  });
+
+  test('Usage Summary placeholder renders Coming Soon and approved description', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Authentication Required' })).not.toBeInTheDocument());
+    expect(await screen.findByRole('heading', { name: 'Usage Summary' })).toBeInTheDocument();
+    expect(screen.getByText('Coming Soon')).toBeInTheDocument();
+    expect(screen.getAllByText('A cross-instance summary of LLM Mesh consumption, including requests, tokens, estimated cost, active users, active projects, active instances, models, providers, and connections.').length).toBeGreaterThan(0);
+    expect(global.fetch).not.toHaveBeenCalledWith(expect.stringContaining('/api/build/llm-mesh/overview'), expect.anything());
+  });
+
+  test('Usage Breakdown placeholder renders approved description', async () => {
+    window.location.hash = '#llm-mesh/usage-breakdown';
+    render(<App />);
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Authentication Required' })).not.toBeInTheDocument());
+    expect(await screen.findByRole('heading', { name: 'Usage Breakdown' })).toBeInTheDocument();
+    expect(screen.getByText('Coming Soon')).toBeInTheDocument();
+    expect(screen.getAllByText('A detailed view of where LLM Mesh usage is occurring, broken down by instance, project, user, connection, provider, and model.').length).toBeGreaterThan(0);
+  });
+
+  test('Reliability & Controls placeholder renders approved description', async () => {
+    window.location.hash = '#llm-mesh/reliability-controls';
+    render(<App />);
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Authentication Required' })).not.toBeInTheDocument());
+    expect(await screen.findByRole('heading', { name: 'Reliability & Controls' })).toBeInTheDocument();
+    expect(screen.getByText('Coming Soon')).toBeInTheDocument();
+    expect(screen.getAllByText('A factual summary of LLM Mesh operational behavior, including latency, errors, throttling, quota usage, rate-limit usage, and guardrail outcomes.').length).toBeGreaterThan(0);
+  });
+
+  test('Activity Records placeholder renders approved description', async () => {
+    window.location.hash = '#llm-mesh/activity-records';
+    render(<App />);
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Authentication Required' })).not.toBeInTheDocument());
+    expect(await screen.findByRole('heading', { name: 'Activity Records' })).toBeInTheDocument();
+    expect(screen.getByText('Coming Soon')).toBeInTheDocument();
+    expect(screen.getAllByText('A searchable detailed record of LLM Mesh activity across instances, projects, users, connections, providers, models, dates, and available consumption metrics.').length).toBeGreaterThan(0);
+  });
+
+  test('old adoption route does not render Adoption content or trigger overview fetch', async () => {
+    window.location.hash = '#llm-mesh';
+    render(<App />);
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    expect(screen.queryByText('Adoption')).not.toBeInTheDocument();
+    expect(global.fetch.mock.calls.some(([url]) => String(url).includes('/api/build/llm-mesh/overview'))).toBe(false);
+  });
+});
+
+describe('Pulse export rendered navigation', () => {
+  const originalLocation = window.location;
+  const originalFetch = global.fetch;
+
+  function mockAuth({ permissions, hash = '#export' }) {
+    delete window.location;
+    window.location = { hash };
+    global.fetch = jest.fn((url) => {
+      const target = String(url);
+      if (target.includes('/api/me')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            authenticated: true,
+            user: { login: 'tester', displayName: 'Tester' },
+            permissions,
+          }),
+        });
+      }
+      if (target.includes('/api/startup/flags')) {
+        return Promise.resolve({ ok: true, json: async () => ({ capabilities: { advancedLLMMesh: { enabled: true, licensedInstances: ['instance-a'] } } }) });
+      }
+      if (target.includes('/api/debug/startup-flags')) {
+        return Promise.resolve({ ok: true, json: async () => ({ ok: true, flags: {} }) });
+      }
+      if (target.includes('/api/home')) {
+        return Promise.resolve({ ok: true, json: async () => ({ ok: true }) });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ ok: true }) });
+    });
+    window.dataiku = {
+      getWebAppBackendUrl: () => '',
+      getUserDisplayName: () => 'Tester',
+    };
+  }
+
+  afterEach(() => {
+    window.location = originalLocation;
+    global.fetch = originalFetch;
+    delete window.dataiku;
+  });
+
+  test('authorized organization user sees export exactly once in rendered navigation', async () => {
+    mockAuth({ permissions: { self: true, organization: true, administration: false } });
+    render(<App />);
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Authentication Required' })).not.toBeInTheDocument());
+    expect(await screen.findByRole('heading', { name: 'Export' })).toBeInTheDocument();
+    expect(screen.getAllByText('Export')).toHaveLength(1);
+    expect(screen.queryByText('Administration')).not.toBeInTheDocument();
+  });
+
+  test('self-only user direct export navigation is blocked and nav does not show export', async () => {
+    mockAuth({ permissions: { self: true, organization: false, administration: false } });
+    render(<App />);
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    expect(screen.queryByRole('heading', { name: 'Export' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Select filters and sections, then generate a downloadable PDF report')).not.toBeInTheDocument();
+    expect(screen.queryByText('Export')).not.toBeInTheDocument();
+  });
+
+  test('administration workspace does not show export in rendered navigation without organization access', async () => {
+    mockAuth({ permissions: { self: true, organization: false, administration: true }, hash: '' });
+    render(<App />);
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    expect(screen.queryByText('Export')).not.toBeInTheDocument();
   });
 });

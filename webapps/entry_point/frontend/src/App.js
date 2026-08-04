@@ -1836,745 +1836,20 @@ function DebugPreviewPage({ apiBase }) {
   );
 }
 
-function formatCurrencyUsd(value) {
-  return `$${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function LlmMeshPage({ apiBase }) {
-  const [days, setDays] = useState(30);
-  const [selectedInstance, setSelectedInstance] = useState('');
-  const [selectedProject, setSelectedProject] = useState('');
-  const [selectedSourceType, setSelectedSourceType] = useState('');
-  const [selectedSourceOperationType, setSelectedSourceOperationType] = useState('');
-  const [selectedExecutionContextType, setSelectedExecutionContextType] = useState('');
-  const [payload, setPayload] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const params = new URLSearchParams();
-    params.set('days', String(days));
-    if (selectedInstance) params.set('instance_name', selectedInstance);
-    if (selectedProject) params.set('project_key', selectedProject);
-    if (selectedSourceType) params.set('source_type', selectedSourceType);
-    if (selectedSourceOperationType) params.set('source_operation_type', selectedSourceOperationType);
-    if (selectedExecutionContextType) params.set('execution_context_type', selectedExecutionContextType);
-
-    setLoading(true);
-    setError('');
-
-    fetch(apiUrl(apiBase, `/api/build/llm-mesh/overview?${params.toString()}`), {
-      signal: controller.signal,
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        if (!data.ok) throw new Error(data.error || 'Failed loading LLM Mesh overview');
-        setPayload(data);
-      })
-      .catch((e) => {
-        if (e.name !== 'AbortError') setError(e.message);
-      })
-      .finally(() => setLoading(false));
-
-    return () => controller.abort();
-  }, [apiBase, days, selectedInstance, selectedProject, selectedSourceType, selectedSourceOperationType, selectedExecutionContextType]);
-
-  const kpis = payload?.kpis || {};
-  const charts = payload?.charts || {};
-  const facets = payload?.facets || { instances: [], projects: [], sourceTypes: [], sourceOperations: [], executionContexts: [] };
-  const activityDaily = (charts.activityDaily || []).map((row) => ({
-    label: row.label,
-    value: Number(row.calls || 0),
-  }));
-
+function LlmMeshPlaceholderPage({ title, description }) {
   return (
     <div className="PulseWide">
       <div className="PulseHero">
-        <h1>LLM Mesh</h1>
-        <p>
-          Review who is using LLM Mesh, where calls happen, how usage evolves over time,
-          and which users, projects, and models drive the most activity.
-        </p>
+        <h1>{title}</h1>
+        <p>{description}</p>
       </div>
-
-      <PulseSection title="Filters">
-        <div className="PulseFormRow">
-          <label className="PulseLabel">
-            Window
-            <select className="PulseSelect" value={days} onChange={(e) => setDays(Number(e.target.value) || 30)}>
-              <option value={30}>Last 30 days</option>
-              <option value={90}>Last 90 days</option>
-              <option value={365}>Last 365 days</option>
-            </select>
-          </label>
-
-          <label className="PulseLabel">
-            Instance
-            <select className="PulseSelect" value={selectedInstance} onChange={(e) => setSelectedInstance(e.target.value)}>
-              <option value="">All instances</option>
-              {(facets.instances || []).map((instance) => (
-                <option key={instance} value={instance}>{instance}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="PulseLabel">
-            Project
-            <select className="PulseSelect" value={selectedProject} onChange={(e) => setSelectedProject(e.target.value)}>
-              <option value="">All projects</option>
-              {(facets.projects || []).map((project) => (
-                <option key={project} value={project}>{project}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="PulseLabel">
-            Source
-            <select className="PulseSelect" value={selectedSourceType} onChange={(e) => setSelectedSourceType(e.target.value)}>
-              <option value="">All sources</option>
-              {(facets.sourceTypes || []).map((source) => (
-                <option key={source.key} value={source.key}>{source.label}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="PulseLabel">
-            Operation
-            <select className="PulseSelect" value={selectedSourceOperationType} onChange={(e) => setSelectedSourceOperationType(e.target.value)}>
-              <option value="">All operations</option>
-              {(facets.sourceOperations || []).map((source) => (
-                <option key={source.key} value={source.key}>{source.label}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="PulseLabel">
-            Execution Context
-            <select className="PulseSelect" value={selectedExecutionContextType} onChange={(e) => setSelectedExecutionContextType(e.target.value)}>
-              <option value="">All contexts</option>
-              {(facets.executionContexts || []).map((context) => (
-                <option key={context.key} value={context.key}>{context.label}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </PulseSection>
-
-      {error ? <div className="PulseError">{error}</div> : null}
-      {loading ? <div className="PulseMuted">Loading LLM Mesh analytics…</div> : null}
-
-      <div className="PulseStatsGrid">
-        <div className="PulseStatCard"><div className="PulseStatLabel">Total Calls</div><div className="PulseStatValue">{Number(kpis.totalCalls || 0).toLocaleString()}</div></div>
-        <div className="PulseStatCard"><div className="PulseStatLabel">Active Users</div><div className="PulseStatValue">{Number(kpis.activeUsers || 0).toLocaleString()}</div></div>
-        <div className="PulseStatCard"><div className="PulseStatLabel">Active Projects</div><div className="PulseStatValue">{Number(kpis.activeProjects || 0).toLocaleString()}</div></div>
-        <div className="PulseStatCard"><div className="PulseStatLabel">Total Tokens</div><div className="PulseStatValue">{Number(kpis.totalTokens || 0).toLocaleString()}</div></div>
-        <div className="PulseStatCard"><div className="PulseStatLabel">Estimated Cost</div><div className="PulseStatValue">{formatCurrencyUsd(kpis.estimatedCostUsd || 0)}</div></div>
-        <div className="PulseStatCard"><div className="PulseStatLabel">Last Activity</div><div className="PulseStatValue">{kpis.lastActivityAt ? formatDate(kpis.lastActivityAt) : '—'}</div></div>
-      </div>
-
-      <PulseSection title="Usage Trend">
-        <div className="PulseVizGrid">
-          <LineChart title="LLM calls by day" points={activityDaily} />
-        </div>
-      </PulseSection>
-
-      <PulseSection title="Top Breakdowns">
-        <div className="PulseVizGrid">
-          <BarList title="Calls by source" rows={(charts.sourceTypes || []).map((row) => ({ label: row.label, value: Number(row.calls || 0) }))} />
-          <BarList title="Calls by operation" rows={(charts.sourceOperations || []).map((row) => ({ label: row.label, value: Number(row.calls || 0) }))} />
-          <BarList title="Calls by execution context" rows={(charts.executionContexts || []).map((row) => ({ label: row.label, value: Number(row.calls || 0) }))} />
-          <BarList title="Top users by calls" rows={(charts.topUsers || []).map((row) => ({ label: row.label, value: Number(row.calls || 0) }))} />
-          <BarList title="Top projects by calls" rows={(charts.topProjects || []).map((row) => ({ label: row.label, value: Number(row.calls || 0) }))} />
-          <BarList title="Top models by calls" rows={(charts.topModels || []).map((row) => ({ label: row.label, value: Number(row.calls || 0) }))} />
-          <BarList title="Top connections by calls" rows={(charts.topConnections || []).map((row) => ({ label: row.label, value: Number(row.calls || 0) }))} />
-          <BarList title="Top instances by calls" rows={(charts.topInstances || []).map((row) => ({ label: row.label, value: Number(row.calls || 0) }))} />
+      <PulseSection title="Status">
+        <div className="PulseEmptyState">
+          <h2>Coming Soon</h2>
+          <p>{description}</p>
         </div>
       </PulseSection>
     </div>
-  );
-}
-
-function compareNullableStrings(a, b, direction = 'asc') {
-  const left = String(a || '').toLowerCase();
-  const right = String(b || '').toLowerCase();
-  if (left === right) return 0;
-  const base = left < right ? -1 : 1;
-  return direction === 'desc' ? -base : base;
-}
-
-function compareNullableDates(a, b, direction = 'asc') {
-  const left = a ? Date.parse(a) : NaN;
-  const right = b ? Date.parse(b) : NaN;
-  const leftValid = Number.isFinite(left);
-  const rightValid = Number.isFinite(right);
-  if (!leftValid && !rightValid) return 0;
-  if (!leftValid) return 1;
-  if (!rightValid) return -1;
-  if (left === right) return 0;
-  const base = left < right ? -1 : 1;
-  return direction === 'desc' ? -base : base;
-}
-
-function SortableHeader({ label, column, sortState, onToggle }) {
-  const active = sortState.column === column;
-  const direction = active ? sortState.direction : null;
-  return (
-    <button
-      type="button"
-      className={`PulseTableSortButton${active ? ' PulseTableSortButtonActive' : ''}`}
-      onClick={() => onToggle(column)}
-    >
-      <span>{label}</span>
-      <span className={`PulseTableSortIndicator${active ? ' PulseTableSortIndicatorActive' : ''}`}>
-        {direction === 'asc' ? '▲' : direction === 'desc' ? '▼' : '↕'}
-      </span>
-    </button>
-  );
-}
-
-function BarList({ title, rows, maxRows = 12, onRowClick, formatValue }) {
-  const trimmed = useMemo(() => {
-    if (!rows.length) return [];
-    const sorted = [...rows].sort((a, b) => b.value - a.value);
-    if (sorted.length <= maxRows) return sorted;
-
-    const head = sorted.slice(0, maxRows);
-    const tail = sorted.slice(maxRows);
-    const otherValue = tail.reduce((acc, r) => acc + r.value, 0);
-    return [...head, { label: 'Other', value: otherValue }];
-  }, [maxRows, rows]);
-
-  const maxVal = useMemo(() => {
-    return Math.max(1, ...trimmed.map((r) => r.value));
-  }, [trimmed]);
-
-  return (
-    <div className="PulseChartCard">
-      <div className="PulseChartTitle">{title}</div>
-      <div className="PulseBarList">
-        {trimmed.map((r) => {
-          const Row = onRowClick ? 'button' : 'div';
-          const percent = maxVal ? (Number(r.value || 0) / maxVal) * 100 : 0;
-          return (
-            <Row
-              key={r.label}
-              type={onRowClick ? 'button' : undefined}
-              className={onRowClick ? 'PulseBarRow PulseBarRowAction' : 'PulseBarRow'}
-              onClick={onRowClick ? () => onRowClick(r.label) : undefined}
-              title={onRowClick ? `View details for ${r.label}` : r.label}
-            >
-              <div className="PulseBarLabel" title={r.label}>{r.label}</div>
-              <div className="PulseBarTrack">
-                <div className="PulseBarFill" style={{ width: `${percent}%` }} />
-              </div>
-              <div className="PulseBarValue">{formatValue ? formatValue(r.value, r) : Number(r.value || 0).toLocaleString()}</div>
-            </Row>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function LineChart({ title, points }) {
-  const chart = useMemo(() => {
-    const safePoints = fillDailySeriesGaps(points).map((point) => ({
-      ...point,
-      value: Number(point?.value || 0),
-      label: String(point?.label || ''),
-      displayLabel: String(point?.displayLabel || point?.label || ''),
-    })).filter((point) => point.label);
-
-    const width = 760;
-    const height = 240;
-    const marginTop = 16;
-    const marginRight = 20;
-    const marginBottom = 52;
-    const marginLeft = 56;
-    const innerWidth = width - marginLeft - marginRight;
-    const innerHeight = height - marginTop - marginBottom;
-    const yAxisX = marginLeft;
-    const xAxisY = marginTop + innerHeight;
-
-    if (!safePoints.length) {
-      return {
-        width,
-        height,
-        coords: [],
-        linePath: '',
-        areaPath: '',
-        yTicks: [0, 1],
-        xTicks: [],
-        innerHeight,
-        innerWidth,
-        marginTop,
-        marginRight,
-        marginBottom,
-        marginLeft,
-        yAxisX,
-        xAxisY,
-        yMax: 1,
-      };
-    }
-
-    const maxValue = Math.max(1, ...safePoints.map((point) => point.value));
-    const yTickCount = maxValue <= 4 ? maxValue : 4;
-    const yStep = Math.max(1, Math.ceil(maxValue / Math.max(1, yTickCount)));
-    const yMax = Math.max(yStep, Math.ceil(maxValue / yStep) * yStep);
-    const yTicks = Array.from({ length: Math.floor(yMax / yStep) + 1 }, (_, index) => index * yStep);
-
-    const xForIndex = (index) => {
-      if (safePoints.length === 1) return marginLeft + innerWidth / 2;
-      return marginLeft + (innerWidth * index) / (safePoints.length - 1);
-    };
-    const yForValue = (value) => marginTop + innerHeight - (innerHeight * value) / yMax;
-
-    const coords = safePoints.map((point, index) => ({
-      ...point,
-      cx: xForIndex(index),
-      cy: yForValue(point.value),
-    }));
-
-    const linePath = coords.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.cx},${point.cy}`).join(' ');
-    const areaPath = coords.length
-      ? `${linePath} L ${coords[coords.length - 1].cx},${marginTop + innerHeight} L ${coords[0].cx},${marginTop + innerHeight} Z`
-      : '';
-
-    const maxTickCount = 6;
-    const tickIndexes = safePoints.length <= maxTickCount
-      ? safePoints.map((_, index) => index)
-      : Array.from({ length: maxTickCount }, (_, tickIndex) => (
-          Math.round((tickIndex * (safePoints.length - 1)) / (maxTickCount - 1))
-        ));
-    const xTicks = tickIndexes.map((index) => ({
-      index,
-      label: safePoints[index].label,
-      displayLabel: safePoints[index].displayLabel,
-      x: xForIndex(index),
-    }));
-
-    return {
-      width,
-      height,
-      coords,
-      linePath,
-      areaPath,
-      yTicks,
-      xTicks,
-      innerHeight,
-      innerWidth,
-      marginTop,
-      marginRight,
-      marginBottom,
-      marginLeft,
-      yAxisX,
-      xAxisY,
-      yMax,
-    };
-  }, [points]);
-
-  return (
-    <div className="PulseChartCard">
-      <div className="PulseChartTitle">{title}</div>
-      <div className="PulseLineWrapEnhanced">
-        <svg className="PulseLineSvg" viewBox={`0 0 ${chart.width} ${chart.height}`} preserveAspectRatio="xMidYMid meet">
-          {chart.yTicks.map((tick) => {
-            const y = chart.marginTop + chart.innerHeight - (chart.innerHeight * tick) / Math.max(1, chart.yMax || 1);
-            return (
-              <g key={`y-${tick}`}>
-                <line className="PulseLineGrid" x1={chart.yAxisX} x2={chart.width - chart.marginRight} y1={y} y2={y} />
-                <text className="PulseLineTickLabel PulseLineTickLabelY" x={chart.yAxisX - 10} y={y + 4}>{tick}</text>
-              </g>
-            );
-          })}
-          <line className="PulseLineGrid" x1={chart.yAxisX} y1={chart.marginTop} x2={chart.yAxisX} y2={chart.xAxisY} />
-          <line className="PulseLineGrid" x1={chart.yAxisX} y1={chart.xAxisY} x2={chart.width - chart.marginRight} y2={chart.xAxisY} />
-          {chart.xTicks.map((tick) => (
-            <g key={`x-${tick.label}`}>
-              <line className="PulseLineGrid" x1={tick.x} y1={chart.xAxisY} x2={tick.x} y2={chart.xAxisY + 6} />
-              <text className="PulseLineTickLabel" x={tick.x} y={chart.xAxisY + 22} textAnchor="middle">{tick.displayLabel}</text>
-            </g>
-          ))}
-          {chart.areaPath ? <path d={chart.areaPath} className="PulseLineArea" /> : null}
-          {chart.linePath ? <path d={chart.linePath} className="PulseLineStroke" /> : null}
-          {chart.coords.map((point) => (
-            <g key={point.label}>
-              <title>{`${point.displayLabel}: ${point.value}`}</title>
-              <circle className="PulseLinePoint" cx={point.cx} cy={point.cy} r="4" />
-            </g>
-          ))}
-        </svg>
-      </div>
-    </div>
-  );
-}
-
-function MonthlyObservedActorsChart({ title, points }) {
-  const chart = useMemo(() => {
-    const safePoints = (points || []).filter((point) => point && point.label);
-
-    if (!safePoints.length) {
-      return {
-        coords: [],
-        linePath: '',
-        xTicks: [],
-        yTicks: [0, 1],
-        innerHeight: 0,
-        xAxisY: 0,
-        yAxisX: 0,
-        width: 760,
-        height: 280,
-        marginLeft: 56,
-        marginRight: 20,
-        marginTop: 16,
-        marginBottom: 52,
-      };
-    }
-
-    const width = 760;
-    const height = 280;
-    const marginTop = 16;
-    const marginRight = 20;
-    const marginBottom = 52;
-    const marginLeft = 56;
-    const innerWidth = width - marginLeft - marginRight;
-    const innerHeight = height - marginTop - marginBottom;
-    const yAxisX = marginLeft;
-    const xAxisY = marginTop + innerHeight;
-    const maxY = Math.max(1, ...safePoints.map((point) => Number(point.value) || 0));
-    const yTickCount = maxY <= 4 ? maxY : 4;
-    const yStep = Math.max(1, Math.ceil(maxY / Math.max(1, yTickCount)));
-    const yMax = Math.max(yStep, Math.ceil(maxY / yStep) * yStep);
-    const yTicks = Array.from({ length: Math.floor(yMax / yStep) + 1 }, (_, index) => index * yStep);
-
-    const xForIndex = (index) => {
-      if (safePoints.length === 1) {
-        return marginLeft + innerWidth / 2;
-      }
-      return marginLeft + (innerWidth * index) / (safePoints.length - 1);
-    };
-
-    const yForValue = (value) => marginTop + innerHeight - (innerHeight * value) / yMax;
-
-    const coords = safePoints.map((point, index) => ({
-      ...point,
-      value: Number(point.value) || 0,
-      cx: xForIndex(index),
-      cy: yForValue(Number(point.value) || 0),
-    }));
-
-    const linePath = coords.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.cx} ${point.cy}`).join(' ');
-
-    const maxTickCount = 6;
-    const tickIndexes = Array.from(
-      new Set(
-        safePoints.map((_, index) => {
-          if (safePoints.length <= maxTickCount) {
-            return index;
-          }
-          return Math.round((index * (safePoints.length - 1)) / (maxTickCount - 1));
-        })
-      )
-    );
-    const xTicks = tickIndexes.map((index) => ({
-      index,
-      label: safePoints[index].label,
-      x: xForIndex(index),
-    }));
-
-    return {
-      coords,
-      linePath,
-      xTicks,
-      yTicks,
-      innerHeight,
-      xAxisY,
-      yAxisX,
-      width,
-      height,
-      marginLeft,
-      marginRight,
-      marginTop,
-      marginBottom,
-    };
-  }, [points]);
-
-  return (
-    <div className="PulseChartCard">
-      <div className="PulseChartTitle">{title}</div>
-      {!points.length ? (
-        <div className="PulseMuted">No monthly data available.</div>
-      ) : (
-        <div className="PulseMonthlyChartWrap">
-          <svg
-            className="PulseMonthlyChartSvg"
-            viewBox={`0 0 ${chart.width} ${chart.height}`}
-            preserveAspectRatio="xMidYMid meet"
-            role="img"
-            aria-label={`${title} monthly observed actors line chart`}
-          >
-            {chart.yTicks.map((tick) => {
-              const y = chart.marginTop + chart.innerHeight - (chart.innerHeight * tick) / Math.max(...chart.yTicks, 1);
-              return (
-                <g key={tick}>
-                  <line
-                    className="PulseMonthlyChartGrid"
-                    x1={chart.yAxisX}
-                    y1={y}
-                    x2={chart.width - chart.marginRight}
-                    y2={y}
-                  />
-                  <text className="PulseMonthlyChartTickLabel PulseMonthlyChartTickLabelY" x={chart.yAxisX - 10} y={y + 4}>
-                    {tick}
-                  </text>
-                </g>
-              );
-            })}
-
-            <line className="PulseMonthlyChartAxis" x1={chart.yAxisX} y1={chart.marginTop} x2={chart.yAxisX} y2={chart.xAxisY} />
-            <line
-              className="PulseMonthlyChartAxis"
-              x1={chart.yAxisX}
-              y1={chart.xAxisY}
-              x2={chart.width - chart.marginRight}
-              y2={chart.xAxisY}
-            />
-
-            <path className="PulseMonthlyChartLine" d={chart.linePath} />
-
-            {chart.coords.map((point) => (
-              <g key={point.label}>
-                <title>{`${point.label}: ${point.value}`}</title>
-                <circle className="PulseMonthlyChartPoint" cx={point.cx} cy={point.cy} r="4" />
-              </g>
-            ))}
-
-            {chart.xTicks.map((tick) => (
-              <g key={tick.label}>
-                <line className="PulseMonthlyChartAxisTick" x1={tick.x} y1={chart.xAxisY} x2={tick.x} y2={chart.xAxisY + 6} />
-                <text className="PulseMonthlyChartTickLabel" x={tick.x} y={chart.xAxisY + 22} textAnchor="middle">
-                  {tick.label}
-                </text>
-              </g>
-            ))}
-
-            <text
-              className="PulseMonthlyChartAxisLabel"
-              x={chart.marginLeft + (chart.width - chart.marginLeft - chart.marginRight) / 2}
-              y={chart.height - 10}
-              textAnchor="middle"
-            >
-              Month
-            </text>
-            <text
-              className="PulseMonthlyChartAxisLabel"
-              x={18}
-              y={chart.marginTop + chart.innerHeight / 2}
-              textAnchor="middle"
-              transform={`rotate(-90 18 ${chart.marginTop + chart.innerHeight / 2})`}
-            >
-              Observed actors
-            </text>
-          </svg>
-        </div>
-      )}
-    </div>
-  );
-}
-
-
-function MonthlyRateChart({ title, points, yAxisLabel = 'Observed actor rate (%)' }) {
-  const chart = useMemo(() => {
-    const safePoints = (points || []).filter((point) => point && point.label);
-
-    if (!safePoints.length) {
-      return {
-        coords: [],
-        linePath: '',
-        xTicks: [],
-        yTicks: [0, 25, 50, 75, 100],
-        width: 760,
-        height: 280,
-        marginLeft: 56,
-        marginRight: 20,
-        marginTop: 16,
-        marginBottom: 52,
-        innerHeight: 212,
-        xAxisY: 228,
-        yAxisX: 56,
-        yMax: 100,
-      };
-    }
-
-    const width = 760;
-    const height = 280;
-    const marginTop = 16;
-    const marginRight = 20;
-    const marginBottom = 52;
-    const marginLeft = 56;
-    const innerWidth = width - marginLeft - marginRight;
-    const innerHeight = height - marginTop - marginBottom;
-    const yAxisX = marginLeft;
-    const xAxisY = marginTop + innerHeight;
-    const maxValue = Math.max(1, ...safePoints.map((point) => Number(point.value) || 0));
-    const yMax = Math.max(100, Math.ceil(maxValue / 10) * 10);
-    const yTickStep = yMax <= 20 ? 5 : yMax <= 50 ? 10 : 20;
-    const yTicks = Array.from({ length: Math.floor(yMax / yTickStep) + 1 }, (_, index) => index * yTickStep);
-
-    const xForIndex = (index) => {
-      if (safePoints.length === 1) {
-        return marginLeft + innerWidth / 2;
-      }
-      return marginLeft + (innerWidth * index) / (safePoints.length - 1);
-    };
-
-    const yForValue = (value) => marginTop + innerHeight - (innerHeight * value) / yMax;
-
-    const coords = safePoints.map((point, index) => ({
-      ...point,
-      value: Number(point.value) || 0,
-      cx: xForIndex(index),
-      cy: yForValue(Number(point.value) || 0),
-    }));
-
-    const linePath = coords.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.cx} ${point.cy}`).join(' ');
-    const maxTickCount = 6;
-    const tickIndexes = Array.from(new Set(safePoints.map((_, index) => {
-      if (safePoints.length <= maxTickCount) {
-        return index;
-      }
-      return Math.round((index * (safePoints.length - 1)) / (maxTickCount - 1));
-    })));
-    const xTicks = tickIndexes.map((index) => ({
-      index,
-      label: safePoints[index].label,
-      x: xForIndex(index),
-    }));
-
-    return {
-      coords,
-      linePath,
-      xTicks,
-      yTicks,
-      width,
-      height,
-      marginLeft,
-      marginRight,
-      marginTop,
-      marginBottom,
-      innerHeight,
-      xAxisY,
-      yAxisX,
-      yMax,
-    };
-  }, [points]);
-
-  return (
-    <div className="PulseChartCard">
-      <div className="PulseChartTitle">{title}</div>
-      {!points.length ? (
-        <div className="PulseMuted">No monthly rate data available.</div>
-      ) : (
-        <div className="PulseMonthlyChartWrap">
-          <svg
-            className="PulseMonthlyChartSvg"
-            viewBox={`0 0 ${chart.width} ${chart.height}`}
-            preserveAspectRatio="xMidYMid meet"
-            role="img"
-            aria-label={`${title} monthly rate line chart`}
-          >
-            {chart.yTicks.map((tick) => {
-              const y = chart.marginTop + chart.innerHeight - (chart.innerHeight * tick) / chart.yMax;
-              return (
-                <g key={tick}>
-                  <line
-                    className="PulseMonthlyChartGrid"
-                    x1={chart.yAxisX}
-                    y1={y}
-                    x2={chart.width - chart.marginRight}
-                    y2={y}
-                  />
-                  <text className="PulseMonthlyChartTickLabel PulseMonthlyChartTickLabelY" x={chart.yAxisX - 10} y={y + 4}>
-                    {tick}%
-                  </text>
-                </g>
-              );
-            })}
-
-            <line className="PulseMonthlyChartAxis" x1={chart.yAxisX} y1={chart.marginTop} x2={chart.yAxisX} y2={chart.xAxisY} />
-            <line
-              className="PulseMonthlyChartAxis"
-              x1={chart.yAxisX}
-              y1={chart.xAxisY}
-              x2={chart.width - chart.marginRight}
-              y2={chart.xAxisY}
-            />
-
-            <path className="PulseMonthlyChartLine" d={chart.linePath} />
-
-            {chart.coords.map((point) => (
-              <g key={point.label}>
-                <title>{`${point.label}: ${point.value.toFixed(1)}%`}</title>
-                <circle className="PulseMonthlyChartPoint" cx={point.cx} cy={point.cy} r="4" />
-              </g>
-            ))}
-
-            {chart.xTicks.map((tick) => (
-              <g key={tick.label}>
-                <line className="PulseMonthlyChartAxisTick" x1={tick.x} y1={chart.xAxisY} x2={tick.x} y2={chart.xAxisY + 6} />
-                <text className="PulseMonthlyChartTickLabel" x={tick.x} y={chart.xAxisY + 22} textAnchor="middle">
-                  {tick.label}
-                </text>
-              </g>
-            ))}
-
-            <text
-              className="PulseMonthlyChartAxisLabel"
-              x={chart.marginLeft + (chart.width - chart.marginLeft - chart.marginRight) / 2}
-              y={chart.height - 10}
-              textAnchor="middle"
-            >
-              Month
-            </text>
-            <text
-              className="PulseMonthlyChartAxisLabel"
-              x={18}
-              y={chart.marginTop + chart.innerHeight / 2}
-              textAnchor="middle"
-              transform={`rotate(-90 18 ${chart.marginTop + chart.innerHeight / 2})`}
-            >
-              {yAxisLabel}
-            </text>
-          </svg>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ProductInventoryTab({ apiBase }) {
-  return (
-    <>
-      <div className="PulseCard">
-        <h2>Inventory</h2>
-        <div className="PulseMuted" style={{ marginBottom: 10 }}>
-          Product catalog across instances (API endpoints, agents, dashboards, web applications, Dataiku applications).
-        </div>
-      </div>
-      <BuildAssetsInventoryPage
-        apiBase={apiBase}
-        embedded
-        title="Products Inventory"
-        description="Browse products across instances with filtering and details capabilities"
-        endpointBase="/api/build/products"
-        facetsEndpoint="/api/build/products/facets"
-        typeFacetLabel="Product type"
-        typeColumnLabel="Product type"
-        detailsTitle="Product details"
-        typeDetailLabel="Product type"
-      />
-    </>
   );
 }
 
@@ -3390,6 +2665,8 @@ function UsersActivityPage({ apiBase }) {
   );
 }
 
+
+
 function DevelopmentActivityPage({ apiBase }) {
   const [windowDays, setWindowDays] = useState(30);
   const [selectedCapability, setSelectedCapability] = useState(null);
@@ -3929,6 +3206,8 @@ function labelForProductType(type) {
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+
 
 function ProductOutputsPage({ apiBase }) {
   const [activeTab, setActiveTab] = useState('overview');
@@ -4521,124 +3800,7 @@ function ProductOutputsPage({ apiBase }) {
   );
 }
 
-function FaqPage() {
-  return (
-    <div className="PulseWide">
-      <div className="PulseHero">
-        <h1>FAQ</h1>
-        <p>Frequently asked questions regarding Pulse data sources, analytical conventions, operational behavior, and support procedures.</p>
-      </div>
 
-      <PulseSection title="Does Pulse present a complete view of all activity?">
-        <p>
-          No. Pulse is not intended to function as an exhaustive reporting environment. It is designed to surface selected
-          high-value signals that support interpretation, prioritization, and discussion. As a result, not all available
-          platform activity, events, or operational detail will be displayed.
-        </p>
-      </PulseSection>
-
-      <PulseSection title="What are the underlying data sources?">
-        <p>
-          Pulse relies on both upstream data preparation processes and downstream analytical presentation.
-        </p>
-        <ul>
-          <li>
-            Upstream collection pipelines gather metadata and audit-log information across DSS instances and publish curated
-            GOLD parquet datasets.
-          </li>
-          <li>
-            The web application then loads those curated datasets into a local DuckDB environment for analytical query and
-            presentation within the user interface.
-          </li>
-        </ul>
-      </PulseSection>
-
-      <PulseSection title="What should I do if charts appear incomplete, empty, or out of date?">
-        <p>
-          Use <code>Debug → Reload DuckDB</code> to refresh the analytics layer from the source parquet datasets. If the
-          issue persists, it should be raised through the appropriate support channel.
-        </p>
-      </PulseSection>
-
-      <PulseSection title="How are capabilities defined within Pulse?">
-        <p>
-          Capability-oriented views are derived from audit-log activity. Individual audit events are first mapped to
-          lower-level categories and are then aggregated into broader functional capability groupings, such as Data
-          Engineering or GenAI, for interpretive analysis.
-        </p>
-      </PulseSection>
-
-      <PulseSection title="How should debug and development behavior be understood?">
-        <p>
-          In debug or development contexts, Pulse may recompute certain outputs more frequently and may expose additional
-          operational tooling or diagnostic behavior. Production use prioritizes stability, consistency, and interpretive
-          clarity over engineering-level visibility.
-        </p>
-      </PulseSection>
-
-      <PulseSection title="How should support requests be submitted?">
-        <p>
-          Pulse-related questions, issues, and interpretation requests should generally be routed through the relevant
-          Dataiku account team or Technical Account Manager. When requesting assistance, include the applicable page,
-          metric, timeframe, and relevant business context to support efficient triage.
-        </p>
-      </PulseSection>
-    </div>
-  );
-}
-
-
-function DisclaimerPage() {
-  return (
-    <div className="PulseWide">
-      <div className="PulseHero">
-        <h1>Disclaimer</h1>
-        <p>Important notice regarding Pulse support boundaries, release status, analytical interpretation, and product scope.</p>
-      </div>
-
-      <PulseSection title="Platinum Support Only">
-        <p>
-          Pulse is provided for Platinum-support contexts only and does not constitute a fully supported standard Dataiku
-          product offering. Any issue, enhancement request, or operational concern relating to Pulse should be directed
-          through the applicable Technical Account Manager or designated support contact.
-        </p>
-      </PulseSection>
-
-      <PulseSection title="Forever Beta">
-        <p>
-          Pulse is a Platinum Support Level tool and service that remains in an ongoing beta state. It is not
-          designated as an official general-availability Dataiku release and should therefore be understood as an
-          evolving offering subject to change without notice.
-        </p>
-      </PulseSection>
-
-      <PulseSection title="Interpretation of Metrics">
-        <p>
-          All metrics, values, definitions, and classification rules presented in Pulse are subject to revision. Such
-          revisions may occur as internal methodologies, product definitions, governance standards, and interpretive
-          frameworks evolve over time.
-        </p>
-        <p>
-          Accordingly, values displayed in Pulse should be treated as informational and directional in nature, and not
-          as immutable records or definitive contractual representations.
-        </p>
-      </PulseSection>
-
-      <PulseSection title="Purpose and Scope">
-        <p>
-          Pulse is intended as an insight-gathering instrument designed on a best-efforts basis to identify and surface
-          themes, signals, and priorities that are broadly relevant across the customer community. It is not intended to
-          function as a bespoke analytical solution for any single account.
-        </p>
-        <p>
-          Pulse also serves as a mechanism for communicating recurring customer needs and usage patterns to the Dataiku
-          Product organization. As equivalent capabilities become natively available within Dataiku products, certain
-          views, metrics, or features may be modified, deprecated, or removed from Pulse.
-        </p>
-      </PulseSection>
-    </div>
-  );
-}
 
 function ConsumptionActivityPage({ apiBase }) {
   const [windowDays, setWindowDays] = useState(30);
@@ -5357,6 +4519,167 @@ function ConsumptionActivityPage({ apiBase }) {
   );
 }
 
+function inferCodeStudioPortBase(pathname) {
+  // Two common Code Studio URL shapes:
+  // 1) Direct port mapping:
+  //    /code-studios/<PROJECT_KEY>/<STUDIO_ID>/<port>/...
+  // 2) Proxy mapping:
+  //    /code-studios/<PROJECT_KEY>/<STUDIO_ID>/8080/proxy/<port>/...
+
+  const proxyMatch = pathname.match(/^(\/code-studios\/[^/]+\/[^/]+\/8080\/proxy)\/(\d+)(?:\/|$)/);
+  if (proxyMatch) {
+    const prefix = proxyMatch[1];
+    const port = proxyMatch[2];
+    return {
+      mode: 'proxy',
+      prefix,
+      port,
+      base: `${prefix}/${port}`,
+    };
+  }
+
+  const directMatch = pathname.match(/^(\/code-studios\/[^/]+\/[^/]+)\/(\d+)(?:\/|$)/);
+  if (directMatch) {
+    const prefix = directMatch[1];
+    const port = directMatch[2];
+    return {
+      mode: 'direct',
+      prefix,
+      port,
+      base: `${prefix}/${port}`,
+    };
+  }
+
+  return null;
+}
+
+
+
+
+
+function FaqPage() {
+  return (
+    <div className="PulseWide">
+      <div className="PulseHero">
+        <h1>FAQ</h1>
+        <p>Frequently asked questions regarding Pulse data sources, analytical conventions, operational behavior, and support procedures.</p>
+      </div>
+
+      <PulseSection title="Does Pulse present a complete view of all activity?">
+        <p>
+          No. Pulse is not intended to function as an exhaustive reporting environment. It is designed to surface selected
+          high-value signals that support interpretation, prioritization, and discussion. As a result, not all available
+          platform activity, events, or operational detail will be displayed.
+        </p>
+      </PulseSection>
+
+      <PulseSection title="What are the underlying data sources?">
+        <p>
+          Pulse relies on both upstream data preparation processes and downstream analytical presentation.
+        </p>
+        <ul>
+          <li>
+            Upstream collection pipelines gather metadata and audit-log information across DSS instances and publish curated
+            GOLD parquet datasets.
+          </li>
+          <li>
+            The web application then loads those curated datasets into a local DuckDB environment for analytical query and
+            presentation within the user interface.
+          </li>
+        </ul>
+      </PulseSection>
+
+      <PulseSection title="What should I do if charts appear incomplete, empty, or out of date?">
+        <p>
+          Use <code>Debug → Reload DuckDB</code> to refresh the analytics layer from the source parquet datasets. If the
+          issue persists, it should be raised through the appropriate support channel.
+        </p>
+      </PulseSection>
+
+      <PulseSection title="How are capabilities defined within Pulse?">
+        <p>
+          Capability-oriented views are derived from audit-log activity. Individual audit events are first mapped to
+          lower-level categories and are then aggregated into broader functional capability groupings, such as Data
+          Engineering or GenAI, for interpretive analysis.
+        </p>
+      </PulseSection>
+
+      <PulseSection title="How should debug and development behavior be understood?">
+        <p>
+          In debug or development contexts, Pulse may recompute certain outputs more frequently and may expose additional
+          operational tooling or diagnostic behavior. Production use prioritizes stability, consistency, and interpretive
+          clarity over engineering-level visibility.
+        </p>
+      </PulseSection>
+
+      <PulseSection title="How should support requests be submitted?">
+        <p>
+          Pulse-related questions, issues, and interpretation requests should generally be routed through the relevant
+          Dataiku account team or Technical Account Manager. When requesting assistance, include the applicable page,
+          metric, timeframe, and relevant business context to support efficient triage.
+        </p>
+      </PulseSection>
+    </div>
+  );
+}
+
+
+
+
+function DisclaimerPage() {
+  return (
+    <div className="PulseWide">
+      <div className="PulseHero">
+        <h1>Disclaimer</h1>
+        <p>Important notice regarding Pulse support boundaries, release status, analytical interpretation, and product scope.</p>
+      </div>
+
+      <PulseSection title="Platinum Support Only">
+        <p>
+          Pulse is provided for Platinum-support contexts only and does not constitute a fully supported standard Dataiku
+          product offering. Any issue, enhancement request, or operational concern relating to Pulse should be directed
+          through the applicable Technical Account Manager or designated support contact.
+        </p>
+      </PulseSection>
+
+      <PulseSection title="Forever Beta">
+        <p>
+          Pulse is a Platinum Support Level tool and service that remains in an ongoing beta state. It is not
+          designated as an official general-availability Dataiku release and should therefore be understood as an
+          evolving offering subject to change without notice.
+        </p>
+      </PulseSection>
+
+      <PulseSection title="Interpretation of Metrics">
+        <p>
+          All metrics, values, definitions, and classification rules presented in Pulse are subject to revision. Such
+          revisions may occur as internal methodologies, product definitions, governance standards, and interpretive
+          frameworks evolve over time.
+        </p>
+        <p>
+          Accordingly, values displayed in Pulse should be treated as informational and directional in nature, and not
+          as immutable records or definitive contractual representations.
+        </p>
+      </PulseSection>
+
+      <PulseSection title="Purpose and Scope">
+        <p>
+          Pulse is intended as an insight-gathering instrument designed on a best-efforts basis to identify and surface
+          themes, signals, and priorities that are broadly relevant across the customer community. It is not intended to
+          function as a bespoke analytical solution for any single account.
+        </p>
+        <p>
+          Pulse also serves as a mechanism for communicating recurring customer needs and usage patterns to the Dataiku
+          Product organization. As equivalent capabilities become natively available within Dataiku products, certain
+          views, metrics, or features may be modified, deprecated, or removed from Pulse.
+        </p>
+      </PulseSection>
+    </div>
+  );
+}
+
+
+
 function getUserDisplayName(authState) {
   const user = authState && authState.data && authState.data.user ? authState.data.user : null;
   if (!user) return 'Guest';
@@ -5484,15 +4807,11 @@ function LeftNavRail({ groups, globalGroups, collapsed, onToggle, activeGroup, o
                         </button>
                       ) : (
                         <a
-                          key={item.key || item.href || item.label}
-                          href={item.href || '#'}
+                          key={item.href}
+                          href={item.href}
                           className="PulseRailItem"
                           title={item.description || item.label}
                           aria-label={item.label}
-                          onClick={item.onClick ? (event) => {
-                            event.preventDefault();
-                            item.onClick();
-                          } : undefined}
                         >
                           {collapsed ? <span className="PulseRailItemIcon" aria-hidden="true">{getNavItemIcon(item.label) || getNavGroupIcon(group.label)}</span> : null}
                           <span className="PulseRailItemLabel">{item.label}</span>
@@ -5533,15 +4852,11 @@ function LeftNavRail({ groups, globalGroups, collapsed, onToggle, activeGroup, o
                       <div className="PulseRailItems">
                         {group.items.map((item) => (
                           <a
-                            key={item.key || item.href || item.label}
-                            href={item.href || '#'}
+                            key={item.href}
+                            href={item.href}
                             className={`PulseRailItem ${item.isActive ? 'PulseRailItemActive' : ''}`}
                             title={item.description || item.label}
                             aria-label={item.label}
-                            onClick={item.onClick ? (event) => {
-                              event.preventDefault();
-                              item.onClick();
-                            } : undefined}
                           >
                             {collapsed ? <span className="PulseRailItemIcon" aria-hidden="true">{getNavItemIcon(item.label) || getNavGroupIcon(group.label)}</span> : null}
                             <span className="PulseRailItemLabel">{item.label}</span>
@@ -5570,20 +4885,12 @@ function LeftNavRail({ groups, globalGroups, collapsed, onToggle, activeGroup, o
   );
 }
 
-function DropdownNav({ groups, globalGroups, homeHref, onHomeClick, workspaceOptions, workspace, onWorkspaceChange, userLabel, railCollapsed, onRailToggle, activeGroup, onGroupToggle, children }) {
+function DropdownNav({ groups, globalGroups, homeHref, workspaceOptions, workspace, onWorkspaceChange, userLabel, railCollapsed, onRailToggle, activeGroup, onGroupToggle, children }) {
   return (
     <div className="PulseShell">
       <header className="PulseHeader">
         <div className="PulseHeaderBrand">
-          <a
-            href={homeHref || '#'}
-            className="PulseHeaderBrandLink"
-            aria-label="Dataiku Pulse Dashboard home"
-            onClick={onHomeClick ? (event) => {
-              event.preventDefault();
-              onHomeClick();
-            } : undefined}
-          >
+          <a href={homeHref} className="PulseHeaderBrandLink" aria-label="Dataiku Pulse Dashboard home">
             <span className="PulseHeaderBrandIcon" aria-hidden="true">❤️</span>
             <span className="PulseHeaderBrandText">Dataiku Pulse Dashboard</span>
           </a>
@@ -5688,6 +4995,8 @@ function MyInformationPage({ pageKey, userLabel, authState, apiBase, advancedLlm
     </div>
   );
 }
+
+
 
 function AdministrationPlaceholderPage({ apiBase }) {
   const [topologyState, setTopologyState] = useState({ loading: true, data: null, error: '' });
@@ -6033,6 +5342,591 @@ function LicensePerformanceSection({
     </>
   );
 }
+
+function compareNullableStrings(a, b, direction = 'asc') {
+  const left = String(a || '').toLowerCase();
+  const right = String(b || '').toLowerCase();
+  if (left === right) return 0;
+  const base = left < right ? -1 : 1;
+  return direction === 'desc' ? -base : base;
+}
+
+function compareNullableDates(a, b, direction = 'asc') {
+  const left = a ? Date.parse(a) : NaN;
+  const right = b ? Date.parse(b) : NaN;
+  const leftValid = Number.isFinite(left);
+  const rightValid = Number.isFinite(right);
+  if (!leftValid && !rightValid) return 0;
+  if (!leftValid) return 1;
+  if (!rightValid) return -1;
+  if (left === right) return 0;
+  const base = left < right ? -1 : 1;
+  return direction === 'desc' ? -base : base;
+}
+
+function SortableHeader({ label, column, sortState, onToggle }) {
+  const active = sortState.column === column;
+  const direction = active ? sortState.direction : null;
+  return (
+    <button
+      type="button"
+      className={`PulseTableSortButton${active ? ' PulseTableSortButtonActive' : ''}`}
+      onClick={() => onToggle(column)}
+    >
+      <span>{label}</span>
+      <span className={`PulseTableSortIndicator${active ? ' PulseTableSortIndicatorActive' : ''}`}>
+        {direction === 'asc' ? '▲' : direction === 'desc' ? '▼' : '↕'}
+      </span>
+    </button>
+  );
+}
+
+function BarList({ title, rows, maxRows = 12, onRowClick, formatValue }) {
+  const trimmed = useMemo(() => {
+    if (!rows.length) return [];
+    const sorted = [...rows].sort((a, b) => b.value - a.value);
+    if (sorted.length <= maxRows) return sorted;
+
+    const head = sorted.slice(0, maxRows);
+    const tail = sorted.slice(maxRows);
+    const otherValue = tail.reduce((acc, r) => acc + r.value, 0);
+    return [...head, { label: 'Other', value: otherValue }];
+  }, [maxRows, rows]);
+
+  const maxVal = useMemo(() => {
+    return Math.max(1, ...trimmed.map((r) => r.value));
+  }, [trimmed]);
+
+  return (
+    <div className="PulseChartCard">
+      <div className="PulseChartTitle">{title}</div>
+      <div className="PulseBarList">
+        {trimmed.map((r) => {
+          const Row = onRowClick ? 'button' : 'div';
+          const percent = maxVal ? (Number(r.value || 0) / maxVal) * 100 : 0;
+          return (
+            <Row
+              key={r.label}
+              type={onRowClick ? 'button' : undefined}
+              className={onRowClick ? 'PulseBarRow PulseBarRowAction' : 'PulseBarRow'}
+              onClick={onRowClick ? () => onRowClick(r.label) : undefined}
+              title={onRowClick ? `View details for ${r.label}` : r.label}
+            >
+              <div className="PulseBarLabel" title={r.label}>{r.label}</div>
+              <div className="PulseBarTrack">
+                <div className="PulseBarFill" style={{ width: `${percent}%` }} />
+              </div>
+              <div className="PulseBarValue">{formatValue ? formatValue(r.value, r) : Number(r.value || 0).toLocaleString()}</div>
+            </Row>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function LineChart({ title, points }) {
+  const chart = useMemo(() => {
+    const safePoints = fillDailySeriesGaps(points).map((point) => ({
+      ...point,
+      value: Number(point?.value || 0),
+      label: String(point?.label || ''),
+      displayLabel: String(point?.displayLabel || point?.label || ''),
+    })).filter((point) => point.label);
+
+    const width = 760;
+    const height = 240;
+    const marginTop = 16;
+    const marginRight = 20;
+    const marginBottom = 52;
+    const marginLeft = 56;
+    const innerWidth = width - marginLeft - marginRight;
+    const innerHeight = height - marginTop - marginBottom;
+    const yAxisX = marginLeft;
+    const xAxisY = marginTop + innerHeight;
+
+    if (!safePoints.length) {
+      return {
+        width,
+        height,
+        coords: [],
+        linePath: '',
+        areaPath: '',
+        yTicks: [0, 1],
+        xTicks: [],
+        innerHeight,
+        innerWidth,
+        marginTop,
+        marginRight,
+        marginBottom,
+        marginLeft,
+        yAxisX,
+        xAxisY,
+        yMax: 1,
+      };
+    }
+
+    const maxValue = Math.max(1, ...safePoints.map((point) => point.value));
+    const yTickCount = maxValue <= 4 ? maxValue : 4;
+    const yStep = Math.max(1, Math.ceil(maxValue / Math.max(1, yTickCount)));
+    const yMax = Math.max(yStep, Math.ceil(maxValue / yStep) * yStep);
+    const yTicks = Array.from({ length: Math.floor(yMax / yStep) + 1 }, (_, index) => index * yStep);
+
+    const xForIndex = (index) => {
+      if (safePoints.length === 1) return marginLeft + innerWidth / 2;
+      return marginLeft + (innerWidth * index) / (safePoints.length - 1);
+    };
+    const yForValue = (value) => marginTop + innerHeight - (innerHeight * value) / yMax;
+
+    const coords = safePoints.map((point, index) => ({
+      ...point,
+      cx: xForIndex(index),
+      cy: yForValue(point.value),
+    }));
+
+    const linePath = coords.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.cx},${point.cy}`).join(' ');
+    const areaPath = coords.length
+      ? `${linePath} L ${coords[coords.length - 1].cx},${marginTop + innerHeight} L ${coords[0].cx},${marginTop + innerHeight} Z`
+      : '';
+
+    const maxTickCount = 6;
+    const tickIndexes = safePoints.length <= maxTickCount
+      ? safePoints.map((_, index) => index)
+      : Array.from({ length: maxTickCount }, (_, tickIndex) => (
+          Math.round((tickIndex * (safePoints.length - 1)) / (maxTickCount - 1))
+        ));
+    const xTicks = tickIndexes.map((index) => ({
+      index,
+      label: safePoints[index].label,
+      displayLabel: safePoints[index].displayLabel,
+      x: xForIndex(index),
+    }));
+
+    return {
+      width,
+      height,
+      coords,
+      linePath,
+      areaPath,
+      yTicks,
+      xTicks,
+      innerHeight,
+      innerWidth,
+      marginTop,
+      marginRight,
+      marginBottom,
+      marginLeft,
+      yAxisX,
+      xAxisY,
+      yMax,
+    };
+  }, [points]);
+
+  return (
+    <div className="PulseChartCard">
+      <div className="PulseChartTitle">{title}</div>
+      <div className="PulseLineWrapEnhanced">
+        <svg className="PulseLineSvg" viewBox={`0 0 ${chart.width} ${chart.height}`} preserveAspectRatio="xMidYMid meet">
+          {chart.yTicks.map((tick) => {
+            const y = chart.marginTop + chart.innerHeight - (chart.innerHeight * tick) / Math.max(1, chart.yMax || 1);
+            return (
+              <g key={`y-${tick}`}>
+                <line className="PulseLineGrid" x1={chart.yAxisX} x2={chart.width - chart.marginRight} y1={y} y2={y} />
+                <text className="PulseLineTickLabel PulseLineTickLabelY" x={chart.yAxisX - 10} y={y + 4}>{tick}</text>
+              </g>
+            );
+          })}
+          <line className="PulseLineGrid" x1={chart.yAxisX} y1={chart.marginTop} x2={chart.yAxisX} y2={chart.xAxisY} />
+          <line className="PulseLineGrid" x1={chart.yAxisX} y1={chart.xAxisY} x2={chart.width - chart.marginRight} y2={chart.xAxisY} />
+          {chart.xTicks.map((tick) => (
+            <g key={`x-${tick.label}`}>
+              <line className="PulseLineGrid" x1={tick.x} y1={chart.xAxisY} x2={tick.x} y2={chart.xAxisY + 6} />
+              <text className="PulseLineTickLabel" x={tick.x} y={chart.xAxisY + 22} textAnchor="middle">{tick.displayLabel}</text>
+            </g>
+          ))}
+          {chart.areaPath ? <path d={chart.areaPath} className="PulseLineArea" /> : null}
+          {chart.linePath ? <path d={chart.linePath} className="PulseLineStroke" /> : null}
+          {chart.coords.map((point) => (
+            <g key={point.label}>
+              <title>{`${point.displayLabel}: ${point.value}`}</title>
+              <circle className="PulseLinePoint" cx={point.cx} cy={point.cy} r="4" />
+            </g>
+          ))}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function MonthlyObservedActorsChart({ title, points }) {
+  const chart = useMemo(() => {
+    const safePoints = (points || []).filter((point) => point && point.label);
+
+    if (!safePoints.length) {
+      return {
+        coords: [],
+        linePath: '',
+        xTicks: [],
+        yTicks: [0, 1],
+        innerHeight: 0,
+        xAxisY: 0,
+        yAxisX: 0,
+        width: 760,
+        height: 280,
+        marginLeft: 56,
+        marginRight: 20,
+        marginTop: 16,
+        marginBottom: 52,
+      };
+    }
+
+    const width = 760;
+    const height = 280;
+    const marginTop = 16;
+    const marginRight = 20;
+    const marginBottom = 52;
+    const marginLeft = 56;
+    const innerWidth = width - marginLeft - marginRight;
+    const innerHeight = height - marginTop - marginBottom;
+    const yAxisX = marginLeft;
+    const xAxisY = marginTop + innerHeight;
+    const maxY = Math.max(1, ...safePoints.map((point) => Number(point.value) || 0));
+    const yTickCount = maxY <= 4 ? maxY : 4;
+    const yStep = Math.max(1, Math.ceil(maxY / Math.max(1, yTickCount)));
+    const yMax = Math.max(yStep, Math.ceil(maxY / yStep) * yStep);
+    const yTicks = Array.from({ length: Math.floor(yMax / yStep) + 1 }, (_, index) => index * yStep);
+
+    const xForIndex = (index) => {
+      if (safePoints.length === 1) {
+        return marginLeft + innerWidth / 2;
+      }
+      return marginLeft + (innerWidth * index) / (safePoints.length - 1);
+    };
+
+    const yForValue = (value) => marginTop + innerHeight - (innerHeight * value) / yMax;
+
+    const coords = safePoints.map((point, index) => ({
+      ...point,
+      value: Number(point.value) || 0,
+      cx: xForIndex(index),
+      cy: yForValue(Number(point.value) || 0),
+    }));
+
+    const linePath = coords.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.cx} ${point.cy}`).join(' ');
+
+    const maxTickCount = 6;
+    const tickIndexes = Array.from(
+      new Set(
+        safePoints.map((_, index) => {
+          if (safePoints.length <= maxTickCount) {
+            return index;
+          }
+          return Math.round((index * (safePoints.length - 1)) / (maxTickCount - 1));
+        })
+      )
+    );
+    const xTicks = tickIndexes.map((index) => ({
+      index,
+      label: safePoints[index].label,
+      x: xForIndex(index),
+    }));
+
+    return {
+      coords,
+      linePath,
+      xTicks,
+      yTicks,
+      innerHeight,
+      xAxisY,
+      yAxisX,
+      width,
+      height,
+      marginLeft,
+      marginRight,
+      marginTop,
+      marginBottom,
+    };
+  }, [points]);
+
+  return (
+    <div className="PulseChartCard">
+      <div className="PulseChartTitle">{title}</div>
+      {!points.length ? (
+        <div className="PulseMuted">No monthly data available.</div>
+      ) : (
+        <div className="PulseMonthlyChartWrap">
+          <svg
+            className="PulseMonthlyChartSvg"
+            viewBox={`0 0 ${chart.width} ${chart.height}`}
+            preserveAspectRatio="xMidYMid meet"
+            role="img"
+            aria-label={`${title} monthly observed actors line chart`}
+          >
+            {chart.yTicks.map((tick) => {
+              const y = chart.marginTop + chart.innerHeight - (chart.innerHeight * tick) / Math.max(...chart.yTicks, 1);
+              return (
+                <g key={tick}>
+                  <line
+                    className="PulseMonthlyChartGrid"
+                    x1={chart.yAxisX}
+                    y1={y}
+                    x2={chart.width - chart.marginRight}
+                    y2={y}
+                  />
+                  <text className="PulseMonthlyChartTickLabel PulseMonthlyChartTickLabelY" x={chart.yAxisX - 10} y={y + 4}>
+                    {tick}
+                  </text>
+                </g>
+              );
+            })}
+
+            <line className="PulseMonthlyChartAxis" x1={chart.yAxisX} y1={chart.marginTop} x2={chart.yAxisX} y2={chart.xAxisY} />
+            <line
+              className="PulseMonthlyChartAxis"
+              x1={chart.yAxisX}
+              y1={chart.xAxisY}
+              x2={chart.width - chart.marginRight}
+              y2={chart.xAxisY}
+            />
+
+            <path className="PulseMonthlyChartLine" d={chart.linePath} />
+
+            {chart.coords.map((point) => (
+              <g key={point.label}>
+                <title>{`${point.label}: ${point.value}`}</title>
+                <circle className="PulseMonthlyChartPoint" cx={point.cx} cy={point.cy} r="4" />
+              </g>
+            ))}
+
+            {chart.xTicks.map((tick) => (
+              <g key={tick.label}>
+                <line className="PulseMonthlyChartAxisTick" x1={tick.x} y1={chart.xAxisY} x2={tick.x} y2={chart.xAxisY + 6} />
+                <text className="PulseMonthlyChartTickLabel" x={tick.x} y={chart.xAxisY + 22} textAnchor="middle">
+                  {tick.label}
+                </text>
+              </g>
+            ))}
+
+            <text
+              className="PulseMonthlyChartAxisLabel"
+              x={chart.marginLeft + (chart.width - chart.marginLeft - chart.marginRight) / 2}
+              y={chart.height - 10}
+              textAnchor="middle"
+            >
+              Month
+            </text>
+            <text
+              className="PulseMonthlyChartAxisLabel"
+              x={18}
+              y={chart.marginTop + chart.innerHeight / 2}
+              textAnchor="middle"
+              transform={`rotate(-90 18 ${chart.marginTop + chart.innerHeight / 2})`}
+            >
+              Observed actors
+            </text>
+          </svg>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function MonthlyRateChart({ title, points, yAxisLabel = 'Observed actor rate (%)' }) {
+  const chart = useMemo(() => {
+    const safePoints = (points || []).filter((point) => point && point.label);
+
+    if (!safePoints.length) {
+      return {
+        coords: [],
+        linePath: '',
+        xTicks: [],
+        yTicks: [0, 25, 50, 75, 100],
+        width: 760,
+        height: 280,
+        marginLeft: 56,
+        marginRight: 20,
+        marginTop: 16,
+        marginBottom: 52,
+        innerHeight: 212,
+        xAxisY: 228,
+        yAxisX: 56,
+        yMax: 100,
+      };
+    }
+
+    const width = 760;
+    const height = 280;
+    const marginTop = 16;
+    const marginRight = 20;
+    const marginBottom = 52;
+    const marginLeft = 56;
+    const innerWidth = width - marginLeft - marginRight;
+    const innerHeight = height - marginTop - marginBottom;
+    const yAxisX = marginLeft;
+    const xAxisY = marginTop + innerHeight;
+    const maxValue = Math.max(1, ...safePoints.map((point) => Number(point.value) || 0));
+    const yMax = Math.max(100, Math.ceil(maxValue / 10) * 10);
+    const yTickStep = yMax <= 20 ? 5 : yMax <= 50 ? 10 : 20;
+    const yTicks = Array.from({ length: Math.floor(yMax / yTickStep) + 1 }, (_, index) => index * yTickStep);
+
+    const xForIndex = (index) => {
+      if (safePoints.length === 1) {
+        return marginLeft + innerWidth / 2;
+      }
+      return marginLeft + (innerWidth * index) / (safePoints.length - 1);
+    };
+
+    const yForValue = (value) => marginTop + innerHeight - (innerHeight * value) / yMax;
+
+    const coords = safePoints.map((point, index) => ({
+      ...point,
+      value: Number(point.value) || 0,
+      cx: xForIndex(index),
+      cy: yForValue(Number(point.value) || 0),
+    }));
+
+    const linePath = coords.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.cx} ${point.cy}`).join(' ');
+    const maxTickCount = 6;
+    const tickIndexes = Array.from(new Set(safePoints.map((_, index) => {
+      if (safePoints.length <= maxTickCount) {
+        return index;
+      }
+      return Math.round((index * (safePoints.length - 1)) / (maxTickCount - 1));
+    })));
+    const xTicks = tickIndexes.map((index) => ({
+      index,
+      label: safePoints[index].label,
+      x: xForIndex(index),
+    }));
+
+    return {
+      coords,
+      linePath,
+      xTicks,
+      yTicks,
+      width,
+      height,
+      marginLeft,
+      marginRight,
+      marginTop,
+      marginBottom,
+      innerHeight,
+      xAxisY,
+      yAxisX,
+      yMax,
+    };
+  }, [points]);
+
+  return (
+    <div className="PulseChartCard">
+      <div className="PulseChartTitle">{title}</div>
+      {!points.length ? (
+        <div className="PulseMuted">No monthly rate data available.</div>
+      ) : (
+        <div className="PulseMonthlyChartWrap">
+          <svg
+            className="PulseMonthlyChartSvg"
+            viewBox={`0 0 ${chart.width} ${chart.height}`}
+            preserveAspectRatio="xMidYMid meet"
+            role="img"
+            aria-label={`${title} monthly rate line chart`}
+          >
+            {chart.yTicks.map((tick) => {
+              const y = chart.marginTop + chart.innerHeight - (chart.innerHeight * tick) / chart.yMax;
+              return (
+                <g key={tick}>
+                  <line
+                    className="PulseMonthlyChartGrid"
+                    x1={chart.yAxisX}
+                    y1={y}
+                    x2={chart.width - chart.marginRight}
+                    y2={y}
+                  />
+                  <text className="PulseMonthlyChartTickLabel PulseMonthlyChartTickLabelY" x={chart.yAxisX - 10} y={y + 4}>
+                    {tick}%
+                  </text>
+                </g>
+              );
+            })}
+
+            <line className="PulseMonthlyChartAxis" x1={chart.yAxisX} y1={chart.marginTop} x2={chart.yAxisX} y2={chart.xAxisY} />
+            <line
+              className="PulseMonthlyChartAxis"
+              x1={chart.yAxisX}
+              y1={chart.xAxisY}
+              x2={chart.width - chart.marginRight}
+              y2={chart.xAxisY}
+            />
+
+            <path className="PulseMonthlyChartLine" d={chart.linePath} />
+
+            {chart.coords.map((point) => (
+              <g key={point.label}>
+                <title>{`${point.label}: ${point.value.toFixed(1)}%`}</title>
+                <circle className="PulseMonthlyChartPoint" cx={point.cx} cy={point.cy} r="4" />
+              </g>
+            ))}
+
+            {chart.xTicks.map((tick) => (
+              <g key={tick.label}>
+                <line className="PulseMonthlyChartAxisTick" x1={tick.x} y1={chart.xAxisY} x2={tick.x} y2={chart.xAxisY + 6} />
+                <text className="PulseMonthlyChartTickLabel" x={tick.x} y={chart.xAxisY + 22} textAnchor="middle">
+                  {tick.label}
+                </text>
+              </g>
+            ))}
+
+            <text
+              className="PulseMonthlyChartAxisLabel"
+              x={chart.marginLeft + (chart.width - chart.marginLeft - chart.marginRight) / 2}
+              y={chart.height - 10}
+              textAnchor="middle"
+            >
+              Month
+            </text>
+            <text
+              className="PulseMonthlyChartAxisLabel"
+              x={18}
+              y={chart.marginTop + chart.innerHeight / 2}
+              textAnchor="middle"
+              transform={`rotate(-90 18 ${chart.marginTop + chart.innerHeight / 2})`}
+            >
+              {yAxisLabel}
+            </text>
+          </svg>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProductInventoryTab({ apiBase }) {
+  return (
+    <>
+      <div className="PulseCard">
+        <h2>Inventory</h2>
+        <div className="PulseMuted" style={{ marginBottom: 10 }}>
+          Product catalog across instances (API endpoints, agents, dashboards, web applications, Dataiku applications).
+        </div>
+      </div>
+      <BuildAssetsInventoryPage
+        apiBase={apiBase}
+        embedded
+        title="Products Inventory"
+        description="Browse products across instances with filtering and details capabilities"
+        endpointBase="/api/build/products"
+        facetsEndpoint="/api/build/products/facets"
+        typeFacetLabel="Product type"
+        typeColumnLabel="Product type"
+        detailsTitle="Product details"
+        typeDetailLabel="Product type"
+      />
+    </>
+  );
+}
+
+
 
 function UsersLicensePage({ apiBase }) {
   const [selectedInstance, setSelectedInstance] = useState('');
@@ -6997,12 +6891,6 @@ export function buildPageRegistry({ homeHref, userActivityEnabled, llmMeshEnable
       active: ({ route }) => route === 'disclaimer',
     },
     {
-      key: 'pulse-export', workspace: 'global', group: 'Pulse', label: 'Export', route: 'export', permission: 'self', capability: null,
-      status: 'implemented', component: ExportPage, isDefault: false,
-      description: 'Select filters and sections, then generate a downloadable PDF report',
-      active: ({ route }) => route === 'export',
-    },
-    {
       key: 'my-overview', workspace: 'me', group: 'My Information', label: 'Overview', route: null, localPage: 'my-overview', permission: 'self', capability: null,
       status: 'implemented', component: MyInformationPage, componentProps: { pageKey: 'my-overview' }, isDefault: true,
       description: 'View your personal Pulse landing page and upcoming individual insights',
@@ -7030,7 +6918,7 @@ export function buildPageRegistry({ homeHref, userActivityEnabled, llmMeshEnable
       active: ({ workspace, myPage }) => workspace === 'me' && myPage === 'my-consumption',
     },
     {
-      key: 'my-llm-overview', workspace: 'me', group: 'My LLM Mesh', label: 'Overview', route: null, localPage: 'my-llm-overview', permission: 'self', capability: 'llmMesh',
+      key: 'my-llm-overview', workspace: 'me', group: 'My LLM Mesh', label: 'My Usage', route: null, localPage: 'my-llm-overview', permission: 'self', capability: 'llmMesh',
       status: 'implemented', component: MyInformationPage, componentProps: { pageKey: 'my-llm-overview' }, isDefault: false,
       description: 'Review your personal LLM Mesh usage, models, projects, tokens, and cost',
       active: ({ workspace, myPage }) => workspace === 'me' && myPage === 'my-llm-overview',
@@ -7072,10 +6960,34 @@ export function buildPageRegistry({ homeHref, userActivityEnabled, llmMeshEnable
       active: ({ route, workspace }) => workspace === 'organization' && route === 'product-lifecycle/consumption-activity',
     },
     {
-      key: 'org-llm-mesh', workspace: 'organization', group: 'LLM Mesh', label: 'Overview', route: 'llm-mesh', permission: 'organization', capability: 'llmMesh',
-      status: 'implemented', component: LlmMeshPage, isDefault: false,
-      description: 'Track LLM usage, projects, models, tokens, and estimated cost across the platform',
-      active: ({ route, workspace }) => workspace === 'organization' && route === 'llm-mesh',
+      key: 'pulse-export', workspace: 'organization', group: 'Pulse', label: 'Export', route: 'export', permission: 'organization', capability: null,
+      status: 'implemented', component: ExportPage, isDefault: false,
+      description: 'Select filters and sections, then generate a downloadable PDF report',
+      active: ({ route, workspace }) => workspace === 'organization' && route === 'export',
+    },
+    {
+      key: 'organization-llm-mesh-usage-summary', workspace: 'organization', group: 'LLM Mesh', label: 'Usage Summary', route: 'llm-mesh/usage-summary', permission: 'organization', capability: 'llmMesh',
+      status: 'placeholder', component: () => <LlmMeshPlaceholderPage title="Usage Summary" description="A cross-instance summary of LLM Mesh consumption, including requests, tokens, estimated cost, active users, active projects, active instances, models, providers, and connections." />, isDefault: false,
+      description: 'A cross-instance summary of LLM Mesh consumption, including requests, tokens, estimated cost, active users, active projects, active instances, models, providers, and connections.',
+      active: ({ route, workspace }) => workspace === 'organization' && route === 'llm-mesh/usage-summary',
+    },
+    {
+      key: 'organization-llm-mesh-usage-breakdown', workspace: 'organization', group: 'LLM Mesh', label: 'Usage Breakdown', route: 'llm-mesh/usage-breakdown', permission: 'organization', capability: 'llmMesh',
+      status: 'placeholder', component: () => <LlmMeshPlaceholderPage title="Usage Breakdown" description="A detailed view of where LLM Mesh usage is occurring, broken down by instance, project, user, connection, provider, and model." />, isDefault: false,
+      description: 'A detailed view of where LLM Mesh usage is occurring, broken down by instance, project, user, connection, provider, and model.',
+      active: ({ route, workspace }) => workspace === 'organization' && route === 'llm-mesh/usage-breakdown',
+    },
+    {
+      key: 'organization-llm-mesh-reliability-controls', workspace: 'organization', group: 'LLM Mesh', label: 'Reliability & Controls', route: 'llm-mesh/reliability-controls', permission: 'organization', capability: 'llmMesh',
+      status: 'placeholder', component: () => <LlmMeshPlaceholderPage title="Reliability & Controls" description="A factual summary of LLM Mesh operational behavior, including latency, errors, throttling, quota usage, rate-limit usage, and guardrail outcomes." />, isDefault: false,
+      description: 'A factual summary of LLM Mesh operational behavior, including latency, errors, throttling, quota usage, rate-limit usage, and guardrail outcomes.',
+      active: ({ route, workspace }) => workspace === 'organization' && route === 'llm-mesh/reliability-controls',
+    },
+    {
+      key: 'organization-llm-mesh-activity-records', workspace: 'organization', group: 'LLM Mesh', label: 'Activity Records', route: 'llm-mesh/activity-records', permission: 'organization', capability: 'llmMesh',
+      status: 'placeholder', component: () => <LlmMeshPlaceholderPage title="Activity Records" description="A searchable detailed record of LLM Mesh activity across instances, projects, users, connections, providers, models, dates, and available consumption metrics." />, isDefault: false,
+      description: 'A searchable detailed record of LLM Mesh activity across instances, projects, users, connections, providers, models, dates, and available consumption metrics.',
+      active: ({ route, workspace }) => workspace === 'organization' && route === 'llm-mesh/activity-records',
     },
     {
       key: 'admin-overview', workspace: 'administration', group: 'Administration', label: 'Overview', route: null, localPage: 'administration-overview', permission: 'administration', capability: null,
@@ -7248,10 +7160,10 @@ function App() {
     let cancelled = false;
     async function loadLlmCapability() {
       try {
-        const response = await fetch(apiUrl(apiBase, '/api/startup/duckdb'), { cache: 'no-cache' });
+        const response = await fetch(apiUrl(apiBase, '/api/startup/flags'), { cache: 'no-cache' });
         const data = await response.json();
         if (cancelled) return;
-        const capability = data && data.advancedLlmMesh ? data.advancedLlmMesh : null;
+        const capability = data && data.capabilities ? data.capabilities.advancedLLMMesh : null;
         if (capability && capability.enabled === true) {
           setAdvancedLlmMeshCapability({ enabled: true, licensedInstances: Array.isArray(capability.licensedInstances) ? capability.licensedInstances : [] });
           return;
@@ -7511,6 +7423,7 @@ function App() {
     const grouped = new Map();
     pageRegistry.forEach((page) => {
       if (page.workspace !== workspaceName) return;
+      if (page.key === 'pulse-export') return;
       if (!checkPagePermission(page, permissions) || !checkPageCapability(page, capabilities)) return;
       if (!grouped.has(page.group)) grouped.set(page.group, []);
       grouped.get(page.group).push(page);
@@ -7530,7 +7443,32 @@ function App() {
     return groups;
   }, [capabilities, pageRegistry, permissions, resolvedCurrentPage]);
 
-  const globalPulseNavGroups = useMemo(() => buildNavGroups('global'), [buildNavGroups]);
+  const globalPulseNavGroups = useMemo(() => {
+    const groups = [];
+    const grouped = new Map();
+    pageRegistry.forEach((page) => {
+      const isSharedPulsePage = page.workspace === 'global';
+      const isOrganizationPulseExport = page.key === 'pulse-export' && workspace === 'organization';
+      if (!isSharedPulsePage && !isOrganizationPulseExport) return;
+      if (!checkPagePermission(page, permissions) || !checkPageCapability(page, capabilities)) return;
+      if (!grouped.has(page.group)) grouped.set(page.group, []);
+      grouped.get(page.group).push(page);
+    });
+    grouped.forEach((pages, groupLabel) => {
+      groups.push({
+        label: groupLabel,
+        items: pages.map((page) => ({
+          key: page.key,
+          href: page.href,
+          label: page.label,
+          description: page.description,
+          isActive: resolvedCurrentPage ? resolvedCurrentPage.key === page.key : false,
+        })),
+      });
+    });
+    return groups;
+  }, [capabilities, pageRegistry, permissions, resolvedCurrentPage, workspace]);
+
   const organizationNavGroups = useMemo(() => buildNavGroups('organization'), [buildNavGroups]);
   const myInformationNavGroups = useMemo(() => buildNavGroups('me'), [buildNavGroups]);
   const administrationNavGroups = useMemo(() => buildNavGroups('administration'), [buildNavGroups]);
