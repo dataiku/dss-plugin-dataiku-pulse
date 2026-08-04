@@ -55,6 +55,7 @@ _ADVANCED_LLM_MESH_CAPABILITY_SQL = (
     "FROM base_license_addon_licenses_latest\n"
     "WHERE addon_key = ?;"
 )
+_ADVANCED_LLM_MESH_REQUIRED_COLUMNS = frozenset({"instance_name", "addon_key", "addon_enabled"})
 _advanced_llm_mesh_capability_cache: dict[str, Any] | None = None
 _USERS_FACETS_INSTANCES_SQL = (
     "SELECT DISTINCT instance_name\n"
@@ -104,6 +105,24 @@ def _normalize_truthy_license_flag(value: Any) -> bool:
     return False
 
 
+def _relation_columns(query_df, relation_name: str) -> set[str]:
+    rows = query_df(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'main' AND table_name = ?
+        """.strip(),
+        [relation_name],
+    )
+    if rows is None or rows.empty:
+        return set()
+    return {
+        str(row.get("column_name") or "").strip()
+        for row in _df_records(rows)
+        if str(row.get("column_name") or "").strip()
+    }
+
+
 def get_advanced_llm_mesh_capability() -> dict[str, Any]:
     global _advanced_llm_mesh_capability_cache
 
@@ -118,6 +137,17 @@ def get_advanced_llm_mesh_capability() -> dict[str, Any]:
         _ensure_ready_if_enabled()
 
         if not _duckdb_relation_exists(query_df, _ADVANCED_LLM_MESH_LICENSE_TABLE):
+            _advanced_llm_mesh_capability_cache = dict(_ADVANCED_LLM_MESH_DISABLED_CAPABILITY)
+            return dict(_ADVANCED_LLM_MESH_DISABLED_CAPABILITY)
+
+        available_columns = _relation_columns(query_df, _ADVANCED_LLM_MESH_LICENSE_TABLE)
+        if not _ADVANCED_LLM_MESH_REQUIRED_COLUMNS.issubset(available_columns):
+            logger.warning(
+                "advanced LLM Mesh capability disabled: %s missing required columns %s (available=%s)",
+                _ADVANCED_LLM_MESH_LICENSE_TABLE,
+                sorted(_ADVANCED_LLM_MESH_REQUIRED_COLUMNS - available_columns),
+                sorted(available_columns),
+            )
             _advanced_llm_mesh_capability_cache = dict(_ADVANCED_LLM_MESH_DISABLED_CAPABILITY)
             return dict(_ADVANCED_LLM_MESH_DISABLED_CAPABILITY)
 
