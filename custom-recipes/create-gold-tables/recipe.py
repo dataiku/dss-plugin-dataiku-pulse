@@ -780,8 +780,12 @@ def _object_activity_branch_sql(
 ) -> str:
     view_columns = _view_columns(conn, view_name)
     ip_sources = [col for col in ("clientip", "originalip") if col in view_columns]
-    ip_address_expr = "COALESCE(" + ", ".join(ip_sources) + ")" if ip_sources else "NULL"
-    extras_expr = "e.extras" if "extras" in view_columns else "NULL"
+    ip_address_expr = (
+        "COALESCE(" + ", ".join(f"CAST(e.{col} AS VARCHAR)" for col in ip_sources) + ")"
+        if ip_sources
+        else "CAST(NULL AS VARCHAR)"
+    )
+    extras_expr = "CAST(e.extras AS VARCHAR)" if "extras" in view_columns else "CAST(NULL AS VARCHAR)"
 
     def _has_column(name: str) -> bool:
         return name.lower() in view_columns
@@ -822,15 +826,34 @@ def _object_activity_branch_sql(
     def _native_text(*names: str) -> str:
         exprs = [_null_if_empty(f"e.{name}") for name in names if _has_column(name)]
         if not exprs:
-            return "NULL"
+            return "CAST(NULL AS VARCHAR)"
         if len(exprs) == 1:
             return exprs[0]
         return "COALESCE(" + ", ".join(exprs) + ")"
 
+    def _canonical_norm(expr: str) -> str:
+        return (
+            "regexp_replace("
+            f"replace(replace(lower(trim({expr})), ' ', '_'), '-', '_'),"
+            " '_+', '_', 'g'"
+            ")"
+        )
+
+    login_exprs = []
+    if _has_column("authuser"):
+        login_exprs.append(_null_if_empty("e.authuser"))
+    if _has_column("user"):
+        login_exprs.append(_null_if_empty("e.user"))
+    login_expr = (
+        "COALESCE(" + ", ".join(login_exprs) + ")"
+        if login_exprs
+        else "CAST(NULL AS VARCHAR)"
+    )
+
     def _first_non_empty(*exprs: str) -> str:
         return "COALESCE(" + ", ".join(exprs) + ")"
 
-    row_filter = "authuser IS NOT NULL"
+    row_filter = f"{login_expr} IS NOT NULL"
 
     if module in {"datasets", "dataset"}:
         object_type_expr = repr("dataset")
@@ -891,7 +914,7 @@ def _object_activity_branch_sql(
         )
     else:
         object_type_expr = repr(module)
-        object_key_expr = "NULL"
+        object_key_expr = "CAST(NULL AS VARCHAR)"
 
     project_key_expr = "project_key"
 
@@ -900,19 +923,20 @@ def _object_activity_branch_sql(
             "SELECT\n",
             "  try_cast(COALESCE(timestamp, date) AS TIMESTAMP) AS timestamp,\n",
             "  instance_name,\n",
-            "  COALESCE(authuser, user) AS login,\n",
+            f"  {login_expr} AS login,\n",
             "  msgtype AS event_name,\n",
             "  e.dataiku_category AS event_category,\n",
             "  m.capability AS canonical_capability,\n",
             f"  {project_key_expr} AS project_key,\n",
             f"  {object_type_expr} AS object_type,\n",
             f"  {object_key_expr} AS object_key,\n",
+            "  -- `object_name` is currently a fallback identifier; it is not guaranteed to be a resolved display name.\n",
             f"  {object_key_expr} AS object_name,\n",
-            "  NULL AS instance_url,\n",
-            "  NULL AS group_names,\n",
-            "  NULL AS session_id,\n",
+            "  CAST(NULL AS VARCHAR) AS instance_url,\n",
+            "  CAST(NULL AS VARCHAR) AS group_names,\n",
+            "  CAST(NULL AS VARCHAR) AS session_id,\n",
             f"  {ip_address_expr} AS ip_address,\n",
-            "  NULL AS user_agent,\n",
+            "  CAST(NULL AS VARCHAR) AS user_agent,\n",
             f"  {extras_expr} AS details_json,\n",
             "  try_cast(run_ts AS TIMESTAMP) AS run_timestamp,\n",
             "  CAST(year AS INTEGER) AS year,\n",
@@ -920,7 +944,7 @@ def _object_activity_branch_sql(
             "  CAST(day AS INTEGER) AS day\n",
             f"FROM {view_name} e\n",
             "LEFT JOIN dim_category_to_capability m\n",
-            "  ON m.dataiku_category = e.dataiku_category\n",
+            f"  ON {_canonical_norm('m.dataiku_category')} = {_canonical_norm('e.dataiku_category')}\n",
             f"WHERE {row_filter}",
         ]
     )
@@ -947,7 +971,53 @@ def _build_fact_object_activity_events(
     if not branches:
         return ""
 
-    sql = "CREATE OR REPLACE TABLE fact_object_activity_events AS\n" + "\nUNION ALL\n".join(branches) + ";"
+    sql = (
+        "CREATE OR REPLACE TABLE fact_object_activity_events AS\n"
+        "WITH unioned_events AS (\n"
+        + "\nUNION ALL\n".join(branches)
+        + "\n), ranked_events AS (\n"
+        "  SELECT\n"
+        "    *,\n"
+        "    ROW_NUMBER() OVER (\n"
+        "      PARTITION BY\n"
+        "        timestamp,\n"
+        "        instance_name,\n"
+        "        lower(trim(COALESCE(login, ''))),\n"
+        "        event_name,\n"
+        "        regexp_replace(replace(replace(lower(trim(COALESCE(event_category, ''))), ' ', '_'), '-', '_'), '_+', '_', 'g'),\n"
+        "        project_key,\n"
+        "        object_type,\n"
+        "        object_key,\n"
+        "        ip_address,\n"
+        "        details_json\n"
+        "      ORDER BY run_timestamp DESC NULLS LAST\n"
+        "    ) AS rn\n"
+        "  FROM unioned_events\n"
+        ")\n"
+        "SELECT\n"
+        "  timestamp,\n"
+        "  instance_name,\n"
+        "  login,\n"
+        "  event_name,\n"
+        "  event_category,\n"
+        "  canonical_capability,\n"
+        "  project_key,\n"
+        "  object_type,\n"
+        "  object_key,\n"
+        "  object_name,\n"
+        "  instance_url,\n"
+        "  group_names,\n"
+        "  session_id,\n"
+        "  ip_address,\n"
+        "  user_agent,\n"
+        "  details_json,\n"
+        "  run_timestamp,\n"
+        "  year,\n"
+        "  month,\n"
+        "  day\n"
+        "FROM ranked_events\n"
+        "WHERE rn = 1;"
+    )
     conn.execute(sql)
     _log_table_stats(conn, "fact_object_activity_events")
 
