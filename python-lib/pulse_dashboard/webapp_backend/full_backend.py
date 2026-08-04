@@ -1325,16 +1325,11 @@ def _addon_service_label(addon_key: Any) -> str:
 
 
 
-def _is_debug_enabled() -> bool:
-    if _IS_LOCAL_DEV:
-        return True
-    standard = _read_standard_project_variables()
-    return standard.get("debug") is True
-
-
 def _require_debug_access() -> None:
-    if not _is_debug_enabled():
-        raise PermissionError("Debug endpoints are disabled")
+    if _IS_LOCAL_DEV:
+        return
+    if not _has_administration_access():
+        raise PermissionError("Administration access is required.")
 
 
 def _handle_request_errors(route_name: str):
@@ -1425,7 +1420,6 @@ def startup_flags():
 
     Currently supported flags:
     - `userActivity`: always enabled.
-    - `debug`: enabled when `standard.debug` is JSON boolean `true`.
 
     Config values:
     - `userProfileExcludeConsumer`: resolved exclusion list for the `no_consumer` toggle,
@@ -1438,14 +1432,12 @@ def startup_flags():
     try:
         standard = _read_standard_project_variables()
         user_activity_enabled = True
-        debug_enabled = standard.get("debug") is True
         advanced_llm_mesh_capability = get_advanced_llm_mesh_capability()
         excluded_profiles = _read_user_profile_exclude_consumer(standard)
         return _ok(
             {
                 "flags": {
                     "userActivity": user_activity_enabled,
-                    "debug": debug_enabled,
                     "llmMesh": advanced_llm_mesh_capability.get("enabled") is True,
                 },
                 "capabilities": {
@@ -1461,7 +1453,7 @@ def startup_flags():
         logger.exception("Failed reading startup flags")
         return _ok(
             {
-                "flags": {"userActivity": True, "debug": False, "llmMesh": False},
+                "flags": {"userActivity": True, "llmMesh": False},
                 "capabilities": {"advancedLLMMesh": dict(_ADVANCED_LLM_MESH_DISABLED_CAPABILITY)},
                 "config": {"userProfileExcludeConsumer": ["READER", "AI_CONSUMER"], "licenseGroups": {"license_creator": [], "license_consumer": ["READER", "AI_CONSUMER"], "license_admin": []}},
             }

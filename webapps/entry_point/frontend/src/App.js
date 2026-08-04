@@ -6976,7 +6976,7 @@ function normalizePageRoute(route) {
   return route == null ? null : String(route).replace(/^#/, '').trim();
 }
 
-export function buildPageRegistry({ homeHref, userActivityEnabled, llmMeshEnabled, debugEnabled }) {
+export function buildPageRegistry({ homeHref, userActivityEnabled, llmMeshEnabled }) {
   const pages = [
     {
       key: 'pulse-home', workspace: 'global', group: 'Pulse', label: 'Home', route: 'home', permission: 'self', capability: null,
@@ -7084,13 +7084,13 @@ export function buildPageRegistry({ homeHref, userActivityEnabled, llmMeshEnable
       active: ({ workspace, adminPage }) => workspace === 'administration' && adminPage === 'administration-overview',
     },
     {
-      key: 'admin-debug-reload', workspace: 'administration', group: 'Debug', label: 'Reload DuckDB', route: 'debug/reload', permission: 'administration', capability: 'debug',
+      key: 'admin-debug-reload', workspace: 'administration', group: 'Debug', label: 'Reload DuckDB', route: 'debug/reload', permission: 'administration', capability: null,
       status: 'implemented', component: DebugReloadPage, isDefault: false,
       description: 'Manually refresh and rebuild the analytics layer from source data',
       active: ({ route, workspace }) => workspace === 'administration' && route === 'debug/reload',
     },
     {
-      key: 'admin-debug-preview', workspace: 'administration', group: 'Debug', label: 'Preview DuckDB', route: 'debug/preview', permission: 'administration', capability: 'debug',
+      key: 'admin-debug-preview', workspace: 'administration', group: 'Debug', label: 'Preview DuckDB', route: 'debug/preview', permission: 'administration', capability: null,
       status: 'implemented', component: DebugPreviewPage, isDefault: false,
       description: 'Inspect underlying tables and data powering the Pulse application',
       active: ({ route, workspace }) => workspace === 'administration' && route === 'debug/preview',
@@ -7100,7 +7100,6 @@ export function buildPageRegistry({ homeHref, userActivityEnabled, llmMeshEnable
   return pages.filter((page) => {
     if (page.capability === 'llmMesh' && !llmMeshEnabled) return false;
     if (page.capability === 'userActivity' && !userActivityEnabled) return false;
-    if (page.capability === 'debug' && !debugEnabled) return false;
     return true;
   }).map((page) => ({
     ...page,
@@ -7120,7 +7119,6 @@ export function checkPageCapability(page, capabilities) {
   if (!page) return false;
   if (page.capability === 'llmMesh') return capabilities.llmMeshEnabled === true;
   if (page.capability === 'userActivity') return capabilities.userActivityEnabled === true;
-  if (page.capability === 'debug') return capabilities.debugEnabled === true && capabilities.startupFlagsLoaded === true;
   return true;
 }
 
@@ -7287,15 +7285,14 @@ function App() {
   const isAuthenticated = authState.status === 'ready' && authState.data && authState.data.authenticated === true;
   const userLabel = getUserDisplayName(authState);
   const userActivityEnabled = startupFlags.userActivity !== false;
-  const debugEnabled = startupFlags.debug === true;
   const llmMeshEnabled = advancedLlmMeshCapability.enabled === true;
   const capabilities = useMemo(
-    () => ({ startupFlagsLoaded, userActivityEnabled, debugEnabled, llmMeshEnabled }),
-    [debugEnabled, llmMeshEnabled, startupFlagsLoaded, userActivityEnabled]
+    () => ({ startupFlagsLoaded, userActivityEnabled, llmMeshEnabled }),
+    [llmMeshEnabled, startupFlagsLoaded, userActivityEnabled]
   );
   const pageRegistry = useMemo(
-    () => buildPageRegistry({ homeHref, userActivityEnabled, llmMeshEnabled, debugEnabled }),
-    [debugEnabled, homeHref, llmMeshEnabled, userActivityEnabled]
+    () => buildPageRegistry({ homeHref, userActivityEnabled, llmMeshEnabled }),
+    [homeHref, llmMeshEnabled, userActivityEnabled]
   );
 
   useEffect(() => {
