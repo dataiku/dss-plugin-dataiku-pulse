@@ -494,7 +494,7 @@ def _load_category_to_capability(base_dir: Path) -> list[dict]:
 def _build_dim_category_to_capability(conn: duckdb.DuckDBPyConnection, *, base_dir: Path) -> str:
     """Build `dim_category_to_capability` from YAML mapping."""
 
-    rows = [r for r in _load_category_to_capability(base_dir) if _slug(str(r.get("capability") or "")) != "uncategorized"]
+    rows = _load_category_to_capability(base_dir)
 
     conn.execute(
         """
@@ -514,10 +514,30 @@ def _build_dim_category_to_capability(conn: duckdb.DuckDBPyConnection, *, base_d
     if not rows:
         return "dim_category_to_capability"
 
+    duplicate_categories = sorted(
+        {
+            category
+            for category in [
+                _slug(str(r.get("dataiku_category") or ""))
+                for r in rows
+            ]
+            if category and sum(
+                1
+                for row in rows
+                if _slug(str(row.get("dataiku_category") or "")) == category
+            ) > 1
+        }
+    )
+    if duplicate_categories:
+        raise ValueError(
+            "Duplicate normalized dataiku_category values in category_to_capability.yaml: "
+            + ", ".join(duplicate_categories)
+        )
+
     insert_rows = [
         (
-            r.get("dataiku_category"),
-            r.get("capability"),
+            _slug(str(r.get("dataiku_category") or "")),
+            _slug(str(r.get("capability") or "")),
             int(r.get("capability_order") or 1),
             int(r.get("category_order") or 1),
             r.get("capability_display_name"),
