@@ -4,9 +4,49 @@ final_build_development_activity_events:
   depends_on:
     - fact_dev_activity_events
     - dim_category_to_capability
+    - dim_dev_activity_event_classification
   build_order: 1110
   sql: |
     CREATE OR REPLACE VIEW "final_build_development_activity_events" AS
+    WITH normalized_events AS (
+      SELECT
+        e.*,
+        regexp_replace(
+          replace(replace(lower(trim(e.msgtype)), ' ', '_'), '-', '_'),
+          '_+',
+          '_',
+          'g'
+        ) AS msgtype_norm,
+        regexp_replace(
+          replace(replace(lower(trim(e.dataiku_category)), ' ', '_'), '-', '_'),
+          '_+',
+          '_',
+          'g'
+        ) AS dataiku_category_norm
+      FROM fact_dev_activity_events e
+    ),
+    normalized_categories AS (
+      SELECT
+        m.*,
+        regexp_replace(
+          replace(replace(lower(trim(m.dataiku_category)), ' ', '_'), '-', '_'),
+          '_+',
+          '_',
+          'g'
+        ) AS dataiku_category_norm
+      FROM dim_category_to_capability m
+    ),
+    normalized_classification AS (
+      SELECT
+        c.*,
+        regexp_replace(
+          replace(replace(lower(trim(c.msgtype)), ' ', '_'), '-', '_'),
+          '_+',
+          '_',
+          'g'
+        ) AS msgtype_norm
+      FROM dim_dev_activity_event_classification c
+    )
     SELECT
       e.timestamp,
       e.instance_name,
@@ -15,10 +55,18 @@ final_build_development_activity_events:
       e.msgtype,
       e.msgtypebase AS base_tag,
       COALESCE(m.category_display_name, e.dataiku_category) AS dataiku_category,
-      COALESCE(m.capability_display_name, m.capability, 'Uncategorized') AS capability
-    FROM fact_dev_activity_events e
-    LEFT JOIN dim_category_to_capability m
-      ON lower(trim(m.dataiku_category)) = lower(trim(e.dataiku_category));
+      COALESCE(m.capability_display_name, m.capability, 'Uncategorized') AS capability,
+      COALESCE(c.activity_class, 'unclassified') AS activity_class,
+      COALESCE(c.is_meaningful_activity, FALSE) AS is_meaningful_activity,
+      CASE
+        WHEN e.login IS NOT NULL AND length(trim(e.login)) > 0 THEN TRUE
+        ELSE FALSE
+      END AS is_user_attributed
+    FROM normalized_events e
+    LEFT JOIN normalized_categories m
+      ON m.dataiku_category_norm = e.dataiku_category_norm
+    LEFT JOIN normalized_classification c
+      ON c.msgtype_norm = e.msgtype_norm;
   example_data: |
     -- This object is a VIEW.
     -- Insert example rows into its upstream base tables.

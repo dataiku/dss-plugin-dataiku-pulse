@@ -14,6 +14,7 @@ dev_activity_top_users_30d:
         timestamp
       FROM final_build_development_activity_events
       WHERE timestamp >= now() - INTERVAL 30 DAY
+        AND is_meaningful_activity IS TRUE
         AND login IS NOT NULL
         AND length(trim(login)) > 0
     )

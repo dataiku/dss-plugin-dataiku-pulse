@@ -1,0 +1,23 @@
+dev_activity_unclassified_events_30d:
+  description: >
+    Diagnostic view of unclassified development events in the last 30 days.
+  depends_on:
+    - final_build_development_activity_events
+  build_order: 1095
+  sql: |
+    CREATE OR REPLACE VIEW "dev_activity_unclassified_events_30d" AS
+    SELECT
+      msgtype,
+      base_tag,
+      dataiku_category,
+      COUNT(*) AS event_count_30d,
+      COUNT(DISTINCT login) AS distinct_users_30d,
+      COUNT(*) FILTER (WHERE login IS NULL OR length(trim(login)) = 0) AS unattributed_events_30d
+    FROM final_build_development_activity_events
+    WHERE timestamp >= now() - INTERVAL 30 DAY
+      AND activity_class = 'unclassified'
+    GROUP BY 1, 2, 3
+    ORDER BY event_count_30d DESC;
+  example_data: |
+    -- This object is a VIEW.
+    -- Insert example rows into its upstream base tables.

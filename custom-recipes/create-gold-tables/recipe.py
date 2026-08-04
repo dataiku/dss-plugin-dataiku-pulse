@@ -565,6 +565,101 @@ def _build_dim_category_to_capability(conn: duckdb.DuckDBPyConnection, *, base_d
     return "dim_category_to_capability"
 
 
+def _load_dev_event_classification(base_dir: Path) -> list[dict]:
+    """Load mapping rows for `dim_dev_activity_event_classification`.
+
+    Expected file: gold_specs/dataiku_dev_tools/event_classification.yaml
+    """
+
+    path = base_dir / "dataiku_dev_tools" / "event_classification.yaml"
+    if not path.exists():
+        return []
+
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError(f"Invalid event_classification.yaml (expected YAML list): {path}")
+
+    rows: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        if not item.get("msgtype") or not item.get("activity_class"):
+            continue
+        row = dict(item)
+        row["msgtype"] = _slug(str(row["msgtype"]))
+        row["activity_class"] = _slug(str(row["activity_class"]))
+        row.setdefault("is_meaningful_activity", False)
+        row.setdefault("description", None)
+        rows.append(row)
+
+    return rows
+
+
+def _build_dim_dev_activity_event_classification(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    base_dir: Path,
+) -> str:
+    """Build `dim_dev_activity_event_classification` from YAML mapping."""
+
+    rows = _load_dev_event_classification(base_dir)
+
+    conn.execute(
+        """
+        CREATE OR REPLACE TABLE dim_dev_activity_event_classification AS
+        SELECT
+          CAST(NULL AS VARCHAR) AS msgtype,
+          CAST(NULL AS VARCHAR) AS activity_class,
+          CAST(NULL AS BOOLEAN) AS is_meaningful_activity,
+          CAST(NULL AS VARCHAR) AS description
+        WHERE 1=0;
+        """.strip()
+    )
+
+    if not rows:
+        return "dim_dev_activity_event_classification"
+
+    normalized_msgtypes = [_slug(str(r.get("msgtype") or "")) for r in rows]
+    duplicate_msgtypes = sorted(
+        {
+            msgtype
+            for msgtype in normalized_msgtypes
+            if msgtype and normalized_msgtypes.count(msgtype) > 1
+        }
+    )
+    if duplicate_msgtypes:
+        raise ValueError(
+            "Duplicate normalized msgtype values in event_classification.yaml: "
+            + ", ".join(duplicate_msgtypes)
+        )
+
+    insert_rows = [
+        (
+            _slug(str(r.get("msgtype") or "")),
+            _slug(str(r.get("activity_class") or "")),
+            bool(r.get("is_meaningful_activity")),
+            r.get("description"),
+        )
+        for r in rows
+    ]
+
+    conn.executemany(
+        """
+        INSERT INTO dim_dev_activity_event_classification (
+          msgtype,
+          activity_class,
+          is_meaningful_activity,
+          description
+        ) VALUES (?, ?, ?, ?);
+        """.strip(),
+        insert_rows,
+    )
+
+    return "dim_dev_activity_event_classification"
+
+
 def _build_dim_addon_feature_flags(conn: duckdb.DuckDBPyConnection) -> str:
     """Build global addon availability flags from latest instance addon rows."""
 
@@ -1437,6 +1532,7 @@ def run() -> dict:
         #
         # Both are configured in `gold_specs/dataiku_dev_tools/*`.
         _build_dim_category_to_capability(setup.conn, base_dir=base_dir)
+        _build_dim_dev_activity_event_classification(setup.conn, base_dir=base_dir)
         _build_fact_dev_activity_events(setup.conn, ctx=ctx, base_dir=base_dir)
 
         # Build hourly → daily rollups for user activity.
