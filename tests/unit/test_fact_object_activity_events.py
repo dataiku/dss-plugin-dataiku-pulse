@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+
 import duckdb
 import pytest
 
@@ -76,36 +77,36 @@ def _build_fact_object_activity_events_for_test(conn: duckdb.DuckDBPyConnection)
         """.strip()
     )
 
-    conn.execute(
-        (
-            "CREATE OR REPLACE TABLE fact_object_activity_events AS\n"
-            "WITH ranked_events AS (\n"
-            "  SELECT\n"
-            "    *,\n"
-            "    ROW_NUMBER() OVER (\n"
-            "      PARTITION BY\n"
-            "        timestamp,\n"
-            "        instance_name,\n"
-            "        lower(trim(COALESCE(login, ''))),\n"
-            "        event_name,\n"
-            f"        {_category_norm_sql('event_category')},\n"
-            "        project_key,\n"
-            "        object_type,\n"
-            "        object_key,\n"
-            "        ip_address,\n"
-            "        details_json\n"
-            "      ORDER BY run_timestamp DESC NULLS LAST\n"
-            "    ) AS rn\n"
-            "  FROM unioned_events_typed\n"
-            ")\n"
-            "SELECT\n"
-            "  timestamp, instance_name, login, event_name, event_category, canonical_capability,\n"
-            "  project_key, object_type, object_key, object_name, instance_url, group_names,\n"
-            "  session_id, ip_address, user_agent, details_json, run_timestamp, year, month, day\n"
-            "FROM ranked_events\n"
-            "WHERE rn = 1"
-        )
+    category_norm_sql = _category_norm_sql("event_category")
+    sql = (
+        "CREATE OR REPLACE TABLE fact_object_activity_events AS\n"  # nosec B608 -- test-only SQL built from a fixed column expression.
+        "WITH ranked_events AS (\n"
+        "  SELECT\n"
+        "    *,\n"
+        "    ROW_NUMBER() OVER (\n"
+        "      PARTITION BY\n"
+        "        timestamp,\n"
+        "        instance_name,\n"
+        "        lower(trim(COALESCE(login, ''))),\n"
+        "        event_name,\n"
+        f"        {category_norm_sql},\n"
+        "        project_key,\n"
+        "        object_type,\n"
+        "        object_key,\n"
+        "        ip_address,\n"
+        "        details_json\n"
+        "      ORDER BY run_timestamp DESC NULLS LAST\n"
+        "    ) AS rn\n"
+        "  FROM unioned_events_typed\n"
+        ")\n"
+        "SELECT\n"
+        "  timestamp, instance_name, login, event_name, event_category, canonical_capability,\n"
+        "  project_key, object_type, object_key, object_name, instance_url, group_names,\n"
+        "  session_id, ip_address, user_agent, details_json, run_timestamp, year, month, day\n"
+        "FROM ranked_events\n"
+        "WHERE rn = 1"
     )
+    conn.execute(sql)
     conn.execute(
         "CREATE OR REPLACE VIEW base_object_activity_events AS SELECT * FROM fact_object_activity_events"
     )

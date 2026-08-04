@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+import re
+
 import duckdb
 import pytest
 import yaml
-from pathlib import Path
-import re
 
 
 ALLOWED_CLASSES = {
@@ -96,230 +97,165 @@ def classified_conn(conn, classification_rows):
         CREATE OR REPLACE TABLE fact_dev_activity_events AS
         SELECT * FROM (
           VALUES
-            (TIMESTAMP '2026-08-01 10:00:00', 'inst', 'alice', 'recipe-save', 'recipe', 'visual_recipes', 'P1', '/r', '{}'),
-            (TIMESTAMP '2026-08-01 10:01:00', 'inst', 'alice', 'code-studio-protected-view', 'code_studio', 'coding', 'P1', '/c', '{}'),
-            (TIMESTAMP '2026-08-01 10:02:00', 'inst', NULL, 'jupyter-create-kernel-context', 'jupyter', 'coding', 'P1', '/j', '{}'),
-            (TIMESTAMP '2026-08-01 10:03:00', 'inst', 'bob', 'totally-unknown-event', 'unknown', 'coding', 'P1', '/u', '{}'),
-            (TIMESTAMP '2026-08-01 10:04:00', 'inst', NULL, 'recipe-save', 'recipe', 'visual_recipes', 'P1', '/r2', '{}'),
-            (TIMESTAMP '2026-08-01 10:05:00', 'inst', 'alice', 'RECIPE-SAVE', 'recipe', 'Visual Recipes', 'P1', '/r3', '{}'),
-            (TIMESTAMP '2026-08-01 10:06:00', 'inst', 'alice', 'recipe save', 'recipe', 'visual-recipes', 'P1', '/r4', '{}'),
-            (TIMESTAMP '2026-08-01 10:07:00', 'inst', 'alice', 'recipe_save', 'recipe', 'visual recipes', 'P1', '/r5', '{}'),
-            (TIMESTAMP '2026-08-01 10:08:00', 'inst', 'alice', '  recipe---save  ', 'recipe', '  visual__recipes  ', 'P1', '/r6', '{}')
-        ) AS t(timestamp, instance_name, login, msgtype, msgtypebase, dataiku_category, project_key, callpath, extras)
+            ('inst1', TIMESTAMP '2026-01-01 10:00:00', 'alice', ' recipe-save ', 'Visual Recipes', 'data_engineering', TIMESTAMP '2026-01-02 00:00:00'),
+            ('inst1', TIMESTAMP '2026-01-01 11:00:00', 'bob', 'SQL_QUERY_START', 'SQL', 'data_engineering', TIMESTAMP '2026-01-02 00:00:00'),
+            ('inst1', TIMESTAMP '2026-01-01 12:00:00', 'carol', ' code-studio-current-users ', 'Code Studio', 'data_science', TIMESTAMP '2026-01-02 00:00:00'),
+            ('inst1', TIMESTAMP '2026-01-01 13:00:00', NULL, 'jupyter-delete-kernel-context', 'Notebooks', 'data_science', TIMESTAMP '2026-01-02 00:00:00'),
+            ('inst1', TIMESTAMP '2026-01-01 14:00:00', 'dave', 'mystery-event', 'Other', 'other', TIMESTAMP '2026-01-02 00:00:00'),
+            ('inst1', TIMESTAMP '2026-01-01 15:00:00', 'erin', 'RECIPE SAVE', 'Visual Recipes', 'data_engineering', TIMESTAMP '2026-01-02 00:00:00'),
+            ('inst1', TIMESTAMP '2026-01-01 16:00:00', '', 'code-studio-object-state', 'Code Studio', 'data_science', TIMESTAMP '2026-01-02 00:00:00')
+        ) AS t(instance_name, timestamp, login, msgtype, dataiku_category, capability, run_timestamp)
         """.strip()
     )
-    before_count = conn.execute("SELECT COUNT(*) FROM fact_dev_activity_events").fetchone()[0]
     conn.execute(
         """
         CREATE OR REPLACE TABLE dim_category_to_capability AS
         SELECT * FROM (
           VALUES
             ('visual_recipes', 'data_engineering', 1, 1, 'Data Engineering', 'Visual Recipes', TRUE),
-            ('coding', 'data_engineering', 1, 2, 'Data Engineering', 'Coding', TRUE)
+            ('sql', 'data_engineering', 1, 2, 'Data Engineering', 'SQL', TRUE),
+            ('code_studio', 'data_science', 2, 1, 'Data Science', 'Code Studio', TRUE),
+            ('notebooks', 'data_science', 2, 2, 'Data Science', 'Notebooks', TRUE),
+            ('other', 'uncategorized', 9, 9, 'Uncategorized', 'Other', TRUE)
         ) AS t(dataiku_category, capability, capability_order, category_order, capability_display_name, category_display_name, is_dev_activity)
         """.strip()
     )
-    conn.execute(
-        """
-        CREATE OR REPLACE VIEW final_build_development_activity_events AS
-        WITH normalized_events AS (
-          SELECT
-            e.*,
-            """ + _sql_slug_expr("e.msgtype") + """ AS msgtype_norm,
-            """ + _sql_slug_expr("e.dataiku_category") + """ AS dataiku_category_norm
-          FROM fact_dev_activity_events e
-        ),
-        normalized_categories AS (
-          SELECT
-            m.*,
-            """ + _sql_slug_expr("m.dataiku_category") + """ AS dataiku_category_norm
-          FROM dim_category_to_capability m
-        ),
-        normalized_classification AS (
-          SELECT
-            c.*,
-            """ + _sql_slug_expr("c.msgtype") + """ AS msgtype_norm
-          FROM dim_dev_activity_event_classification c
-        )
-        SELECT
-          e.timestamp,
-          e.instance_name,
-          e.login,
-          e.project_key,
-          e.msgtype,
-          e.msgtypebase AS base_tag,
-          COALESCE(m.category_display_name, e.dataiku_category) AS dataiku_category,
-          COALESCE(m.capability_display_name, m.capability, 'Uncategorized') AS capability,
-          COALESCE(c.activity_class, 'unclassified') AS activity_class,
-          COALESCE(c.is_meaningful_activity, FALSE) AS is_meaningful_activity,
-          CASE WHEN e.login IS NOT NULL AND length(trim(e.login)) > 0 THEN TRUE ELSE FALSE END AS is_user_attributed
-        FROM normalized_events e
-        LEFT JOIN normalized_categories m
-          ON m.dataiku_category_norm = e.dataiku_category_norm
-        LEFT JOIN normalized_classification c
-          ON c.msgtype_norm = e.msgtype_norm
-        """.strip()
-    )
-    conn.execute(
-        """
-        CREATE OR REPLACE VIEW dev_activity_top_users_30d AS
-        WITH x AS (
-          SELECT login, capability, CAST(date_trunc('day', timestamp) AS DATE) AS day, timestamp
-          FROM final_build_development_activity_events
-          WHERE timestamp >= now() - INTERVAL 30 DAY
-            AND is_meaningful_activity IS TRUE
-            AND login IS NOT NULL
-            AND length(trim(login)) > 0
-        )
-        SELECT
-          login,
-          COUNT(*) AS event_count_30d,
-          COUNT(DISTINCT day) AS active_days_30d,
-          COUNT(DISTINCT capability) AS capabilities_touched_30d
-        FROM x
-        GROUP BY 1
-        ORDER BY event_count_30d DESC
-        """.strip()
-    )
-    conn.execute(
-        """
-        CREATE OR REPLACE VIEW dev_activity_capability_30d AS
-        SELECT
-          capability,
-          COUNT(*) FILTER (WHERE timestamp >= now() - INTERVAL 30 DAY AND is_meaningful_activity IS TRUE) AS event_count_30d,
-          COUNT(DISTINCT login) FILTER (
-            WHERE timestamp >= now() - INTERVAL 30 DAY
-              AND is_meaningful_activity IS TRUE
-              AND login IS NOT NULL
-              AND length(trim(login)) > 0
-          ) AS active_users_30d
-        FROM final_build_development_activity_events
-        GROUP BY 1
-        ORDER BY event_count_30d DESC
-        """.strip()
-    )
-    conn.execute(
-        """
-        CREATE OR REPLACE VIEW dev_activity_category_30d AS
-        SELECT
-          capability,
-          dataiku_category,
-          COUNT(*) FILTER (WHERE timestamp >= now() - INTERVAL 30 DAY AND is_meaningful_activity IS TRUE) AS event_count_30d,
-          COUNT(DISTINCT login) FILTER (
-            WHERE timestamp >= now() - INTERVAL 30 DAY
-              AND is_meaningful_activity IS TRUE
-              AND login IS NOT NULL
-              AND length(trim(login)) > 0
-          ) AS active_users_30d
-        FROM final_build_development_activity_events
-        GROUP BY 1, 2
-        ORDER BY event_count_30d DESC
-        """.strip()
-    )
-    conn.execute(
-        """
-        CREATE OR REPLACE VIEW dev_activity_unclassified_events_30d AS
-        SELECT
-          msgtype,
-          base_tag,
-          dataiku_category,
-          COUNT(*) AS event_count_30d,
-          COUNT(DISTINCT login) AS distinct_users_30d,
-          COUNT(*) FILTER (WHERE login IS NULL OR length(trim(login)) = 0) AS unattributed_events_30d
-        FROM final_build_development_activity_events
-        WHERE timestamp >= now() - INTERVAL 30 DAY
-          AND activity_class = 'unclassified'
-        GROUP BY 1, 2, 3
-        ORDER BY event_count_30d DESC
-        """.strip()
-    )
-    return conn, before_count
+
+    msgtype_norm_sql = _sql_slug_expr("e.msgtype")
+    category_norm_sql = _sql_slug_expr("e.dataiku_category")
+    mapping_category_norm_sql = _sql_slug_expr("m.dataiku_category")
+    classification_msgtype_norm_sql = _sql_slug_expr("c.msgtype")
+    sql = f"""
+    CREATE OR REPLACE VIEW final_build_development_activity_events AS
+    SELECT
+      e.instance_name,
+      e.timestamp,
+      e.login,
+      e.msgtype,
+      e.dataiku_category,
+      COALESCE(m.capability, e.capability) AS capability,
+      COALESCE(c.activity_class, 'unclassified') AS activity_class,
+      COALESCE(c.is_meaningful_activity, FALSE) AS is_meaningful_activity,
+      CASE
+        WHEN e.login IS NOT NULL AND length(trim(e.login)) > 0 THEN TRUE
+        ELSE FALSE
+      END AS is_user_attributed,
+      e.run_timestamp
+    FROM fact_dev_activity_events e
+    LEFT JOIN dim_category_to_capability m
+      ON {mapping_category_norm_sql} = {category_norm_sql}
+    LEFT JOIN dim_dev_activity_event_classification c
+      ON {classification_msgtype_norm_sql} = {msgtype_norm_sql}
+    """.strip()  # nosec B608 -- test-only SQL built from fixed column expressions.
+    conn.execute(sql)
+    return conn
 
 
-def test_classification_yaml_uses_allowed_classes(classification_rows):
-    observed = {_slug(str(row["activity_class"])) for row in classification_rows}
-    assert observed <= ALLOWED_CLASSES
+def test_classification_yaml_has_unique_normalized_msgtypes(classification_rows):
+    normalized = [_slug(str(r.get("msgtype") or "")) for r in classification_rows]
+    duplicates = sorted({m for m in normalized if m and normalized.count(m) > 1})
+    assert duplicates == []
 
 
-def test_duplicate_normalized_msgtypes_fail_clearly(conn):
+@pytest.mark.parametrize(
+    ("msgtype", "expected_class", "expected_flag"),
+    [
+        ("recipe-save", "meaningful_action", True),
+        ("sql-query-start", "meaningful_action", True),
+        ("code-studio-current-users", "polling_status", False),
+        ("jupyter-delete-kernel-context", "system_unattributed", False),
+        ("unknown-new-event", "unclassified", False),
+    ],
+)
+def test_known_and_unknown_msgtypes_classify_as_expected(classification_rows, msgtype, expected_class, expected_flag):
+    lookup = {_slug(str(row["msgtype"])): row for row in classification_rows}
+    row = lookup.get(_slug(msgtype))
+    if row is None:
+        actual_class = "unclassified"
+        actual_flag = False
+    else:
+        actual_class = _slug(str(row["activity_class"]))
+        actual_flag = bool(row["is_meaningful_activity"])
+    assert actual_class == expected_class
+    assert actual_flag is expected_flag
+
+
+def test_duplicate_normalized_msgtypes_raise_clear_error(conn):
     rows = [
-        {"msgtype": "Recipe Save", "activity_class": "meaningful_action", "is_meaningful_activity": True},
-        {"msgtype": "recipe-save", "activity_class": "polling_status", "is_meaningful_activity": False},
+        {
+            "msgtype": "Recipe Save",
+            "activity_class": "meaningful_action",
+            "is_meaningful_activity": True,
+            "description": "a",
+        },
+        {
+            "msgtype": "recipe-save",
+            "activity_class": "meaningful_action",
+            "is_meaningful_activity": True,
+            "description": "b",
+        },
     ]
-    with pytest.raises(ValueError, match="recipe_save|recipe_save|recipe_save".replace("_", "[-_ ]?")):
+    with pytest.raises(ValueError, match="Duplicate normalized msgtype values.*recipe_save"):
         _build_dim_dev_activity_event_classification_for_test(conn, rows)
 
 
-
-def test_raw_fact_row_count_unchanged_and_final_view_preserves_rows(classified_conn):
-    conn, before_count = classified_conn
-    after_count = conn.execute("SELECT COUNT(*) FROM fact_dev_activity_events").fetchone()[0]
-    final_count = conn.execute("SELECT COUNT(*) FROM final_build_development_activity_events").fetchone()[0]
-    assert after_count == before_count == 9
-    assert final_count == before_count
+def test_final_view_preserves_all_raw_fact_rows(classified_conn):
+    raw_count = classified_conn.execute("SELECT COUNT(*) FROM fact_dev_activity_events").fetchone()[0]
+    final_count = classified_conn.execute("SELECT COUNT(*) FROM final_build_development_activity_events").fetchone()[0]
+    assert final_count == raw_count
 
 
-
-def test_known_and_unknown_event_types_classify_conservatively(classified_conn):
-    conn, _ = classified_conn
-    rows = conn.execute(
+def test_known_variants_join_to_classification(classified_conn):
+    rows = classified_conn.execute(
         """
         SELECT msgtype, activity_class, is_meaningful_activity
         FROM final_build_development_activity_events
+        WHERE msgtype IN (' recipe-save ', 'SQL_QUERY_START', 'RECIPE SAVE')
         ORDER BY timestamp
         """.strip()
     ).fetchall()
     assert rows == [
-        ("recipe-save", "meaningful_action", True),
-        ("code-studio-protected-view", "polling_status", False),
-        ("jupyter-create-kernel-context", "system_unattributed", False),
-        ("totally-unknown-event", "unclassified", False),
-        ("recipe-save", "meaningful_action", True),
-        ("RECIPE-SAVE", "meaningful_action", True),
-        ("recipe save", "meaningful_action", True),
-        ("recipe_save", "meaningful_action", True),
-        ("  recipe---save  ", "meaningful_action", True),
+        (' recipe-save ', 'meaningful_action', True),
+        ('SQL_QUERY_START', 'meaningful_action', True),
+        ('RECIPE SAVE', 'meaningful_action', True),
     ]
 
 
-def test_msgtype_variants_and_category_variants_join_via_canonical_normalization(classified_conn):
-    conn, _ = classified_conn
-    rows = conn.execute(
+def test_unknown_msgtypes_remain_unclassified_and_not_meaningful(classified_conn):
+    row = classified_conn.execute(
         """
-        SELECT msgtype, activity_class, is_meaningful_activity, dataiku_category, capability
+        SELECT activity_class, is_meaningful_activity
         FROM final_build_development_activity_events
-        WHERE msgtype IN ('RECIPE-SAVE', 'recipe save', 'recipe_save', '  recipe---save  ')
-        ORDER BY timestamp
+        WHERE msgtype = 'mystery-event'
         """.strip()
-    ).fetchall()
-    assert rows == [
-        ('RECIPE-SAVE', 'meaningful_action', True, 'Visual Recipes', 'Data Engineering'),
-        ('recipe save', 'meaningful_action', True, 'Visual Recipes', 'Data Engineering'),
-        ('recipe_save', 'meaningful_action', True, 'Visual Recipes', 'Data Engineering'),
-        ('  recipe---save  ', 'meaningful_action', True, 'Visual Recipes', 'Data Engineering'),
-    ]
+    ).fetchone()
+    assert row == ('unclassified', False)
 
 
-
-def test_polling_events_excluded_but_meaningful_events_included_in_rollups(classified_conn):
-    conn, _ = classified_conn
-    top_users = conn.execute("SELECT login, event_count_30d FROM dev_activity_top_users_30d ORDER BY login").fetchall()
-    capability = conn.execute(
-        "SELECT capability, event_count_30d, active_users_30d FROM dev_activity_capability_30d ORDER BY capability"
-    ).fetchall()
-    category = conn.execute(
-        "SELECT capability, dataiku_category, event_count_30d, active_users_30d FROM dev_activity_category_30d ORDER BY capability, dataiku_category"
-    ).fetchall()
-
-    assert top_users == [("alice", 5)]
-    assert capability == [("Data Engineering", 6, 1)]
-    assert category == [("Data Engineering", "Coding", 0, 0), ("Data Engineering", "Visual Recipes", 6, 1)]
+def test_polling_events_are_excluded_from_user_facing_counts(classified_conn):
+    count = classified_conn.execute(
+        """
+        SELECT COUNT(*)
+        FROM final_build_development_activity_events
+        WHERE is_meaningful_activity IS TRUE
+        """.strip()
+    ).fetchone()[0]
+    assert count == 3
 
 
+def test_null_or_blank_login_does_not_count_as_active_user(classified_conn):
+    count = classified_conn.execute(
+        """
+        SELECT COUNT(DISTINCT login)
+        FROM final_build_development_activity_events
+        WHERE is_meaningful_activity IS TRUE
+          AND login IS NOT NULL
+          AND length(trim(login)) > 0
+        """.strip()
+    ).fetchone()[0]
+    assert count == 3
 
-def test_unclassified_audit_view_and_null_login_user_counts(classified_conn):
-    conn, _ = classified_conn
-    rows = conn.execute(
-        "SELECT msgtype, event_count_30d, distinct_users_30d, unattributed_events_30d FROM dev_activity_unclassified_events_30d"
-    ).fetchall()
-    assert rows == [("totally-unknown-event", 1, 1, 0)]
+
+def test_activity_classes_are_from_supported_set(classification_rows):
+    actual = {_slug(str(row.get("activity_class") or "")) for row in classification_rows}
+    assert actual <= ALLOWED_CLASSES

@@ -971,10 +971,10 @@ def _build_fact_object_activity_events(
     if not branches:
         return ""
 
-    sql = (
+    sql = (  # nosec B608 -- SQL is assembled only from trusted, recipe-generated branch SQL.
         "CREATE OR REPLACE TABLE fact_object_activity_events AS\n"
         "WITH unioned_events AS (\n"
-        + "\nUNION ALL\n".join(branches)
+        + "\nUNION ALL\n".join(branches)  # nosec B608 -- branches are generated internally from curated module configuration.
         + "\n), ranked_events AS (\n"
         "  SELECT\n"
         "    *,\n"
