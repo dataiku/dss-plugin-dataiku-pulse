@@ -40,55 +40,6 @@ def _normalize_owner_group(value: Any) -> str | None:
     return normalized or None
 
 
-def _normalize_optional_bool(value: Any) -> bool | None:
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        if value == 1:
-            return True
-        if value == 0:
-            return False
-        return None
-    normalized = str(value).strip().lower()
-    if normalized in {"true", "1", "yes", "on"}:
-        return True
-    if normalized in {"false", "0", "no", "off"}:
-        return False
-    return None
-
-
-def _normalize_preview_host(value: Any) -> tuple[str | None, str | None]:
-    if value is None:
-        return None, None
-    normalized = str(value).strip().lower().rstrip(".")
-    if not normalized:
-        return None, None
-    if "://" in normalized or "/" in normalized:
-        return None, "contains protocol or path; existing project variable left unchanged"
-    host_only = normalized.split(":", 1)[0].strip().rstrip(".")
-    return (host_only or None), None
-
-
-def _normalize_preview_login(value: Any) -> str | None:
-    if value is None:
-        return None
-    normalized = str(value).strip()
-    return normalized or None
-
-
-def _normalize_preview_access_tier(value: Any) -> tuple[str | None, str | None]:
-    if value is None:
-        return None, None
-    normalized = str(value).strip().lower()
-    if not normalized:
-        return None, None
-    if normalized not in {"self", "organization", "administration"}:
-        return None, f"unsupported access tier '{normalized}'; existing project variable left unchanged"
-    return normalized, None
-
-
 def _sync_project_permission_variables(*, standard: dict[str, Any], param_set: dict[str, Any]) -> tuple[list[dict[str, str]], bool]:
     field_names = ["organization_owner", "administration_owner"]
     statuses: list[dict[str, str]] = []
@@ -127,95 +78,6 @@ def _sync_project_permission_variables(*, standard: dict[str, Any], param_set: d
                 "step": f"project_var:{field_name}",
                 "status": action,
                 "message": f"{field_name} {action} with value '{configured_value}'",
-            }
-        )
-
-    return statuses, updated
-
-
-def _sync_internal_preview_variables(*, standard: dict[str, Any], param_set: dict[str, Any]) -> tuple[list[dict[str, str]], bool]:
-    statuses: list[dict[str, str]] = []
-    updated = False
-
-    boolean_present = "enable_internal_preview" in param_set
-    normalized_bool = _normalize_optional_bool(param_set.get("enable_internal_preview")) if boolean_present else None
-    if not boolean_present or normalized_bool is None:
-        statuses.append(
-            {
-                "step": "project_var:enable_internal_preview",
-                "status": "skipped",
-                "message": "enable_internal_preview missing or invalid in pulse_primary; existing project variable left unchanged",
-            }
-        )
-    else:
-        existing_value = standard.get("enable_internal_preview")
-        if existing_value == normalized_bool:
-            statuses.append(
-                {
-                    "step": "project_var:enable_internal_preview",
-                    "status": "unchanged",
-                    "message": f"enable_internal_preview already matches configured value {normalized_bool}",
-                }
-            )
-        else:
-            standard["enable_internal_preview"] = normalized_bool
-            updated = True
-            action = "created" if "enable_internal_preview" not in standard or existing_value is None else "updated"
-            statuses.append(
-                {
-                    "step": "project_var:enable_internal_preview",
-                    "status": action,
-                    "message": f"enable_internal_preview {action} with value {normalized_bool}",
-                }
-            )
-
-    text_fields: list[tuple[str, Any, Any]] = [
-        ("internal_preview_host", _normalize_preview_host, standard.get("internal_preview_host")),
-        ("internal_preview_login", lambda value: (_normalize_preview_login(value), None), standard.get("internal_preview_login")),
-        ("internal_preview_access_tier", _normalize_preview_access_tier, standard.get("internal_preview_access_tier")),
-    ]
-
-    for field_name, normalizer, existing_value in text_fields:
-        normalized_value, warning = normalizer(param_set.get(field_name))
-        if warning:
-            statuses.append(
-                {
-                    "step": f"project_var:{field_name}",
-                    "status": "skipped",
-                    "message": f"{field_name} {warning}",
-                }
-            )
-            continue
-
-        if normalized_value is None:
-            statuses.append(
-                {
-                    "step": f"project_var:{field_name}",
-                    "status": "skipped",
-                    "message": f"{field_name} blank or missing in pulse_primary; existing project variable left unchanged",
-                }
-            )
-            continue
-
-        existing_normalized = None if existing_value is None else str(existing_value).strip()
-        if existing_normalized == normalized_value:
-            statuses.append(
-                {
-                    "step": f"project_var:{field_name}",
-                    "status": "unchanged",
-                    "message": f"{field_name} already matches configured value '{normalized_value}'",
-                }
-            )
-            continue
-
-        standard[field_name] = normalized_value
-        updated = True
-        action = "created" if existing_value is None else "updated"
-        statuses.append(
-            {
-                "step": f"project_var:{field_name}",
-                "status": action,
-                "message": f"{field_name} {action} with configured value",
             }
         )
 
@@ -275,25 +137,12 @@ class MyRunnable(Runnable):
         for status_row in permission_status_rows:
             steps.append(_ResultRow(**status_row))
 
-        preview_status_rows, preview_updated = _sync_internal_preview_variables(
-            standard=standard,
-            param_set=param_set,
-        )
-        if permissions_updated or preview_updated:
+        if permissions_updated:
             variables["standard"] = standard
             try:
                 project.set_variables(variables)
             except Exception as exc:
                 raise RuntimeError(f"Unable to update project variables for {hub_project_key}") from exc
 
-        steps.append(
-            _ResultRow(
-                step="internal_preview_sync",
-                status="done",
-                message="Internal Preview variables synchronized",
-            )
-        )
-        for status_row in preview_status_rows:
-            steps.append(_ResultRow(**status_row))
 
         return _steps_to_result_table(steps)
