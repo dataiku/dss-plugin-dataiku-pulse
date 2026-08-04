@@ -1106,7 +1106,19 @@ def _build_fact_formal_mau_daily(
     *,
     ctx,
 ) -> str:
-    """Build `fact_formal_mau_daily` from hourly formal-MAU SILVER parquet."""
+    """Build `fact_formal_mau_daily` from hourly formal-MAU SILVER parquet.
+
+    Contract:
+    - Source rows come from `users_formal_mau/formal_mau` SILVER output.
+    - SILVER rows already represent qualifying UI `application-open` activity.
+    - `application_open_count` is additive across hourly rows within the same
+      instance/user/day, so the daily GOLD rollup must use `SUM(...)`.
+    - This table is a daily activity rollup used as an input to formal MAU
+      reporting; it is not itself a monthly aggregation.
+
+    Grain:
+    - one row per day × instance_name × login_norm
+    """
 
     view_name, _skip_reason = create_silver_view(
         conn=conn,

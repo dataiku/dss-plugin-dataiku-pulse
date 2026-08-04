@@ -1,8 +1,10 @@
 final_build_formal_mau_daily:
   description: >
-    Daily formal-MAU eligibility rows joined with broad user activity counts.
-    Eligibility comes from `fact_formal_mau_daily` and behavioral context comes
-    from `fact_user_activity_daily`, filtered to enabled non-trial users.
+    Daily formal-MAU input rows joined with broad user activity counts.
+    `fact_formal_mau_daily` is a daily rollup of qualifying UI
+    `application-open` activity and serves as an input to formal MAU reporting;
+    it is not itself a monthly aggregation. Behavioral context comes from
+    `fact_user_activity_daily`, filtered to enabled non-trial users.
   depends_on:
     - fact_formal_mau_daily
     - fact_user_activity_daily
