@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import yaml
+import duckdb
 from flask import Blueprint, Flask, jsonify, request, send_file, send_from_directory
 from shared_duckdb.sql_utils import quote_identifier, validate_identifier
 
@@ -1975,9 +1976,9 @@ def _safe_json_dumps(value: Any) -> str:
 
 _READ_ONLY_QUERY_LIMIT = 200
 _READ_ONLY_SQL_RE = re.compile(r"^\s*(select|with|show|describe|desc|explain)\b", re.IGNORECASE)
-_FORBIDDEN_SQL_TOKENS_RE = re.compile(
-    r"\b(insert|update|delete|merge|alter|drop|create|replace|truncate|attach|detach|copy|call|vacuum|use|set|reset|checkpoint|export|import)\b",
-    re.IGNORECASE,
+_ALLOWED_READ_ONLY_STATEMENT_TYPES = (
+    duckdb.StatementType.SELECT,
+    duckdb.StatementType.EXPLAIN,
 )
 
 
@@ -1999,7 +2000,13 @@ def _validate_read_only_debug_sql(sql: str) -> str:
         raise RequestValidationError("Only a single SQL statement is allowed")
     if not _READ_ONLY_SQL_RE.match(stripped):
         raise RequestValidationError("Only read-only SELECT/SHOW/DESCRIBE/EXPLAIN queries are allowed")
-    if _FORBIDDEN_SQL_TOKENS_RE.search(stripped):
+    try:
+        statements = duckdb.extract_statements(stripped)
+    except Exception as exc:
+        raise RequestValidationError(f"Invalid SQL query: {exc}") from exc
+    if len(statements) != 1:
+        raise RequestValidationError("Only a single SQL statement is allowed")
+    if statements[0].type not in _ALLOWED_READ_ONLY_STATEMENT_TYPES:
         raise RequestValidationError("Only read-only SQL is allowed")
     return stripped
 
@@ -3374,16 +3381,14 @@ def build_products_type_metrics():
 
 
 _CONSUMPTION_PRODUCT_OBJECT_TYPES = (
-    "api_endpoint",
-    "agent",
     "agent_tool",
     "api_service",
     "dashboard",
+    "dataiku_application",
     "insight",
     "retrieval_augmented_llm",
     "saved_model",
     "web_application",
-    "dataiku_application",
 )
 
 _CONSUMPTION_PRODUCT_OBJECT_TYPES_SQL = ",".join(f"'{t}'" for t in _CONSUMPTION_PRODUCT_OBJECT_TYPES)
@@ -3411,6 +3416,99 @@ def _build_like_clause(column: str, value: str | None, params: list[Any]) -> str
     return f" AND {column} ILIKE ?"
 
 
+def _consumption_product_types_filter_sql(column_sql: str) -> str:
+    return f"{column_sql} IN ({_CONSUMPTION_PRODUCT_OBJECT_TYPES_SQL})"
+
+
+def _consumption_product_catalog_cte_sql(alias: str = "catalog") -> str:
+    product_type_filter_sql = _consumption_product_types_filter_sql("product_type")
+    sql = f"""
+{alias} AS (
+  SELECT
+    product_id,
+    instance_name,
+    project_key,
+    product_type,
+    product_key,
+    product_name,
+    owner_login,
+    product_subtype,
+    created_at,
+    updated_at
+  FROM final_build_products_catalog
+  WHERE {product_type_filter_sql}
+    AND product_key IS NOT NULL
+)
+    """.strip()  # nosec B608 - interpolated fragments come from fixed internal allowlists; request values remain parameterized
+    return sql
+
+
+def _consumption_product_matched_events_cte_sql(
+    event_filters_sql: str,
+    catalog_alias: str = "catalog",
+    events_alias: str = "matched_events",
+    event_source_alias: str = "e",
+) -> str:
+    object_type_filter_sql = _consumption_product_types_filter_sql(f"{event_source_alias}.object_type")
+    sql = f"""
+catalog_exact_keys AS (
+  SELECT DISTINCT instance_name, project_key, product_type, product_key FROM {catalog_alias}
+),
+catalog_fallback_keys AS (
+  SELECT
+    instance_name,
+    product_type,
+    product_key,
+    MIN(product_id) AS product_id,
+    COUNT(*) AS candidate_count
+  FROM {catalog_alias}
+  GROUP BY 1,2,3
+),
+{events_alias} AS (
+  SELECT
+    {event_source_alias}.*,
+    COALESCE(exact.product_id, fallback.product_id) AS matched_product_id
+  FROM v_object_activity_events {event_source_alias}
+  LEFT JOIN {catalog_alias} exact
+    ON exact.instance_name = {event_source_alias}.instance_name
+   AND exact.project_key IS NOT DISTINCT FROM {event_source_alias}.project_key
+   AND exact.product_type = {event_source_alias}.object_type
+   AND exact.product_key = {event_source_alias}.object_key
+  LEFT JOIN catalog_fallback_keys fallback
+    ON fallback.instance_name = {event_source_alias}.instance_name
+   AND fallback.product_type = {event_source_alias}.object_type
+   AND fallback.product_key = {event_source_alias}.object_key
+   AND fallback.candidate_count = 1
+   AND exact.product_id IS NULL
+  WHERE {event_filters_sql}
+    AND {object_type_filter_sql}
+    AND {event_source_alias}.object_key IS NOT NULL
+)
+    """.strip()  # nosec B608 - interpolated fragments come from internal matcher helpers; request values remain parameterized
+    return sql
+
+
+def _consumption_product_matching_ctes_sql(event_filters_sql: str, catalog_alias: str = "catalog", events_alias: str = "matched_events", event_source_alias: str = "e") -> str:
+    return ",\n".join([
+        _consumption_product_catalog_cte_sql(catalog_alias),
+        _consumption_product_matched_events_cte_sql(event_filters_sql, catalog_alias=catalog_alias, events_alias=events_alias, event_source_alias=event_source_alias),
+    ])
+
+
+def _consumption_product_search_filter_sql(params: list[Any], q: str | None, owner: str | None, alias: str = "catalog") -> str:
+    clauses: list[str] = []
+    if owner and owner.strip():
+        params.append(f"%{owner.strip()}%")
+        clauses.append(f"{alias}.owner_login ILIKE ?")
+    if q and q.strip():
+        qq = f"%{q.strip()}%"
+        params.extend([qq, qq])
+        clauses.append(f"({alias}.product_name ILIKE ? OR {alias}.product_key ILIKE ?)")
+    if not clauses:
+        return ""
+    return " AND " + " AND ".join(clauses)
+
+
 @bp.route("/api/consumption/products/facets")
 def consumption_products_facets():
     """Facets for consumption filters."""
@@ -3420,46 +3518,27 @@ def consumption_products_facets():
         _ensure_ready_if_enabled()
         _ensure_consumption_products_views(_create_connection)
 
-        quoted_types = ", ".join("'" + t.replace("'", "''") + "'" for t in _CONSUMPTION_PRODUCT_OBJECT_TYPES)
+        def _facet_values(column: str) -> list[str]:
+            product_type_filter_sql = _consumption_product_types_filter_sql("product_type")
+            sql = f"""
+SELECT DISTINCT trim(CAST({column} AS VARCHAR)) AS value
+FROM final_build_products_catalog
+WHERE {product_type_filter_sql}
+  AND {column} IS NOT NULL
+  AND length(trim(CAST({column} AS VARCHAR))) > 0
+ORDER BY 1;
+            """.strip()  # nosec B608 - interpolated column comes from a fixed local allowlist in this function
+            df = _query_df(sql)
+            return [str(row.get("value") or "") for row in _df_records(df) if str(row.get("value") or "").strip()]
 
-        instances = (
-                _query_df(
-                    f"SELECT DISTINCT instance_name FROM v_object_activity_events WHERE object_type IN ({quoted_types}) ORDER BY 1;"  # nosec B608 (quoted_types from allowlist)
-                )["instance_name"]
-
-            .dropna()
-            .astype(str)
-            .tolist()
+        return _ok(
+            {
+                "instances": _facet_values("instance_name"),
+                "projects": _facet_values("project_key"),
+                "types": _facet_values("product_type"),
+                "owners": _facet_values("owner_login"),
+            }
         )
-
-        projects = (
-                _query_df(
-                    f"SELECT DISTINCT project_key FROM v_object_activity_events WHERE object_type IN ({quoted_types}) ORDER BY 1;"  # nosec B608 (quoted_types from allowlist)
-                )["project_key"]
-
-            .dropna()
-            .astype(str)
-            .tolist()
-        )
-
-        types = (
-                _query_df(
-                    f"SELECT DISTINCT object_type FROM v_object_activity_events WHERE object_type IN ({quoted_types}) ORDER BY 1;"  # nosec B608 (quoted_types from allowlist)
-                )["object_type"]
-
-            .dropna()
-            .astype(str)
-            .tolist()
-        )
-
-        owners = (
-            _query_df("SELECT DISTINCT owner_login FROM base_product_index ORDER BY 1;")["owner_login"]
-            .dropna()
-            .astype(str)
-            .tolist()
-        )
-
-        return _ok({"instances": instances, "projects": projects, "types": types, "owners": owners})
 
     except Exception as e:
         logger.exception("consumption products facets failed")
@@ -3503,61 +3582,49 @@ def consumption_products_details():
             return _err("Product not found", status=404)
 
         row = _df_records(row_df)[0]
-        instance_name = str(row.get("instanceName") or "")
-        project_key = str(row.get("projectKey") or "")
-        product_type = str(row.get("productType") or "")
-        product_key = str(row.get("productKey") or "")
-
-        params: list[Any] = [days, instance_name, project_key, product_type, product_key]
-        where = (
-            "timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY"
-            " AND instance_name = ?"
-            " AND project_key = ?"
-            " AND object_type = ?"
-            " AND object_key = ?"
+        matching_ctes_sql = _consumption_product_matching_ctes_sql(
+            "e.timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY"
         )
+        params: list[Any] = [days, product_id]
 
-        totals_df = _query_df(
-            (
-                "SELECT\n"
-                "  COUNT(*) AS events,\n"
-                "  COUNT(DISTINCT login) AS active_users,\n"
-                "  MAX(timestamp) AS last_activity_at,\n"
-                "  CASE WHEN COUNT(*) >= 5 THEN 1 ELSE 0 END AS repeat_use_status,\n"
-                "  CASE WHEN COUNT(DISTINCT login) >= 2 THEN 1 ELSE 0 END AS collaborative_status\n"
-                "FROM v_object_activity_events\n"
-                f"WHERE {where};"  # nosec B608 (where uses placeholders)
-            ),
-            params,
-        )
+        details_totals_sql = f"""
+WITH {matching_ctes_sql}
+SELECT
+  COUNT(*) AS events,
+  COUNT(DISTINCT login) AS active_users,
+  MAX(timestamp) AS last_activity_at,
+  CASE WHEN COUNT(*) >= 5 THEN 1 ELSE 0 END AS repeat_use_status,
+  CASE WHEN COUNT(DISTINCT login) >= 2 THEN 1 ELSE 0 END AS collaborative_status
+FROM matched_events
+WHERE matched_product_id = ?;
+        """.strip()  # nosec B608 - interpolated matcher CTE is generated by internal helpers; request values remain parameterized
+        totals_df = _query_df(details_totals_sql, params)
         totals = _df_records(totals_df)[0] if len(totals_df.index) else {}
 
-        daily_df = _query_df(
-            (
-                "SELECT\n"
-                "  CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,\n"
-                "  COUNT(*) AS value\n"
-                "FROM v_object_activity_events\n"
-                f"WHERE {where}\n"  # nosec B608 (where uses placeholders)
-                "GROUP BY 1\n"
-                "ORDER BY 1;"
-            ),
-            params,
-        )
+        details_daily_sql = f"""
+WITH {matching_ctes_sql}
+SELECT
+  CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,
+  COUNT(*) AS value
+FROM matched_events
+WHERE matched_product_id = ?
+GROUP BY 1
+ORDER BY 1;
+        """.strip()  # nosec B608 - interpolated matcher CTE is generated by internal helpers; request values remain parameterized
+        daily_df = _query_df(details_daily_sql, params)
 
-        top_users_df = _query_df(
-            (
-                "SELECT\n"
-                "  login AS label,\n"
-                "  COUNT(*) AS value\n"
-                "FROM v_object_activity_events\n"
-                f"WHERE {where}\n"  # nosec B608 (where uses placeholders)
-                "GROUP BY 1\n"
-                "ORDER BY value DESC\n"
-                "LIMIT 25;"
-            ),
-            params,
-        )
+        top_users_sql = f"""
+WITH {matching_ctes_sql}
+SELECT
+  login AS label,
+  COUNT(*) AS value
+FROM matched_events
+WHERE matched_product_id = ?
+GROUP BY 1
+ORDER BY value DESC
+LIMIT 25;
+        """.strip()  # nosec B608 - interpolated matcher CTE is generated by internal helpers; request values remain parameterized
+        top_users_df = _query_df(top_users_sql, params)
 
         activity_daily_rows = []
         for r in _df_records(daily_df):
@@ -3652,7 +3719,6 @@ def consumption_products_summary():
 
         where = " WHERE timestamp >= now() - (?::INTEGER) * INTERVAL 1 DAY"
 
-        # Limit to product object types by default.
         if types:
             where += _build_in_clause("object_type", types, params)
         else:
@@ -3662,27 +3728,29 @@ def consumption_products_summary():
         where += " AND object_key IS NOT NULL"
         where += _build_in_clause("instance_name", instances, params)
         where += _build_in_clause("project_key", projects, params)
+        matching_ctes_sql = _consumption_product_matching_ctes_sql(where[len(' WHERE '):])
 
-        # Use base_product_index to filter by owner and query string.
-        # This avoids scanning raw event details_json.
+        # Use the catalog to filter by owner and query string so the filter space
+        # stays aligned with supported product types.
         idx_filters = " WHERE 1=1"
         idx_params: list[Any] = []
         idx_filters += _build_like_clause("owner_login", owner, idx_params)
         if q:
-            idx_filters += _build_like_clause("product_name", q, idx_params)
-            # Also match product_key.
-            idx_filters += _build_like_clause("product_key", q, idx_params)
+            qq = f"%{q.strip()}%"
+            idx_filters += " AND (product_name ILIKE ? OR product_key ILIKE ?)"
+            idx_params.extend([qq, qq])
 
         idx_df = None
         idx_pairs: set[tuple[str, str, str, str]] | None = None
         if idx_filters != " WHERE 1=1":
-            idx_df = _query_df(
-                (
-                    "SELECT instance_name, project_key, product_type, product_key "
-                    "FROM base_product_index" + idx_filters + ";"  # nosec B608 (idx_filters is built from parameterized clauses)
-                ),
-                idx_params,
-            )
+            product_type_filter_sql = _consumption_product_types_filter_sql("product_type")
+            idx_catalog_filters_sql = idx_filters.replace(" WHERE 1=1", " AND 1=1")
+            idx_catalog_sql = f"""
+SELECT instance_name, project_key, product_type, product_key
+FROM final_build_products_catalog
+WHERE {product_type_filter_sql}{idx_catalog_filters_sql};
+            """.strip()  # nosec B608 - interpolated filters come from internal parameterized builders; request values remain parameterized
+            idx_df = _query_df(idx_catalog_sql, idx_params)
             idx_pairs = set(
                 (
                     str(r.get("instance_name") or ""),
@@ -3706,19 +3774,18 @@ def consumption_products_summary():
 
         idx_where_sql, idx_where_params = _apply_idx_pairs_sql("e")
 
-        totals_df = _query_df(
-            (
-                "SELECT\n"  # nosec B608 (where/idx_where_sql use placeholders)
-                "  COUNT(*) AS events,\n"
-                "  COUNT(DISTINCT login) AS active_users,\n"
-                "  COUNT(DISTINCT concat_ws('|', instance_name, project_key, object_type, object_key)) AS active_products\n"
-                "FROM v_object_activity_events e\n"
-                + where
-                + idx_where_sql
-                + ";"
-            ),
-            [*params, *idx_where_params],
-        )
+        totals_filter_sql = idx_where_sql.replace("object_type", "e.object_type").replace("object_key", "e.object_key").replace(
+            "instance_name", "e.instance_name"
+        ).replace("project_key", "e.project_key")
+        totals_sql = f"""
+WITH {matching_ctes_sql}
+SELECT
+  COUNT(*) AS events,
+  COUNT(DISTINCT login) AS active_users,
+  COUNT(DISTINCT matched_product_id) FILTER (WHERE matched_product_id IS NOT NULL) AS active_products
+FROM matched_events e{totals_filter_sql};
+        """.strip()  # nosec B608 - interpolated matcher/filter fragments are internal SQL builders; request values remain parameterized
+        totals_df = _query_df(totals_sql, [*params, *idx_where_params])
         totals = _df_records(totals_df)[0] if len(totals_df.index) else {}
 
         totals_detail_sql = "".join(
@@ -3850,174 +3917,128 @@ def consumption_products_summary():
 
         lifecycle = {}
 
-        by_type_df = _query_df(
-            (
-                "WITH product_stats AS (\n"
-                "  SELECT\n"
-                "    e.object_type AS product_type,\n"
-                "    e.instance_name,\n"
-                "    e.project_key,\n"
-                "    e.object_key AS product_key,\n"
-                "    COUNT(*) AS events,\n"
-                "    COUNT(DISTINCT e.login) AS active_users\n"
-                "  FROM v_object_activity_events e\n"  # nosec B608 (where/idx_where_sql use placeholders)
-                + where
-                + idx_where_sql
-                + "\n  GROUP BY 1,2,3,4\n"
-                "),\n"
-                "type_rollup AS (\n"
-                "  SELECT\n"
-                "    product_type AS label,\n"
-                "    SUM(events) AS events,\n"
-                "    COUNT(DISTINCT product_key) AS active_products,\n"
-                "    COUNT(*) FILTER (WHERE active_users >= 2 AND events >= 5) AS adoption_count,\n"
-                "    AVG(active_users) AS avg_users_per_product,\n"
-                "    MAX(active_users) AS max_users_on_product\n"
-                "  FROM product_stats\n"
-                "  GROUP BY 1\n"
-                "),\n"
-                "type_user_rollup AS (\n"
-                "  SELECT\n"
-                "    e.object_type AS label,\n"
-                "    COUNT(DISTINCT e.login) AS active_users\n"
-                "  FROM v_object_activity_events e\n"  # nosec B608 (where/idx_where_sql use placeholders)
-                + where
-                + idx_where_sql
-                + "\n  GROUP BY 1\n"
-                "),\n"
-                "type_maturity AS (\n"
-                "  SELECT\n"
-                "    product_type AS label,\n"
-                "    AVG(maturity_score) AS avg_maturity_score,\n"
-                "    MAX(maturity_score) AS max_maturity_score\n"
-                "  FROM (\n"
-                "    SELECT\n"
-                "      product_type,\n"
-                "      25.0 * (\n"
-                "        LEAST(active_users / 5.0, 1.0) +\n"
-                "        CASE WHEN events >= 5 THEN 1.0 ELSE events / 5.0 END +\n"
-                "        CASE WHEN active_users >= 2 THEN 1.0 ELSE active_users / 2.0 END +\n"
-                "        CASE\n"
-                "          WHEN events <= 0 THEN 0.0\n"
-                "          ELSE GREATEST(0.0, 1.0 - (events / GREATEST(events, 10.0)))\n"
-                "        END\n"
-                "      ) AS maturity_score\n"
-                "    FROM product_stats\n"
-                "  ) scored\n"
-                "  GROUP BY 1\n"
-                ")\n"
-                "SELECT\n"
-                "  tr.label,\n"
-                "  tr.events,\n"
-                "  COALESCE(tur.active_users, 0) AS active_users,\n"
-                "  tr.active_products,\n"
-                "  tr.avg_users_per_product,\n"
-                "  tr.max_users_on_product,\n"
-                "  COALESCE(tm.avg_maturity_score, 0) AS avg_maturity_score,\n"
-                "  COALESCE(tm.max_maturity_score, 0) AS max_maturity_score,\n"
-                "  tr.adoption_count\n"
-                "FROM type_rollup tr\n"
-                "LEFT JOIN type_user_rollup tur ON tur.label = tr.label\n"
-                "LEFT JOIN type_maturity tm ON tm.label = tr.label\n"
-                "ORDER BY tr.events DESC;"  # nosec B608 (where/idx_where_sql use placeholders)
-            ),
-            [*params, *idx_where_params, *params, *idx_where_params],
-        )
+        by_type_filter_sql = idx_where_sql.replace("object_type", "e.object_type").replace("object_key", "e.object_key").replace(
+            "instance_name", "e.instance_name"
+        ).replace("project_key", "e.project_key")
+        by_type_sql = f"""
+WITH {matching_ctes_sql},
+product_stats AS (
+  SELECT
+    e.object_type AS product_type,
+    e.matched_product_id AS product_id,
+    COUNT(*) AS events,
+    COUNT(DISTINCT e.login) AS active_users
+  FROM matched_events e
+  WHERE 1=1{by_type_filter_sql}
+    AND e.matched_product_id IS NOT NULL
+  GROUP BY 1,2
+),
+type_rollup AS (
+  SELECT
+    product_type AS label,
+    SUM(events) AS events,
+    COUNT(DISTINCT product_id) AS active_products,
+    COUNT(*) FILTER (WHERE active_users >= 2 AND events >= 5) AS adoption_count,
+    AVG(active_users) AS avg_users_per_product,
+    MAX(active_users) AS max_users_on_product
+  FROM product_stats
+  GROUP BY 1
+),
+type_user_rollup AS (
+  SELECT
+    e.object_type AS label,
+    COUNT(DISTINCT e.login) AS active_users
+  FROM matched_events e
+  WHERE 1=1{by_type_filter_sql}
+    AND e.matched_product_id IS NOT NULL
+  GROUP BY 1
+),
+type_maturity AS (
+  SELECT
+    product_type AS label,
+    AVG(maturity_score) AS avg_maturity_score,
+    MAX(maturity_score) AS max_maturity_score
+  FROM (
+    SELECT
+      product_type,
+      25.0 * (
+        LEAST(active_users / 5.0, 1.0) +
+        CASE WHEN events >= 5 THEN 1.0 ELSE events / 5.0 END +
+        CASE WHEN active_users >= 2 THEN 1.0 ELSE active_users / 2.0 END +
+        CASE
+          WHEN events <= 0 THEN 0.0
+          ELSE GREATEST(0.0, 1.0 - (events / GREATEST(events, 10.0)))
+        END
+      ) AS maturity_score
+    FROM product_stats
+  ) scored
+  GROUP BY 1
+)
+SELECT
+  tr.label,
+  tr.events,
+  COALESCE(tur.active_users, 0) AS active_users,
+  tr.active_products,
+  tr.avg_users_per_product,
+  tr.max_users_on_product,
+  COALESCE(tm.avg_maturity_score, 0) AS avg_maturity_score,
+  COALESCE(tm.max_maturity_score, 0) AS max_maturity_score,
+  tr.adoption_count
+FROM type_rollup tr
+LEFT JOIN type_user_rollup tur ON tur.label = tr.label
+LEFT JOIN type_maturity tm ON tm.label = tr.label
+ORDER BY tr.events DESC;
+        """.strip()  # nosec B608 - interpolated matcher/filter fragments are internal SQL builders; request values remain parameterized
+        by_type_df = _query_df(by_type_sql, [*params, *idx_where_params])
 
-        activity_daily_df = _query_df(
-            (
-                "SELECT\n"  # nosec B608 (where/idx_where_sql use placeholders)
-                "  CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,\n"
-                "  COUNT(*) AS value\n"
-                "FROM v_object_activity_events e\n"
-                + where
-                + idx_where_sql
-                + "\nGROUP BY 1\n"
-                "ORDER BY 1;"
-            ),
-            [*params, *idx_where_params],
+        activity_daily_sql = (
+            "SELECT\n"  # nosec B608 (where/idx_where_sql use placeholders)
+            "  CAST(CAST(date_trunc('day', timestamp) AS DATE) AS VARCHAR) AS label,\n"
+            "  COUNT(*) AS value\n"
+            "FROM v_object_activity_events e\n"
+            + where
+            + idx_where_sql
+            + "\nGROUP BY 1\n"
+            "ORDER BY 1;"
         )
+        activity_daily_params = [*params]
+        if idx_where_sql:
+            activity_daily_params.extend(idx_where_params)
+        activity_daily_df = _query_df(activity_daily_sql, activity_daily_params)
 
-        top_products_df = _query_df(
-            (
-                "WITH act AS (\n"
-                "  SELECT\n"
-                "    instance_name,\n"
-                "    project_key,\n"
-                "    object_type AS product_type,\n"
-                "    object_key AS product_key,\n"
-                "    COUNT(*) AS events,\n"
-                "    COUNT(DISTINCT login) AS active_users,\n"
-                "    MAX(timestamp) AS last_activity_at\n"
-                "  FROM v_object_activity_events e\n"  # nosec B608 (where/idx_where_sql use placeholders)
-                + where
-                + idx_where_sql
-                + "\n  GROUP BY 1,2,3,4\n"
-                "),\n"
-                "idx AS (\n"
-                "  SELECT\n"
-                "    instance_name,\n"
-                "    project_key,\n"
-                "    product_type,\n"
-                "    product_key,\n"
-                "    product_name,\n"
-                "    owner_login,\n"
-                "    ROW_NUMBER() OVER (\n"
-                "      PARTITION BY project_key, product_type, product_key\n"
-                "      ORDER BY instance_name ASC\n"
-                "    ) AS match_rank\n"
-                "  FROM base_product_index\n"
-                "),\n"
-                "catalog AS (\n"
-                "  SELECT\n"
-                "    instance_name,\n"
-                "    project_key,\n"
-                "    product_type,\n"
-                "    product_key,\n"
-                "    product_name,\n"
-                "    ROW_NUMBER() OVER (\n"
-                "      PARTITION BY project_key, product_type, product_key\n"
-                "      ORDER BY activity_30d DESC NULLS LAST, active_users_30d DESC NULLS LAST, instance_name ASC\n"
-                "    ) AS match_rank\n"
-                "  FROM final_build_products_catalog\n"
-                ")\n"
-                "SELECT\n"  # nosec B608 (where/idx_where_sql use placeholders)
-                "  md5(concat_ws('|', act.instance_name, act.project_key, act.product_type, act.product_key)) AS productId,\n"
-                "  act.instance_name AS instanceName,\n"
-                "  act.project_key AS projectKey,\n"
-                "  act.product_type AS productType,\n"
-                "  act.product_key AS productKey,\n"
-                f"  COALESCE({_high_signal_product_name_sql('idx_exact.product_name')}, {_high_signal_product_name_sql('catalog_exact.product_name')}, {_high_signal_product_name_sql('idx_any.product_name')}, {_high_signal_product_name_sql('catalog_any.product_name')}, {_non_empty_value_sql('idx_exact.product_name')}, {_non_empty_value_sql('catalog_exact.product_name')}, {_non_empty_value_sql('idx_any.product_name')}, {_non_empty_value_sql('catalog_any.product_name')}, act.product_key) AS productName,\n"
-                f"  COALESCE({_non_empty_value_sql('idx_exact.owner_login')}, {_non_empty_value_sql('idx_any.owner_login')}) AS ownerLogin,\n"
-                "  act.events AS events,\n"
-                "  act.active_users AS activeUsers,\n"
-                "  act.last_activity_at AS lastActivityAt\n"
-                "FROM act\n"
-                "LEFT JOIN idx idx_exact\n"
-                "  ON idx_exact.instance_name = act.instance_name\n"
-                " AND idx_exact.project_key = act.project_key\n"
-                " AND idx_exact.product_type = act.product_type\n"
-                " AND idx_exact.product_key = act.product_key\n"
-                "LEFT JOIN catalog catalog_exact\n"
-                "  ON catalog_exact.instance_name = act.instance_name\n"
-                " AND catalog_exact.project_key = act.project_key\n"
-                " AND catalog_exact.product_type = act.product_type\n"
-                " AND catalog_exact.product_key = act.product_key\n"
-                "LEFT JOIN idx idx_any\n"
-                "  ON idx_any.project_key = act.project_key\n"
-                " AND idx_any.product_type = act.product_type\n"
-                " AND idx_any.product_key = act.product_key\n"
-                " AND idx_any.match_rank = 1\n"
-                "LEFT JOIN catalog catalog_any\n"
-                "  ON catalog_any.project_key = act.project_key\n"
-                " AND catalog_any.product_type = act.product_type\n"
-                " AND catalog_any.product_key = act.product_key\n"
-                " AND catalog_any.match_rank = 1\n"
-                "ORDER BY events DESC NULLS LAST, lastActivityAt DESC NULLS LAST\n"
-                "LIMIT 50;"
-            ),
-            [*params, *idx_where_params],
-        )
+        top_products_filter_sql = idx_where_sql.replace("object_type", "e.object_type").replace(
+            "object_key", "e.object_key"
+        ).replace("instance_name", "e.instance_name").replace("project_key", "e.project_key")
+        top_products_sql = f"""
+WITH {matching_ctes_sql},
+act AS (
+  SELECT
+    e.matched_product_id AS product_id,
+    COUNT(*) AS events,
+    COUNT(DISTINCT e.login) AS active_users,
+    MAX(e.timestamp) AS last_activity_at
+  FROM matched_events e
+  WHERE 1=1{top_products_filter_sql}
+    AND e.matched_product_id IS NOT NULL
+  GROUP BY 1
+)
+SELECT
+  c.product_id AS productId,
+  c.instance_name AS instanceName,
+  c.project_key AS projectKey,
+  c.product_type AS productType,
+  c.product_key AS productKey,
+  COALESCE({_high_signal_product_name_sql('c.product_name')}, {_non_empty_value_sql('c.product_name')}, c.product_key) AS productName,
+  {_non_empty_value_sql('c.owner_login')} AS ownerLogin,
+  act.events AS events,
+  act.active_users AS activeUsers,
+  act.last_activity_at AS lastActivityAt
+FROM act
+INNER JOIN final_build_products_catalog c ON c.product_id = act.product_id
+ORDER BY act.events DESC NULLS LAST, act.last_activity_at DESC NULLS LAST
+LIMIT 50;
+        """.strip()  # nosec B608 - interpolated fragments are trusted internal SQL helpers; request values remain parameterized
+        top_products_df = _query_df(top_products_sql, [*params, *idx_where_params])
 
         activity_daily_rows = []
         for row in _df_records(activity_daily_df):
