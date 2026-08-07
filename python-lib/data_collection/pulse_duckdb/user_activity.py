@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import duckdb
 
-from data_collection.views import create_silver_view
+from data_collection.pulse_duckdb.views import create_silver_view
 
 
 def build_fact_user_activity_daily(

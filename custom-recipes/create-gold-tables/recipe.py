@@ -5,7 +5,12 @@ from pathlib import Path
 from data_collection.helper import ensure_managed_folder
 from data_collection.pulse_duckdb.context import build_storage_context
 from data_collection.pulse_duckdb.destinations import gold_destination_for_table
-from data_collection.pulse_duckdb.dev_activity import load_dev_toolbox_modules
+from data_collection.pulse_duckdb.dev_activity import (
+    build_dim_category_to_capability,
+    build_dim_dev_activity_event_classification,
+    build_fact_dev_activity_events,
+    load_dev_toolbox_modules,
+)
 from data_collection.pulse_duckdb.diagnostics import log_pre_unload_debug
 from data_collection.pulse_duckdb.dimensions import build_dim_addon_feature_flags
 from data_collection.pulse_duckdb.duckdb_manager import prepare_duckdb
@@ -23,7 +28,7 @@ from data_collection.pulse_duckdb.products_registry import build_base_dataiku_pr
 from data_collection.pulse_duckdb.table_groups import group_gold_tables_by_prefix
 from data_collection.pulse_duckdb.table_inventory import list_table_names
 from data_collection.pulse_duckdb.user_activity import build_fact_formal_mau_daily, build_fact_user_activity_daily, build_fact_user_activity_project_daily, collect_user_activity_quality_report
-from data_collection.views import create_silver_view
+from data_collection.pulse_duckdb.views import create_silver_view
 from data_finalize import resolve_gold_folder_lookup
 from dataiku.customrecipe import get_recipe_config
 
@@ -86,6 +91,16 @@ def run():
     built_dimensions = []
     if "base_license_addon_licenses_latest" in current_tables:
         built_dimensions.append(build_dim_addon_feature_flags(setup.conn))
+
+    built_dev_activity = []
+    if build_dev_activity:
+        built_dev_activity.extend([
+            build_dim_category_to_capability(setup.conn, base_dir=base_dir),
+            build_dim_dev_activity_event_classification(setup.conn, base_dir=base_dir),
+        ])
+        dev_activity_name = build_fact_dev_activity_events(setup.conn, ctx=silver_ctx, base_dir=base_dir)
+        if dev_activity_name:
+            built_dev_activity.append(dev_activity_name)
 
     built_user_activity = [
         name
@@ -169,7 +184,7 @@ def run():
         unload_behavior=unload_behavior,
     )
 
-    if manifest_enabled:
+    if manifest_enabled and not failed_tables:
         stamp_manifest_updated_at(manifest)
         write_manifest(gold_folder_lookup, manifest)
 
@@ -189,6 +204,7 @@ def run():
         "gold_specs_dir": str(base_dir),
         "built_specs": built_specs,
         "built_dimensions": built_dimensions,
+        "built_dev_activity": built_dev_activity,
         "built_user_activity": built_user_activity,
         "user_activity_quality": user_activity_quality,
         "built_object_activity": built_object_activity,
