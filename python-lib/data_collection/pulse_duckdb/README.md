@@ -21,7 +21,7 @@ The nightly GOLD recipe executes these specs and produces `base_*`, `dim_*`, and
 
 Implemented first slice (Scenarios):
 
-- `base_scenarios_metadata_history`
+- `base_scenarios_metadata`
 - `base_scenarios_metadata_latest`
 
 ## Key APIs

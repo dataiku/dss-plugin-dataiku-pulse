@@ -154,16 +154,16 @@ def _extract_description_from_extras(extras: str | None) -> str | None:
 # and their primary key column name.
 _OBJECT_EXTRAS_SOURCES: dict[str, dict[str, str | bool]] = {
     # Build → Assets
-    "project": {"table": "base_projects_instance_metadata_history", "key_col": "project_key", "project_scoped": False},
-    "dataset": {"table": "base_datasets_project_metadata_history", "key_col": "datasets_name", "project_scoped": True},
-    "recipe": {"table": "base_recipes_project_metadata_history", "key_col": "recipes_name", "project_scoped": True},
-    "scenario": {"table": "base_scenarios_project_metadata_history", "key_col": "scenarios_id", "project_scoped": True},
+    "project": {"table": "base_projects_instance_metadata", "key_col": "project_key", "project_scoped": False},
+    "dataset": {"table": "base_datasets_project_metadata", "key_col": "datasets_name", "project_scoped": True},
+    "recipe": {"table": "base_recipes_project_metadata", "key_col": "recipes_name", "project_scoped": True},
+    "scenario": {"table": "base_scenarios_project_metadata", "key_col": "scenarios_id", "project_scoped": True},
     # Build → Products
-    "api_service": {"table": "base_api_services_project_metadata_history", "key_col": "api_services_id", "project_scoped": True},
-    "agent_tool": {"table": "base_agent_tools_project_metadata_history", "key_col": "agent_tools_id", "project_scoped": True},
-    "insight": {"table": "base_insights_project_metadata_history", "key_col": "insights_id", "project_scoped": True},
-    "web_application": {"table": "base_webapps_project_metadata_history", "key_col": "webapps_id", "project_scoped": True},
-    "dataiku_application": {"table": "base_apps_instance_metadata_history", "key_col": "apps_appid", "project_scoped": False},
+    "api_service": {"table": "base_api_services_project_metadata", "key_col": "api_services_id", "project_scoped": True},
+    "agent_tool": {"table": "base_agent_tools_project_metadata", "key_col": "agent_tools_id", "project_scoped": True},
+    "insight": {"table": "base_insights_project_metadata", "key_col": "insights_id", "project_scoped": True},
+    "web_application": {"table": "base_webapps_project_metadata", "key_col": "webapps_id", "project_scoped": True},
+    "dataiku_application": {"table": "base_apps_instance_metadata", "key_col": "apps_appid", "project_scoped": False},
 }
 
 
@@ -1361,7 +1361,7 @@ def build_user_detail(login: str):
             "                partition_date DESC NULLS LAST,",
             "                users_lastsessionactivity DESC NULLS LAST",
             "        ) AS rn",
-            "    FROM base_users_instance_metadata_history",
+            "    FROM base_users_instance_metadata",
             "    WHERE lower(trim(users_login)) = lower(trim(?))",
             f"    {optional_instance_filter}" if optional_instance_filter else "",
             ")",

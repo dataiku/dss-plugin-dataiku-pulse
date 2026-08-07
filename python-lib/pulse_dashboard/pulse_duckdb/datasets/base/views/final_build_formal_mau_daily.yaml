@@ -8,7 +8,7 @@ final_build_formal_mau_daily:
   depends_on:
     - fact_formal_mau_daily
     - fact_user_activity_daily
-    - base_users_instance_metadata_history
+    - base_users_instance_metadata
   build_order: 1115
   sql: |
     CREATE OR REPLACE VIEW "final_build_formal_mau_daily" AS
@@ -23,7 +23,7 @@ final_build_formal_mau_daily:
           PARTITION BY instance_name, lower(trim(users_login))
           ORDER BY run_ts DESC
         ) AS rn
-      FROM base_users_instance_metadata_history
+      FROM base_users_instance_metadata
       WHERE users_login IS NOT NULL
         AND length(trim(users_login)) > 0
     )

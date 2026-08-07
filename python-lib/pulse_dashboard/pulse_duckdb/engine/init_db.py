@@ -258,7 +258,7 @@ def _maybe_create_inventory_views(conn) -> None:
     _replace_view_from_query(
         conn,
         view_name="base_projects_metadata",
-        source_table="base_projects_instance_metadata_history",
+        source_table="base_projects_instance_metadata",
         select_sql="""
         SELECT
           instance_name,
@@ -274,14 +274,14 @@ def _maybe_create_inventory_views(conn) -> None:
           projects_projectapptype AS project_app_type,
           projects_tutorialproject AS tutorial_project,
           projects_commitmode AS commit_mode
-        FROM base_projects_instance_metadata_history
+        FROM base_projects_instance_metadata
         """.strip(),
     )
 
     _replace_view_from_query(
         conn,
         view_name="base_datasets_metadata",
-        source_table="base_datasets_project_metadata_history",
+        source_table="base_datasets_project_metadata",
         select_sql="""
         SELECT
           instance_name,
@@ -296,14 +296,14 @@ def _maybe_create_inventory_views(conn) -> None:
           datasets_smartname AS dataset_smart_name,
           CAST(NULL AS VARCHAR) AS dataset_subtype,
           datasets_featuregroup AS is_feature_group
-        FROM base_datasets_project_metadata_history
+        FROM base_datasets_project_metadata
         """.strip(),
     )
 
     _replace_view_from_query(
         conn,
         view_name="base_recipes_metadata",
-        source_table="base_recipes_project_metadata_history",
+        source_table="base_recipes_project_metadata",
         select_sql="""
         SELECT
           instance_name,
@@ -316,14 +316,14 @@ def _maybe_create_inventory_views(conn) -> None:
           recipes_params_enginetype AS engine_type,
           recipes_params_enginelabel AS engine_label,
           recipes_params_enginerecommended AS engine_recommended
-        FROM base_recipes_project_metadata_history
+        FROM base_recipes_project_metadata
         """.strip(),
     )
 
     _replace_view_from_query(
         conn,
         view_name="base_scenarios_metadata",
-        source_table="base_scenarios_project_metadata_history",
+        source_table="base_scenarios_project_metadata",
         select_sql="""
         SELECT
           instance_name,
@@ -338,7 +338,7 @@ def _maybe_create_inventory_views(conn) -> None:
           try_cast(scenarios_nextrun AS TIMESTAMP) AS scenario_next_run,
           try_cast(scenarios_start AS TIMESTAMP) AS scenario_last_run_start,
           scenarios_running AS scenario_running
-        FROM base_scenarios_project_metadata_history
+        FROM base_scenarios_project_metadata
         """.strip(),
     )
 

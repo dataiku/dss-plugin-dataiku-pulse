@@ -31,7 +31,7 @@ base_agent_tools_metadata:
           PARTITION BY instance_name, project_key, agent_tools_id
           ORDER BY try_cast(run_ts AS TIMESTAMP) DESC NULLS LAST, partition_date DESC NULLS LAST
         ) AS rn
-      FROM base_agent_tools_project_metadata_history
+      FROM base_agent_tools_project_metadata
     )
     SELECT
       instance_name,

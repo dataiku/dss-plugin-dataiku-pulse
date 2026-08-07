@@ -21,7 +21,7 @@ base_dataiku_applications_metadata:
           PARTITION BY instance_name, apps_appid
           ORDER BY try_cast(run_ts AS TIMESTAMP) DESC NULLS LAST, partition_date DESC NULLS LAST
         ) AS rn
-      FROM base_apps_instance_metadata_history
+      FROM base_apps_instance_metadata
       WHERE apps_originprojectkey IS NOT NULL
     )
     SELECT

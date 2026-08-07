@@ -1552,7 +1552,7 @@ def run() -> dict:
             return result
 
         for spec_path in spec_paths:
-            if spec_path.name == "base_license_limits_wide_latest.yaml":
+            if spec_path.name == "dim_license_limits_wide_latest.yaml":
                 if not _has_required_tables(
                     setup.conn,
                     ["base_license_status_latest", "base_license_max_licenses_latest"],

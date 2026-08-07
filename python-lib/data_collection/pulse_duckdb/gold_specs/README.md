@@ -15,7 +15,7 @@ These prefixes are a contract. They drive how we unload to the `gold_data` manag
 - `base_*`
   - “One-off” curated tables materialized directly from SILVER for convenience.
   - Typically unloaded as a single parquet file:
-    - `gold/base_scenarios_project_metadata_history.parquet`
+    - `gold/base_scenarios_project_metadata.parquet`
 
 - `reg_*`
   - Registry/schema/config tables built from YAML definitions (not from SILVER rows).

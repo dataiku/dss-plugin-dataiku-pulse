@@ -1,0 +1,19 @@
+base_llms_instance_metadata:
+  description: >
+    Latest snapshot of llms (instance_metadata) per key.
+
+    This table is materialized by ranking all observations by run_ts
+    and keeping the newest row for each (instance_name, llms_id).
+
+  depends_on: []
+  build_order: 10
+
+  category: llms
+  module: instance_metadata
+
+  template: latest_by_partition
+  base_table_name: base_llms_instance_metadata
+  view_table_name: v_llms__instance_metadata
+  partition_keys:
+    - instance_name
+    - llms_id

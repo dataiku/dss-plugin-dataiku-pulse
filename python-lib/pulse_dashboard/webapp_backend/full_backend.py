@@ -280,7 +280,7 @@ def _user_detail_instances_sql(*, include_instance_filter: bool) -> str:
             "                partition_date DESC NULLS LAST,",
             "                users_lastsessionactivity DESC NULLS LAST",
             "        ) AS rn",
-            "    FROM base_users_instance_metadata_history",
+            "    FROM base_users_instance_metadata",
             "    WHERE lower(trim(users_login)) = lower(trim(?))",
             f"    {optional_instance_filter}" if optional_instance_filter else "",
             ")",
@@ -325,7 +325,7 @@ def _users_directory_cte_sql(*, cte_name: str = "directory") -> str:
         "      users_groups AS group_names,",
         "      run_ts,",
         "      CASE WHEN instance_name IN (" + _hub_instances_sql_list() + ") THEN 1 ELSE 0 END AS is_hub",
-        "    FROM base_users_instance_metadata_history",
+        "    FROM base_users_instance_metadata",
         "    WHERE users_login IS NOT NULL",
         "      AND length(trim(users_login)) > 0",
         "  ),",
@@ -2198,16 +2198,16 @@ def _metadata_completeness_sql_for_product_inventory() -> tuple[str, str]:
 # These tables are expected in the GOLD outputs.
 _OBJECT_EXTRAS_SOURCES: dict[str, dict[str, object]] = {
     # Build → Assets
-    "project": {"table": "base_projects_instance_metadata_history", "key_col": "project_key", "project_scoped": False},
-    "dataset": {"table": "base_datasets_project_metadata_history", "key_col": "datasets_name", "project_scoped": True},
-    "recipe": {"table": "base_recipes_project_metadata_history", "key_col": "recipes_name", "project_scoped": True},
-    "scenario": {"table": "base_scenarios_project_metadata_history", "key_col": "scenarios_id", "project_scoped": True},
+    "project": {"table": "base_projects_instance_metadata", "key_col": "project_key", "project_scoped": False},
+    "dataset": {"table": "base_datasets_project_metadata", "key_col": "datasets_name", "project_scoped": True},
+    "recipe": {"table": "base_recipes_project_metadata", "key_col": "recipes_name", "project_scoped": True},
+    "scenario": {"table": "base_scenarios_project_metadata", "key_col": "scenarios_id", "project_scoped": True},
     # Build → Products
-    "api_service": {"table": "base_api_services_project_metadata_history", "key_col": "api_services_id", "project_scoped": True},
-    "agent_tool": {"table": "base_agent_tools_project_metadata_history", "key_col": "agent_tools_id", "project_scoped": True},
-    "insight": {"table": "base_insights_project_metadata_history", "key_col": "insights_id", "project_scoped": True},
-    "web_application": {"table": "base_webapps_project_metadata_history", "key_col": "webapps_id", "project_scoped": True},
-    "dataiku_application": {"table": "base_apps_instance_metadata_history", "key_col": "apps_appid", "project_scoped": False},
+    "api_service": {"table": "base_api_services_project_metadata", "key_col": "api_services_id", "project_scoped": True},
+    "agent_tool": {"table": "base_agent_tools_project_metadata", "key_col": "agent_tools_id", "project_scoped": True},
+    "insight": {"table": "base_insights_project_metadata", "key_col": "insights_id", "project_scoped": True},
+    "web_application": {"table": "base_webapps_project_metadata", "key_col": "webapps_id", "project_scoped": True},
+    "dataiku_application": {"table": "base_apps_instance_metadata", "key_col": "apps_appid", "project_scoped": False},
 }
 
 
@@ -5021,7 +5021,7 @@ def _window_months_where_sql(*, months: int) -> str:
 def build_users_kpis():
     """User directory KPIs for the Users page.
 
-    KPIs are computed from `base_users_instance_metadata_history` so they reflect
+    KPIs are computed from `base_users_instance_metadata` so they reflect
     per-instance license/profile state.
 
     Query parameters:
@@ -5084,7 +5084,7 @@ def build_users_kpis():
                 "      PARTITION BY instance_name, lower(trim(users_login))\n"
                 "      ORDER BY run_ts DESC\n"
                 "    ) AS rn\n"
-                "  FROM base_users_instance_metadata_history\n"
+                "  FROM base_users_instance_metadata\n"
                 "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
                 f"    {instance_sql}\n"  # nosec B608 (instance_sql uses placeholders)
                 ")\n"
@@ -5377,7 +5377,7 @@ def build_users_kpis():
                 "      PARTITION BY instance_name, lower(trim(users_login))\n"
                 "      ORDER BY run_ts DESC\n"
                 "    ) AS rn\n"
-                "  FROM base_users_instance_metadata_history\n"
+                "  FROM base_users_instance_metadata\n"
                 "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
                 f"    {instance_sql}\n"  # nosec B608 (instance_sql uses placeholders)
                 ")\n"
@@ -5406,7 +5406,7 @@ def build_users_kpis():
                 "      PARTITION BY instance_name, lower(trim(users_login))\n"
                 "      ORDER BY run_ts DESC\n"
                 "    ) AS rn\n"
-                "  FROM base_users_instance_metadata_history\n"
+                "  FROM base_users_instance_metadata\n"
                 "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
                 f"    {instance_sql}\n"  # nosec B608 (instance_sql uses placeholders)
                 ")\n"
@@ -5426,7 +5426,7 @@ def build_users_kpis():
             (
                 "WITH instance_scope AS (\n"
                 "  SELECT DISTINCT instance_name\n"
-                "  FROM base_users_instance_metadata_history\n"
+                "  FROM base_users_instance_metadata\n"
                 "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
                 f"    {instance_sql}\n"  # nosec B608 (instance_sql uses placeholders)
                 "),\n"
@@ -5477,7 +5477,7 @@ def build_users_kpis():
                 "      PARTITION BY instance_name, lower(trim(users_login))\n"
                 "      ORDER BY run_ts DESC\n"
                 "    ) AS rn\n"
-                "  FROM base_users_instance_metadata_history\n"
+                "  FROM base_users_instance_metadata\n"
                 "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
                 f"    {instance_sql}\n"  # nosec B608 (instance_sql uses placeholders)
                 ")\n"
@@ -5508,7 +5508,7 @@ def build_users_kpis():
                 "      PARTITION BY instance_name, lower(trim(users_login))\n"
                 "      ORDER BY run_ts DESC\n"
                 "    ) AS rn\n"
-                "  FROM base_users_instance_metadata_history\n"
+                "  FROM base_users_instance_metadata\n"
                 "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
                 f"    {instance_sql}\n"  # nosec B608 (instance_sql uses placeholders)
                 "),\n"
@@ -5636,7 +5636,7 @@ def build_users_active_monthly():
     recorded in `fact_user_activity_daily`.
 
     Activity filter is applied using the per-instance snapshot table
-    `base_users_instance_metadata_history`, scoped to configured Creator vs
+    `base_users_instance_metadata`, scoped to configured Creator vs
     Consumer license-group membership.
 
     Query parameters:
@@ -5696,7 +5696,7 @@ def build_users_active_monthly():
             "      PARTITION BY instance_name, lower(trim(users_login))\n"
             "      ORDER BY run_ts DESC\n"
             "    ) AS rn\n"
-            "  FROM base_users_instance_metadata_history\n"
+            "  FROM base_users_instance_metadata\n"
             "  WHERE users_login IS NOT NULL\n"
             "    AND length(trim(users_login)) > 0\n"
             "),\n"
@@ -5741,7 +5741,7 @@ def build_users_active_monthly():
                 "FROM months m\n"
                 "CROSS JOIN (\n"
                 "  SELECT DISTINCT instance_name\n"
-                "  FROM base_users_instance_metadata_history\n"
+                "  FROM base_users_instance_metadata\n"
                 "  WHERE instance_name IS NOT NULL\n"
                 f"  {instances_filter_sql}\n"  # nosec B608 (instances_filter_sql uses placeholders)
                 ") i\n"
@@ -5897,7 +5897,7 @@ def build_users_formal_mau_monthly():
             FROM months m
             CROSS JOIN (
               SELECT DISTINCT instance_name
-              FROM base_users_instance_metadata_history
+              FROM base_users_instance_metadata
               WHERE instance_name IS NOT NULL
               {instances_filter_sql}
             ) i
@@ -5954,7 +5954,7 @@ def build_users_formal_mau_monthly():
                   PARTITION BY instance_name, lower(trim(users_login))
                   ORDER BY run_ts DESC
                 ) AS rn
-              FROM base_users_instance_metadata_history
+              FROM base_users_instance_metadata
               WHERE users_login IS NOT NULL
                 AND length(trim(users_login)) > 0
             ),
@@ -5994,7 +5994,7 @@ def build_users_formal_mau_monthly():
                   PARTITION BY instance_name, lower(trim(users_login))
                   ORDER BY run_ts DESC
                 ) AS rn
-              FROM base_users_instance_metadata_history
+              FROM base_users_instance_metadata
               WHERE users_login IS NOT NULL
                 AND length(trim(users_login)) > 0
             ),
@@ -6219,7 +6219,7 @@ def build_users_creator_risk():
             "      PARTITION BY instance_name, lower(trim(users_login))\n"
             "      ORDER BY run_ts DESC\n"
             "    ) AS rn\n"
-            "  FROM base_users_instance_metadata_history\n"
+            "  FROM base_users_instance_metadata\n"
             "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
             f"    {latest_instance_sql}\n"  # nosec B608 (instance filter uses placeholders)
             "),\n"
@@ -6401,7 +6401,7 @@ def build_users_segments():
                 "      PARTITION BY instance_name, lower(trim(users_login))\n"
                 "      ORDER BY run_ts DESC\n"
                 "    ) AS rn\n"
-                "  FROM base_users_instance_metadata_history\n"
+                "  FROM base_users_instance_metadata\n"
                 "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
                 f"    {latest_instance_sql}\n"  # nosec B608
                 "),\n"
@@ -6528,7 +6528,7 @@ def build_users_stickiness():
                 "    m.month_start,\n"
                 "    COUNT(DISTINCT lower(trim(u.users_login))) AS enabled_users\n"
                 "  FROM months m\n"
-                "  JOIN base_users_instance_metadata_history u ON TRUE\n"
+                "  JOIN base_users_instance_metadata u ON TRUE\n"
                 "  WHERE u.users_login IS NOT NULL\n"
                 "    AND length(trim(u.users_login)) > 0\n"
                 "    AND u.users_enabled = 'True'\n"
@@ -6541,7 +6541,7 @@ def build_users_stickiness():
                 "    date_trunc('month', a.day) AS month_start,\n"
                 "    a.login_norm\n"
                 "  FROM fact_user_activity_daily a\n"
-                "  JOIN base_users_instance_metadata_history u\n"
+                "  JOIN base_users_instance_metadata u\n"
                 "    ON u.instance_name = a.instance_name\n"
                 "   AND lower(trim(u.users_login)) = a.login_norm\n"
                 "  WHERE a.day >= " + start_month_expr + "\n"
