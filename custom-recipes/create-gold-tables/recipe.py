@@ -26,6 +26,7 @@ from data_collection.pulse_duckdb.object_activity import (
 )
 from data_collection.pulse_duckdb.products_registry import build_base_dataiku_products_registry
 from data_collection.pulse_duckdb.table_groups import group_gold_tables_by_prefix
+from shared_duckdb.pathing import resolve_unique_db_path
 from data_collection.pulse_duckdb.table_inventory import list_table_names
 from data_collection.pulse_duckdb.user_activity import build_fact_formal_mau_daily, build_fact_user_activity_daily, build_fact_user_activity_project_daily, collect_user_activity_quality_report
 from data_collection.pulse_duckdb.views import create_silver_view
@@ -50,7 +51,12 @@ def run():
     silver_ctx = build_storage_context(project_key=project_key, folder_lookup="partitioned_data")
     gold_ctx = build_storage_context(project_key=project_key, folder_lookup=gold_folder_lookup)
 
-    setup = prepare_duckdb(ctx=silver_ctx, read_only=False, reset=True)
+    setup = prepare_duckdb(
+        ctx=silver_ctx,
+        read_only=False,
+        reset=True,
+        db_path=resolve_unique_db_path(project_key=project_key, purpose="recipe_gold_builder"),
+    )
     configure_storage(setup.conn, ctx=gold_ctx)
 
     import data_collection.pulse_duckdb.gold_builder as gold_builder_module
