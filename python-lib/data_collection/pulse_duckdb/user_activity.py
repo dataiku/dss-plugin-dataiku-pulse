@@ -30,7 +30,7 @@ def build_fact_user_activity_daily(
           AND login IS NOT NULL
           AND length(trim(login)) > 0
         GROUP BY 1, 2, 3;
-        """.strip()
+        """.strip()  # nosec B608 (view_name comes from create_silver_view with fixed category/module values; it is not user-controlled)
     )
     return "fact_user_activity_daily"
 
@@ -63,7 +63,7 @@ def build_fact_user_activity_project_daily(
           AND project_key IS NOT NULL
           AND length(trim(project_key)) > 0
         GROUP BY 1, 2, 3, 5;
-        """.strip()
+        """.strip()  # nosec B608 (view_name comes from create_silver_view with fixed category/module values; it is not user-controlled)
     )
     return "fact_user_activity_project_daily"
 
@@ -97,7 +97,7 @@ def build_fact_formal_mau_daily(
           AND login IS NOT NULL
           AND length(trim(login)) > 0
         GROUP BY 1, 2, 3;
-        """.strip()
+        """.strip()  # nosec B608 (view_name comes from create_silver_view with fixed category/module values; it is not user-controlled)
     )
     return "fact_formal_mau_daily"
 
