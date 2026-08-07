@@ -243,6 +243,18 @@ def _replace_view_from_query(conn, *, view_name: str, source_table: str, select_
 def _maybe_create_inventory_views(conn) -> None:
     """Create compatibility views for inventory tables when base tables are absent."""
 
+    for table_name in [
+        "base_agent_tools_metadata",
+        "base_api_services_metadata",
+        "base_dashboards_metadata",
+        "base_insights_metadata",
+        "base_retrieval_augmented_llms_metadata",
+        "base_saved_models_metadata",
+        "base_webapps_metadata",
+        "base_dataiku_applications_metadata",
+    ]:
+        _ensure_table_exists(conn, table_name=table_name)
+
     _replace_view_from_query(
         conn,
         view_name="base_projects_metadata",
@@ -431,32 +443,35 @@ def _maybe_seed_demo_dev_activity(conn) -> dict:
     if int(n) == 0:
         now = datetime.now(tz=UTC)
         rows = []
-        for i in range(200):
-            instance = "dss-prod" if i % 3 else "dss-dev"
-            login = ["alice", "bob", "carol"][i % 3]
-            project = ["FIN", "MKT", "ENG"][i % 3]
-            category = [
-                "Coding",
-                "Datasets",
-                "Visual Recipes",
-                "Machine Learning & Operations",
-                "Generative AI & LLM",
-                "Scenarios",
-                "API Services",
-                "Web Applications",
-            ][i % 8]
-            base = [
-                "CODE_STUDIO",
-                "DATASET_EDIT",
-                "PREPARE",
-                "MODEL_TRAIN",
-                "PROMPT",
-                "SCENARIO_RUN",
-                "API_SERVICE",
-                "WEBAPP_EDIT",
-            ][i % 8]
-            ts = now - timedelta(days=i % 45)
-            rows.append((ts, instance, login, f"{base}_EVENT", base, category, project))
+        categories = [
+            ("Coding", "CODE_STUDIO"),
+            ("Datasets", "DATASET_EDIT"),
+            ("Visual Recipes", "PREPARE"),
+            ("Machine Learning & Operations", "MODEL_TRAIN"),
+            ("Generative AI & LLM", "PROMPT"),
+            ("Scenarios", "SCENARIO_RUN"),
+            ("API Services", "API_SERVICE"),
+            ("Web Applications", "WEBAPP_EDIT"),
+        ]
+        day_event_counts = [1, 2, 4, 3, 6, 2, 5, 7, 3, 1, 8, 2, 4, 6, 3, 5, 2, 7, 4, 1, 6, 3, 5, 2, 8, 4, 1, 7, 3, 6, 2, 5, 4, 2, 7, 3, 1, 6, 4, 2, 5, 3, 7, 1, 4]
+
+        event_index = 0
+        for day_offset, event_count in enumerate(day_event_counts):
+            for slot in range(event_count):
+                if event_index >= 200:
+                    break
+                cluster = day_offset // 9
+                instance = ["dss-dev", "dss-prod", "dss-stage", "dss-prod"][(event_index + cluster) % 4]
+                login = ["alice", "bob", "carol", "dave", "erin"][(event_index + slot + cluster) % 5]
+                project = ["FIN", "MKT", "ENG", "OPS", "RND"][(event_index + day_offset) % 5]
+                category, base = categories[(event_index + (cluster * 2) + slot) % len(categories)]
+                hour_offset = (slot * 3 + day_offset + cluster) % 24
+                minute_offset = (event_index * 11 + slot * 7 + cluster * 13) % 60
+                ts = now - timedelta(days=day_offset, hours=hour_offset, minutes=minute_offset)
+                rows.append((ts, instance, login, f"{base}_EVENT", base, category, project))
+                event_index += 1
+            if event_index >= 200:
+                break
 
         conn.executemany(
             """

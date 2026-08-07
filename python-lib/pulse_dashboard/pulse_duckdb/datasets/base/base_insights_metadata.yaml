@@ -1,0 +1,52 @@
+base_insights_metadata:
+  description: >
+    Inventory of insights across DSS instances, collapsed to the latest row per identity.
+  depends_on: []
+  build_order: 120
+  sql: |
+    CREATE OR REPLACE TABLE "base_insights_metadata" AS
+    WITH ranked AS (
+      SELECT
+        instance_name,
+        project_key,
+        insights_id,
+        insights_name,
+        insights_type,
+        COALESCE(
+          NULLIF(TRIM(CAST(insights_owner AS VARCHAR)), ''),
+          NULLIF(TRIM(CAST(insights_createdby_login AS VARCHAR)), ''),
+          NULLIF(TRIM(CAST(insights_lastmodifiedby_login AS VARCHAR)), '')
+        ) AS owner_login,
+        insights_lastmodifiedby_login AS last_modified_by_login,
+        CASE
+          WHEN NULLIF(TRIM(CAST(insights_createdon AS VARCHAR)), '') IS NULL THEN NULL
+          WHEN regexp_matches(NULLIF(TRIM(CAST(insights_createdon AS VARCHAR)), ''), '^[0-9]{13}$') THEN to_timestamp(try_cast(NULLIF(TRIM(CAST(insights_createdon AS VARCHAR)), '') AS DOUBLE) / 1000.0)
+          WHEN regexp_matches(NULLIF(TRIM(CAST(insights_createdon AS VARCHAR)), ''), '^[0-9]{10}$') THEN to_timestamp(try_cast(NULLIF(TRIM(CAST(insights_createdon AS VARCHAR)), '') AS DOUBLE))
+          ELSE try_cast(insights_createdon AS TIMESTAMP)
+        END AS created_at,
+        CASE
+          WHEN NULLIF(TRIM(CAST(insights_lastmodifiedon AS VARCHAR)), '') IS NULL THEN NULL
+          WHEN regexp_matches(NULLIF(TRIM(CAST(insights_lastmodifiedon AS VARCHAR)), ''), '^[0-9]{13}$') THEN to_timestamp(try_cast(NULLIF(TRIM(CAST(insights_lastmodifiedon AS VARCHAR)), '') AS DOUBLE) / 1000.0)
+          WHEN regexp_matches(NULLIF(TRIM(CAST(insights_lastmodifiedon AS VARCHAR)), ''), '^[0-9]{10}$') THEN to_timestamp(try_cast(NULLIF(TRIM(CAST(insights_lastmodifiedon AS VARCHAR)), '') AS DOUBLE))
+          ELSE try_cast(insights_lastmodifiedon AS TIMESTAMP)
+        END AS updated_at,
+        CAST(extras AS VARCHAR) AS details_json,
+        ROW_NUMBER() OVER (
+          PARTITION BY instance_name, project_key, insights_id
+          ORDER BY try_cast(run_ts AS TIMESTAMP) DESC NULLS LAST, partition_date DESC NULLS LAST
+        ) AS rn
+      FROM base_insights_project_metadata_history
+    )
+    SELECT
+      instance_name,
+      project_key,
+      insights_id,
+      insights_name,
+      insights_type,
+      owner_login,
+      last_modified_by_login,
+      created_at,
+      updated_at,
+      details_json
+    FROM ranked
+    WHERE rn = 1;

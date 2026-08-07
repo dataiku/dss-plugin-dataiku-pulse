@@ -1,0 +1,48 @@
+base_agent_tools_metadata:
+  description: >
+    Inventory of agent tools across DSS instances, collapsed to the latest row per identity.
+  depends_on: []
+  build_order: 15
+  sql: |
+    CREATE OR REPLACE TABLE "base_agent_tools_metadata" AS
+    WITH ranked AS (
+      SELECT
+        instance_name,
+        project_key,
+        agent_tools_id,
+        agent_tools_name,
+        agent_tools_type,
+        CAST(NULL AS VARCHAR) AS owner_login,
+        CAST(NULL AS VARCHAR) AS last_modified_by_login,
+        CASE
+          WHEN NULLIF(TRIM(CAST(agent_tools_createdon AS VARCHAR)), '') IS NULL THEN NULL
+          WHEN regexp_matches(NULLIF(TRIM(CAST(agent_tools_createdon AS VARCHAR)), ''), '^[0-9]{13}$') THEN to_timestamp(try_cast(NULLIF(TRIM(CAST(agent_tools_createdon AS VARCHAR)), '') AS DOUBLE) / 1000.0)
+          WHEN regexp_matches(NULLIF(TRIM(CAST(agent_tools_createdon AS VARCHAR)), ''), '^[0-9]{10}$') THEN to_timestamp(try_cast(NULLIF(TRIM(CAST(agent_tools_createdon AS VARCHAR)), '') AS DOUBLE))
+          ELSE try_cast(agent_tools_createdon AS TIMESTAMP)
+        END AS created_at,
+        CASE
+          WHEN NULLIF(TRIM(CAST(agent_tools_lastmodifiedon AS VARCHAR)), '') IS NULL THEN NULL
+          WHEN regexp_matches(NULLIF(TRIM(CAST(agent_tools_lastmodifiedon AS VARCHAR)), ''), '^[0-9]{13}$') THEN to_timestamp(try_cast(NULLIF(TRIM(CAST(agent_tools_lastmodifiedon AS VARCHAR)), '') AS DOUBLE) / 1000.0)
+          WHEN regexp_matches(NULLIF(TRIM(CAST(agent_tools_lastmodifiedon AS VARCHAR)), ''), '^[0-9]{10}$') THEN to_timestamp(try_cast(NULLIF(TRIM(CAST(agent_tools_lastmodifiedon AS VARCHAR)), '') AS DOUBLE))
+          ELSE try_cast(agent_tools_lastmodifiedon AS TIMESTAMP)
+        END AS updated_at,
+        CAST(extras AS VARCHAR) AS details_json,
+        ROW_NUMBER() OVER (
+          PARTITION BY instance_name, project_key, agent_tools_id
+          ORDER BY try_cast(run_ts AS TIMESTAMP) DESC NULLS LAST, partition_date DESC NULLS LAST
+        ) AS rn
+      FROM base_agent_tools_project_metadata_history
+    )
+    SELECT
+      instance_name,
+      project_key,
+      agent_tools_id,
+      agent_tools_name,
+      agent_tools_type,
+      owner_login,
+      last_modified_by_login,
+      created_at,
+      updated_at,
+      details_json
+    FROM ranked
+    WHERE rn = 1;
