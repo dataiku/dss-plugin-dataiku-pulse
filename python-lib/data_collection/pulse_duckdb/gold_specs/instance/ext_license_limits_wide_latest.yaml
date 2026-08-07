@@ -1,4 +1,4 @@
-dim_license_limits_wide_latest:
+ext_license_limits_wide_latest:
   description: >
     Latest wide license-limit snapshot per instance.
 
@@ -12,7 +12,7 @@ dim_license_limits_wide_latest:
   build_order: 20
 
   sql: |
-    CREATE OR REPLACE TABLE dim_license_limits_wide_latest AS
+    CREATE OR REPLACE TABLE ext_license_limits_wide_latest AS
     WITH status AS (
       SELECT *
       FROM base_license_status_latest

@@ -1537,6 +1537,7 @@ def run() -> dict:
         spec_paths = sorted(
             list((base_dir / "project").glob("base_*.yaml"))
             + list((base_dir / "instance").glob("base_*.yaml"))
+            + list((base_dir / "instance").glob("ext_*.yaml"))
         )
 
         skipped_tables: list[dict[str, str]] = []
@@ -1552,7 +1553,7 @@ def run() -> dict:
             return result
 
         for spec_path in spec_paths:
-            if spec_path.name == "dim_license_limits_wide_latest.yaml":
+            if spec_path.name == "ext_license_limits_wide_latest.yaml":
                 if not _has_required_tables(
                     setup.conn,
                     ["base_license_status_latest", "base_license_max_licenses_latest"],
