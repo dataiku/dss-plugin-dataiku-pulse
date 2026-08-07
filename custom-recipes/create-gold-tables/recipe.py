@@ -1552,6 +1552,10 @@ def run() -> dict:
             return result
 
         for spec_path in spec_paths:
+            if "_history" in spec_path.stem:
+                logger.warning("Skipping deprecated GOLD history spec: %s", spec_path.name)
+                continue
+
             if spec_path.name == "base_license_limits_wide_latest.yaml":
                 if not _has_required_tables(
                     setup.conn,
