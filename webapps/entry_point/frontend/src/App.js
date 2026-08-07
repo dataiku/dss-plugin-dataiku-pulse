@@ -1416,6 +1416,7 @@ function ViewDuckDBTab({ apiBase }) {
   const [runningQuery, setRunningQuery] = useState(false);
   const [queryResult, setQueryResult] = useState(null);
   const [queryError, setQueryError] = useState('');
+  const [copyStatus, setCopyStatus] = useState('');
   const [error, setError] = useState('');
 
   const objects = useMemo(
@@ -1542,6 +1543,7 @@ function ViewDuckDBTab({ apiBase }) {
     setRunningQuery(true);
     setQueryError('');
     setQueryResult(null);
+    setCopyStatus('');
     try {
       const queryUrl = new URL(
         apiUrl(apiBase, '/api/debug/duckdb/query'),
@@ -1585,6 +1587,32 @@ function ViewDuckDBTab({ apiBase }) {
     const quoted = `"${String(selected).replace(/"/g, '""')}"`;
     setQueryText(`SELECT *\nFROM ${quoted}\nLIMIT 100;`);
   }, [selected]);
+
+  const copyQueryResultAsTsv = useCallback(async () => {
+    const columns = queryResult?.columns || [];
+    const rows = queryResult?.rows || [];
+    if (!columns.length) {
+      setCopyStatus('Nothing to copy.');
+      return;
+    }
+
+    const escapeTsvValue = (value) => {
+      if (value === null || value === undefined) return '';
+      return String(value).replace(/\t/g, ' ').replace(/\r?\n/g, ' ');
+    };
+
+    const tsv = [
+      columns.map((column) => escapeTsvValue(column)).join('\t'),
+      ...rows.map((row) => columns.map((column) => escapeTsvValue(row?.[column])).join('\t')),
+    ].join('\n');
+
+    try {
+      await navigator.clipboard.writeText(tsv);
+      setCopyStatus(`Copied ${rows.length} row${rows.length === 1 ? '' : 's'} as TSV.`);
+    } catch (_error) {
+      setCopyStatus('Clipboard copy failed.');
+    }
+  }, [queryResult]);
 
   return (
     <div style={{ maxWidth: 1400, margin: '0 auto' }}>
@@ -1731,11 +1759,15 @@ function ViewDuckDBTab({ apiBase }) {
       {queryError ? <p style={{ color: 'salmon', marginTop: 12 }}>{queryError}</p> : null}
       {queryResult ? (
         <div style={{ marginTop: 16 }}>
-          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 13, color: '#334155' }}>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', fontSize: 13, color: '#334155' }}>
             <span>Status: Success</span>
             <span>Returned rows: {Number(queryResult.returnedRowCount || 0).toLocaleString()}</span>
             <span>Total rows: {Number(queryResult.rowCount || 0).toLocaleString()}</span>
             <span>Truncated: {queryResult.truncated ? 'Yes' : 'No'}</span>
+            <button onClick={copyQueryResultAsTsv} disabled={!(queryResult.columns || []).length}>
+              Copy as TSV
+            </button>
+            {copyStatus ? <span style={{ color: '#64748b' }}>{copyStatus}</span> : null}
           </div>
           <div style={{ overflowX: 'auto', marginTop: 12, maxWidth: '100%' }}>
             <table style={{ width: '100%', minWidth: 720, borderCollapse: 'collapse', fontSize: 13 }}>
@@ -5401,6 +5433,7 @@ function BarList({ title, rows, maxRows = 12, onRowClick, formatValue }) {
     <div className="PulseChartCard">
       <div className="PulseChartTitle">{title}</div>
       <div className="PulseBarList">
+        {!trimmed.length ? <div className="PulseMuted">No ranked data available.</div> : null}
         {trimmed.map((r) => {
           const Row = onRowClick ? 'button' : 'div';
           const percent = maxVal ? (Number(r.value || 0) / maxVal) * 100 : 0;
