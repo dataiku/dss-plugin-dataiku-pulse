@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -11,6 +12,8 @@ import dataiku
 from data_collection.helper.dss_folder_writer import DSSFolderTarget, upload_parquet
 from data_collection.pulse_duckdb.destinations import gold_destination_for_table, gold_destination_path
 from data_collection.pulse_duckdb.diagnostics import verify_event_fact_unload
+
+logger = logging.getLogger(__name__)
 
 FACT_TIME_COLUMNS: dict[str, str] = {
     "fact_user_activity_daily": "day",
@@ -44,6 +47,90 @@ def _clear_gold_partition(folder_lookup: str, partition_root: Path) -> None:
     folder = dataiku.Folder(folder_lookup)
     rel_path = str(partition_root).strip("/") + "/"
     folder.clear_path(rel_path)
+
+
+def _sql_string(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _fact_partition_key_rows(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    table_name: str,
+    time_column: str,
+) -> list[tuple[str, int, int, int]]:
+    query = "\n".join(
+        [
+            "SELECT DISTINCT",
+            "  CAST(instance_name AS VARCHAR) AS instance_name,",
+            f"  EXTRACT(YEAR FROM CAST({time_column} AS TIMESTAMP))::INTEGER AS year,",
+            f"  EXTRACT(MONTH FROM CAST({time_column} AS TIMESTAMP))::INTEGER AS month,",
+            f"  EXTRACT(DAY FROM CAST({time_column} AS TIMESTAMP))::INTEGER AS day",
+            f"FROM {table_name}",
+            "WHERE instance_name IS NOT NULL",
+            f"  AND CAST({time_column} AS TIMESTAMP) IS NOT NULL",
+            "ORDER BY 1, 2, 3, 4;",
+        ]
+    )  # nosec B608 (table_name/time_column come from internal fact contract)
+    return [
+        (str(instance_name), int(year), int(month), int(day))
+        for instance_name, year, month, day in conn.execute(query).fetchall()
+    ]
+
+
+def _duckdb_fact_partition_copy_sql(
+    *,
+    table_name: str,
+    time_column: str,
+    destination_path: str,
+    instance_name: str,
+    year: int,
+    month: int,
+    day: int,
+) -> str:
+    instance_literal = _sql_string(instance_name)
+    return "\n".join(
+        [
+            "COPY (",
+            f"  SELECT * FROM {table_name}",  # nosec B608 (table_name comes from the internal fact contract)
+            f"  WHERE instance_name = {instance_literal}",
+            f"    AND EXTRACT(YEAR FROM CAST({time_column} AS TIMESTAMP)) = {int(year)}",
+            f"    AND EXTRACT(MONTH FROM CAST({time_column} AS TIMESTAMP)) = {int(month)}",
+            f"    AND EXTRACT(DAY FROM CAST({time_column} AS TIMESTAMP)) = {int(day)}",
+            f") TO '{destination_path}' (FORMAT 'PARQUET', OVERWRITE TRUE);",
+        ]
+    )  # nosec B608 (all identifiers come from internal fact contract; destination_path is managed-folder derived)
+
+
+def _write_fact_table_partitions_duckdb(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    gold_ctx,
+    gold_folder_lookup: str,
+    table_name: str,
+    destination: str,
+    time_column: str,
+) -> None:
+    partition_rows = _fact_partition_key_rows(
+        conn,
+        table_name=table_name,
+        time_column=time_column,
+    )
+    for instance_name, year, month, day in partition_rows:
+        relative_output_path = _fact_partition_output_path(destination, instance_name, year, month, day)
+        _clear_gold_partition(gold_folder_lookup, relative_output_path.parent)
+        destination_path = gold_destination_path(gold_ctx, str(relative_output_path))
+        conn.execute(
+            _duckdb_fact_partition_copy_sql(
+                table_name=table_name,
+                time_column=time_column,
+                destination_path=destination_path,
+                instance_name=instance_name,
+                year=year,
+                month=month,
+                day=day,
+            )
+        )
 
 
 def _write_fact_table_partitions(
@@ -114,6 +201,13 @@ def unload_gold_table(
     unload_behavior: str,
 ) -> str:
     destination = gold_destination_for_table(table_name)
+    table_type = table_name.split("_", 1)[0] if "_" in table_name else table_name
+    logger.info(
+        "Starting GOLD unload: table=%s type=%s destination=%s",
+        table_name,
+        table_type,
+        destination,
+    )
 
     if unload_behavior == "duckdb":
         if not gold_ctx.bucket_or_container:
@@ -126,8 +220,9 @@ def unload_gold_table(
             time_column = FACT_TIME_COLUMNS.get(table_name)
             if not time_column:
                 raise ValueError(f"No canonical fact time column configured for {table_name}")
-            _write_fact_table_partitions(
+            _write_fact_table_partitions_duckdb(
                 conn,
+                gold_ctx=gold_ctx,
                 gold_folder_lookup=gold_folder_lookup,
                 table_name=table_name,
                 destination=destination,
@@ -144,6 +239,7 @@ def unload_gold_table(
                 relative_path=destination,
                 table_name=table_name,
             )
+        logger.info("Completed GOLD unload: table=%s", table_name)
         return destination
 
     if unload_behavior == "dataiku":
@@ -165,6 +261,7 @@ def unload_gold_table(
                 table_name=table_name,
                 destination=destination,
             )
+        logger.info("Completed GOLD unload: table=%s", table_name)
         return destination
 
     raise ValueError(f"Unknown unload behavior: {unload_behavior!r}")
