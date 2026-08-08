@@ -77,7 +77,7 @@ def build_base_dataiku_products_registry(
     if registry_rows:
         placeholders = ", ".join(["?"] * len(REGISTRY_COLUMNS))
         conn.executemany(
-            f"INSERT INTO base_dataiku_products_registry ({', '.join(REGISTRY_COLUMNS)}) VALUES ({placeholders});",
+            f"INSERT INTO base_dataiku_products_registry ({', '.join(REGISTRY_COLUMNS)}) VALUES ({placeholders});",  # nosec B608 (REGISTRY_COLUMNS is a fixed module constant and placeholders are parameterized)
             registry_rows,
         )
 

@@ -234,7 +234,7 @@ def build_fact_dev_activity_events(
               CAST(month AS INTEGER) AS month,
               CAST(day AS INTEGER) AS day
             FROM {view_name}
-            """.strip()
+            """.strip()  # nosec B608 (view_name is generated from curated toolbox modules and internal slugging; it is not user-controlled)
         )
 
     if not branches:

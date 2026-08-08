@@ -140,10 +140,10 @@ def table_debug_snapshot(conn: duckdb.DuckDBPyConnection, table_name: str) -> di
 
         snapshot["exists"] = True
         snapshot["table_type"] = str(row[0])
-        snapshot["rows"] = int(conn.execute(f'SELECT COUNT(*) FROM "{table_name}";').fetchone()[0])
+        snapshot["rows"] = int(conn.execute(f'SELECT COUNT(*) FROM "{table_name}";').fetchone()[0])  # nosec B608 (table_name is taken from a fixed internal diagnostic list, not user input)
         columns = conn.execute(f'DESCRIBE "{table_name}";').fetchall()
         snapshot["columns"] = [str(col[0]) for col in columns]
-        sample = conn.execute(f'SELECT * FROM "{table_name}" LIMIT 3;').fetchall()
+        sample = conn.execute(f'SELECT * FROM "{table_name}" LIMIT 3;').fetchall()  # nosec B608 (table_name is taken from a fixed internal diagnostic list, not user input)
         snapshot["sample_rows"] = [list(row) for row in sample]
     except Exception as exc:
         snapshot["error"] = str(exc)
