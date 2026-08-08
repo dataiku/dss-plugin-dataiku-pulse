@@ -118,18 +118,52 @@ def _duckdb_memory_snapshot(conn: duckdb.DuckDBPyConnection) -> dict[str, str | 
     return snapshot
 
 
-def _duckdb_native_partition_copy_sql(table_name: str, destination_path: str) -> str:
+def _table_columns(conn: duckdb.DuckDBPyConnection, table_name: str) -> set[str]:
+    rows = conn.execute(
+        (
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'main' AND table_name = ?"
+        ),
+        [table_name],
+    ).fetchall()
+    return {str(row[0]).lower() for row in rows}
+
+
+def _duckdb_native_partition_select_sql(
+    *,
+    table_name: str,
+    time_column: str,
+) -> str:
+    return "\n".join(  # nosec B608 (table_name/time_column come from the internal fact contract)
+        [
+            "SELECT",
+            "  *,",
+            f"  EXTRACT(YEAR FROM CAST({time_column} AS TIMESTAMP))::INTEGER AS __pulse_partition_year,",
+            f"  EXTRACT(MONTH FROM CAST({time_column} AS TIMESTAMP))::INTEGER AS __pulse_partition_month,",
+            f"  EXTRACT(DAY FROM CAST({time_column} AS TIMESTAMP))::INTEGER AS __pulse_partition_day",
+            f"FROM {table_name}",
+        ]
+    )
+
+
+def _duckdb_native_partition_copy_sql(
+    *,
+    table_name: str,
+    time_column: str,
+    destination_path: str,
+) -> str:
+    select_sql = _duckdb_native_partition_select_sql(table_name=table_name, time_column=time_column)
     return "\n".join(
         [
             "COPY (",
-            f"  SELECT * FROM {table_name}",  # nosec B608 (table_name comes from internal fact contract)
+            *[f"  {line}" for line in select_sql.splitlines()],
             f") TO '{destination_path}' (",
             "  FORMAT 'PARQUET',",
             "  OVERWRITE TRUE,",
-            "  PARTITION_BY (instance_name, year, month, day)",
+            "  PARTITION_BY (instance_name, __pulse_partition_year, __pulse_partition_month, __pulse_partition_day)",
             ");",
         ]
-    )  # nosec B608 (destination_path is managed-folder derived)
+    )  # nosec B608 (table_name/time_column come from the internal fact contract; destination_path is managed-folder derived)
 
 
 def _upload_staged_fact_partitions(
@@ -139,7 +173,11 @@ def _upload_staged_fact_partitions(
     destination: str,
     table_name: str,
 ) -> None:
-    partition_files = sorted(stage_table_root.glob("instance_name=*/year=*/month=*/day=*/*.parquet"))
+    partition_files = sorted(
+        stage_table_root.glob(
+            "instance_name=*/__pulse_partition_year=*/__pulse_partition_month=*/__pulse_partition_day=*/*.parquet"
+        )
+    )
     folder = dataiku.Folder(gold_folder_lookup)
     total = len(partition_files)
     if total == 0:
@@ -159,11 +197,11 @@ def _upload_staged_fact_partitions(
         instance_dir, year_dir, month_dir, day_dir, _duckdb_leaf = parts
         if not instance_dir.startswith("instance_name="):
             raise RuntimeError(f"Unexpected staged instance partition for {table_name}: {partition_suffix}")
-        if not year_dir.startswith("year="):
+        if not year_dir.startswith("__pulse_partition_year="):
             raise RuntimeError(f"Unexpected staged year partition for {table_name}: {partition_suffix}")
-        if not month_dir.startswith("month="):
+        if not month_dir.startswith("__pulse_partition_month="):
             raise RuntimeError(f"Unexpected staged month partition for {table_name}: {partition_suffix}")
-        if not day_dir.startswith("day="):
+        if not day_dir.startswith("__pulse_partition_day="):
             raise RuntimeError(f"Unexpected staged day partition for {table_name}: {partition_suffix}")
 
         instance_name = instance_dir.split("=", 1)[1]
@@ -217,8 +255,15 @@ def _write_fact_table_partitions_duckdb(
         staging_root = Path(tmpdir)
         staging_relative = Path(destination)
         stage_table_root = staging_root / staging_relative
+        stage_table_root.mkdir(parents=True, exist_ok=True)
         native_stage_path = str(stage_table_root)
-        conn.execute(_duckdb_native_partition_copy_sql(table_name, native_stage_path))
+        conn.execute(
+            _duckdb_native_partition_copy_sql(
+                table_name=table_name,
+                time_column=time_column,
+                destination_path=native_stage_path,
+            )
+        )
         _upload_staged_fact_partitions(
             gold_folder_lookup=gold_folder_lookup,
             stage_table_root=stage_table_root,
