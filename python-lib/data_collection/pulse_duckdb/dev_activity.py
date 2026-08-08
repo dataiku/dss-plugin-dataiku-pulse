@@ -7,7 +7,7 @@ import yaml
 
 from data_collection.data_normalizer.flatten_config import _slug
 from data_collection.pulse_duckdb.object_activity import _create_event_mapping_module_view
-from data_collection.pulse_duckdb.sql_utils import log_table_stats
+from data_collection.pulse_duckdb.sql_utils import log_phase_snapshot, log_table_stats, log_timed_phase
 
 
 def load_dev_toolbox_modules(base_dir: Path) -> list[str]:
@@ -207,44 +207,51 @@ def build_fact_dev_activity_events(
     ctx,
     base_dir: Path,
 ) -> str:
-    modules = load_dev_toolbox_modules(base_dir)
-    if not modules:
-        return ""
+    with log_timed_phase(conn, label="build_fact_dev_activity_events"):
+        modules = load_dev_toolbox_modules(base_dir)
+        if not modules:
+            return ""
 
-    branches: list[str] = []
-    for module_name in modules:
-        view_name = f"v_event_mapping__{_slug(module_name)}"
-        created = _create_event_mapping_module_view(conn, ctx=ctx, module=module_name, view_name=view_name)
-        if not created:
-            continue
-        branches.append(
-            f"""
-            SELECT
-              try_cast(COALESCE(timestamp, date) AS TIMESTAMP) AS timestamp,
-              instance_name,
-              authuser AS login,
-              msgtype,
-              msgtypebase,
-              dataiku_category,
-              project_key,
-              callpath,
-              extras,
-              try_cast(run_ts AS TIMESTAMP) AS run_timestamp,
-              CAST(year AS INTEGER) AS year,
-              CAST(month AS INTEGER) AS month,
-              CAST(day AS INTEGER) AS day
-            FROM {view_name}
-            """.strip()  # nosec B608 (view_name is generated from curated toolbox modules and internal slugging; it is not user-controlled)
+        branches: list[str] = []
+        for module_name in modules:
+            view_name = f"v_event_mapping__{_slug(module_name)}"
+            module_label = f"fact_dev_activity_events.view.{view_name}"
+            log_phase_snapshot(conn, label=module_label, phase="start")
+            created = _create_event_mapping_module_view(conn, ctx=ctx, module=module_name, view_name=view_name)
+            log_phase_snapshot(conn, label=module_label, phase="end")
+            if not created:
+                continue
+            branches.append(
+                f"""
+                SELECT
+                  try_cast(COALESCE(timestamp, date) AS TIMESTAMP) AS timestamp,
+                  instance_name,
+                  authuser AS login,
+                  msgtype,
+                  msgtypebase,
+                  dataiku_category,
+                  project_key,
+                  callpath,
+                  extras,
+                  try_cast(run_ts AS TIMESTAMP) AS run_timestamp,
+                  CAST(year AS INTEGER) AS year,
+                  CAST(month AS INTEGER) AS month,
+                  CAST(day AS INTEGER) AS day
+                FROM {view_name}
+                """.strip()  # nosec B608 (view_name is generated from curated toolbox modules and internal slugging; it is not user-controlled)
+            )
+
+        if not branches:
+            return ""
+
+        sql = (
+            "CREATE OR REPLACE TABLE fact_dev_activity_events AS\n"
+            + "\nUNION ALL\n".join(branches)
+            + ";"
         )
-
-    if not branches:
-        return ""
-
-    sql = (
-        "CREATE OR REPLACE TABLE fact_dev_activity_events AS\n"
-        + "\nUNION ALL\n".join(branches)
-        + ";"
-    )
-    conn.execute(sql)
-    log_table_stats(conn, "fact_dev_activity_events")
-    return "fact_dev_activity_events"
+        log_phase_snapshot(conn, label="fact_dev_activity_events.ctas", phase="start")
+        conn.execute(sql)
+        log_phase_snapshot(conn, label="fact_dev_activity_events.ctas", phase="end")
+        log_table_stats(conn, "fact_dev_activity_events")
+        log_phase_snapshot(conn, label="fact_dev_activity_events.log_table_stats", phase="end")
+        return "fact_dev_activity_events"

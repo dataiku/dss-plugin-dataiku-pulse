@@ -18,6 +18,7 @@ from data_collection.pulse_duckdb.engine.storage_config import configure_storage
 from data_collection.pulse_duckdb.gold_builder import apply_gold_spec, resolve_gold_spec_build_order
 from data_collection.pulse_duckdb.license_wide import build_license_wide_sql_params
 from data_collection.pulse_duckdb.manifest import read_manifest, set_manifest_watermark, stamp_manifest_updated_at, write_manifest
+from data_collection.pulse_duckdb.sql_utils import log_timed_phase
 from data_collection.pulse_duckdb.unload import unload_gold_tables
 from data_collection.pulse_duckdb.object_activity import (
     _create_event_mapping_module_view,
@@ -91,20 +92,25 @@ def run():
             if not created_view:
                 continue
 
-        apply_gold_spec(setup.conn, spec)
+        if spec.name == "base_license_limits_wide_latest":
+            with log_timed_phase(setup.conn, label="apply_gold_spec.base_license_limits_wide_latest"):
+                apply_gold_spec(setup.conn, spec)
+        else:
+            apply_gold_spec(setup.conn, spec)
         built_specs.append(spec.name)
 
     current_tables = {name for name in built_specs}
     built_dimensions = []
     if "base_license_addon_licenses_latest" in current_tables:
-        built_dimensions.append(build_dim_addon_feature_flags(setup.conn))
+        with log_timed_phase(setup.conn, label="build_dim_addon_feature_flags"):
+            built_dimensions.append(build_dim_addon_feature_flags(setup.conn))
 
     built_dev_activity = []
     if build_dev_activity:
-        built_dev_activity.extend([
-            build_dim_category_to_capability(setup.conn, base_dir=base_dir),
-            build_dim_dev_activity_event_classification(setup.conn, base_dir=base_dir),
-        ])
+        with log_timed_phase(setup.conn, label="build_dim_category_to_capability"):
+            built_dev_activity.append(build_dim_category_to_capability(setup.conn, base_dir=base_dir))
+        with log_timed_phase(setup.conn, label="build_dim_dev_activity_event_classification"):
+            built_dev_activity.append(build_dim_dev_activity_event_classification(setup.conn, base_dir=base_dir))
         dev_activity_name = build_fact_dev_activity_events(setup.conn, ctx=silver_ctx, base_dir=base_dir)
         if dev_activity_name:
             built_dev_activity.append(dev_activity_name)
