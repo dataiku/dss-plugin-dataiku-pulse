@@ -135,14 +135,15 @@ def _duckdb_native_partition_copy_sql(table_name: str, destination_path: str) ->
 def _upload_staged_fact_partitions(
     *,
     gold_folder_lookup: str,
-    staging_root: Path,
+    stage_table_root: Path,
     destination: str,
     table_name: str,
 ) -> None:
-    table_root = staging_root / destination
-    partition_files = sorted(table_root.glob("instance_name=*/year=*/month=*/day=*/*.parquet"))
+    partition_files = sorted(stage_table_root.glob("instance_name=*/year=*/month=*/day=*/*.parquet"))
     folder = dataiku.Folder(gold_folder_lookup)
     total = len(partition_files)
+    if total == 0:
+        raise RuntimeError(f"DuckDB staged no fact partitions for {table_name} under {stage_table_root}")
     logger.info(
         "DuckDB fact stage upload: table=%s partitions=%s rss_mb=%.1f",
         table_name,
@@ -150,7 +151,32 @@ def _upload_staged_fact_partitions(
         _process_rss_mb(),
     )
     for index, staged_file in enumerate(partition_files, start=1):
-        relative_output_path = staged_file.relative_to(staging_root)
+        partition_suffix = staged_file.relative_to(stage_table_root)
+        parts = partition_suffix.parts
+        if len(parts) != 5:
+            raise RuntimeError(f"Unexpected staged fact partition layout for {table_name}: {partition_suffix}")
+
+        instance_dir, year_dir, month_dir, day_dir, _duckdb_leaf = parts
+        if not instance_dir.startswith("instance_name="):
+            raise RuntimeError(f"Unexpected staged instance partition for {table_name}: {partition_suffix}")
+        if not year_dir.startswith("year="):
+            raise RuntimeError(f"Unexpected staged year partition for {table_name}: {partition_suffix}")
+        if not month_dir.startswith("month="):
+            raise RuntimeError(f"Unexpected staged month partition for {table_name}: {partition_suffix}")
+        if not day_dir.startswith("day="):
+            raise RuntimeError(f"Unexpected staged day partition for {table_name}: {partition_suffix}")
+
+        instance_name = instance_dir.split("=", 1)[1]
+        year_value = int(year_dir.split("=", 1)[1])
+        month_value = int(month_dir.split("=", 1)[1])
+        day_value = int(day_dir.split("=", 1)[1])
+        relative_output_path = _fact_partition_output_path(
+            destination,
+            instance_name,
+            year_value,
+            month_value,
+            day_value,
+        )
         partition_root = relative_output_path.parent
         logger.info(
             "DuckDB fact partition upload: table=%s partition=%s index=%s/%s rss_mb=%.1f",
@@ -190,11 +216,12 @@ def _write_fact_table_partitions_duckdb(
     with tempfile.TemporaryDirectory(prefix="pulse-gold-stage-") as tmpdir:
         staging_root = Path(tmpdir)
         staging_relative = Path(destination)
-        native_stage_path = str(staging_root / staging_relative)
+        stage_table_root = staging_root / staging_relative
+        native_stage_path = str(stage_table_root)
         conn.execute(_duckdb_native_partition_copy_sql(table_name, native_stage_path))
         _upload_staged_fact_partitions(
             gold_folder_lookup=gold_folder_lookup,
-            staging_root=staging_root,
+            stage_table_root=stage_table_root,
             destination=destination,
             table_name=table_name,
         )
@@ -356,6 +383,7 @@ def unload_gold_tables(
             )
             unloaded_tables.append(table_name)
         except Exception:
+            logger.exception("Failed GOLD unload: table=%s", table_name)
             failed_tables.append(table_name)
 
     return unloaded_tables, failed_tables
