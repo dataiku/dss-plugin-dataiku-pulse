@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import resource
+import tempfile
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -102,6 +104,67 @@ def _duckdb_fact_partition_copy_sql(
     )  # nosec B608 (all identifiers come from internal fact contract; destination_path is managed-folder derived)
 
 
+def _process_rss_mb() -> float:
+    return float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) / 1024.0
+
+
+def _duckdb_memory_snapshot(conn: duckdb.DuckDBPyConnection) -> dict[str, str | None]:
+    snapshot: dict[str, str | None] = {}
+    for setting in ["memory_limit", "threads", "temp_directory", "max_temp_directory_size"]:
+        try:
+            snapshot[setting] = str(conn.execute(f"SELECT current_setting('{setting}')").fetchone()[0])
+        except Exception:
+            snapshot[setting] = None
+    return snapshot
+
+
+def _duckdb_native_partition_copy_sql(table_name: str, destination_path: str) -> str:
+    return "\n".join(
+        [
+            "COPY (",
+            f"  SELECT * FROM {table_name}",  # nosec B608 (table_name comes from internal fact contract)
+            f") TO '{destination_path}' (",
+            "  FORMAT 'PARQUET',",
+            "  OVERWRITE TRUE,",
+            "  PARTITION_BY (instance_name, year, month, day)",
+            ");",
+        ]
+    )  # nosec B608 (destination_path is managed-folder derived)
+
+
+def _upload_staged_fact_partitions(
+    *,
+    gold_folder_lookup: str,
+    staging_root: Path,
+    destination: str,
+    table_name: str,
+) -> None:
+    table_root = staging_root / destination
+    partition_files = sorted(table_root.glob("instance_name=*/year=*/month=*/day=*/*.parquet"))
+    folder = dataiku.Folder(gold_folder_lookup)
+    total = len(partition_files)
+    logger.info(
+        "DuckDB fact stage upload: table=%s partitions=%s rss_mb=%.1f",
+        table_name,
+        total,
+        _process_rss_mb(),
+    )
+    for index, staged_file in enumerate(partition_files, start=1):
+        relative_output_path = staged_file.relative_to(staging_root)
+        partition_root = relative_output_path.parent
+        logger.info(
+            "DuckDB fact partition upload: table=%s partition=%s index=%s/%s rss_mb=%.1f",
+            table_name,
+            str(partition_root),
+            index,
+            total,
+            _process_rss_mb(),
+        )
+        _clear_gold_partition(gold_folder_lookup, partition_root)
+        with staged_file.open("rb") as handle:
+            folder.upload_stream(str(relative_output_path), handle)
+
+
 def _write_fact_table_partitions_duckdb(
     conn: duckdb.DuckDBPyConnection,
     *,
@@ -111,25 +174,29 @@ def _write_fact_table_partitions_duckdb(
     destination: str,
     time_column: str,
 ) -> None:
-    partition_rows = _fact_partition_key_rows(
-        conn,
-        table_name=table_name,
-        time_column=time_column,
+    partition_rows = _fact_partition_key_rows(conn, table_name=table_name, time_column=time_column)
+    memory_snapshot = _duckdb_memory_snapshot(conn)
+    logger.info(
+        "DuckDB fact unload memory baseline: table=%s partitions=%s rss_mb=%.1f memory_limit=%s threads=%s temp_directory=%s max_temp_directory_size=%s",
+        table_name,
+        len(partition_rows),
+        _process_rss_mb(),
+        memory_snapshot["memory_limit"],
+        memory_snapshot["threads"],
+        memory_snapshot["temp_directory"],
+        memory_snapshot["max_temp_directory_size"],
     )
-    for instance_name, year, month, day in partition_rows:
-        relative_output_path = _fact_partition_output_path(destination, instance_name, year, month, day)
-        _clear_gold_partition(gold_folder_lookup, relative_output_path.parent)
-        destination_path = gold_destination_path(gold_ctx, str(relative_output_path))
-        conn.execute(
-            _duckdb_fact_partition_copy_sql(
-                table_name=table_name,
-                time_column=time_column,
-                destination_path=destination_path,
-                instance_name=instance_name,
-                year=year,
-                month=month,
-                day=day,
-            )
+
+    with tempfile.TemporaryDirectory(prefix="pulse-gold-stage-") as tmpdir:
+        staging_root = Path(tmpdir)
+        staging_relative = Path(destination)
+        native_stage_path = str(staging_root / staging_relative)
+        conn.execute(_duckdb_native_partition_copy_sql(table_name, native_stage_path))
+        _upload_staged_fact_partitions(
+            gold_folder_lookup=gold_folder_lookup,
+            staging_root=staging_root,
+            destination=destination,
+            table_name=table_name,
         )
 
 
