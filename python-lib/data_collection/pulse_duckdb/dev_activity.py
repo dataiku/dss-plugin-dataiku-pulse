@@ -212,7 +212,7 @@ def build_fact_dev_activity_events(
         if not modules:
             return ""
 
-        branches: list[str] = []
+        insert_statements: list[tuple[str, str]] = []
         for module_name in modules:
             view_name = f"v_event_mapping__{_slug(module_name)}"
             module_label = f"fact_dev_activity_events.view.{view_name}"
@@ -221,37 +221,59 @@ def build_fact_dev_activity_events(
             log_phase_snapshot(conn, label=module_label, phase="end")
             if not created:
                 continue
-            branches.append(
-                f"""
-                SELECT
-                  try_cast(COALESCE(timestamp, date) AS TIMESTAMP) AS timestamp,
-                  instance_name,
-                  authuser AS login,
-                  msgtype,
-                  msgtypebase,
-                  dataiku_category,
-                  project_key,
-                  callpath,
-                  extras,
-                  try_cast(run_ts AS TIMESTAMP) AS run_timestamp,
-                  CAST(year AS INTEGER) AS year,
-                  CAST(month AS INTEGER) AS month,
-                  CAST(day AS INTEGER) AS day
-                FROM {view_name}
-                """.strip()  # nosec B608 (view_name is generated from curated toolbox modules and internal slugging; it is not user-controlled)
+            insert_statements.append(
+                (
+                    module_name,
+                    f"""
+                    INSERT INTO fact_dev_activity_events
+                    SELECT
+                      try_cast(COALESCE(timestamp, date) AS TIMESTAMP) AS timestamp,
+                      instance_name,
+                      authuser AS login,
+                      msgtype,
+                      msgtypebase,
+                      dataiku_category,
+                      project_key,
+                      callpath,
+                      extras,
+                      try_cast(run_ts AS TIMESTAMP) AS run_timestamp,
+                      CAST(year AS INTEGER) AS year,
+                      CAST(month AS INTEGER) AS month,
+                      CAST(day AS INTEGER) AS day
+                    FROM {view_name}
+                    """.strip(),  # nosec B608 (view_name is generated from curated toolbox modules and internal slugging; it is not user-controlled)
+                )
             )
 
-        if not branches:
+        if not insert_statements:
             return ""
 
-        sql = (
-            "CREATE OR REPLACE TABLE fact_dev_activity_events AS\n"
-            + "\nUNION ALL\n".join(branches)
-            + ";"
+        conn.execute(
+            """
+            CREATE OR REPLACE TABLE fact_dev_activity_events AS
+            SELECT
+              CAST(NULL AS TIMESTAMP) AS timestamp,
+              CAST(NULL AS VARCHAR) AS instance_name,
+              CAST(NULL AS VARCHAR) AS login,
+              CAST(NULL AS VARCHAR) AS msgtype,
+              CAST(NULL AS VARCHAR) AS msgtypebase,
+              CAST(NULL AS VARCHAR) AS dataiku_category,
+              CAST(NULL AS VARCHAR) AS project_key,
+              CAST(NULL AS VARCHAR) AS callpath,
+              CAST(NULL AS VARCHAR) AS extras,
+              CAST(NULL AS TIMESTAMP) AS run_timestamp,
+              CAST(NULL AS INTEGER) AS year,
+              CAST(NULL AS INTEGER) AS month,
+              CAST(NULL AS INTEGER) AS day
+            WHERE 1=0;
+            """.strip()
         )
-        log_phase_snapshot(conn, label="fact_dev_activity_events.ctas", phase="start")
-        conn.execute(sql)
-        log_phase_snapshot(conn, label="fact_dev_activity_events.ctas", phase="end")
+
+        for module_name, insert_sql in insert_statements:
+            insert_label = f"fact_dev_activity_events.insert.{_slug(module_name)}"
+            with log_timed_phase(conn, label=insert_label):
+                conn.execute(insert_sql)
+
         log_table_stats(conn, "fact_dev_activity_events")
         log_phase_snapshot(conn, label="fact_dev_activity_events.log_table_stats", phase="end")
         return "fact_dev_activity_events"
