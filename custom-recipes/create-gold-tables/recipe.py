@@ -15,7 +15,7 @@ from data_collection.pulse_duckdb.diagnostics import log_pre_unload_debug
 from data_collection.pulse_duckdb.dimensions import build_dim_addon_feature_flags
 from data_collection.pulse_duckdb.duckdb_manager import prepare_duckdb
 from data_collection.pulse_duckdb.engine.storage_config import configure_storage
-from data_collection.pulse_duckdb.gold_builder import apply_gold_spec, load_gold_spec
+from data_collection.pulse_duckdb.gold_builder import apply_gold_spec, resolve_gold_spec_build_order
 from data_collection.pulse_duckdb.license_wide import build_license_wide_sql_params
 from data_collection.pulse_duckdb.manifest import read_manifest, set_manifest_watermark, stamp_manifest_updated_at, write_manifest
 from data_collection.pulse_duckdb.unload import unload_gold_tables
@@ -68,15 +68,16 @@ def run():
         list((base_dir / "project").glob("base_*.yaml"))
         + list((base_dir / "instance").glob("base_*.yaml"))
     )
+    sql_params_by_name = {
+        "base_license_limits_wide_latest.yaml": build_license_wide_sql_params(base_dir / "instance")
+    }
+    ordered_specs = resolve_gold_spec_build_order(
+        spec_paths,
+        sql_params_by_name=sql_params_by_name,
+    )
 
     built_specs = []
-    for spec_path in spec_paths:
-        sql_params = (
-            build_license_wide_sql_params(base_dir / "instance")
-            if spec_path.name == "base_license_limits_wide_latest.yaml"
-            else None
-        )
-        spec = load_gold_spec(spec_path, sql_params=sql_params)
+    for spec_path, spec in ordered_specs:
 
         if spec.category and spec.module:
             view_name = spec.view_table_name or f"v_{spec.category}__{spec.module}"
