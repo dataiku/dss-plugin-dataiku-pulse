@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import resource
 import tempfile
 from collections.abc import Iterable
 from pathlib import Path
@@ -80,6 +79,30 @@ def _fact_partition_key_rows(
     ]
 
 
+def _fact_calendar_days(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    table_name: str,
+    time_column: str,
+) -> list[tuple[int, int, int]]:
+    query = "\n".join(
+        [
+            "SELECT DISTINCT",
+            f"  EXTRACT(YEAR FROM CAST({time_column} AS TIMESTAMP))::INTEGER AS year,",
+            f"  EXTRACT(MONTH FROM CAST({time_column} AS TIMESTAMP))::INTEGER AS month,",
+            f"  EXTRACT(DAY FROM CAST({time_column} AS TIMESTAMP))::INTEGER AS day",
+            f"FROM {table_name}",
+            "WHERE instance_name IS NOT NULL",
+            f"  AND CAST({time_column} AS TIMESTAMP) IS NOT NULL",
+            "ORDER BY 1, 2, 3;",
+        ]
+    )  # nosec B608 (table_name/time_column come from internal fact contract)
+    return [
+        (int(year), int(month), int(day))
+        for year, month, day in conn.execute(query).fetchall()
+    ]
+
+
 def _duckdb_fact_partition_copy_sql(
     *,
     table_name: str,
@@ -105,7 +128,16 @@ def _duckdb_fact_partition_copy_sql(
 
 
 def _process_rss_mb() -> float:
-    return float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) / 1024.0
+    status_path = Path("/proc/self/status")
+    try:
+        for line in status_path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("VmRSS:"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    return float(parts[1]) / 1024.0
+    except OSError:
+        pass
+    return float("nan")
 
 
 def _duckdb_memory_snapshot(conn: duckdb.DuckDBPyConnection) -> dict[str, str | None]:
@@ -164,6 +196,32 @@ def _duckdb_native_partition_copy_sql(
             ");",
         ]
     )  # nosec B608 (table_name/time_column come from the internal fact contract; destination_path is managed-folder derived)
+
+
+def _duckdb_native_day_partition_copy_sql(
+    *,
+    table_name: str,
+    time_column: str,
+    destination_path: str,
+    year: int,
+    month: int,
+    day: int,
+) -> str:
+    return "\n".join(
+        [
+            "COPY (",
+            f"  SELECT * FROM {table_name}",  # nosec B608 (table_name comes from the internal fact contract)
+            "  WHERE instance_name IS NOT NULL",
+            f"    AND EXTRACT(YEAR FROM CAST({time_column} AS TIMESTAMP)) = {int(year)}",
+            f"    AND EXTRACT(MONTH FROM CAST({time_column} AS TIMESTAMP)) = {int(month)}",
+            f"    AND EXTRACT(DAY FROM CAST({time_column} AS TIMESTAMP)) = {int(day)}",
+            f") TO '{destination_path}' (",
+            "  FORMAT 'PARQUET',",
+            "  OVERWRITE TRUE,",
+            "  PARTITION_BY (instance_name)",
+            ");",
+        ]
+    )  # nosec B608 (table_name/time_column come from internal fact contract; destination_path is a local managed stage path)
 
 
 def _upload_staged_fact_partitions(
@@ -229,6 +287,44 @@ def _upload_staged_fact_partitions(
             folder.upload_stream(str(relative_output_path), handle)
 
 
+def _upload_staged_fact_day_partitions(
+    *,
+    gold_folder_lookup: str,
+    stage_day_root: Path,
+    destination: str,
+    table_name: str,
+    year: int,
+    month: int,
+    day: int,
+) -> int:
+    partition_files = sorted(stage_day_root.glob("instance_name=*/*.parquet"))
+    folder = dataiku.Folder(gold_folder_lookup)
+    total = len(partition_files)
+    if total == 0:
+        raise RuntimeError(
+            f"DuckDB staged no fact day partitions for {table_name} day={year:04d}-{month:02d}-{day:02d} under {stage_day_root}"
+        )
+
+    for staged_file in partition_files:
+        partition_suffix = staged_file.relative_to(stage_day_root)
+        parts = partition_suffix.parts
+        if len(parts) != 2:
+            raise RuntimeError(f"Unexpected staged fact day partition layout for {table_name}: {partition_suffix}")
+
+        instance_dir, _duckdb_leaf = parts
+        if not instance_dir.startswith("instance_name="):
+            raise RuntimeError(f"Unexpected staged instance partition for {table_name}: {partition_suffix}")
+
+        instance_name = instance_dir.split("=", 1)[1]
+        relative_output_path = _fact_partition_output_path(destination, instance_name, year, month, day)
+        partition_root = relative_output_path.parent
+        _clear_gold_partition(gold_folder_lookup, partition_root)
+        with staged_file.open("rb") as handle:
+            folder.upload_stream(str(relative_output_path), handle)
+
+    return total
+
+
 def _write_fact_table_partitions_duckdb(
     conn: duckdb.DuckDBPyConnection,
     *,
@@ -238,12 +334,12 @@ def _write_fact_table_partitions_duckdb(
     destination: str,
     time_column: str,
 ) -> None:
-    partition_rows = _fact_partition_key_rows(conn, table_name=table_name, time_column=time_column)
+    day_rows = _fact_calendar_days(conn, table_name=table_name, time_column=time_column)
     memory_snapshot = _duckdb_memory_snapshot(conn)
     logger.info(
-        "DuckDB fact unload memory baseline: table=%s partitions=%s rss_mb=%.1f memory_limit=%s threads=%s temp_directory=%s max_temp_directory_size=%s",
+        "DuckDB fact unload memory baseline: table=%s days=%s rss_mb=%.1f memory_limit=%s threads=%s temp_directory=%s max_temp_directory_size=%s",
         table_name,
-        len(partition_rows),
+        len(day_rows),
         _process_rss_mb(),
         memory_snapshot["memory_limit"],
         memory_snapshot["threads"],
@@ -253,23 +349,71 @@ def _write_fact_table_partitions_duckdb(
 
     with tempfile.TemporaryDirectory(prefix="pulse-gold-stage-") as tmpdir:
         staging_root = Path(tmpdir)
-        staging_relative = Path(destination)
-        stage_table_root = staging_root / staging_relative
-        stage_table_root.mkdir(parents=True, exist_ok=True)
-        native_stage_path = str(stage_table_root)
-        conn.execute(
-            _duckdb_native_partition_copy_sql(
-                table_name=table_name,
-                time_column=time_column,
-                destination_path=native_stage_path,
+        stage_table_root = staging_root / Path(destination)
+
+        for day_index, (year, month, day) in enumerate(day_rows, start=1):
+            day_label = f"{year:04d}-{month:02d}-{day:02d}"
+            stage_day_root = stage_table_root / f"day={day_label}"
+            stage_day_root.mkdir(parents=True, exist_ok=True)
+            logger.info(
+                "DuckDB fact day unload: table=%s day=%s index=%s/%s rss_before_copy_mb=%.1f",
+                table_name,
+                day_label,
+                day_index,
+                len(day_rows),
+                _process_rss_mb(),
             )
-        )
-        _upload_staged_fact_partitions(
-            gold_folder_lookup=gold_folder_lookup,
-            stage_table_root=stage_table_root,
-            destination=destination,
-            table_name=table_name,
-        )
+            conn.execute(
+                _duckdb_native_day_partition_copy_sql(
+                    table_name=table_name,
+                    time_column=time_column,
+                    destination_path=str(stage_day_root),
+                    year=year,
+                    month=month,
+                    day=day,
+                )
+            )
+            logger.info(
+                "DuckDB fact day copied: table=%s day=%s index=%s/%s rss_after_copy_mb=%.1f",
+                table_name,
+                day_label,
+                day_index,
+                len(day_rows),
+                _process_rss_mb(),
+            )
+            instance_partitions = _upload_staged_fact_day_partitions(
+                gold_folder_lookup=gold_folder_lookup,
+                stage_day_root=stage_day_root,
+                destination=destination,
+                table_name=table_name,
+                year=year,
+                month=month,
+                day=day,
+            )
+            logger.info(
+                "DuckDB fact day upload: table=%s day=%s index=%s/%s instance_partitions=%s rss_after_upload_mb=%.1f",
+                table_name,
+                day_label,
+                day_index,
+                len(day_rows),
+                instance_partitions,
+                _process_rss_mb(),
+            )
+            for staged_file in stage_day_root.glob("**/*"):
+                if staged_file.is_file():
+                    staged_file.unlink()
+            for staged_dir in sorted(stage_day_root.glob("**/*"), reverse=True):
+                if staged_dir.is_dir():
+                    staged_dir.rmdir()
+            stage_day_root.rmdir()
+            logger.info(
+                "DuckDB fact day cleanup: table=%s day=%s index=%s/%s rss_after_cleanup_mb=%.1f",
+                table_name,
+                day_label,
+                day_index,
+                len(day_rows),
+                _process_rss_mb(),
+            )
 
 
 def _write_fact_table_partitions(
