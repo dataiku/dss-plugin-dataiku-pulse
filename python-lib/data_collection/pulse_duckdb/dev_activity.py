@@ -279,8 +279,6 @@ def build_fact_dev_activity_events(
                 with log_timed_phase(module_setup.conn, label=insert_label):
                     module_setup.conn.execute(insert_sql)
                 log_phase_snapshot(module_setup.conn, label=f"{insert_label}.after_insert", phase="end")
-                module_setup.conn.execute("FORCE CHECKPOINT;")
-                log_phase_snapshot(module_setup.conn, label=f"{insert_label}.after_checkpoint", phase="end")
             finally:
                 module_setup.conn.close()
                 log_phase_snapshot(conn, label=f"{insert_label}.after_close", phase="end")
