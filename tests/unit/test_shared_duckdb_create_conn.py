@@ -70,7 +70,7 @@ def test_duckdb_memory_limit_uses_ninety_percent():
 def test_duckdb_memory_limit_setting_preserves_precision():
     effective = 15 * 1024**3
     limit = cc._duckdb_memory_limit_bytes(effective)
-    assert cc._duckdb_memory_limit_setting(limit) == "12.00GB"  # nosec B101
+    assert cc._duckdb_memory_limit_setting(limit) == "12288MiB"  # nosec B101
 
 
 def test_effective_memory_reports_cgroup_source(monkeypatch):

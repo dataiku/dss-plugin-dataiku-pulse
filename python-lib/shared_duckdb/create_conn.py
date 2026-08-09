@@ -127,7 +127,7 @@ def _format_gib(memory_bytes: int) -> str | None:
 def _duckdb_memory_limit_setting(memory_bytes: int) -> str | None:
     if memory_bytes <= 0:
         return None
-    return f"{memory_bytes / (1024**3):.2f}GB"
+    return f"{memory_bytes // (1024**2)}MiB"
 
 
 def _connect_config() -> dict[str, str]:
