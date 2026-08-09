@@ -6,6 +6,7 @@ import duckdb
 import yaml
 
 from data_collection.data_normalizer.flatten_config import _slug
+from data_collection.pulse_duckdb.duckdb_manager import prepare_duckdb
 from data_collection.pulse_duckdb.object_activity import _create_event_mapping_module_view
 from data_collection.pulse_duckdb.sql_utils import log_phase_snapshot, log_table_stats, log_timed_phase
 
@@ -212,42 +213,6 @@ def build_fact_dev_activity_events(
         if not modules:
             return ""
 
-        insert_statements: list[tuple[str, str]] = []
-        for module_name in modules:
-            view_name = f"v_event_mapping__{_slug(module_name)}"
-            module_label = f"fact_dev_activity_events.view.{view_name}"
-            log_phase_snapshot(conn, label=module_label, phase="start")
-            created = _create_event_mapping_module_view(conn, ctx=ctx, module=module_name, view_name=view_name)
-            log_phase_snapshot(conn, label=module_label, phase="end")
-            if not created:
-                continue
-            insert_statements.append(
-                (
-                    module_name,
-                    f"""
-                    INSERT INTO fact_dev_activity_events
-                    SELECT
-                      try_cast(COALESCE(timestamp, date) AS TIMESTAMP) AS timestamp,
-                      instance_name,
-                      authuser AS login,
-                      msgtype,
-                      msgtypebase,
-                      dataiku_category,
-                      project_key,
-                      callpath,
-                      extras,
-                      try_cast(run_ts AS TIMESTAMP) AS run_timestamp,
-                      CAST(year AS INTEGER) AS year,
-                      CAST(month AS INTEGER) AS month,
-                      CAST(day AS INTEGER) AS day
-                    FROM {view_name}
-                    """.strip(),  # nosec B608 (view_name is generated from curated toolbox modules and internal slugging; it is not user-controlled)
-                )
-            )
-
-        if not insert_statements:
-            return ""
-
         conn.execute(
             """
             CREATE OR REPLACE TABLE fact_dev_activity_events AS
@@ -269,10 +234,59 @@ def build_fact_dev_activity_events(
             """.strip()
         )
 
-        for module_name, insert_sql in insert_statements:
+        db_path = Path(conn.sql("PRAGMA database_list").fetchone()[2])
+        inserted_any = False
+
+        for module_name in modules:
+            view_name = f"v_event_mapping__{_slug(module_name)}"
+            module_label = f"fact_dev_activity_events.view.{view_name}"
             insert_label = f"fact_dev_activity_events.insert.{_slug(module_name)}"
-            with log_timed_phase(conn, label=insert_label):
-                conn.execute(insert_sql)
+            log_phase_snapshot(conn, label=f"{insert_label}.before_open", phase="start")
+
+            module_setup = prepare_duckdb(ctx=ctx, read_only=False, reset=False, db_path=db_path)
+            try:
+                log_phase_snapshot(module_setup.conn, label=module_label, phase="start")
+                created = _create_event_mapping_module_view(
+                    module_setup.conn,
+                    ctx=ctx,
+                    module=module_name,
+                    view_name=view_name,
+                )
+                log_phase_snapshot(module_setup.conn, label=module_label, phase="end")
+                if not created:
+                    continue
+
+                inserted_any = True
+                insert_sql = f"""
+                    INSERT INTO fact_dev_activity_events
+                    SELECT
+                      try_cast(COALESCE(timestamp, date) AS TIMESTAMP) AS timestamp,
+                      instance_name,
+                      authuser AS login,
+                      msgtype,
+                      msgtypebase,
+                      dataiku_category,
+                      project_key,
+                      callpath,
+                      extras,
+                      try_cast(run_ts AS TIMESTAMP) AS run_timestamp,
+                      CAST(year AS INTEGER) AS year,
+                      CAST(month AS INTEGER) AS month,
+                      CAST(day AS INTEGER) AS day
+                    FROM {view_name}
+                """.strip()  # nosec B608 (view_name is generated from curated toolbox modules and internal slugging; it is not user-controlled)
+
+                with log_timed_phase(module_setup.conn, label=insert_label):
+                    module_setup.conn.execute(insert_sql)
+                log_phase_snapshot(module_setup.conn, label=f"{insert_label}.after_insert", phase="end")
+                module_setup.conn.execute("FORCE CHECKPOINT;")
+                log_phase_snapshot(module_setup.conn, label=f"{insert_label}.after_checkpoint", phase="end")
+            finally:
+                module_setup.conn.close()
+                log_phase_snapshot(conn, label=f"{insert_label}.after_close", phase="end")
+
+        if not inserted_any:
+            return ""
 
         log_table_stats(conn, "fact_dev_activity_events")
         log_phase_snapshot(conn, label="fact_dev_activity_events.log_table_stats", phase="end")
