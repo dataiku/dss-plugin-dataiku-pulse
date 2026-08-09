@@ -12,7 +12,7 @@ from .pathing import resolve_db_path
 
 logger = logging.getLogger(__name__)
 
-DUCKDB_MEMORY_PERCENTAGE = 0.90
+DUCKDB_MEMORY_PERCENTAGE = 0.80
 _UNLIMITED_MEMORY_SENTINEL = 1 << 60
 
 
