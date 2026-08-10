@@ -129,3 +129,12 @@ def test_load_gold_tables_handles_mixed_fact_dev_activity_event_partition_schema
         ],
     }
     assert all("_history" not in name for name in created_tables)
+
+
+def test_load_remote_parquet_table_rejects_invalid_table_identifier(conn):
+    with pytest.raises(ValueError, match="Invalid GOLD physical table name"):
+        gold_loader._load_remote_parquet_table(
+            conn,
+            table_name="bad-table-name",
+            blob_paths=["s3://bucket/root/gold/base_license_addon_licenses_latest.parquet"],
+        )

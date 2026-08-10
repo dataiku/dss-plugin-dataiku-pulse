@@ -6,6 +6,7 @@ import fnmatch
 import io
 import logging
 import os
+import re
 import time
 import uuid
 from collections import defaultdict
@@ -24,6 +25,18 @@ from ... import settings
 
 
 logger = logging.getLogger(__name__)
+
+
+_SAFE_GOLD_TABLE_RE = re.compile(r"^(base_|dim_|fact_|reg_)[A-Za-z0-9_]+$")
+
+
+def _validated_gold_table_identifier(table_name: str) -> str:
+    normalized = str(table_name or "").strip()
+    if "_history" in normalized:
+        raise ValueError(f"CRITICAL: unexpected _history table name: {table_name!r}")
+    if not _SAFE_GOLD_TABLE_RE.fullmatch(normalized):
+        raise ValueError(f"Invalid GOLD physical table name: {table_name!r}")
+    return quote_identifier(normalized)
 
 
 def _extract_table_name(path: str) -> str | None:
@@ -91,6 +104,7 @@ def _load_remote_parquet_table(
         raise ValueError(f"No blob paths provided for {table_name}")
 
     started = time.time()
+    table_ident = _validated_gold_table_identifier(table_name)
     params: list[object] = []
     if len(blob_paths) == 1:
         path_expr = "?"
@@ -100,9 +114,9 @@ def _load_remote_parquet_table(
         params.extend(blob_paths)
 
     sql = (
-        f'CREATE OR REPLACE TABLE {quote_identifier(table_name)} AS '
+        f'CREATE OR REPLACE TABLE {table_ident} AS '
         f'SELECT * FROM read_parquet({path_expr});'
-    )  # nosec B608 (table_name is derived from curated GOLD naming and blob paths are parameterized)
+    )  # nosec B608 (table identifier is validated against GOLD naming rules and quoted; remote parquet paths remain parameterized; SQL identifiers cannot be bound via DuckDB ? parameters)
     logger.info(
         "DuckDB gold_loader: starting remote parquet load table=%s parquet_files=%s first_path=%s",
         table_name,
@@ -110,7 +124,7 @@ def _load_remote_parquet_table(
         blob_paths[0],
     )
     conn.execute(sql, params)
-    row = conn.execute(f'SELECT COUNT(*) FROM {quote_identifier(table_name)};').fetchone()  # nosec B608
+    row = conn.execute(f'SELECT COUNT(*) FROM {table_ident};').fetchone()  # nosec B608 (table identifier already validated and quoted)
     rows = int(row[0]) if row else 0
     logger.info(
         "DuckDB gold_loader: finished remote parquet load table=%s parquet_files=%s rows=%s elapsed_sec=%.3f",
