@@ -5093,28 +5093,28 @@ def build_users_kpis():
                 "    lower(trim(login_norm)) AS login_norm,\n"
                 "    SUM(viewing_actions_count) AS total_viewing,\n"
                 "    SUM(developing_actions_count) AS total_developing,\n"
-                "    SUM(CASE WHEN day >= "
+                "    SUM(CASE WHEN last_activity_at >= "
                 f"{thirty_day_start_expr}"
                 " THEN viewing_actions_count ELSE 0 END) AS viewing_30d,\n"
-                "    SUM(CASE WHEN day >= "
+                "    SUM(CASE WHEN last_activity_at >= "
                 f"{thirty_day_start_expr}"
                 " THEN developing_actions_count ELSE 0 END) AS developing_30d,\n"
-                "    SUM(CASE WHEN day >= "
+                "    SUM(CASE WHEN last_activity_at >= "
                 f"{ninety_day_start_expr}"
                 " THEN viewing_actions_count ELSE 0 END) AS viewing_90d,\n"
-                "    SUM(CASE WHEN day >= "
+                "    SUM(CASE WHEN last_activity_at >= "
                 f"{ninety_day_start_expr}"
                 " THEN developing_actions_count ELSE 0 END) AS developing_90d,\n"
-                "    SUM(CASE WHEN day >= "
+                "    SUM(CASE WHEN last_activity_at >= "
                 f"{six_month_start_expr}"
                 " THEN viewing_actions_count ELSE 0 END) AS viewing_6m,\n"
-                "    SUM(CASE WHEN day >= "
+                "    SUM(CASE WHEN last_activity_at >= "
                 f"{six_month_start_expr}"
                 " THEN developing_actions_count ELSE 0 END) AS developing_6m,\n"
-                "    SUM(CASE WHEN day >= "
+                "    SUM(CASE WHEN last_activity_at >= "
                 f"{twelve_month_start_expr}"
                 " THEN viewing_actions_count ELSE 0 END) AS viewing_12m,\n"
-                "    SUM(CASE WHEN day >= "
+                "    SUM(CASE WHEN last_activity_at >= "
                 f"{twelve_month_start_expr}"
                 " THEN developing_actions_count ELSE 0 END) AS developing_12m\n"
                 "  FROM fact_user_activity_daily\n"
@@ -5518,10 +5518,10 @@ def build_users_kpis():
                 "    lower(trim(login_norm)) AS login_norm,\n"
                 "    SUM(viewing_actions_count) AS total_viewing,\n"
                 "    SUM(developing_actions_count) AS total_developing,\n"
-                "    SUM(CASE WHEN day >= "
+                "    SUM(CASE WHEN last_activity_at >= "
                 f"{six_month_start_expr}"
                 " THEN viewing_actions_count ELSE 0 END) AS viewing_6m,\n"
-                "    SUM(CASE WHEN day >= "
+                "    SUM(CASE WHEN last_activity_at >= "
                 f"{six_month_start_expr}"
                 " THEN developing_actions_count ELSE 0 END) AS developing_6m\n"
                 "  FROM fact_user_activity_daily\n"
@@ -5711,7 +5711,7 @@ def build_users_active_monthly():
                 f"{latest_users_cte}"
                 "activity AS (\n"
                 "  SELECT\n"
-                "    date_trunc('month', a.day) AS month_start,\n"
+                "    date_trunc('month', a.last_activity_at) AS month_start,\n"
                 "    a.instance_name,\n"
                 "    a.login_norm\n"
                 "  FROM fact_user_activity_daily a\n"
@@ -5719,8 +5719,8 @@ def build_users_active_monthly():
                 "    ON u.instance_name = a.instance_name\n"
                 "   AND u.login_norm = a.login_norm\n"
                 "  WHERE "
-                f"    a.day >= {start_month_expr}\n"  # nosec B608 (month expr is internal)
-                f"    AND a.day < {next_month_expr}\n"  # nosec B608 (month expr is internal)
+                f"    a.last_activity_at >= {start_month_expr}\n"  # nosec B608 (month expr is internal)
+                f"    AND a.last_activity_at < {next_month_expr}\n"  # nosec B608 (month expr is internal)
                 "    AND u.rn = 1\n"
                 "    AND u.users_enabled = 'True'\n"
                 f"    {exclude_sql}\n"  # nosec B608 (exclude_sql uses placeholders)
@@ -5761,7 +5761,7 @@ def build_users_active_monthly():
                 f"{latest_users_cte}"
                 "activity AS (\n"
                 "  SELECT\n"
-                "    date_trunc('month', a.day) AS month_start,\n"
+                "    date_trunc('month', a.last_activity_at) AS month_start,\n"
                 "    a.instance_name,\n"
                 "    a.login_norm\n"
                 "  FROM fact_user_activity_daily a\n"
@@ -5769,8 +5769,8 @@ def build_users_active_monthly():
                 "    ON u.instance_name = a.instance_name\n"
                 "   AND u.login_norm = a.login_norm\n"
                 "  WHERE "
-                f"    a.day >= {start_month_expr}\n"  # nosec B608 (month expr is internal)
-                f"    AND a.day < {next_month_expr}\n"  # nosec B608 (month expr is internal)
+                f"    a.last_activity_at >= {start_month_expr}\n"  # nosec B608 (month expr is internal)
+                f"    AND a.last_activity_at < {next_month_expr}\n"  # nosec B608 (month expr is internal)
                 "    AND u.rn = 1\n"
                 "    AND u.users_enabled = 'True'\n"
                 f"    {exclude_sql}\n"  # nosec B608 (exclude_sql uses placeholders)
@@ -5874,12 +5874,12 @@ def build_users_formal_mau_monthly():
             ),
             activity AS (
               SELECT
-                date_trunc('month', f.day) AS month_start,
+                date_trunc('month', f.last_application_open_at) AS month_start,
                 f.instance_name,
                 f.login_norm
               FROM final_build_formal_mau_daily f
-              WHERE f.day >= {start_month_expr}
-                AND f.day < {next_month_expr}
+              WHERE f.last_application_open_at >= {start_month_expr}
+                AND f.last_application_open_at < {next_month_expr}
                 {instance_sql}
             ),
             agg AS (
@@ -5916,12 +5916,12 @@ def build_users_formal_mau_monthly():
             ),
             activity AS (
               SELECT
-                date_trunc('month', f.day) AS month_start,
+                date_trunc('month', f.last_application_open_at) AS month_start,
                 f.instance_name,
                 f.login_norm
               FROM final_build_formal_mau_daily f
-              WHERE f.day >= {start_month_expr}
-                AND f.day < {next_month_expr}
+              WHERE f.last_application_open_at >= {start_month_expr}
+                AND f.last_application_open_at < {next_month_expr}
                 {instance_sql}
             ),
             agg AS (
@@ -5968,8 +5968,8 @@ def build_users_formal_mau_monthly():
                 ON u.instance_name = f.instance_name
                AND u.login_norm = f.login_norm
                AND u.rn = 1
-              WHERE f.day >= date_trunc('month', current_date)::DATE
-                AND f.day < {next_month_expr}
+              WHERE f.last_application_open_at >= date_trunc('month', current_date)::DATE
+                AND f.last_application_open_at < {next_month_expr}
                 {instance_sql}
             )
             SELECT
@@ -6008,8 +6008,8 @@ def build_users_formal_mau_monthly():
                 ON u.instance_name = f.instance_name
                AND u.login_norm = f.login_norm
                AND u.rn = 1
-              WHERE f.day >= date_trunc('month', current_date)::DATE
-                AND f.day < {next_month_expr}
+              WHERE f.last_application_open_at >= date_trunc('month', current_date)::DATE
+                AND f.last_application_open_at < {next_month_expr}
                 {instance_sql}
             )
             SELECT
@@ -6227,10 +6227,10 @@ def build_users_creator_risk():
             "  SELECT\n"
             "    instance_name,\n"
             "    lower(trim(login_norm)) AS login_norm,\n"
-            "    SUM(CASE WHEN day >= "
+            "    SUM(CASE WHEN last_activity_at >= "
             f"{six_month_start_expr}"  # nosec B608 (internal fixed date expression)
             " THEN viewing_actions_count ELSE 0 END) AS viewing_6m,\n"
-            "    SUM(CASE WHEN day >= "
+            "    SUM(CASE WHEN last_activity_at >= "
             f"{six_month_start_expr}"  # nosec B608 (internal fixed date expression)
             " THEN developing_actions_count ELSE 0 END) AS developing_6m,\n"
             "    MAX(last_activity_at) AS last_activity_at\n"
@@ -6538,14 +6538,14 @@ def build_users_stickiness():
                 "),\n"
                 "activity AS (\n"
                 "  SELECT\n"
-                "    date_trunc('month', a.day) AS month_start,\n"
+                "    date_trunc('month', a.last_activity_at) AS month_start,\n"
                 "    a.login_norm\n"
                 "  FROM fact_user_activity_daily a\n"
                 "  JOIN base_users_instance_metadata u\n"
                 "    ON u.instance_name = a.instance_name\n"
                 "   AND lower(trim(u.users_login)) = a.login_norm\n"
-                "  WHERE a.day >= " + start_month_expr + "\n"
-                "    AND a.day < " + next_month_expr + "\n"
+                "  WHERE a.last_activity_at >= " + start_month_expr + "\n"
+                "    AND a.last_activity_at < " + next_month_expr + "\n"
                 "    AND u.users_enabled = 'True'\n"
                 f"    {exclude_sql}\n"  # nosec B608
                 f"    {instance_sql_activity}\n"  # nosec B608
