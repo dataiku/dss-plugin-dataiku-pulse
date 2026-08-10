@@ -91,24 +91,13 @@ def _load_remote_parquet_table(
         raise ValueError(f"No blob paths provided for {table_name}")
 
     started = time.time()
-    sql_preview_paths = ", ".join(repr(path) for path in blob_paths[:5])
-    if len(blob_paths) > 5:
-        sql_preview_paths = f"{sql_preview_paths}, ..."
     params: list[object] = []
     if len(blob_paths) == 1:
         path_expr = "?"
         params.append(blob_paths[0])
-        sql_preview = (
-            f'CREATE OR REPLACE TABLE {quote_identifier(table_name)} '
-            f"AS SELECT * FROM read_parquet({repr(blob_paths[0])});"
-        )
     else:
         path_expr = "[" + ", ".join("?" for _ in blob_paths) + "]"
         params.extend(blob_paths)
-        sql_preview = (
-            f'CREATE OR REPLACE TABLE {quote_identifier(table_name)} '
-            f"AS SELECT * FROM read_parquet([{sql_preview_paths}]);"
-        )
 
     sql = (
         f'CREATE OR REPLACE TABLE {quote_identifier(table_name)} AS '
@@ -120,7 +109,6 @@ def _load_remote_parquet_table(
         len(blob_paths),
         blob_paths[0],
     )
-    logger.info("DuckDB gold_loader: remote parquet SQL table=%s sql=%s", table_name, sql_preview)
     conn.execute(sql, params)
     row = conn.execute(f'SELECT COUNT(*) FROM {quote_identifier(table_name)};').fetchone()  # nosec B608
     rows = int(row[0]) if row else 0
