@@ -113,10 +113,12 @@ def _load_remote_parquet_table(
         path_expr = "[" + ", ".join("?" for _ in blob_paths) + "]"
         params.extend(blob_paths)
 
+    # Bandit B608: table identifier is validated against GOLD naming rules and quoted.
+    # Remote parquet paths remain parameterized, and DuckDB `?` parameters cannot bind SQL identifiers.
     sql = (
-        f'CREATE OR REPLACE TABLE {table_ident} AS '
+        f'CREATE OR REPLACE TABLE {table_ident} AS '  # nosec B608
         f'SELECT * FROM read_parquet({path_expr});'
-    )  # nosec B608 (table identifier is validated against GOLD naming rules and quoted; remote parquet paths remain parameterized; SQL identifiers cannot be bound via DuckDB ? parameters)
+    )
     logger.info(
         "DuckDB gold_loader: starting remote parquet load table=%s parquet_files=%s first_path=%s",
         table_name,
@@ -124,7 +126,8 @@ def _load_remote_parquet_table(
         blob_paths[0],
     )
     conn.execute(sql, params)
-    row = conn.execute(f'SELECT COUNT(*) FROM {table_ident};').fetchone()  # nosec B608 (table identifier already validated and quoted)
+    # Bandit B608: validated and quoted table identifier.
+    row = conn.execute(f'SELECT COUNT(*) FROM {table_ident};').fetchone()  # nosec B608
     rows = int(row[0]) if row else 0
     logger.info(
         "DuckDB gold_loader: finished remote parquet load table=%s parquet_files=%s rows=%s elapsed_sec=%.3f",
@@ -249,11 +252,12 @@ def _load_parquet_to_table(
                 if value is not None:
                     params.append(value)
             params.append(str(tmp_path))
-            sql_select = f"SELECT {', '.join(select_cols)} FROM read_parquet(?)"  # nosec B608 (select cols derived from validated schema)
+            # Bandit B608: select list is derived from validated target schema.
+            sql_select = f"SELECT {', '.join(select_cols)} FROM read_parquet(?)"  # nosec B608
             conn.execute(
                 f'INSERT INTO {quote_identifier(table_name)} ({insert_cols}) {sql_select};',
                 params,
-            )  # nosec B608 (table_name/columns validated from information_schema)
+            )  # nosec B608
         else:
             select_cols = ["*"]
             params: list[object] = []
@@ -268,8 +272,9 @@ def _load_parquet_to_table(
                     select_cols.append(f"CAST(? AS INTEGER) AS {key}")
                     params.append(int(partitions[key]))
             params.append(str(tmp_path))
-            sql_select = f"SELECT {', '.join(select_cols)} FROM read_parquet(?)"  # nosec B608 (select_cols are fixed/derived)
-            conn.execute(f'CREATE TABLE {quote_identifier(table_name)} AS {sql_select};', params)  # nosec B608 (table_name validated)
+            # Bandit B608: select list is fixed/derived and table name is validated.
+            sql_select = f"SELECT {', '.join(select_cols)} FROM read_parquet(?)"  # nosec B608
+            conn.execute(f'CREATE TABLE {quote_identifier(table_name)} AS {sql_select};', params)  # nosec B608
     finally:
         try:
             os.remove(tmp_path)
