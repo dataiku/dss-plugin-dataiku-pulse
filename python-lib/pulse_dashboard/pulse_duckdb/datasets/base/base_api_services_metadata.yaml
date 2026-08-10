@@ -11,21 +11,11 @@ base_api_services_metadata:
         project_key,
         api_services_id,
         api_services_name,
-        api_services_type,
+        api_services_authmethod AS api_services_type,
         CAST(NULL AS VARCHAR) AS owner_login,
         CAST(NULL AS VARCHAR) AS last_modified_by_login,
-        CASE
-          WHEN NULLIF(TRIM(CAST(api_services_createdon AS VARCHAR)), '') IS NULL THEN NULL
-          WHEN regexp_matches(NULLIF(TRIM(CAST(api_services_createdon AS VARCHAR)), ''), '^[0-9]{13}$') THEN to_timestamp(try_cast(NULLIF(TRIM(CAST(api_services_createdon AS VARCHAR)), '') AS DOUBLE) / 1000.0)
-          WHEN regexp_matches(NULLIF(TRIM(CAST(api_services_createdon AS VARCHAR)), ''), '^[0-9]{10}$') THEN to_timestamp(try_cast(NULLIF(TRIM(CAST(api_services_createdon AS VARCHAR)), '') AS DOUBLE))
-          ELSE try_cast(api_services_createdon AS TIMESTAMP)
-        END AS created_at,
-        CASE
-          WHEN NULLIF(TRIM(CAST(api_services_lastmodifiedon AS VARCHAR)), '') IS NULL THEN NULL
-          WHEN regexp_matches(NULLIF(TRIM(CAST(api_services_lastmodifiedon AS VARCHAR)), ''), '^[0-9]{13}$') THEN to_timestamp(try_cast(NULLIF(TRIM(CAST(api_services_lastmodifiedon AS VARCHAR)), '') AS DOUBLE) / 1000.0)
-          WHEN regexp_matches(NULLIF(TRIM(CAST(api_services_lastmodifiedon AS VARCHAR)), ''), '^[0-9]{10}$') THEN to_timestamp(try_cast(NULLIF(TRIM(CAST(api_services_lastmodifiedon AS VARCHAR)), '') AS DOUBLE))
-          ELSE try_cast(api_services_lastmodifiedon AS TIMESTAMP)
-        END AS updated_at,
+        CAST(NULL AS TIMESTAMP) AS created_at,
+        CAST(NULL AS TIMESTAMP) AS updated_at,
         CAST(extras AS VARCHAR) AS details_json,
         ROW_NUMBER() OVER (
           PARTITION BY instance_name, project_key, api_services_id

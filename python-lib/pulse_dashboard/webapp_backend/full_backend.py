@@ -5014,7 +5014,7 @@ def _window_months_where_sql(*, months: int) -> str:
     # months=3 means: this month + previous 2.
     # We use month boundaries (calendar months) instead of rolling N days.
     months = max(1, min(24, int(months)))
-    return f"day >= date_trunc('month', current_date) - INTERVAL {months - 1} MONTH"
+    return f"last_activity_at >= date_trunc('month', current_date) - INTERVAL {months - 1} MONTH"
 
 
 @bp.route("/api/build/users/kpis")
@@ -6066,7 +6066,7 @@ def build_users_leaderboard():
         else:
             days = int(request.args.get("days") or 30)
             days = max(1, min(365, days))
-            where = ["day >= current_date - ?::INTEGER"]
+            where = ["last_activity_at >= current_date - ?::INTEGER"]
             params = [days]
 
         instance_name = _parse_instance_name(request.args.get("instance_name"))
@@ -6386,7 +6386,7 @@ def build_users_segments():
             activity_window_sql = _window_months_where_sql(months=months)
             activity_params: list[Any] = []
         else:
-            activity_window_sql = "day >= current_date - ?::INTEGER"
+            activity_window_sql = "last_activity_at >= current_date - ?::INTEGER"
             activity_params = [int(days or 30)]
 
         df = _query_df(
@@ -6617,7 +6617,7 @@ def build_user_detail(login: str):
             where = [_window_months_where_sql(months=months), "login_norm = ?"]
             params: list[Any] = [login_norm]
         else:
-            where = ["day >= current_date - ?::INTEGER", "login_norm = ?"]
+            where = ["last_activity_at >= current_date - ?::INTEGER", "login_norm = ?"]
             params = [int(days or 30), login_norm]
 
         instance_name = _parse_instance_name(request.args.get("instance_name"))
@@ -6694,7 +6694,7 @@ def build_user_detail(login: str):
         monthly_df = _query_df(
             (
                 "SELECT\n"
-                "  CAST(date_trunc('month', day) AS VARCHAR) AS month,\n"
+                "  CAST(date_trunc('month', last_activity_at) AS VARCHAR) AS month,\n"
                 "  SUM(viewing_actions_count) AS viewing,\n"
                 "  SUM(developing_actions_count) AS developing\n"
                 "FROM fact_user_activity_daily\n"
@@ -6737,7 +6737,7 @@ def build_user_top_projects(login: str):
             where = [_window_months_where_sql(months=months), "login_norm = ?"]
             params: list[Any] = [login_norm]
         else:
-            where = ["day >= current_date - ?::INTEGER", "login_norm = ?"]
+            where = ["last_activity_at >= current_date - ?::INTEGER", "login_norm = ?"]
             params = [int(days or 30), login_norm]
 
         limit = int(_parse_int_arg("limit", default=10, minimum=1, maximum=100) or 10)
