@@ -241,6 +241,15 @@ def _safe_duckdb_metadata() -> dict[str, Any]:
         return {}
     return payload if isinstance(payload, dict) else {}
 
+
+def _duckdb_init_in_progress() -> bool:
+    if is_initialization_in_progress is None:
+        return False
+    try:
+        return bool(is_initialization_in_progress())
+    except Exception:
+        return False
+
 def _evaluate_startup_duckdb_state(duckdb_path: Path) -> dict[str, Any]:
     metadata_path = Path(getattr(pulse_settings, "DUCKDB_METADATA_PATH", f"{duckdb_path}.meta.json"))
     metadata = _safe_duckdb_metadata()
@@ -381,3 +390,7 @@ def run_initial_local_startup() -> None:
             getattr(pulse_settings, "PULSE_DUCKDB_INIT_LOCK_PATH", None),
         )
     _maybe_schedule_startup_duckdb_init()
+
+
+def duckdb_init_in_progress() -> bool:
+    return _duckdb_init_in_progress()

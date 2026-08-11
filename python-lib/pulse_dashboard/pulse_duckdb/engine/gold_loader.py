@@ -105,27 +105,69 @@ def _load_remote_parquet_table(
 
     started = time.time()
     table_ident = _validated_gold_table_identifier(table_name)
-    params: list[object] = []
-    if len(blob_paths) == 1:
-        path_expr = "?"
-        params.append(blob_paths[0])
-    else:
-        path_expr = "[" + ", ".join("?" for _ in blob_paths) + "]"
-        params.extend(blob_paths)
-
-    # Bandit B608: table identifier is validated against GOLD naming rules and quoted.
-    # Remote parquet paths remain parameterized, and DuckDB `?` parameters cannot bind SQL identifiers.
-    sql = (
-        f'CREATE OR REPLACE TABLE {table_ident} AS '  # nosec B608
-        f'SELECT * FROM read_parquet({path_expr});'
-    )
     logger.info(
         "DuckDB gold_loader: starting remote parquet load table=%s parquet_files=%s first_path=%s",
         table_name,
         len(blob_paths),
         blob_paths[0],
     )
-    conn.execute(sql, params)
+
+    if table_name == "fact_user_activity_daily":
+        first_path, *remaining_paths = blob_paths
+        conn.execute(
+            f'''
+            CREATE OR REPLACE TABLE {table_ident} AS
+            SELECT
+              make_date(CAST(year AS INTEGER), CAST(month AS INTEGER), CAST(day AS INTEGER)) AS day,
+              instance_name,
+              login_norm,
+              login,
+              viewing_actions_count,
+              developing_actions_count,
+              last_activity_at
+            FROM read_parquet(?);
+            ''',
+            [first_path],
+        )  # nosec B608
+
+        for path in remaining_paths:
+            conn.execute(
+                f'''
+                INSERT INTO {table_ident} (
+                  day,
+                  instance_name,
+                  login_norm,
+                  login,
+                  viewing_actions_count,
+                  developing_actions_count,
+                  last_activity_at
+                )
+                SELECT
+                  make_date(CAST(year AS INTEGER), CAST(month AS INTEGER), CAST(day AS INTEGER)) AS day,
+                  instance_name,
+                  login_norm,
+                  login,
+                  viewing_actions_count,
+                  developing_actions_count,
+                  last_activity_at
+                FROM read_parquet(?);
+                ''',
+                [path],
+            )  # nosec B608
+    else:
+        params: list[object] = []
+        if len(blob_paths) == 1:
+            path_expr = "?"
+            params.append(blob_paths[0])
+        else:
+            path_expr = "[" + ", ".join("?" for _ in blob_paths) + "]"
+            params.extend(blob_paths)
+
+        sql = (
+            f'CREATE OR REPLACE TABLE {table_ident} AS '  # nosec B608
+            f'SELECT * FROM read_parquet({path_expr});'
+        )
+        conn.execute(sql, params)
     # Bandit B608: validated and quoted table identifier.
     row = conn.execute(f'SELECT COUNT(*) FROM {table_ident};').fetchone()  # nosec B608
     rows = int(row[0]) if row else 0
