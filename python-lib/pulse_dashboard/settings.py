@@ -126,13 +126,6 @@ PULSE_DUCKDB_INIT_LOCK_PATH = os.getenv(
 PULSE_DUCKDB_INIT_TIMEOUT_SEC = float(os.getenv("PULSE_DUCKDB_INIT_TIMEOUT_SEC", "300"))
 PULSE_DUCKDB_INIT_LOCK_STALE_SEC = float(os.getenv("PULSE_DUCKDB_INIT_LOCK_STALE_SEC", "600"))
 
-# Demo/dev helpers.
-PULSE_SEED_DEMO_DEV_ACTIVITY = os.getenv("PULSE_SEED_DEMO_DEV_ACTIVITY", "0").lower() in (
-    "1",
-    "true",
-    "yes",
-)
-
 # Comma-separated list of instance_name values that should win tie-breakers
 # when selecting a canonical user record across multiple instances.
 #

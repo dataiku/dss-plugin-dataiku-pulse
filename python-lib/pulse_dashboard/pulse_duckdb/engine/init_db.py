@@ -413,84 +413,6 @@ def ensure_consumption_product_views(conn) -> dict[str, object]:
     }
 
 
-def _maybe_seed_demo_dev_activity(conn) -> dict:
-    """Seed dev-activity tables for demo mode.
-
-    In the current DEMO workflow, auto-loading from the managed folder only loads
-    `base_*.csv` tables. The Build → Development Activity page depends on
-    `fact_dev_activity_events` + `dim_category_to_capability`, which may not be
-    present.
-
-    We create them from their YAML base specs if missing, and seed deterministic
-    dummy data only when they are empty.
-    """
-
-    if not settings.PULSE_SEED_DEMO_DEV_ACTIVITY:
-        return {"ok": True, "enabled": False}
-
-    created: list[str] = []
-    seeded: list[str] = []
-
-    for table_name in ["dim_category_to_capability", "fact_dev_activity_events"]:
-        if _ensure_table_exists(conn, table_name=table_name):
-            created.append(table_name)
-
-    # Seed events if empty
-    try:
-        n = conn.execute('SELECT COUNT(*) FROM "fact_dev_activity_events";').fetchone()[0]
-    except Exception:
-        n = 0
-    if int(n) == 0:
-        now = datetime.now(tz=UTC)
-        rows = []
-        categories = [
-            ("Coding", "CODE_STUDIO"),
-            ("Datasets", "DATASET_EDIT"),
-            ("Visual Recipes", "PREPARE"),
-            ("Machine Learning & Operations", "MODEL_TRAIN"),
-            ("Generative AI & LLM", "PROMPT"),
-            ("Scenarios", "SCENARIO_RUN"),
-            ("API Services", "API_SERVICE"),
-            ("Web Applications", "WEBAPP_EDIT"),
-        ]
-        day_event_counts = [1, 2, 4, 3, 6, 2, 5, 7, 3, 1, 8, 2, 4, 6, 3, 5, 2, 7, 4, 1, 6, 3, 5, 2, 8, 4, 1, 7, 3, 6, 2, 5, 4, 2, 7, 3, 1, 6, 4, 2, 5, 3, 7, 1, 4]
-
-        event_index = 0
-        for day_offset, event_count in enumerate(day_event_counts):
-            for slot in range(event_count):
-                if event_index >= 200:
-                    break
-                cluster = day_offset // 9
-                instance = ["dss-dev", "dss-prod", "dss-stage", "dss-prod"][(event_index + cluster) % 4]
-                login = ["alice", "bob", "carol", "dave", "erin"][(event_index + slot + cluster) % 5]
-                project = ["FIN", "MKT", "ENG", "OPS", "RND"][(event_index + day_offset) % 5]
-                category, base = categories[(event_index + (cluster * 2) + slot) % len(categories)]
-                hour_offset = (slot * 3 + day_offset + cluster) % 24
-                minute_offset = (event_index * 11 + slot * 7 + cluster * 13) % 60
-                ts = now - timedelta(days=day_offset, hours=hour_offset, minutes=minute_offset)
-                rows.append((ts, instance, login, f"{base}_EVENT", base, category, project))
-                event_index += 1
-            if event_index >= 200:
-                break
-
-        conn.executemany(
-            """
-            INSERT INTO fact_dev_activity_events (
-              timestamp, instance_name, login, msgtype, msgtypebase, dataiku_category, project_key
-            ) VALUES (?, ?, ?, ?, ?, ?, ?);
-            """,
-            rows,
-        )
-        seeded.append("fact_dev_activity_events")
-
-    return {
-        "ok": True,
-        "enabled": True,
-        "created": created,
-        "seeded": seeded,
-    }
-
-
 def _ensure_dev_activity_base_tables(conn) -> dict[str, object]:
     """Ensure development-activity base tables exist for downstream views.
 
@@ -851,14 +773,6 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         len(cast(list[object], dev_activity_report.get("created", []))),
                     )
 
-                    seed_started = time.time()
-                    _set_status_callback("seeding_demo", "Seeding demo activity data if needed")
-                    seed_report = _maybe_seed_demo_dev_activity(conn)
-                    logger.info(
-                        "DuckDB ensure_database_ready: demo seed completed in %.3fs enabled=%s",
-                        time.time() - seed_started,
-                        seed_report.get("enabled"),
-                    )
                     views_started = time.time()
                     _set_status_callback("building_views", "Building dashboard views")
                     views_report = build_views_from_specs(conn)
@@ -926,7 +840,6 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         "report": report,
                         "license_views": license_report,
                         "dev_activity_tables": dev_activity_report,
-                        "seed_demo_dev_activity": seed_report,
                         "maintenance": maintenance_report,
                         "views": views_report,
                     }
