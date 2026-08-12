@@ -3,6 +3,7 @@ from __future__ import annotations
 from flask import Blueprint, Flask
 
 from .routes.build_users import register_routes as register_build_users_routes
+from .routes.build_assets import register_routes as register_build_assets_routes
 from .routes.debug import register_routes as register_debug_routes
 from .routes.frontend import register_routes as register_frontend_routes
 from .routes.startup import register_routes as register_startup_routes
@@ -23,6 +24,7 @@ def register_routes(app: Flask, *, is_local_dev: bool = False) -> None:
     register_startup_routes(bp)
     register_frontend_routes(bp)
     register_build_users_routes(bp)
+    register_build_assets_routes(bp)
     register_debug_routes(bp)
     app.register_blueprint(bp)
     if _IS_LOCAL_DEV:
