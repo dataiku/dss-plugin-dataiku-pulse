@@ -154,6 +154,45 @@ def _load_remote_parquet_table(
                 ''',
                 [path],
             )  # nosec B608
+    elif table_name == "fact_formal_mau_daily":
+        first_path, *remaining_paths = blob_paths
+        conn.execute(
+            f'''
+            CREATE OR REPLACE TABLE {table_ident} AS
+            SELECT
+              make_date(CAST(year AS INTEGER), CAST(month AS INTEGER), CAST(day AS INTEGER)) AS day,
+              instance_name,
+              login_norm,
+              login,
+              application_open_count,
+              last_application_open_at
+            FROM read_parquet(?);
+            ''',
+            [first_path],
+        )  # nosec B608
+
+        for path in remaining_paths:
+            conn.execute(
+                f'''
+                INSERT INTO {table_ident} (
+                  day,
+                  instance_name,
+                  login_norm,
+                  login,
+                  application_open_count,
+                  last_application_open_at
+                )
+                SELECT
+                  make_date(CAST(year AS INTEGER), CAST(month AS INTEGER), CAST(day AS INTEGER)) AS day,
+                  instance_name,
+                  login_norm,
+                  login,
+                  application_open_count,
+                  last_application_open_at
+                FROM read_parquet(?);
+                ''',
+                [path],
+            )  # nosec B608
     else:
         params: list[object] = []
         if len(blob_paths) == 1:

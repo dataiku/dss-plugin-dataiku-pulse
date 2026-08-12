@@ -1607,8 +1607,8 @@ def register_routes(bp: Blueprint) -> None:
             )
 
             license_group_case_sql = _license_group_case_sql("user_profile")
-            latest_month_profiles_df = _query_df(
-                f"""  # nosec B608
+            latest_month_profiles_df = _query_df(  # nosec B608
+                f"""
             WITH latest_users AS (
               SELECT
                 instance_name,
@@ -1647,8 +1647,8 @@ def register_routes(bp: Blueprint) -> None:
                 instance_params_aggregate,
             )
 
-            latest_month_instance_profiles_df = _query_df(
-                f"""  # nosec B608
+            latest_month_instance_profiles_df = _query_df(  # nosec B608
+                f"""
             WITH latest_users AS (
               SELECT
                 instance_name,
