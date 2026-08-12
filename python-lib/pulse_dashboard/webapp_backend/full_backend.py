@@ -5,6 +5,7 @@ from flask import Blueprint, Flask
 from .routes.build_users import register_routes as register_build_users_routes
 from .routes.build_assets import register_routes as register_build_assets_routes
 from .routes.build_products import register_routes as register_build_products_routes
+from .routes.development_activity import register_routes as register_development_activity_routes
 from .routes.debug import register_routes as register_debug_routes
 from .routes.frontend import register_routes as register_frontend_routes
 from .routes.startup import register_routes as register_startup_routes
@@ -27,6 +28,7 @@ def register_routes(app: Flask, *, is_local_dev: bool = False) -> None:
     register_build_users_routes(bp)
     register_build_assets_routes(bp)
     register_build_products_routes(bp)
+    register_development_activity_routes(bp)
     register_debug_routes(bp)
     app.register_blueprint(bp)
     if _IS_LOCAL_DEV:
