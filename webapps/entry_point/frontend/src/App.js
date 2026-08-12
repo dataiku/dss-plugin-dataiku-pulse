@@ -3256,34 +3256,61 @@ function ProductOutputsPage({ apiBase }) {
 
   // Load outputs from product catalog (acts as "outputs" inventory).
   useEffect(() => {
+    let cancelled = false;
+
     setLoading(true);
     setError('');
 
-    // Pull enough rows for overview cards; deeper metrics are loaded per-type.
-    const params = new URLSearchParams();
-    params.set('limit', '5000');
-    params.set('offset', '0');
+    const loadAllOutputs = async () => {
+      try {
+        const limit = 5000;
+        let offset = 0;
+        let total = null;
+        const allRows = [];
 
-    fetch(apiUrl(apiBase, `/api/build/products?${params.toString()}`))
-      .then((r) => r.json())
-      .then((data) => {
-        if (!data.ok) throw new Error(data.error || 'Failed loading products');
-        const rows = data.rows || [];
-        setAllOutputs(
-          rows.map((r) => ({
-            outputId: r.assetId,
-            outputType: r.objectType,
-            outputTypeLabel: labelForProductType(r.objectType),
-            outputName: r.objectName,
-            instanceName: r.instanceName,
-            projectKey: r.projectKey,
-            ownerLogin: r.ownerLogin,
-            createdAt: r.updatedAt,
-          }))
-        );
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+        while (!cancelled && (total == null || offset < total)) {
+          const params = new URLSearchParams();
+          params.set('limit', String(limit));
+          params.set('offset', String(offset));
+
+          const response = await fetch(apiUrl(apiBase, `/api/build/products?${params.toString()}`));
+          const data = await response.json();
+          if (!data.ok) throw new Error(data.error || 'Failed loading products');
+
+          const rows = data.rows || [];
+          allRows.push(...rows);
+          total = Number(data.total || 0);
+
+          if (!rows.length) break;
+          offset += rows.length;
+        }
+
+        if (!cancelled) {
+          setAllOutputs(
+            allRows.map((r) => ({
+              outputId: r.assetId,
+              outputType: r.objectType,
+              outputTypeLabel: labelForProductType(r.objectType),
+              outputName: r.objectName,
+              instanceName: r.instanceName,
+              projectKey: r.projectKey,
+              ownerLogin: r.ownerLogin,
+              createdAt: r.updatedAt,
+            }))
+          );
+        }
+      } catch (e) {
+        if (!cancelled) setError(e.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    loadAllOutputs();
+
+    return () => {
+      cancelled = true;
+    };
   }, [apiBase]);
 
   // Reset sub-tab when switching product types.
