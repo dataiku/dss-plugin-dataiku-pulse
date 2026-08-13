@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from flask import Blueprint, Flask
 
+from .routes.admin import register_routes as register_admin_routes
 from .routes.build_users import register_routes as register_build_users_routes
 from .routes.build_assets import register_routes as register_build_assets_routes
 from .routes.build_products import register_routes as register_build_products_routes
@@ -24,6 +25,7 @@ def register_routes(app: Flask, *, is_local_dev: bool = False) -> None:
     global _IS_LOCAL_DEV
     _IS_LOCAL_DEV = is_local_dev
     initialize_startup_ownership()
+    register_admin_routes(bp)
     register_startup_routes(bp)
     register_frontend_routes(bp)
     register_build_users_routes(bp)

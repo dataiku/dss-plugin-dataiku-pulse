@@ -5147,8 +5147,8 @@ function AdministrationPlaceholderPage({ apiBase }) {
               ))}
               <g>
                 <circle cx={centerX} cy={centerY} r="64" fill="#dbeafe" stroke="#2563eb" strokeWidth="3" />
-                <text x={centerX} y={centerY - 10} textAnchor="middle" style={{ fontSize: 16, fontWeight: 700, fill: '#1e3a8a' }}>Pulse Hub</text>
-                <text x={centerX} y={centerY + 14} textAnchor="middle" style={{ fontSize: 12, fill: '#334155' }}>
+                <text x={centerX} y={centerY - 10} textAnchor="middle" style={{ fontSize: 14, fontWeight: 700, fill: '#1e3a8a' }}>Pulse Hub</text>
+                <text x={centerX} y={centerY + 14} textAnchor="middle" style={{ fontSize: 10, fill: '#334155' }}>
                   {hubUrl.length > 42 ? `${hubUrl.slice(0, 39)}...` : hubUrl}
                 </text>
                 <title>{hubUrl}</title>
@@ -5156,14 +5156,14 @@ function AdministrationPlaceholderPage({ apiBase }) {
               {spokePositions.map((spoke, index) => (
                 <g key={`spoke-${index}`}>
                   <circle cx={spoke.x} cy={spoke.y} r="52" fill="#f8fafc" stroke="#64748b" strokeWidth="2" />
-                  <text x={spoke.x} y={spoke.y - 12} textAnchor="middle" style={{ fontSize: 12, fontWeight: 700, fill: '#0f172a' }}>
+                  <text x={spoke.x} y={spoke.y - 12} textAnchor="middle" style={{ fontSize: 10, fontWeight: 700, fill: '#0f172a' }}>
                     {spoke.classification || 'Worker'}
                   </text>
-                  <text x={spoke.x} y={spoke.y + 6} textAnchor="middle" style={{ fontSize: 11, fill: '#334155' }}>
+                  <text x={spoke.x} y={spoke.y + 6} textAnchor="middle" style={{ fontSize: 9, fill: '#334155' }}>
                     {(spoke.url || '').length > 28 ? `${spoke.url.slice(0, 25)}...` : (spoke.url || '—')}
                   </text>
                   {spoke.presetName ? (
-                    <text x={spoke.x} y={spoke.y + 22} textAnchor="middle" style={{ fontSize: 10, fill: '#64748b' }}>
+                    <text x={spoke.x} y={spoke.y + 22} textAnchor="middle" style={{ fontSize: 8, fill: '#64748b' }}>
                       {spoke.presetName.length > 20 ? `${spoke.presetName.slice(0, 17)}...` : spoke.presetName}
                     </text>
                   ) : null}
