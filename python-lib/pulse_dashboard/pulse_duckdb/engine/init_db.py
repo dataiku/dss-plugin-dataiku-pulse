@@ -243,10 +243,22 @@ def _replace_view_from_query(conn, *, view_name: str, source_table: str, select_
 def _maybe_create_inventory_views(conn) -> None:
     """Create compatibility views for inventory tables when base tables are absent."""
 
+    for table_name in [
+        "base_agent_tools_metadata",
+        "base_api_services_metadata",
+        "base_dashboards_metadata",
+        "base_insights_metadata",
+        "base_retrieval_augmented_llms_metadata",
+        "base_saved_models_metadata",
+        "base_webapps_metadata",
+        "base_dataiku_applications_metadata",
+    ]:
+        _ensure_table_exists(conn, table_name=table_name)
+
     _replace_view_from_query(
         conn,
         view_name="base_projects_metadata",
-        source_table="base_projects_instance_metadata_history",
+        source_table="base_projects_instance_metadata",
         select_sql="""
         SELECT
           instance_name,
@@ -262,14 +274,14 @@ def _maybe_create_inventory_views(conn) -> None:
           projects_projectapptype AS project_app_type,
           projects_tutorialproject AS tutorial_project,
           projects_commitmode AS commit_mode
-        FROM base_projects_instance_metadata_history
+        FROM base_projects_instance_metadata
         """.strip(),
     )
 
     _replace_view_from_query(
         conn,
         view_name="base_datasets_metadata",
-        source_table="base_datasets_project_metadata_history",
+        source_table="base_datasets_project_metadata",
         select_sql="""
         SELECT
           instance_name,
@@ -284,14 +296,14 @@ def _maybe_create_inventory_views(conn) -> None:
           datasets_smartname AS dataset_smart_name,
           CAST(NULL AS VARCHAR) AS dataset_subtype,
           datasets_featuregroup AS is_feature_group
-        FROM base_datasets_project_metadata_history
+        FROM base_datasets_project_metadata
         """.strip(),
     )
 
     _replace_view_from_query(
         conn,
         view_name="base_recipes_metadata",
-        source_table="base_recipes_project_metadata_history",
+        source_table="base_recipes_project_metadata",
         select_sql="""
         SELECT
           instance_name,
@@ -304,14 +316,14 @@ def _maybe_create_inventory_views(conn) -> None:
           recipes_params_enginetype AS engine_type,
           recipes_params_enginelabel AS engine_label,
           recipes_params_enginerecommended AS engine_recommended
-        FROM base_recipes_project_metadata_history
+        FROM base_recipes_project_metadata
         """.strip(),
     )
 
     _replace_view_from_query(
         conn,
         view_name="base_scenarios_metadata",
-        source_table="base_scenarios_project_metadata_history",
+        source_table="base_scenarios_project_metadata",
         select_sql="""
         SELECT
           instance_name,
@@ -326,7 +338,7 @@ def _maybe_create_inventory_views(conn) -> None:
           try_cast(scenarios_nextrun AS TIMESTAMP) AS scenario_next_run,
           try_cast(scenarios_start AS TIMESTAMP) AS scenario_last_run_start,
           scenarios_running AS scenario_running
-        FROM base_scenarios_project_metadata_history
+        FROM base_scenarios_project_metadata
         """.strip(),
     )
 
@@ -398,81 +410,6 @@ def ensure_consumption_product_views(conn) -> dict[str, object]:
         "product_activity_30d": product_activity_report,
         "v_object_activity_events": bool(_object_type(conn, "v_object_activity_events")),
         "final_build_products_catalog": bool(_object_type(conn, "final_build_products_catalog")),
-    }
-
-
-def _maybe_seed_demo_dev_activity(conn) -> dict:
-    """Seed dev-activity tables for demo mode.
-
-    In the current DEMO workflow, auto-loading from the managed folder only loads
-    `base_*.csv` tables. The Build → Development Activity page depends on
-    `fact_dev_activity_events` + `dim_category_to_capability`, which may not be
-    present.
-
-    We create them from their YAML base specs if missing, and seed deterministic
-    dummy data only when they are empty.
-    """
-
-    if not settings.PULSE_SEED_DEMO_DEV_ACTIVITY:
-        return {"ok": True, "enabled": False}
-
-    created: list[str] = []
-    seeded: list[str] = []
-
-    for table_name in ["dim_category_to_capability", "fact_dev_activity_events"]:
-        if _ensure_table_exists(conn, table_name=table_name):
-            created.append(table_name)
-
-    # Seed events if empty
-    try:
-        n = conn.execute('SELECT COUNT(*) FROM "fact_dev_activity_events";').fetchone()[0]
-    except Exception:
-        n = 0
-    if int(n) == 0:
-        now = datetime.now(tz=UTC)
-        rows = []
-        for i in range(200):
-            instance = "dss-prod" if i % 3 else "dss-dev"
-            login = ["alice", "bob", "carol"][i % 3]
-            project = ["FIN", "MKT", "ENG"][i % 3]
-            category = [
-                "Coding",
-                "Datasets",
-                "Visual Recipes",
-                "Machine Learning & Operations",
-                "Generative AI & LLM",
-                "Scenarios",
-                "API Services",
-                "Web Applications",
-            ][i % 8]
-            base = [
-                "CODE_STUDIO",
-                "DATASET_EDIT",
-                "PREPARE",
-                "MODEL_TRAIN",
-                "PROMPT",
-                "SCENARIO_RUN",
-                "API_SERVICE",
-                "WEBAPP_EDIT",
-            ][i % 8]
-            ts = now - timedelta(days=i % 45)
-            rows.append((ts, instance, login, f"{base}_EVENT", base, category, project))
-
-        conn.executemany(
-            """
-            INSERT INTO fact_dev_activity_events (
-              timestamp, instance_name, login, msgtype, msgtypebase, dataiku_category, project_key
-            ) VALUES (?, ?, ?, ?, ?, ?, ?);
-            """,
-            rows,
-        )
-        seeded.append("fact_dev_activity_events")
-
-    return {
-        "ok": True,
-        "enabled": True,
-        "created": created,
-        "seeded": seeded,
     }
 
 
@@ -836,14 +773,6 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         len(cast(list[object], dev_activity_report.get("created", []))),
                     )
 
-                    seed_started = time.time()
-                    _set_status_callback("seeding_demo", "Seeding demo activity data if needed")
-                    seed_report = _maybe_seed_demo_dev_activity(conn)
-                    logger.info(
-                        "DuckDB ensure_database_ready: demo seed completed in %.3fs enabled=%s",
-                        time.time() - seed_started,
-                        seed_report.get("enabled"),
-                    )
                     views_started = time.time()
                     _set_status_callback("building_views", "Building dashboard views")
                     views_report = build_views_from_specs(conn)
@@ -911,7 +840,6 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         "report": report,
                         "license_views": license_report,
                         "dev_activity_tables": dev_activity_report,
-                        "seed_demo_dev_activity": seed_report,
                         "maintenance": maintenance_report,
                         "views": views_report,
                     }

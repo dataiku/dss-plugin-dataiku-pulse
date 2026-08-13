@@ -5,10 +5,10 @@ base_asset_index:
     Note: In the current GOLD outputs, inventory is materialized as `*_metadata_history`
     tables, so this view is built from those tables directly.
   depends_on:
-    - base_projects_instance_metadata_history
-    - base_datasets_project_metadata_history
-    - base_recipes_project_metadata_history
-    - base_scenarios_project_metadata_history
+    - base_projects_instance_metadata
+    - base_datasets_project_metadata
+    - base_recipes_project_metadata
+    - base_scenarios_project_metadata
   build_order: 1020
   sql: |
     CREATE OR REPLACE VIEW "base_asset_index" AS
@@ -25,7 +25,7 @@ base_asset_index:
       projects_versiontag_lastmodifiedby_login AS last_modified_by_login,
       try_cast(projects_creationtag_lastmodifiedon AS TIMESTAMP) AS created_at,
       try_cast(projects_versiontag_lastmodifiedon AS TIMESTAMP) AS updated_at
-    FROM base_projects_instance_metadata_history
+    FROM base_projects_instance_metadata
     
     UNION ALL
     
@@ -41,7 +41,7 @@ base_asset_index:
       datasets_versiontag_lastmodifiedby_login AS last_modified_by_login,
       try_cast(datasets_creationtag_lastmodifiedon AS TIMESTAMP) AS created_at,
       try_cast(datasets_versiontag_lastmodifiedon AS TIMESTAMP) AS updated_at
-    FROM base_datasets_project_metadata_history
+    FROM base_datasets_project_metadata
     
     UNION ALL
     
@@ -57,7 +57,7 @@ base_asset_index:
       recipes_versiontag_lastmodifiedby_login AS last_modified_by_login,
       try_cast(recipes_creationtag_lastmodifiedon AS TIMESTAMP) AS created_at,
       try_cast(recipes_versiontag_lastmodifiedon AS TIMESTAMP) AS updated_at
-    FROM base_recipes_project_metadata_history
+    FROM base_recipes_project_metadata
     
     UNION ALL
     
@@ -73,9 +73,9 @@ base_asset_index:
       scenarios_runasuser AS last_modified_by_login,
       try_cast(scenarios_createdon AS TIMESTAMP) AS created_at,
       try_cast(scenarios_lastmodifiedon AS TIMESTAMP) AS updated_at
-    FROM base_scenarios_project_metadata_history;
+    FROM base_scenarios_project_metadata;
 
   example_data: |
     -- This object is a VIEW.
     -- Minimal example: ensure upstream history tables have at least one row.
-    INSERT INTO "base_projects_instance_metadata_history" DEFAULT VALUES;
+    INSERT INTO "base_projects_instance_metadata" DEFAULT VALUES;

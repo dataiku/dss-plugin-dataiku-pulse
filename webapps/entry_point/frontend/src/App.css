@@ -11,6 +11,15 @@
   --pulse-accent-soft: rgba(30, 136, 229, 0.09);
   --pulse-accent-softer: rgba(30, 136, 229, 0.05);
   --pulse-shadow: 0 12px 30px rgba(17, 24, 39, 0.12);
+  --pulse-header-height: 64px;
+  --pulse-rail-width: 252px;
+  --pulse-rail-width-collapsed: 76px;
+  --pulse-right-panel-width: 336px;
+  --pulse-content-max-width: 1480px;
+  --pulse-radius-card: 14px;
+  --pulse-radius-control: 10px;
+  --pulse-transition-fast: 160ms ease;
+  --pulse-transition-layout: 220ms ease;
 }.App-link {
   color: var(--pulse-accent);
   text-decoration: none;
@@ -20,126 +29,377 @@
   text-decoration: underline;
 }
 
-.PulseNav {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  background: var(--pulse-bg-surface);
-  border-bottom: 1px solid var(--pulse-border);
+
+.PulseShell {
+  min-height: 100vh;
+  background: var(--pulse-bg-page);
 }
 
-.PulseNav-inner {
+.PulseHeader {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  height: var(--pulse-header-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 16px;
+  gap: 20px;
+  padding: 0 24px;
+  background: #18212c;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.24);
 }
 
-.PulseNav-brand {
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  color: var(--pulse-text);
-  text-decoration: none;
+.PulseHeaderBrand {
+  min-width: 0;
 }
 
-.PulseNav-brand:hover {
-  text-decoration: underline;
-}
-
-.PulseNav-menus {
-  display: flex;
+.PulseHeaderBrandLink {
+  display: inline-flex;
+  align-items: center;
   gap: 10px;
+  color: var(--pulse-text-inverse);
+  text-decoration: none;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
-.PulseNav-note {
-  display: none;
+.PulseHeaderBrandLink:hover {
+  text-decoration: none;
 }
 
-.PulseNav-menu {
-  position: relative;
-  padding: 6px 8px;
-  border-radius: 6px;
+.PulseHeaderBrandIcon {
+  font-size: 20px;
+  line-height: 1;
 }
 
-.PulseNav-menuLabel {
-  color: var(--pulse-text);
+.PulseHeaderBrandText {
+  white-space: nowrap;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.PulseHeaderMeta {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-left: auto;
+}
+
+.PulseHeaderWorkspace,
+.PulseHeaderUser {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.94);
+  min-width: 0;
+}
+
+.PulseHeaderWorkspace {
+  margin: 0;
+  gap: 4px;
+}
+
+.PulseHeaderMetaLabel {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.66);
+}
+
+.PulseHeaderWorkspace .PulseSelect {
+  min-width: 200px;
+  margin: 0;
+  min-height: 38px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--pulse-text-inverse);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.PulseHeaderUser {
+  padding-left: 16px;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  gap: 4px;
+}
+
+.PulseHeaderUserValue {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: 600;
 }
 
-.PulseNav-menu:hover {
-  background: rgba(17, 24, 39, 0.04);
+.PulseShellBody {
+  display: flex;
+  min-height: 100vh;
+  padding-top: var(--pulse-header-height);
 }
 
-.PulseNav-dropdown {
-  display: none;
-  position: absolute;
-  /* No hover gap: dropdown touches the menu */
-  top: 100%;
-  right: 0;
-  min-width: 260px;
-  /* extend hover area between label and dropdown */
-  margin-top: 0;
-  padding-top: 6px;
-  background: var(--pulse-bg-elevated);
-  border: 1px solid var(--pulse-border);
-  border-radius: 8px;
+.PulseRail {
+  position: fixed;
+  top: var(--pulse-header-height);
+  left: 0;
+  bottom: 0;
+  z-index: 20;
+  width: var(--pulse-rail-width);
+  display: flex;
+  flex-direction: column;
+  background: #f7f9fc;
+  border-right: 1px solid var(--pulse-border);
   overflow: hidden;
-  padding: 6px 0;
-  box-shadow: var(--pulse-shadow);
+  box-shadow: 2px 0 16px rgba(15, 23, 42, 0.04);
+  transition: width var(--pulse-transition-layout), box-shadow var(--pulse-transition-layout);
 }
 
-.PulseNav-menu:hover .PulseNav-dropdown {
-  display: block;
+.PulseRailCollapsed {
+  width: var(--pulse-rail-width-collapsed);
 }
 
-.PulseNav-item {
-  display: block;
-  padding: 10px 12px;
+.PulseRailBody {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 18px 12px;
+}
+
+.PulseRailGroup + .PulseRailGroup {
+  margin-top: 18px;
+}
+
+.PulseRailSection + .PulseRailSection {
+  margin-top: 10px;
+}
+
+.PulseRailSectionButton {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 12px 0 14px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--pulse-text);
+  cursor: pointer;
+  transition: background-color var(--pulse-transition-fast), color var(--pulse-transition-fast), box-shadow var(--pulse-transition-fast);
+}
+
+.PulseRailSectionButton:hover {
+  background: rgba(17, 24, 39, 0.05);
+}
+
+.PulseRailSectionButtonActive {
+  background: rgba(30, 136, 229, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(30, 136, 229, 0.14);
+}
+
+.PulseRailSectionButtonLeft {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+}
+
+.PulseRailSectionLabel {
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.PulseRailSectionChevron {
+  flex: 0 0 auto;
+  color: var(--pulse-text-muted);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.PulseRailSectionContent {
+  margin-top: 6px;
+  padding-left: 12px;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.PulseRailGroupTitle {
+  margin: 0 10px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pulse-text-muted);
+}
+
+.PulseRailItems {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.PulseRailItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  min-height: 38px;
+  padding: 8px 12px 8px 14px;
+  border-radius: 12px;
   color: var(--pulse-text);
   text-decoration: none;
-  border-bottom: 1px solid var(--pulse-border);
+  transition: background-color var(--pulse-transition-fast), color var(--pulse-transition-fast), box-shadow var(--pulse-transition-fast);
 }
 
-.PulseNav-item:last-child {
-  border-bottom: none;
+.PulseRailItemButton {
+  width: 100%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
 }
 
-.PulseNav-item:hover {
-  background: rgba(17, 24, 39, 0.04);
+.PulseRailItem:hover {
+  background: rgba(17, 24, 39, 0.05);
+  text-decoration: none;
 }
 
-.PulseNav-itemTitle {
+.PulseRailItemActive {
+  background: rgba(30, 136, 229, 0.12);
+  box-shadow: inset 3px 0 0 var(--pulse-accent);
+}
+
+.PulseRailItemIcon {
+  width: 22px;
+  text-align: center;
+  flex: 0 0 22px;
+  line-height: 1;
+  font-size: 15px;
+}
+
+.PulseRailItemLabel {
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+}
+
+.PulseRailCollapsed .PulseRailBody {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.PulseRailCollapsed .PulseRailItem {
+  justify-content: center;
+  padding: 0;
+  align-items: center;
+}
+
+.PulseRailCollapsed .PulseRailSectionButton {
+  justify-content: center;
+  padding: 0;
+}
+
+.PulseRailCollapsed .PulseRailSectionButtonLeft {
+  justify-content: center;
+}
+
+.PulseRailItemActive .PulseRailItemLabel {
   font-weight: 600;
 }
 
-.PulseNav-itemDesc {
-  font-size: 12px;
-  color: var(--pulse-text-muted);
-  margin-top: 2px;
+.PulseRailFooter {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 12px;
+  border-top: 1px solid var(--pulse-border);
+  background: var(--pulse-bg-surface);
+}
+
+.PulseRailGlobalSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(36vh, 320px);
+  overflow-y: auto;
+  padding-top: 2px;
+}
+
+.PulseRailToggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  border: 1px solid var(--pulse-border);
+  border-radius: 12px;
+  background: var(--pulse-bg-elevated);
+  color: var(--pulse-text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.PulseRailToggle:hover {
+  background: rgba(17, 24, 39, 0.04);
+}
+
+.PulseRailToggleIcon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.PulseRailCollapsed .PulseRailToggle {
+  padding: 0;
+}
+
+.PulseShellContent {
+  flex: 1;
+  min-width: 0;
+  margin-left: var(--pulse-rail-width);
+  transition: margin-left var(--pulse-transition-layout);
+}
+
+.PulseRailCollapsed ~ .PulseShellContent {
+  margin-left: var(--pulse-rail-width-collapsed);
 }
 
 .PulsePage {
-  padding: 18px 16px 40px;
+  padding: 24px 28px 48px;
   background: var(--pulse-bg-page);
-  min-height: calc(100vh - 50px);
+  min-height: calc(100vh - var(--pulse-header-height));
   color: var(--pulse-text);
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji",
     "Segoe UI Emoji";
 }
 
+.PulsePage > * {
+  max-width: var(--pulse-content-max-width);
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .PulseHero {
   max-width: 900px;
-  margin: 0 auto 16px;
-  padding: 18px;
+  margin: 0 auto 20px;
+  padding: 20px 22px;
   border: 1px solid var(--pulse-border);
-  border-radius: 12px;
+  border-radius: var(--pulse-radius-card);
   background: linear-gradient(180deg, var(--pulse-accent-soft), rgba(255, 255, 255, 0));
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.03);
 }
 
 .PulseTabs {
   max-width: 900px;
-  margin: -6px auto 16px;
-  padding: 0 18px;
+  margin: -4px auto 18px;
+  padding: 0 4px;
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
@@ -150,7 +410,7 @@
   border: 1px solid var(--pulse-border);
   background: var(--pulse-bg-surface);
   color: var(--pulse-text);
-  padding: 8px 12px;
+  padding: 9px 14px;
   border-radius: 999px;
   font-weight: 600;
   cursor: pointer;
@@ -177,12 +437,12 @@
 
 .PulseCard {
   max-width: 900px;
-  margin: 0 auto 14px;
-  padding: 16px;
+  margin: 0 auto 18px;
+  padding: 18px;
   border: 1px solid var(--pulse-border);
-  border-radius: 12px;
+  border-radius: var(--pulse-radius-card);
   background: var(--pulse-bg-surface);
-  box-shadow: 0 1px 0 rgba(17, 24, 39, 0.02);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.03);
 }
 
 /* Wide pages: allow cards/hero/tabs to fill screen */
@@ -200,6 +460,7 @@
 .PulseMuted {
   color: var(--pulse-text-muted);
   font-size: 12px;
+  line-height: 1.5;
 }
 
 .PulseCallout {
@@ -336,28 +597,23 @@
     top: auto;
   }
 
-  .PulseSidebarDrawer {
-    width: min(320px, calc(100vw - 32px));
-  }
-
-  .PulseSidebarContentShifted {
-    margin-left: 0;
-  }
 }
 
 .PulseLabel {
   display: block;
   font-size: 12px;
   color: var(--pulse-text-muted);
-  margin-top: 10px;
+  margin-top: 12px;
+  line-height: 1.35;
 }
 
 .PulseInput,
 .PulseSelect {
   width: 100%;
   margin-top: 6px;
+  min-height: 38px;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--pulse-radius-control);
   border: 1px solid var(--pulse-border);
   background: var(--pulse-bg-surface);
   color: var(--pulse-text);
@@ -372,11 +628,11 @@
 
 .PulseCheckboxList {
   margin-top: 6px;
-  max-height: 130px;
+  max-height: 144px;
   overflow: auto;
   border: 1px solid var(--pulse-border);
-  border-radius: 8px;
-  padding: 6px 8px;
+  border-radius: var(--pulse-radius-control);
+  padding: 8px 10px;
   background: var(--pulse-bg-surface);
 }
 
@@ -386,16 +642,18 @@
   align-items: center;
   font-size: 12px;
   color: var(--pulse-text);
-  padding: 4px 0;
+  padding: 5px 0;
 }
 
 .PulseButton {
-  padding: 8px 10px;
-  border-radius: 8px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: var(--pulse-radius-control);
   border: 1px solid var(--pulse-border);
   background: rgba(30, 136, 229, 0.10);
   color: var(--pulse-text);
   cursor: pointer;
+  transition: background-color var(--pulse-transition-fast), border-color var(--pulse-transition-fast), box-shadow var(--pulse-transition-fast);
 }
 
 .PulseButton:hover {
@@ -413,80 +671,81 @@
   justify-content: space-between;
   gap: 12px;
   align-items: center;
+  margin-bottom: 12px;
 }
 
-.PulseSidebarLayout {
+.PulseRightPanelLayout {
   position: relative;
 }
 
-.PulseSidebarDrawer {
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: 30;
-  width: 320px;
-  height: 100vh;
-  background: var(--pulse-bg-surface);
-  border-right: 1px solid var(--pulse-border);
-  box-shadow: 8px 0 24px rgba(17, 24, 39, 0.08);
-  transition: transform 0.24s ease;
+.PulseRightPanelContent {
+  min-width: 0;
+  transition: margin-right var(--pulse-transition-layout), width var(--pulse-transition-layout);
 }
 
-.PulseSidebarDrawerOpen {
+.PulseRightPanelContentNarrow {
+  margin-right: calc(var(--pulse-right-panel-width, 336px) + 18px);
+}
+
+.PulseRightPanelContentFull {
+  margin-right: 0;
+}
+
+.PulseRightPanelDrawer {
+  position: fixed;
+  top: 60px;
+  right: 0;
+  bottom: 0;
+  z-index: 25;
+  width: var(--pulse-right-panel-width, 336px);
+  background: var(--pulse-bg-surface);
+  border-left: 1px solid var(--pulse-border);
+  box-shadow: -8px 0 24px rgba(17, 24, 39, 0.08);
+  transition: transform var(--pulse-transition-layout);
+}
+
+.PulseRightPanelDrawerOpen {
   transform: translateX(0);
 }
 
-.PulseSidebarDrawerClosed {
-  transform: translateX(calc(-100% - 8px));
+.PulseRightPanelDrawerClosed {
+  transform: translateX(calc(100% + 8px));
 }
 
-.PulseSidebarInner {
+.PulseRightPanelInner {
   height: 100%;
   overflow-y: auto;
-  padding: 16px;
+  padding: 18px 16px 20px;
   box-sizing: border-box;
 }
 
-.PulseSidebarContent {
-  transition: margin-left 0.24s ease, width 0.24s ease;
-}
-
-.PulseSidebarContentShifted {
-  margin-left: 334px;
-}
-
-.PulseSidebarContentFull {
-  margin-left: 0;
-}
-
-.PulseSidebarTabWrap {
+.PulseRightPanelTabWrap {
   position: fixed;
-  left: 0;
+  right: 0;
   top: 50%;
-  z-index: 31;
+  z-index: 26;
   transform: translateY(-50%);
   transition: opacity 0.18s ease;
 }
 
-.PulseSidebarTabWrapHidden {
+.PulseRightPanelTabWrapHidden {
   opacity: 0;
   pointer-events: none;
 }
 
-.PulseSidebarTab {
+.PulseRightPanelTab {
   writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  padding: 10px 8px;
+  padding: 12px 8px;
   border: 1px solid var(--pulse-border);
-  border-left: none;
-  border-radius: 0 10px 10px 0;
+  border-right: none;
+  border-radius: 10px 0 0 10px;
   background: var(--pulse-bg-surface);
   color: var(--pulse-text);
   cursor: pointer;
-  box-shadow: 4px 0 12px rgba(17, 24, 39, 0.08);
+  box-shadow: -4px 0 12px rgba(17, 24, 39, 0.08);
 }
 
-.PulseSidebarTab:hover {
+.PulseRightPanelTab:hover {
   border-color: rgba(30, 136, 229, 0.55);
   background: rgba(30, 136, 229, 0.10);
 }
@@ -496,6 +755,105 @@
   margin-top: 12px;
   border: 1px solid var(--pulse-border);
   border-radius: 10px;
+}
+
+.PulseTableWrap,
+.PulseCheckboxList,
+.PulseRailBody,
+.PulseRightPanelInner {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.7) transparent;
+}
+
+.PulseTableWrap::-webkit-scrollbar,
+.PulseCheckboxList::-webkit-scrollbar,
+.PulseRailBody::-webkit-scrollbar,
+.PulseRightPanelInner::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.PulseTableWrap::-webkit-scrollbar-thumb,
+.PulseCheckboxList::-webkit-scrollbar-thumb,
+.PulseRailBody::-webkit-scrollbar-thumb,
+.PulseRightPanelInner::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.55);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.PulseTableWrap::-webkit-scrollbar-track,
+.PulseCheckboxList::-webkit-scrollbar-track,
+.PulseRailBody::-webkit-scrollbar-track,
+.PulseRightPanelInner::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (max-width: 1280px) {
+  .PulsePage {
+    padding: 20px 22px 42px;
+  }
+
+  .PulseRightPanelContentNarrow {
+    margin-right: calc(var(--pulse-right-panel-width, 336px) + 14px);
+  }
+}
+
+@media (max-width: 1100px) {
+  .PulseHeader {
+    padding: 0 18px;
+  }
+
+  .PulseHeaderMeta {
+    gap: 12px;
+  }
+
+  .PulseHeaderWorkspace .PulseSelect {
+    min-width: 160px;
+  }
+
+  .PulsePage {
+    padding: 18px 18px 38px;
+  }
+
+  .PulseRightPanelContentNarrow {
+    margin-right: 0;
+  }
+
+  .PulseRightPanelDrawer {
+    top: var(--pulse-header-height);
+    width: min(var(--pulse-right-panel-width, 336px), calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+  }
+
+  .PulseRightPanelTabWrap {
+    right: 0;
+  }
+}
+
+@media (max-width: 800px) {
+  .PulseHeader {
+    gap: 12px;
+    padding: 0 14px;
+  }
+
+  .PulseHeaderBrandText {
+    font-size: 14px;
+  }
+
+  .PulseHeaderUser {
+    display: none;
+  }
+
+  .PulsePage {
+    padding: 16px 14px 32px;
+  }
+
+  .PulseHero,
+  .PulseCard {
+    padding: 16px;
+  }
 }
 
 .PulseTable {

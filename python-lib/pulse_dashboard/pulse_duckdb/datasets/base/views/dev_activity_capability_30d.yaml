@@ -8,8 +8,13 @@ dev_activity_capability_30d:
     CREATE OR REPLACE VIEW "dev_activity_capability_30d" AS
     SELECT
       capability,
-      COUNT(*) FILTER (WHERE timestamp >= now() - INTERVAL 30 DAY) AS event_count_30d,
-      COUNT(DISTINCT login) FILTER (WHERE timestamp >= now() - INTERVAL 30 DAY) AS active_users_30d
+      COUNT(*) FILTER (WHERE timestamp >= now() - INTERVAL 30 DAY AND is_meaningful_activity IS TRUE) AS event_count_30d,
+      COUNT(DISTINCT login) FILTER (
+        WHERE timestamp >= now() - INTERVAL 30 DAY
+          AND is_meaningful_activity IS TRUE
+          AND login IS NOT NULL
+          AND length(trim(login)) > 0
+      ) AS active_users_30d
     FROM final_build_development_activity_events
     GROUP BY 1
     ORDER BY event_count_30d DESC;

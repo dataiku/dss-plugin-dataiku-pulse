@@ -6,14 +6,18 @@ import fnmatch
 import io
 import logging
 import os
+import re
 import time
 import uuid
+from collections import defaultdict
 from pathlib import Path, PurePosixPath
 
 import dataiku
 import duckdb
 import pandas as pd
+from data_collection.pulse_duckdb.destinations import gold_destination_path
 from shared_duckdb.sql_utils import quote_identifier
+from shared_duckdb.context import build_storage_context
 
 from ... import settings
 
@@ -21,6 +25,18 @@ from ... import settings
 
 
 logger = logging.getLogger(__name__)
+
+
+_SAFE_GOLD_TABLE_RE = re.compile(r"^(base_|dim_|fact_|reg_)[A-Za-z0-9_]+$")
+
+
+def _validated_gold_table_identifier(table_name: str) -> str:
+    normalized = str(table_name or "").strip()
+    if "_history" in normalized:
+        raise ValueError(f"CRITICAL: unexpected _history table name: {table_name!r}")
+    if not _SAFE_GOLD_TABLE_RE.fullmatch(normalized):
+        raise ValueError(f"Invalid GOLD physical table name: {table_name!r}")
+    return quote_identifier(normalized)
 
 
 def _extract_table_name(path: str) -> str | None:
@@ -47,6 +63,161 @@ def _resolve_gold_folder_lookup() -> str:
     """
 
     return settings.PULSE_GOLD_TABLES_FOLDER_ID or settings.PULSE_GOLD_TABLES_FOLDER_NAME
+
+
+def _build_gold_blob_paths(paths: list[str]) -> tuple[object, dict[str, list[str]]]:
+    settings.PULSE_SOURCE_PROJECT_KEY = settings.resolve_source_project_key()
+    lookup = _resolve_gold_folder_lookup()
+    storage_ctx = build_storage_context(
+        project_key=settings.PULSE_SOURCE_PROJECT_KEY,
+        folder_lookup=lookup,
+    )
+    logger.info(
+        "DuckDB gold_loader: storage context resolved project=%s folder_lookup=%s provider=%s bucket_or_container=%s root=%s",
+        settings.PULSE_SOURCE_PROJECT_KEY,
+        lookup,
+        storage_ctx.connection_type,
+        storage_ctx.bucket_or_container,
+        storage_ctx.folder_root,
+    )
+    grouped: dict[str, list[str]] = defaultdict(list)
+    for path in sorted(str(path).lstrip("/") for path in paths if str(path)):
+        table_name = infer_table_name(path)
+        grouped[table_name].append(gold_destination_path(storage_ctx, path))
+    for table_name, blob_paths in grouped.items():
+        logger.info(
+            "DuckDB gold_loader: grouped table=%s parquet_files=%s sample_paths=%s",
+            table_name,
+            len(blob_paths),
+            blob_paths[:3],
+        )
+    return storage_ctx, dict(grouped)
+
+
+def _load_remote_parquet_table(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    table_name: str,
+    blob_paths: list[str],
+) -> int:
+    if not blob_paths:
+        raise ValueError(f"No blob paths provided for {table_name}")
+
+    started = time.time()
+    table_ident = _validated_gold_table_identifier(table_name)
+    logger.info(
+        "DuckDB gold_loader: starting remote parquet load table=%s parquet_files=%s first_path=%s",
+        table_name,
+        len(blob_paths),
+        blob_paths[0],
+    )
+
+    if table_name == "fact_user_activity_daily":
+        first_path, *remaining_paths = blob_paths
+        conn.execute(
+            f'''
+            CREATE OR REPLACE TABLE {table_ident} AS
+            SELECT
+              make_date(CAST(year AS INTEGER), CAST(month AS INTEGER), CAST(day AS INTEGER)) AS day,
+              instance_name,
+              login_norm,
+              login,
+              viewing_actions_count,
+              developing_actions_count,
+              last_activity_at
+            FROM read_parquet(?);
+            ''',
+            [first_path],
+        )  # nosec B608
+
+        for path in remaining_paths:
+            conn.execute(
+                f'''
+                INSERT INTO {table_ident} (
+                  day,
+                  instance_name,
+                  login_norm,
+                  login,
+                  viewing_actions_count,
+                  developing_actions_count,
+                  last_activity_at
+                )
+                SELECT
+                  make_date(CAST(year AS INTEGER), CAST(month AS INTEGER), CAST(day AS INTEGER)) AS day,
+                  instance_name,
+                  login_norm,
+                  login,
+                  viewing_actions_count,
+                  developing_actions_count,
+                  last_activity_at
+                FROM read_parquet(?);
+                ''',
+                [path],
+            )  # nosec B608
+    elif table_name == "fact_formal_mau_daily":
+        first_path, *remaining_paths = blob_paths
+        conn.execute(
+            f'''
+            CREATE OR REPLACE TABLE {table_ident} AS
+            SELECT
+              make_date(CAST(year AS INTEGER), CAST(month AS INTEGER), CAST(day AS INTEGER)) AS day,
+              instance_name,
+              login_norm,
+              login,
+              application_open_count,
+              last_application_open_at
+            FROM read_parquet(?);
+            ''',
+            [first_path],
+        )  # nosec B608
+
+        for path in remaining_paths:
+            conn.execute(
+                f'''
+                INSERT INTO {table_ident} (
+                  day,
+                  instance_name,
+                  login_norm,
+                  login,
+                  application_open_count,
+                  last_application_open_at
+                )
+                SELECT
+                  make_date(CAST(year AS INTEGER), CAST(month AS INTEGER), CAST(day AS INTEGER)) AS day,
+                  instance_name,
+                  login_norm,
+                  login,
+                  application_open_count,
+                  last_application_open_at
+                FROM read_parquet(?);
+                ''',
+                [path],
+            )  # nosec B608
+    else:
+        params: list[object] = []
+        if len(blob_paths) == 1:
+            path_expr = "?"
+            params.append(blob_paths[0])
+        else:
+            path_expr = "[" + ", ".join("?" for _ in blob_paths) + "]"
+            params.extend(blob_paths)
+
+        sql = (
+            f'CREATE OR REPLACE TABLE {table_ident} AS '  # nosec B608
+            f'SELECT * FROM read_parquet({path_expr});'
+        )
+        conn.execute(sql, params)
+    # Bandit B608: validated and quoted table identifier.
+    row = conn.execute(f'SELECT COUNT(*) FROM {table_ident};').fetchone()  # nosec B608
+    rows = int(row[0]) if row else 0
+    logger.info(
+        "DuckDB gold_loader: finished remote parquet load table=%s parquet_files=%s rows=%s elapsed_sec=%.3f",
+        table_name,
+        len(blob_paths),
+        rows,
+        time.time() - started,
+    )
+    return rows
 
 
 def list_gold_paths(*, suffixes: tuple[str, ...] = (".parquet", ".csv")) -> list[str]:
@@ -125,35 +296,66 @@ def _load_parquet_to_table(
 
         partitions = _parse_hive_partitions(path)
 
-        file_cols: set[str] = set()
-        if partitions and not append:
-            try:
-                file_cols = {str(r[0]) for r in conn.execute("DESCRIBE SELECT * FROM read_parquet(?);", [str(tmp_path)]).fetchall()}
-            except Exception:
-                file_cols = set()
+        try:
+            file_cols = {
+                str(r[0]) for r in conn.execute("DESCRIBE SELECT * FROM read_parquet(?);", [str(tmp_path)]).fetchall()
+            }
+        except Exception:
+            file_cols = set()
 
-        select_cols = ["*"]
-        params: list[object] = []
+        available_exprs: dict[str, tuple[str, object]] = {col: (quote_identifier(col), None) for col in file_cols}
 
-        # Re-inject hive partition keys as columns when parquet files omit them.
-        if partitions.get("instance_name") and "instance_name" not in file_cols:
-            select_cols.append("CAST(? AS VARCHAR) AS instance_name")
-            params.append(partitions["instance_name"])
-        if partitions.get("project_key") and "project_key" not in file_cols:
-            select_cols.append("CAST(? AS VARCHAR) AS project_key")
-            params.append(partitions["project_key"])
-        for k in ["year", "month", "day"]:
-            if partitions.get(k) and k not in file_cols:
-                select_cols.append(f"CAST(? AS INTEGER) AS {k}")
-                params.append(int(partitions[k]))
-
-        sql_select = f"SELECT {', '.join(select_cols)} FROM read_parquet(?)"  # nosec B608 (select_cols are fixed/derived)
-        params.append(str(tmp_path))
+        if partitions.get("instance_name") and "instance_name" not in available_exprs:
+            available_exprs["instance_name"] = ("CAST(? AS VARCHAR)", partitions["instance_name"])
+        if partitions.get("project_key") and "project_key" not in available_exprs:
+            available_exprs["project_key"] = ("CAST(? AS VARCHAR)", partitions["project_key"])
+        for key in ["year", "month", "day"]:
+            if partitions.get(key) and key not in available_exprs:
+                available_exprs[key] = ("CAST(? AS INTEGER)", int(partitions[key]))
 
         if append:
-            conn.execute(f'INSERT INTO {quote_identifier(table_name)} {sql_select};', params)  # nosec B608 (table_name validated)
+            target_rows = conn.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema='main' AND table_name=?
+                ORDER BY ordinal_position
+                """,
+                [table_name],
+            ).fetchall()
+            target_cols = [str(row[0]) for row in target_rows]
+            select_cols: list[str] = []
+            params: list[object] = []
+            insert_cols = ", ".join(quote_identifier(col) for col in target_cols)
+            for col in target_cols:
+                expr, value = available_exprs.get(col, ("NULL", None))
+                select_cols.append(f"{expr} AS {quote_identifier(col)}")
+                if value is not None:
+                    params.append(value)
+            params.append(str(tmp_path))
+            # Bandit B608: select list is derived from validated target schema.
+            sql_select = f"SELECT {', '.join(select_cols)} FROM read_parquet(?)"  # nosec B608
+            conn.execute(
+                f'INSERT INTO {quote_identifier(table_name)} ({insert_cols}) {sql_select};',
+                params,
+            )  # nosec B608
         else:
-            conn.execute(f'CREATE TABLE {quote_identifier(table_name)} AS {sql_select};', params)  # nosec B608 (table_name validated)
+            select_cols = ["*"]
+            params: list[object] = []
+            if partitions.get("instance_name") and "instance_name" not in file_cols:
+                select_cols.append("CAST(? AS VARCHAR) AS instance_name")
+                params.append(partitions["instance_name"])
+            if partitions.get("project_key") and "project_key" not in file_cols:
+                select_cols.append("CAST(? AS VARCHAR) AS project_key")
+                params.append(partitions["project_key"])
+            for key in ["year", "month", "day"]:
+                if partitions.get(key) and key not in file_cols:
+                    select_cols.append(f"CAST(? AS INTEGER) AS {key}")
+                    params.append(int(partitions[key]))
+            params.append(str(tmp_path))
+            # Bandit B608: select list is fixed/derived and table name is validated.
+            sql_select = f"SELECT {', '.join(select_cols)} FROM read_parquet(?)"  # nosec B608
+            conn.execute(f'CREATE TABLE {quote_identifier(table_name)} AS {sql_select};', params)  # nosec B608
     finally:
         try:
             os.remove(tmp_path)
@@ -269,26 +471,15 @@ def load_gold_tables(
         lookup,
     )
 
-    folder = dataiku.Folder(
-        lookup=lookup,
-        project_key=settings.PULSE_SOURCE_PROJECT_KEY,
-        ignore_flow=True,
-    )
-
     if paths is None:
         paths = list_gold_paths(suffixes=allowed_suffixes)
     else:
         paths = sorted(str(path) for path in paths if str(path))
 
-    loaded: list[dict] = []
-    skipped: list[dict] = []
-    failed: list[dict] = []
-
+    filtered_paths: list[str] = []
     prefix_norm = prefix.lstrip("/")
 
-    created_tables: set[str] = set()
-
-    for index, path in enumerate(paths, start=1):
+    for path in paths:
         rel_path = str(path).lstrip("/")
         base_name = PurePosixPath(rel_path).name
 
@@ -301,34 +492,38 @@ def load_gold_tables(
         table_name = infer_table_name(rel_path)
 
         if allowed_table_names is not None and table_name not in allowed_table_names:
-            skipped.append({"table": table_name, "path": rel_path, "reason": "not_allowed"})
             continue
+        if suffix not in allowed_suffixes:
+            continue
+        filtered_paths.append(rel_path)
 
+    storage_ctx, grouped_blob_paths = _build_gold_blob_paths(filtered_paths)
+    logger.info(
+        "DuckDB gold_loader.load_gold_tables: resolved provider=%s bucket_or_container=%s grouped_tables=%s",
+        storage_ctx.connection_type,
+        storage_ctx.bucket_or_container,
+        len(grouped_blob_paths),
+    )
+    logger.info(
+        "DuckDB gold_loader.load_gold_tables: physical GOLD grouped tables=%s names=%s",
+        len(grouped_blob_paths),
+        sorted(grouped_blob_paths.keys()),
+    )
+
+    loaded: list[dict] = []
+    skipped: list[dict] = []
+    failed: list[dict] = []
+
+    for table_name, blob_paths in grouped_blob_paths.items():
         try:
+            table_started = time.time()
             logger.info(
-                "DuckDB gold_loader.load_gold_tables: processing %s/%s path=%s table=%s suffix=%s",
-                index,
-                len(paths),
-                rel_path,
+                "DuckDB gold_loader.load_gold_tables: loading table=%s parquet_files=%s replace=%s",
                 table_name,
-                suffix,
+                len(blob_paths),
+                replace,
             )
-            if replace and table_name not in created_tables:
-                # The existing object might be a VIEW or a TABLE (from previous runs).
-                # DuckDB errors if you drop the wrong type, so we ignore failures.
-                try:
-                    conn.execute(f'DROP VIEW "{table_name}";')
-                except Exception:
-                    pass
-                try:
-                    conn.execute(f'DROP TABLE "{table_name}";')
-                except Exception:
-                    pass
-
-            if not replace and table_name in created_tables:
-                # We are appending multiple files into one table.
-                pass
-            elif not replace:
+            if not replace:
                 exists = (
                     (lambda row: int(row[0]) if row else 0)(
                         conn.execute(
@@ -339,43 +534,21 @@ def load_gold_tables(
                     > 0
                 )
                 if exists:
-                    skipped.append({"table": table_name, "path": rel_path, "reason": "already_exists"})
+                    skipped.append({"table": table_name, "reason": "already_exists"})
                     continue
 
-            if suffix == ".parquet":
-                append = table_name in created_tables
-                _load_parquet_to_table(conn, folder, path=rel_path, table_name=table_name, append=append)
-                created_tables.add(table_name)
-                rows = -1
-
-            elif suffix == ".csv" and settings.PULSE_GOLD_LOAD_USE_DUCKDB_CSV_AUTO:
-                _load_csv_to_table(conn, folder, path=rel_path, table_name=table_name)
-                created_tables.add(table_name)
-                row = conn.execute(f'SELECT COUNT(*) FROM "{table_name}";').fetchone()  # nosec B608 (table_name validated)
-                rows = int(row[0]) if row else 0
-
-            elif suffix == ".csv":
-                # Fallback: pandas-based loader
-                with folder.get_download_stream(rel_path) as stream:
-                    df = pd.read_csv(io.BytesIO(stream.read()))
-                conn.register("_tmp_df", df)
-                if table_name in created_tables:
-                    conn.execute(f'INSERT INTO "{table_name}" SELECT * FROM _tmp_df;')  # nosec B608 (table_name validated)
-                else:
-                    conn.execute(f'CREATE TABLE "{table_name}" AS SELECT * FROM _tmp_df;')  # nosec B608 (table_name validated)
-                    created_tables.add(table_name)
-                conn.unregister("_tmp_df")
-                rows = len(df)
-
-            else:
-                skipped.append({"path": rel_path, "reason": "unsupported_suffix"})
-                continue
-
-            loaded.append({"table": table_name, "path": rel_path, "rows": int(rows)})
-
+            rows = _load_remote_parquet_table(conn, table_name=table_name, blob_paths=blob_paths)
+            loaded.append({"table": table_name, "path": blob_paths[0], "rows": rows, "files": len(blob_paths)})
+            logger.info(
+                "DuckDB gold_loader.load_gold_tables: loaded table=%s parquet_files=%s rows=%s elapsed_sec=%.3f",
+                table_name,
+                len(blob_paths),
+                rows,
+                time.time() - table_started,
+            )
         except Exception as e:
-            logger.exception("Failed loading %s", rel_path)
-            failed.append({"table": table_name, "path": rel_path, "error": str(e)})
+            logger.exception("Failed loading %s", table_name)
+            failed.append({"table": table_name, "path": blob_paths[0] if blob_paths else "", "error": str(e)})
 
     logger.info(
         "DuckDB gold_loader.load_gold_tables: finished in %.3fs loaded=%s skipped=%s failed=%s",
@@ -390,7 +563,7 @@ def load_gold_tables(
         "folder_name": settings.PULSE_GOLD_TABLES_FOLDER_NAME,
         "prefix": prefix,
         "name_glob": name_glob,
-        "paths_considered": len(paths),
+        "paths_considered": len(filtered_paths),
         "loaded": loaded,
         "skipped": skipped,
         "failed": failed,

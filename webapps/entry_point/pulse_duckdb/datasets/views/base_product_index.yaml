@@ -2,12 +2,12 @@ base_product_index:
   description: >
     This view normalizes **product** inventory (deliverables/end-products) into a single unioned index, similar to `base_asset_index` but **products-only**.
   depends_on:
-    - base_projects_instance_metadata_history
-    - base_api_services_project_metadata_history
-    - base_agent_tools_project_metadata_history
-    - base_insights_project_metadata_history
-    - base_webapps_project_metadata_history
-    - base_apps_instance_metadata_history
+    - base_projects_instance_metadata
+    - base_api_services_project_metadata
+    - base_agent_tools_project_metadata
+    - base_insights_project_metadata
+    - base_webapps_project_metadata
+    - base_apps_instance_metadata
     - v_event_mapping__all
   build_order: 1030
   sql: |
@@ -25,7 +25,7 @@ base_product_index:
       NULL AS last_modified_by_login,
       NULL::TIMESTAMP AS created_at,
       NULL::TIMESTAMP AS updated_at
-    FROM base_api_services_project_metadata_history
+    FROM base_api_services_project_metadata
     
     UNION ALL
     
@@ -41,7 +41,7 @@ base_product_index:
       NULL AS last_modified_by_login,
       NULL::TIMESTAMP AS created_at,
       NULL::TIMESTAMP AS updated_at
-    FROM base_agent_tools_project_metadata_history
+    FROM base_agent_tools_project_metadata
     
     UNION ALL
     
@@ -57,7 +57,7 @@ base_product_index:
       insights_lastmodifiedby_login AS last_modified_by_login,
       insights_createdon AS created_at,
       insights_lastmodifiedon AS updated_at
-    FROM base_insights_project_metadata_history
+    FROM base_insights_project_metadata
     
     UNION ALL
     
@@ -73,7 +73,7 @@ base_product_index:
       webapps_lastmodifiedby_login AS last_modified_by_login,
       webapps_createdon AS created_at,
       webapps_lastmodifiedon AS updated_at
-    FROM base_webapps_project_metadata_history
+    FROM base_webapps_project_metadata
 
     UNION ALL
 
@@ -89,7 +89,7 @@ base_product_index:
       NULL AS last_modified_by_login,
       NULL::TIMESTAMP AS created_at,
       NULL::TIMESTAMP AS updated_at
-    FROM base_apps_instance_metadata_history;
+    FROM base_apps_instance_metadata;
   example_data: |
     -- This object is a VIEW.
     -- Minimal example: ensure upstream base table has at least one row.

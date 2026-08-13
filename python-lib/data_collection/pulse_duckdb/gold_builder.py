@@ -104,6 +104,50 @@ def load_gold_spec(path: Path, *, sql_params: dict[str, str] | None = None) -> G
     )
 
 
+def resolve_gold_spec_build_order(
+    spec_paths: list[Path],
+    *,
+    sql_params_by_name: dict[str, dict[str, str] | None] | None = None,
+) -> list[tuple[Path, GoldSpec]]:
+    """Resolve a deterministic dependency-aware build order for GOLD specs."""
+    specs_by_name: dict[str, tuple[Path, GoldSpec]] = {}
+    sql_params_by_name = sql_params_by_name or {}
+
+    for spec_path in spec_paths:
+        spec = load_gold_spec(spec_path, sql_params=sql_params_by_name.get(spec_path.name))
+        if spec.name in specs_by_name:
+            existing_path, _ = specs_by_name[spec.name]
+            raise ValueError(
+                f"Duplicate GOLD spec name {spec.name!r}: {existing_path} and {spec_path}"
+            )
+        specs_by_name[spec.name] = (spec_path, spec)
+
+    remaining = dict(specs_by_name)
+    built_names: set[str] = set()
+    ordered: list[tuple[Path, GoldSpec]] = []
+
+    while remaining:
+        ready = [
+            item
+            for item in remaining.values()
+            if all(dependency in built_names for dependency in item[1].depends_on)
+        ]
+        if not ready:
+            unresolved = {
+                name: [dependency for dependency in spec.depends_on if dependency not in built_names]
+                for name, (_, spec) in remaining.items()
+            }
+            raise ValueError(f"Unresolvable GOLD spec dependencies: {unresolved}")
+
+        ready.sort(key=lambda item: (item[1].build_order, item[0].name, item[1].name))
+        for spec_path, spec in ready:
+            ordered.append((spec_path, spec))
+            built_names.add(spec.name)
+            remaining.pop(spec.name, None)
+
+    return ordered
+
+
 def apply_gold_spec(conn: duckdb.DuckDBPyConnection, spec: GoldSpec) -> None:
     if not spec.sql.strip():
         raise ValueError(f"Empty SQL for spec {spec.name}")

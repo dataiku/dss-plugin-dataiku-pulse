@@ -1,0 +1,20 @@
+base_retrieval_augmented_llms_project_metadata:
+  description: >
+    Latest snapshot of retrieval (augmented_llms_project_metadata) per key.
+
+    This table is materialized by ranking all observations by run_ts
+    and keeping the newest row for each (instance_name, project_key, retrieval_augmented_llms_id).
+
+  depends_on: []
+  build_order: 10
+
+  category: retrieval_augmented_llms
+  module: project_metadata
+
+  template: latest_by_partition
+  base_table_name: base_retrieval_augmented_llms_project_metadata
+  view_table_name: v_retrieval_augmented_llms__project_metadata
+  partition_keys:
+    - instance_name
+    - project_key
+    - retrieval_augmented_llms_id

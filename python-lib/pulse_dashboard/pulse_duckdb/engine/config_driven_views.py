@@ -103,6 +103,21 @@ def _coalesce_expr(expr: Any) -> tuple[str, list[str]]:
     return _sql_ident(s), [s]
 
 
+def _timestamp_expr(expr: Any) -> str:
+    sql, _ = _coalesce_expr(expr)
+    if sql == "NULL":
+        return "NULL"
+    value_sql = f"NULLIF(TRIM(CAST({sql} AS VARCHAR)), '')"
+    return (
+        "CASE "
+        f"WHEN {value_sql} IS NULL THEN NULL "
+        f"WHEN regexp_matches({value_sql}, '^[0-9]{{13}}$') THEN to_timestamp(try_cast({value_sql} AS DOUBLE) / 1000.0) "
+        f"WHEN regexp_matches({value_sql}, '^[0-9]{{10}}$') THEN to_timestamp(try_cast({value_sql} AS DOUBLE)) "
+        f"ELSE try_cast({sql} AS TIMESTAMP) "
+        "END"
+    )
+
+
 def _required_cols_for_assets(spec: _TypeSpec) -> list[str]:
     cols: list[str] = []
     for e in [spec.key_expr, spec.name_expr, spec.subtype_expr, spec.owner_expr, spec.last_modified_by_expr]:
@@ -288,8 +303,8 @@ def build_base_asset_index(conn: duckdb.DuckDBPyConnection) -> dict[str, Any]:
             f"  {subtype_sql} AS object_subtype,\n"  # nosec B608 (validated identifiers)
             f"  {owner_sql} AS owner_login,\n"  # nosec B608 (validated identifiers)
             f"  {lmb_sql} AS last_modified_by_login,\n"  # nosec B608 (validated identifiers)
-            f"  try_cast({created_sql} AS TIMESTAMP) AS created_at,\n"  # nosec B608 (validated identifiers)
-            f"  try_cast({updated_sql} AS TIMESTAMP) AS updated_at\n"  # nosec B608 (validated identifiers)
+            f"  {_timestamp_expr(spec.created_at_expr)} AS created_at,\n"  # nosec B608 (validated identifiers)
+            f"  {_timestamp_expr(spec.updated_at_expr)} AS updated_at\n"  # nosec B608 (validated identifiers)
             f"FROM {_sql_ident(table)}"  # nosec B608 (table is validated)
         )
         branches.append(branch)
@@ -363,6 +378,21 @@ def build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict[str, Any]:
             updated_at_expr=entry.get("updated_at"),
         )
 
+        if table.endswith("_history"):
+            skipped.append(
+                {
+                    "product_type": type_name,
+                    "table": table,
+                    "reason": "history_source_disallowed_for_current_state_type",
+                }
+            )
+            logger.warning(
+                "product type %s configured to use history table %s; expected canonical current-state table",
+                type_name,
+                table,
+            )
+            continue
+
         if not _table_exists(conn, name=table):
             skipped.append({"product_type": type_name, "table": table, "reason": "missing_table"})
             logger.info("product type %s skipped; missing table: %s", type_name, table)
@@ -395,8 +425,8 @@ def build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict[str, Any]:
             f"  {subtype_sql} AS product_subtype,\n"  # nosec B608 (validated identifiers)
             f"  {owner_sql} AS owner_login,\n"  # nosec B608 (validated identifiers)
             f"  {lmb_sql} AS last_modified_by_login,\n"  # nosec B608 (validated identifiers)
-            f"  try_cast({created_sql} AS TIMESTAMP) AS created_at,\n"  # nosec B608 (validated identifiers)
-            f"  try_cast({updated_sql} AS TIMESTAMP) AS updated_at\n"  # nosec B608 (validated identifiers)
+            f"  {_timestamp_expr(spec.created_at_expr)} AS created_at,\n"  # nosec B608 (validated identifiers)
+            f"  {_timestamp_expr(spec.updated_at_expr)} AS updated_at\n"  # nosec B608 (validated identifiers)
             f"FROM {_sql_ident(table)}"  # nosec B608 (table is validated)
         )
 

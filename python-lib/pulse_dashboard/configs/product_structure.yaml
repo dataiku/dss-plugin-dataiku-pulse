@@ -29,34 +29,34 @@ dashboard:
   updated_at: updated_at
 
 api_service:
-  table: base_api_services_project_metadata_history
+  table: base_api_services_metadata
   product_key: api_services_id
   product_name: api_services_name
   product_subtype: api_services_type
-  owner_login: null
-  last_modified_by_login: null
-  created_at: api_services_createdon
-  updated_at: api_services_lastmodifiedon
+  owner_login: owner_login
+  last_modified_by_login: last_modified_by_login
+  created_at: created_at
+  updated_at: updated_at
 
 agent_tool:
-  table: base_agent_tools_project_metadata_history
+  table: base_agent_tools_metadata
   product_key: agent_tools_id
   product_name: agent_tools_name
   product_subtype: agent_tools_type
-  owner_login: null
-  last_modified_by_login: null
-  created_at: agent_tools_createdon
-  updated_at: agent_tools_lastmodifiedon
+  owner_login: owner_login
+  last_modified_by_login: last_modified_by_login
+  created_at: created_at
+  updated_at: updated_at
 
 insight:
-  table: base_insights_project_metadata_history
+  table: base_insights_metadata
   product_key: insights_id
   product_name: insights_name
   product_subtype: insights_type
-  owner_login: null
-  last_modified_by_login: null
-  created_at: insights_createdon
-  updated_at: insights_lastmodifiedon
+  owner_login: owner_login
+  last_modified_by_login: last_modified_by_login
+  created_at: created_at
+  updated_at: updated_at
 
 web_application:
   table: base_webapps_metadata
@@ -79,21 +79,21 @@ dataiku_application:
   updated_at: updated_at
 
 saved_model:
-  table: base_saved_models_project_metadata_history
+  table: base_saved_models_metadata
   product_key: saved_models_id
   product_name: saved_models_name
   product_subtype: [saved_models_type, saved_models_backendtype, saved_models_predictiontype]
-  owner_login: null
-  last_modified_by_login: null
-  created_at: saved_models_createdon
-  updated_at: saved_models_lastmodifiedon
+  owner_login: owner_login
+  last_modified_by_login: last_modified_by_login
+  created_at: created_at
+  updated_at: updated_at
 
 retrieval_augmented_llm:
-  table: base_retrieval_augmented_llms_project_metadata_history
+  table: base_retrieval_augmented_llms_metadata
   product_key: retrieval_augmented_llms_id
   product_name: retrieval_augmented_llms_id
   product_subtype: retrieval_augmented_llms_activeversion
-  owner_login: null
-  last_modified_by_login: null
-  created_at: null
-  updated_at: null
+  owner_login: owner_login
+  last_modified_by_login: last_modified_by_login
+  created_at: created_at
+  updated_at: updated_at

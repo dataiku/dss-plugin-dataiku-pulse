@@ -1,0 +1,20 @@
+base_knowledge_banks_project_metadata:
+  description: >
+    Latest snapshot of knowledge (banks_project_metadata) per key.
+
+    This table is materialized by ranking all observations by run_ts
+    and keeping the newest row for each (instance_name, project_key, knowledge_banks_id).
+
+  depends_on: []
+  build_order: 10
+
+  category: knowledge_banks
+  module: project_metadata
+
+  template: latest_by_partition
+  base_table_name: base_knowledge_banks_project_metadata
+  view_table_name: v_knowledge_banks__project_metadata
+  partition_keys:
+    - instance_name
+    - project_key
+    - knowledge_banks_id

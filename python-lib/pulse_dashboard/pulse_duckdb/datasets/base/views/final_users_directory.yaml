@@ -8,7 +8,7 @@ final_users_directory:
     - Tie-breaker: prefer instances listed in `PULSE_HUB_INSTANCE_NAMES`.
 
   depends_on:
-    - base_users_instance_metadata_history
+    - base_users_instance_metadata
   build_order: 1205
   sql: |
     CREATE OR REPLACE VIEW "final_users_directory" AS
@@ -27,7 +27,7 @@ final_users_directory:
           WHEN instance_name IN ('__none__') THEN 1
           ELSE 0
         END AS is_hub
-      FROM base_users_instance_metadata_history
+      FROM base_users_instance_metadata
       WHERE users_login IS NOT NULL
         AND length(trim(users_login)) > 0
     ),

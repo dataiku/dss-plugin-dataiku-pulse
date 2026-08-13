@@ -1,6 +1,6 @@
 # Defines how DSS saved models map into the generic product index
 product_type: saved_model
-source_table: base_saved_models_project_metadata_history
+source_table: base_saved_models_metadata
 
 instance_name_col: instance_name
 project_key_col: project_key
@@ -8,9 +8,9 @@ key_col: saved_models_id
 name_col: saved_models_name
 subtype_col: saved_models_type
 
-owner_col: null
-last_modified_by_col: null
-created_at_col: saved_models_createdon
-updated_at_col: saved_models_lastmodifiedon
+owner_col: owner_login
+last_modified_by_col: last_modified_by_login
+created_at_col: created_at
+updated_at_col: updated_at
 
 where_sql: null

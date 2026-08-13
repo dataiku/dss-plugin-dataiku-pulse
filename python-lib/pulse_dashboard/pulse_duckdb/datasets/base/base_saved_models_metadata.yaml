@@ -1,0 +1,52 @@
+base_saved_models_metadata:
+  description: >
+    Inventory of saved models across DSS instances, collapsed to the latest row per identity.
+  depends_on: []
+  build_order: 145
+  sql: |
+    CREATE OR REPLACE TABLE "base_saved_models_metadata" AS
+    WITH ranked AS (
+      SELECT
+        instance_name,
+        project_key,
+        saved_models_id,
+        saved_models_name,
+        saved_models_type,
+        saved_models_backendtype,
+        saved_models_predictiontype,
+        CAST(NULL AS VARCHAR) AS owner_login,
+        CAST(NULL AS VARCHAR) AS last_modified_by_login,
+        CASE
+          WHEN NULLIF(TRIM(CAST(saved_models_createdon AS VARCHAR)), '') IS NULL THEN NULL
+          WHEN regexp_matches(NULLIF(TRIM(CAST(saved_models_createdon AS VARCHAR)), ''), '^[0-9]{13}$') THEN to_timestamp(try_cast(NULLIF(TRIM(CAST(saved_models_createdon AS VARCHAR)), '') AS DOUBLE) / 1000.0)
+          WHEN regexp_matches(NULLIF(TRIM(CAST(saved_models_createdon AS VARCHAR)), ''), '^[0-9]{10}$') THEN to_timestamp(try_cast(NULLIF(TRIM(CAST(saved_models_createdon AS VARCHAR)), '') AS DOUBLE))
+          ELSE try_cast(saved_models_createdon AS TIMESTAMP)
+        END AS created_at,
+        CASE
+          WHEN NULLIF(TRIM(CAST(saved_models_lastmodifiedon AS VARCHAR)), '') IS NULL THEN NULL
+          WHEN regexp_matches(NULLIF(TRIM(CAST(saved_models_lastmodifiedon AS VARCHAR)), ''), '^[0-9]{13}$') THEN to_timestamp(try_cast(NULLIF(TRIM(CAST(saved_models_lastmodifiedon AS VARCHAR)), '') AS DOUBLE) / 1000.0)
+          WHEN regexp_matches(NULLIF(TRIM(CAST(saved_models_lastmodifiedon AS VARCHAR)), ''), '^[0-9]{10}$') THEN to_timestamp(try_cast(NULLIF(TRIM(CAST(saved_models_lastmodifiedon AS VARCHAR)), '') AS DOUBLE))
+          ELSE try_cast(saved_models_lastmodifiedon AS TIMESTAMP)
+        END AS updated_at,
+        CAST(extras AS VARCHAR) AS details_json,
+        ROW_NUMBER() OVER (
+          PARTITION BY instance_name, project_key, saved_models_id
+          ORDER BY try_cast(run_ts AS TIMESTAMP) DESC NULLS LAST, partition_date DESC NULLS LAST
+        ) AS rn
+      FROM base_saved_models_project_metadata
+    )
+    SELECT
+      instance_name,
+      project_key,
+      saved_models_id,
+      saved_models_name,
+      saved_models_type,
+      saved_models_backendtype,
+      saved_models_predictiontype,
+      owner_login,
+      last_modified_by_login,
+      created_at,
+      updated_at,
+      details_json
+    FROM ranked
+    WHERE rn = 1;
