@@ -1,0 +1,36 @@
+base_retrieval_augmented_llms_metadata:
+  description: >
+    Inventory of retrieval augmented LLMs across DSS instances, collapsed to the latest row per identity.
+  depends_on: []
+  build_order: 135
+  sql: |
+    CREATE OR REPLACE TABLE "base_retrieval_augmented_llms_metadata" AS
+    WITH ranked AS (
+      SELECT
+        instance_name,
+        project_key,
+        retrieval_augmented_llms_id,
+        retrieval_augmented_llms_activeversion,
+        CAST(NULL AS VARCHAR) AS owner_login,
+        CAST(NULL AS VARCHAR) AS last_modified_by_login,
+        CAST(NULL AS TIMESTAMP) AS created_at,
+        CAST(NULL AS TIMESTAMP) AS updated_at,
+        CAST(extras AS VARCHAR) AS details_json,
+        ROW_NUMBER() OVER (
+          PARTITION BY instance_name, project_key, retrieval_augmented_llms_id
+          ORDER BY try_cast(run_ts AS TIMESTAMP) DESC NULLS LAST, partition_date DESC NULLS LAST
+        ) AS rn
+      FROM base_retrieval_augmented_llms_project_metadata
+    )
+    SELECT
+      instance_name,
+      project_key,
+      retrieval_augmented_llms_id,
+      retrieval_augmented_llms_activeversion,
+      owner_login,
+      last_modified_by_login,
+      created_at,
+      updated_at,
+      details_json
+    FROM ranked
+    WHERE rn = 1;

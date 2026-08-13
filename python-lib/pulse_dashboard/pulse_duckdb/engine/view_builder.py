@@ -151,6 +151,20 @@ def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
             return "NULL"
         return f"NULLIF(TRIM(CAST({ident} AS VARCHAR)), '')"
 
+    def _timestamp_expr(expr: str | None) -> str:
+        ident = _maybe_col(expr)
+        if ident == "NULL":
+            return "NULL"
+        value_sql = f"NULLIF(TRIM(CAST({ident} AS VARCHAR)), '')"
+        return (
+            "CASE "
+            f"WHEN {value_sql} IS NULL THEN NULL "
+            f"WHEN regexp_matches({value_sql}, '^[0-9]{{13}}$') THEN to_timestamp(try_cast({value_sql} AS DOUBLE) / 1000.0) "
+            f"WHEN regexp_matches({value_sql}, '^[0-9]{{10}}$') THEN to_timestamp(try_cast({value_sql} AS DOUBLE)) "
+            f"ELSE try_cast({ident} AS TIMESTAMP) "
+            "END"
+        )
+
     for (
         product_type,
         source_table,
@@ -186,7 +200,7 @@ def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
             )
             continue
 
-        if product_type == "web_application" and source_table == "base_webapps_project_metadata_history":
+        if product_type == "web_application" and source_table == "base_webapps_project_metadata":
             history_rows = _table_row_count(source_table)
             snapshot_rows = _table_row_count("base_webapps_metadata")
             if snapshot_rows > history_rows:
@@ -237,8 +251,8 @@ def _build_base_product_index(conn: duckdb.DuckDBPyConnection) -> dict:
             f"  {_maybe_col(subtype_col)} AS product_subtype,\n"  # nosec B608 (identifiers are validated)
             f"  {owner_expr} AS owner_login,\n"  # nosec B608 (identifiers are validated)
             f"  {_maybe_col(last_modified_by_col)} AS last_modified_by_login,\n"  # nosec B608 (identifiers are validated)
-            f"  try_cast({_maybe_col(created_at_col)} AS TIMESTAMP) AS created_at,\n"  # nosec B608 (identifiers are validated)
-            f"  try_cast({_maybe_col(updated_at_col)} AS TIMESTAMP) AS updated_at\n"  # nosec B608 (identifiers are validated)
+            f"  {_timestamp_expr(created_at_col)} AS created_at,\n"  # nosec B608 (identifiers are validated)
+            f"  {_timestamp_expr(updated_at_col)} AS updated_at\n"  # nosec B608 (identifiers are validated)
             f"FROM {_sql_ident(source_table)}\n"  # nosec B608 (table is validated)
             f"WHERE {where}"  # nosec B608 (where_sql comes from registry config)
         )

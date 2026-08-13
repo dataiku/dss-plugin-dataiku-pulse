@@ -42,10 +42,12 @@ def _master() -> duckdb.DuckDBPyConnection:
             settings.DUCKDB_METADATA_PATH = settings.DUCKDB_PATH.with_suffix(f"{settings.DUCKDB_PATH.suffix}.meta.json")
             settings.ensure_duckdb_parent_dir()
             bootstrap = shared_prepare_duckdb(
+                project_key=settings.resolve_source_project_key(),
+                folder_lookup=settings.PULSE_GOLD_TABLES_FOLDER_ID or settings.PULSE_GOLD_TABLES_FOLDER_NAME,
                 read_only=settings.DUCKDB_READ_ONLY,
                 db_path=settings.DUCKDB_PATH,
                 purpose="dashboard",
-                configure_storage_access=False,
+                configure_storage_access=True,
             )
             _master_conn = bootstrap.conn
         return _master_conn

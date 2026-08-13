@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -7,6 +8,12 @@ from pathlib import Path
 import duckdb
 
 from .pathing import resolve_db_path
+
+
+logger = logging.getLogger(__name__)
+
+DUCKDB_MEMORY_PERCENTAGE = 0.80
+_UNLIMITED_MEMORY_SENTINEL = 1 << 60
 
 
 def _resolve_temp_directory() -> str:
@@ -62,11 +69,73 @@ def _cgroup_memory_limit_bytes(
     return min(limits) if limits else 0
 
 
+def _system_memory_limit_bytes() -> int:
+    meminfo = Path("/proc/meminfo")
+    try:
+        for line in meminfo.read_text(encoding="utf-8").splitlines():
+            if not line.startswith("MemTotal:"):
+                continue
+            parts = line.split()
+            if len(parts) < 2:
+                return 0
+            value = int(parts[1]) * 1024
+            return value if value > 0 else 0
+    except (OSError, ValueError):
+        return 0
+    return 0
+
+
+def _effective_memory_limit_bytes() -> tuple[int, str]:
+    cgroup_limit = _cgroup_memory_limit_bytes()
+    if 0 < cgroup_limit < _UNLIMITED_MEMORY_SENTINEL:
+        cgroup_version = "cgroup_v2"
+        try:
+            for line in Path("/proc/self/cgroup").read_text(encoding="utf-8").splitlines():
+                parts = line.split(":", 2)
+                if len(parts) != 3:
+                    continue
+                hierarchy, controllers, _cg_path = parts
+                if hierarchy == "0" and controllers == "":
+                    cgroup_version = "cgroup_v2"
+                    break
+                if "memory" in controllers.split(","):
+                    cgroup_version = "cgroup_v1"
+                    break
+        except OSError:
+            pass
+        return cgroup_limit, cgroup_version
+
+    system_limit = _system_memory_limit_bytes()
+    if system_limit > 0:
+        return system_limit, "system_fallback"
+
+    return 0, "unknown"
+
+
+def _duckdb_memory_limit_bytes(effective_memory_bytes: int) -> int:
+    if effective_memory_bytes <= 0:
+        return 0
+    return max(1, int(effective_memory_bytes * DUCKDB_MEMORY_PERCENTAGE))
+
+
+def _format_gib(memory_bytes: int) -> str | None:
+    if memory_bytes <= 0:
+        return None
+    return f"{memory_bytes / (1024**3):.2f} GiB"
+
+
+def _duckdb_memory_limit_setting(memory_bytes: int) -> str | None:
+    if memory_bytes <= 0:
+        return None
+    return f"{memory_bytes // (1024**2)}MiB"
+
+
 def _connect_config() -> dict[str, str]:
     cpu_count = os.cpu_count() or 2
     duckdb_threads = max(1, cpu_count - 1)
 
-    memory_limit_bytes = _cgroup_memory_limit_bytes()
+    effective_memory_bytes, memory_source = _effective_memory_limit_bytes()
+    memory_limit_bytes = _duckdb_memory_limit_bytes(effective_memory_bytes)
 
     config: dict[str, str] = {
         "threads": str(duckdb_threads),
@@ -75,12 +144,17 @@ def _connect_config() -> dict[str, str]:
         "preserve_insertion_order": "false",
     }
     if memory_limit_bytes > 0:
-        # 50%, not 80%: DuckDB overshoots its memory_limit on partitioned
-        # parquet COPY (untracked writer/compression buffers), and the cgroup
-        # limit is shared with every other local DSS process. An 80% cap let
-        # the gold build reach ~7GB anon RSS inside a 7.5GB cgroup → OOM kill.
-        memory_limit_gib = max(1, int((memory_limit_bytes * 0.5) / (1024**3)))
-        config["memory_limit"] = f"{memory_limit_gib}GB"
+        config["memory_limit"] = _duckdb_memory_limit_setting(memory_limit_bytes)
+
+    logger.info(
+        "DuckDB memory configuration: effective_memory=%s memory_source=%s duckdb_percentage=%s duckdb_memory_limit=%s threads=%s temp_directory=%s",
+        _format_gib(effective_memory_bytes),
+        memory_source,
+        int(DUCKDB_MEMORY_PERCENTAGE * 100),
+        _format_gib(memory_limit_bytes),
+        duckdb_threads,
+        config["temp_directory"],
+    )
     return config
 
 

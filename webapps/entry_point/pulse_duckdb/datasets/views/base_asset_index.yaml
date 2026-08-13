@@ -20,7 +20,7 @@ base_asset_index:
       projects_versiontag_lastmodifiedby_login AS last_modified_by_login,
       projects_creationtag_lastmodifiedon AS created_at,
       projects_versiontag_lastmodifiedon AS updated_at
-    FROM base_projects_instance_metadata_history
+    FROM base_projects_instance_metadata
     
     UNION ALL
     SELECT
@@ -34,7 +34,7 @@ base_asset_index:
       datasets_versiontag_lastmodifiedby_login AS last_modified_by_login,
       datasets_creationtag_lastmodifiedon AS created_at,
       datasets_versiontag_lastmodifiedon AS updated_at
-    FROM base_datasets_project_metadata_history
+    FROM base_datasets_project_metadata
     
     UNION ALL
     SELECT
@@ -48,7 +48,7 @@ base_asset_index:
       recipes_versiontag_lastmodifiedby_login AS last_modified_by_login,
       recipes_creationtag_lastmodifiedon AS created_at,
       recipes_versiontag_lastmodifiedon AS updated_at
-    FROM base_recipes_project_metadata_history
+    FROM base_recipes_project_metadata
     
     UNION ALL
     SELECT
@@ -62,7 +62,7 @@ base_asset_index:
       scenarios_runasuser AS last_modified_by_login,
       scenarios_createdon AS created_at,
       scenarios_lastmodifiedon AS updated_at
-    FROM base_scenarios_project_metadata_history;
+    FROM base_scenarios_project_metadata;
   example_data: |
     -- This object is a VIEW.
     -- Minimal example: ensure upstream base table has at least one row.

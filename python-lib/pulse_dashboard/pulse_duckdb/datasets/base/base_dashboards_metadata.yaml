@@ -5,17 +5,46 @@ base_dashboards_metadata:
   build_order: 30
   sql: |
     CREATE OR REPLACE TABLE "base_dashboards_metadata" AS
+    WITH ranked AS (
+      SELECT
+        instance_name,
+        project_key,
+        dashboards_id AS dashboard_id,
+        dashboards_name AS dashboard_name,
+        CAST(NULL AS VARCHAR) AS dashboard_kind,
+        dashboards_owner AS owner_login,
+        dashboards_lastmodifiedby_login AS last_modified_by_login,
+        CASE
+          WHEN NULLIF(TRIM(CAST(dashboards_createdon AS VARCHAR)), '') IS NULL THEN NULL
+          WHEN regexp_matches(NULLIF(TRIM(CAST(dashboards_createdon AS VARCHAR)), ''), '^[0-9]{13}$') THEN to_timestamp(try_cast(NULLIF(TRIM(CAST(dashboards_createdon AS VARCHAR)), '') AS DOUBLE) / 1000.0)
+          WHEN regexp_matches(NULLIF(TRIM(CAST(dashboards_createdon AS VARCHAR)), ''), '^[0-9]{10}$') THEN to_timestamp(try_cast(NULLIF(TRIM(CAST(dashboards_createdon AS VARCHAR)), '') AS DOUBLE))
+          ELSE try_cast(dashboards_createdon AS TIMESTAMP)
+        END AS created_at,
+        CASE
+          WHEN NULLIF(TRIM(CAST(dashboards_lastmodifiedon AS VARCHAR)), '') IS NULL THEN NULL
+          WHEN regexp_matches(NULLIF(TRIM(CAST(dashboards_lastmodifiedon AS VARCHAR)), ''), '^[0-9]{13}$') THEN to_timestamp(try_cast(NULLIF(TRIM(CAST(dashboards_lastmodifiedon AS VARCHAR)), '') AS DOUBLE) / 1000.0)
+          WHEN regexp_matches(NULLIF(TRIM(CAST(dashboards_lastmodifiedon AS VARCHAR)), ''), '^[0-9]{10}$') THEN to_timestamp(try_cast(NULLIF(TRIM(CAST(dashboards_lastmodifiedon AS VARCHAR)), '') AS DOUBLE))
+          ELSE try_cast(dashboards_lastmodifiedon AS TIMESTAMP)
+        END AS updated_at,
+        CAST(extras AS VARCHAR) AS details_json,
+        ROW_NUMBER() OVER (
+          PARTITION BY instance_name, project_key, dashboards_id
+          ORDER BY try_cast(run_ts AS TIMESTAMP) DESC NULLS LAST, partition_date DESC NULLS LAST
+        ) AS rn
+      FROM base_dashboards_project_metadata
+    )
     SELECT
-          CAST(NULL AS VARCHAR) AS instance_name,
-          CAST(NULL AS VARCHAR) AS project_key,
-          CAST(NULL AS VARCHAR) AS dashboard_id,
-          CAST(NULL AS VARCHAR) AS dashboard_name,
-          CAST(NULL AS VARCHAR) AS dashboard_kind,
-          CAST(NULL AS VARCHAR) AS owner_login,
-          CAST(NULL AS VARCHAR) AS last_modified_by_login,
-          CAST(NULL AS TIMESTAMP) AS created_at,
-          CAST(NULL AS TIMESTAMP) AS updated_at,
-          CAST(NULL AS VARCHAR) AS details_json
-    WHERE 1=0;
+      instance_name,
+      project_key,
+      dashboard_id,
+      dashboard_name,
+      dashboard_kind,
+      owner_login,
+      last_modified_by_login,
+      created_at,
+      updated_at,
+      details_json
+    FROM ranked
+    WHERE rn = 1;
   example_data: |
     INSERT INTO "base_dashboards_metadata" (instance_name, project_key, dashboard_id, dashboard_name, dashboard_kind, owner_login, last_modified_by_login, created_at, updated_at, details_json) VALUES ('dss-prod', 'FIN', 'dashboard_id_example', 'dashboard_name_example', 'dashboard_kind_example', 'alice', 'alice', TIMESTAMP '2026-03-23 12:00:00', TIMESTAMP '2026-03-23 12:00:00', 'details_json_example');

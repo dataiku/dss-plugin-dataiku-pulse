@@ -1,0 +1,264 @@
+- msgtype: sql-query-start
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Starts a SQL query execution.
+
+- msgtype: sql-notebook-execute
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Executes a SQL notebook.
+
+- msgtype: sql-notebook-save
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Saves a SQL notebook.
+
+- msgtype: recipe-save
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Saves changes to a recipe.
+
+- msgtype: recipe-create
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Creates a recipe.
+
+- msgtype: recipe-delete
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Deletes a recipe.
+
+- msgtype: recipe-edit-in-notebook
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Edits a recipe in notebook mode.
+
+- msgtype: notebook-create
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Creates a notebook.
+
+- msgtype: dataset-create
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Creates a dataset.
+
+- msgtype: dataset-save
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Saves dataset changes.
+
+- msgtype: dataset-save-schema
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Saves a dataset schema.
+
+- msgtype: dataset-editable-save
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Saves an editable dataset.
+
+- msgtype: dataset-delete
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Deletes a dataset.
+
+- msgtype: dataset-rename
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Renames a dataset.
+
+- msgtype: dataset-export
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Exports a dataset.
+
+- msgtype: dataset-upload-create-uploadbox
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Creates a dataset upload box.
+
+- msgtype: dataset-upload-add-file-uploadbox
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Adds a file to a dataset upload box.
+
+- msgtype: dataset-upload-add-file
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Adds a file to a dataset.
+
+- msgtype: dataset-upload-remove-file
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Removes a file from a dataset upload.
+
+- msgtype: dataset-table-ddl
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Applies dataset table DDL changes.
+
+- msgtype: code-studio-object-create
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Creates a Code Studio object.
+
+- msgtype: code-studio-template-create
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Creates a Code Studio template.
+
+- msgtype: code-studio-template-save
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Saves a Code Studio template.
+
+- msgtype: code-studio-template-delete
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Deletes a Code Studio template.
+
+- msgtype: code-studio-template-export
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Exports a Code Studio template.
+
+- msgtype: code-studio-object-open-file
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Opens a file in a Code Studio object.
+
+- msgtype: code-studio-object-restart
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Restarts a Code Studio object.
+
+- msgtype: code-studio-object-stop
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Stops a Code Studio object.
+
+- msgtype: code-studio-object-try-restart-server
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Attempts to restart a Code Studio server.
+
+- msgtype: code-studio-template-build
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Builds a Code Studio template.
+
+- msgtype: jupyter-git-commit-file
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Commits a Jupyter file to Git.
+
+- msgtype: jupyter-git-commit-checkpoint
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Commits a Jupyter checkpoint to Git.
+
+- msgtype: start-project-explanation
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Starts a project explanation.
+
+- msgtype: start-dataset-explanation
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Starts a dataset explanation.
+
+- msgtype: start-code-explanation
+  activity_class: meaningful_action
+  is_meaningful_activity: true
+  description: Starts a code explanation.
+
+- msgtype: code-studio-protected-view
+  activity_class: polling_status
+  is_meaningful_activity: false
+  description: Polls or views protected Code Studio state.
+
+- msgtype: code-studio-object-state
+  activity_class: polling_status
+  is_meaningful_activity: false
+  description: Polls Code Studio object state.
+
+- msgtype: code-studio-backend
+  activity_class: polling_status
+  is_meaningful_activity: false
+  description: Polls the Code Studio backend.
+
+- msgtype: code-studio-current-users
+  activity_class: polling_status
+  is_meaningful_activity: false
+  description: Polls current Code Studio users.
+
+- msgtype: code-studio-template-logs
+  activity_class: polling_status
+  is_meaningful_activity: false
+  description: Polls Code Studio template logs.
+
+- msgtype: code-studio-standalone-view
+  activity_class: polling_status
+  is_meaningful_activity: false
+  description: Polls standalone Code Studio view state.
+
+- msgtype: code-studio-template-usage
+  activity_class: polling_status
+  is_meaningful_activity: false
+  description: Polls Code Studio template usage.
+
+- msgtype: mlflow-experiments-search
+  activity_class: polling_status
+  is_meaningful_activity: false
+  description: Searches MLflow experiments.
+
+- msgtype: jupyter-notebook-sessions
+  activity_class: polling_status
+  is_meaningful_activity: false
+  description: Polls Jupyter notebook sessions.
+
+- msgtype: sql-query-verify
+  activity_class: polling_status
+  is_meaningful_activity: false
+  description: Verifies SQL query state.
+
+- msgtype: sql-query-fetch
+  activity_class: polling_status
+  is_meaningful_activity: false
+  description: Fetches SQL query results.
+
+- msgtype: sql-query-started
+  activity_class: polling_status
+  is_meaningful_activity: false
+  description: Reports that a SQL query started.
+
+- msgtype: dataset-compute-status
+  activity_class: polling_status
+  is_meaningful_activity: false
+  description: Polls dataset compute status.
+
+- msgtype: dataset-test
+  activity_class: polling_status
+  is_meaningful_activity: false
+  description: Tests a dataset connection or preview path.
+
+- msgtype: dataset-detect-partitioning
+  activity_class: polling_status
+  is_meaningful_activity: false
+  description: Detects dataset partitioning.
+
+- msgtype: recipe-check-notebook-edition
+  activity_class: polling_status
+  is_meaningful_activity: false
+  description: Checks notebook-editability for a recipe.
+
+- msgtype: jupyter-create-kernel-context
+  activity_class: system_unattributed
+  is_meaningful_activity: false
+  description: Creates a Jupyter kernel context.
+
+- msgtype: jupyter-delete-kernel-context
+  activity_class: system_unattributed
+  is_meaningful_activity: false
+  description: Deletes a Jupyter kernel context.

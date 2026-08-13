@@ -36,6 +36,22 @@
             "type": "SEPARATOR"
         },
         {
+            "name": "organization_owner",
+            "label": "Organization Owner Group",
+            "type": "STRING",
+            "description": "Dataiku group name for organization-level Pulse access.",
+            "mandatory": false,
+            "defaultValue": ""
+        },
+        {
+            "name": "administration_owner",
+            "label": "Administration Owner Group",
+            "type": "STRING",
+            "description": "Dataiku group name for administration-level Pulse access.",
+            "mandatory": false,
+            "defaultValue": ""
+        },
+        {
             "name": "pulse_project_key",
             "label": "Dataiku Pulse Dashboard Project Key",
             "type": "STRING",

@@ -1,19 +1,22 @@
+import ast
 import json
 import os
 import re
 import threading
+from collections import Counter
 
 # Ensure plugin python-lib is importable before DuckDB init.
 import pulse_plugin  # noqa: F401
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, make_response, request, send_from_directory
 
 import logging
 
 import settings
 from pulse_duckdb.engine.create_conn import create_connection
 from pulse_duckdb.engine.init_db import ensure_database_ready
-from pulse_duckdb.engine.query import query_df
+from pulse_duckdb.engine.query import ReadOnlySQLError, query_df
+from shared_duckdb.sql_utils import quote_identifier, validate_identifier
 
 
 # Resolve paths relative to this file so the app is relocatable
@@ -27,6 +30,7 @@ DUCKDB_INIT_REPORT: dict | None = None
 
 _DUCKDB_INIT_GUARD = threading.Lock()
 _DUCKDB_INIT_STARTED = False
+_READ_ONLY_QUERY_LIMIT = 200
 
 
 def _run_duckdb_init() -> None:
@@ -150,16 +154,16 @@ def _extract_description_from_extras(extras: str | None) -> str | None:
 # and their primary key column name.
 _OBJECT_EXTRAS_SOURCES: dict[str, dict[str, str | bool]] = {
     # Build → Assets
-    "project": {"table": "base_projects_instance_metadata_history", "key_col": "project_key", "project_scoped": False},
-    "dataset": {"table": "base_datasets_project_metadata_history", "key_col": "datasets_name", "project_scoped": True},
-    "recipe": {"table": "base_recipes_project_metadata_history", "key_col": "recipes_name", "project_scoped": True},
-    "scenario": {"table": "base_scenarios_project_metadata_history", "key_col": "scenarios_id", "project_scoped": True},
+    "project": {"table": "base_projects_instance_metadata", "key_col": "project_key", "project_scoped": False},
+    "dataset": {"table": "base_datasets_project_metadata", "key_col": "datasets_name", "project_scoped": True},
+    "recipe": {"table": "base_recipes_project_metadata", "key_col": "recipes_name", "project_scoped": True},
+    "scenario": {"table": "base_scenarios_project_metadata", "key_col": "scenarios_id", "project_scoped": True},
     # Build → Products
-    "api_service": {"table": "base_api_services_project_metadata_history", "key_col": "api_services_id", "project_scoped": True},
-    "agent_tool": {"table": "base_agent_tools_project_metadata_history", "key_col": "agent_tools_id", "project_scoped": True},
-    "insight": {"table": "base_insights_project_metadata_history", "key_col": "insights_id", "project_scoped": True},
-    "web_application": {"table": "base_webapps_project_metadata_history", "key_col": "webapps_id", "project_scoped": True},
-    "dataiku_application": {"table": "base_apps_instance_metadata_history", "key_col": "apps_appid", "project_scoped": False},
+    "api_service": {"table": "base_api_services_project_metadata", "key_col": "api_services_id", "project_scoped": True},
+    "agent_tool": {"table": "base_agent_tools_project_metadata", "key_col": "agent_tools_id", "project_scoped": True},
+    "insight": {"table": "base_insights_project_metadata", "key_col": "insights_id", "project_scoped": True},
+    "web_application": {"table": "base_webapps_project_metadata", "key_col": "webapps_id", "project_scoped": True},
+    "dataiku_application": {"table": "base_apps_instance_metadata", "key_col": "apps_appid", "project_scoped": False},
 }
 
 
@@ -209,6 +213,164 @@ def _read_standard_project_var(key: str):
         return None
 
 
+def _parse_group_names(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return [str(v).strip() for v in parsed if str(v).strip()]
+        except Exception:
+            pass
+        return [part.strip() for part in value.split(",") if part.strip()]
+    return []
+
+
+def _normalize_optional_bool(value):
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+        return None
+
+    normalized = str(value).strip().lower()
+    if normalized in {"true", "1", "1.0", "yes"}:
+        return True
+    if normalized in {"false", "0", "0.0", "no"}:
+        return False
+    return None
+
+
+def _parse_history_groups(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [str(v).strip() for v in parsed if str(v).strip()]
+        except Exception:
+            pass
+        try:
+            parsed = ast.literal_eval(raw)
+            if isinstance(parsed, list):
+                return [str(v).strip() for v in parsed if str(v).strip()]
+        except Exception:
+            pass
+        return [raw]
+    return [str(value).strip()] if str(value).strip() else []
+
+
+def _normalize_directory_record(row: dict) -> dict:
+    resulting_profile = str(row.get("users_resultinguserprofile") or "").strip()
+    fallback_profile = str(row.get("users_userprofile") or "").strip()
+    return {
+        "instance_name": row.get("instance_name"),
+        "login": row.get("users_login"),
+        "display_name": row.get("users_displayname"),
+        "email": row.get("users_email"),
+        "user_profile": resulting_profile or fallback_profile or None,
+        "enabled": _normalize_optional_bool(row.get("users_enabled")),
+        "source_type": row.get("users_sourcetype"),
+        "creation_date": row.get("users_creationdate"),
+        "last_successful_login": row.get("users_lastsuccessfullogin"),
+        "last_failed_login": row.get("users_lastfailedlogin"),
+        "last_session_activity": row.get("users_lastsessionactivity"),
+        "first_commit_date": row.get("users_first_commit_date"),
+        "last_commit_date": row.get("users_last_commit_date"),
+        "groups": _parse_history_groups(row.get("users_groups")),
+        "run_ts": row.get("run_ts"),
+        "partition_date": row.get("partition_date"),
+    }
+
+
+def _directory_record_rank_key(row: dict) -> tuple:
+    return (
+        int(bool(str(row.get("display_name") or "").strip())),
+        int(bool(str(row.get("email") or "").strip())),
+        int(bool(str(row.get("user_profile") or "").strip())),
+        int(row.get("enabled") is not None),
+        str(row.get("run_ts") or ""),
+        str(row.get("partition_date") or ""),
+        str(row.get("instance_name") or ""),
+    )
+
+
+def _current_user_info() -> dict | None:
+    try:
+        import dataiku
+
+        user = dataiku.api_client().get_auth_info_from_browser_headers(False)
+        if isinstance(user, dict):
+            return user
+    except Exception:
+        return None
+    return None
+
+
+def _has_administration_access() -> bool:
+    admin_group = _read_standard_project_var("administration")
+    if not admin_group:
+        return False
+
+    user_info = _current_user_info() or {}
+    groups = _parse_group_names(user_info.get("groups") or user_info.get("userGroups") or user_info.get("groupNames"))
+    admin_group_norm = str(admin_group).strip().lower()
+    return any(str(group).strip().lower() == admin_group_norm for group in groups)
+
+
+def _resolve_dashboard_topology_preset(plugin_handle) -> tuple[str, str | None]:
+    try:
+        plugin_settings = plugin_handle.get_settings()
+        param_set = plugin_settings.get_parameter_set(parameter_set_name="params-dashboard-instance")
+        preset_names = param_set.list_preset_names() or []
+        if preset_names:
+            return str(preset_names[0]), None
+        return "primary", "No preset found in params-dashboard-instance; using 'primary'"
+    except Exception as e:
+        return "primary", f"Could not resolve preset name; using 'primary': {e!r}"
+
+
+def _sanitize_topology_config(plugin_config: dict | None) -> dict:
+    cfg = dict(plugin_config or {})
+    hub_url = str(cfg.get("pulse_project_url") or "").strip()
+    raw_workers = cfg.get("worker_hosts")
+    spokes = []
+
+    if isinstance(raw_workers, list):
+        for entry in raw_workers:
+            if not isinstance(entry, dict):
+                continue
+            spokes.append(
+                {
+                    "url": str(entry.get("worker_url") or "").strip(),
+                    "classification": str(entry.get("worker_classification") or "").strip(),
+                    "presetName": str(entry.get("preset_name") or "").strip(),
+                }
+            )
+
+    return {
+        "hub": {
+            "url": hub_url,
+            "label": "Pulse Hub",
+        },
+        "spokes": spokes,
+    }
+
+
 @app.route("/api/startup/flags")
 def startup_flags():
     """Feature flags exposed to the React SPA.
@@ -223,6 +385,49 @@ def startup_flags():
     user_activity_enabled = user_activity_raw is True
 
     return jsonify({"ok": True, "flags": {"userActivity": user_activity_enabled}})
+
+
+@app.route("/api/admin/pulse-topology")
+def admin_pulse_topology():
+    if not _has_administration_access():
+        return jsonify({"ok": False, "error": "Administration access is required."}), 403
+
+    try:
+        import dataiku
+
+        client = dataiku.api_client()
+        plugin_handle = client.get_plugin(plugin_id="dataiku-pulse")
+        preset_name, _warning = _resolve_dashboard_topology_preset(plugin_handle)
+        param_set = plugin_handle.get_settings().get_parameter_set(parameter_set_name="params-dashboard-instance")
+        preset = param_set.get_preset(preset_name)
+        if not preset:
+            return jsonify({"ok": False, "error": "Pulse topology configuration is unavailable."})
+
+        raw_config = getattr(preset, "plugin_config", None)
+        if not isinstance(raw_config, dict):
+            return jsonify({"ok": False, "error": "Pulse topology configuration is unavailable."})
+
+        topology = _sanitize_topology_config(raw_config)
+        summary = {
+            "hubCount": 1 if topology["hub"].get("url") else 0,
+            "workerCount": len(topology["spokes"]),
+            "classifications": dict(
+                Counter(
+                    spoke["classification"]
+                    for spoke in topology["spokes"]
+                    if spoke.get("classification")
+                )
+            ),
+        }
+
+        return jsonify({
+            "ok": True,
+            "presetName": preset_name,
+            "topology": topology,
+            "summary": summary,
+        })
+    except Exception:
+        return jsonify({"ok": False, "error": "Pulse topology configuration is unavailable."})
 
 
 # ----------------------------------------------------------------------------
@@ -1122,24 +1327,72 @@ def build_user_detail(login: str):
     )
     df_summary = query_df(summary_sql, params)
 
-    df_user = query_df(
-        """
-        SELECT
-          instance_name,
-          login,
-          display_name,
-          email,
-          enabled,
-          user_profile,
-          group_names,
-          last_activity_at
-        FROM base_users
-        WHERE lower(trim(login)) = ?
-        ORDER BY last_activity_at DESC NULLS LAST
-        LIMIT 1;
-        """.strip(),
-        [login_norm],
+    directory_params: list[object] = [login_norm]
+    optional_instance_filter = ""
+    if instance_name:
+        optional_instance_filter = "AND instance_name = ?"
+        directory_params.append(instance_name)
+
+    latest_directory_sql = "\n".join(
+        [
+            "WITH ranked AS (",
+            "    SELECT",
+            "        instance_name,",
+            "        users_login,",
+            "        users_sourcetype,",
+            "        users_displayname,",
+            "        users_groups,",
+            "        users_userprofile,",
+            "        users_creationdate,",
+            "        users_enabled,",
+            "        users_resultinguserprofile,",
+            "        users_email,",
+            "        users_lastsuccessfullogin,",
+            "        users_lastfailedlogin,",
+            "        users_lastsessionactivity,",
+            "        users_first_commit_date,",
+            "        users_last_commit_date,",
+            "        run_ts,",
+            "        partition_date,",
+            "        ROW_NUMBER() OVER (",
+            "            PARTITION BY instance_name",
+            "            ORDER BY",
+            "                run_ts DESC NULLS LAST,",
+            "                partition_date DESC NULLS LAST,",
+            "                users_lastsessionactivity DESC NULLS LAST",
+            "        ) AS rn",
+            "    FROM base_users_instance_metadata",
+            "    WHERE lower(trim(users_login)) = lower(trim(?))",
+            f"    {optional_instance_filter}" if optional_instance_filter else "",
+            ")",
+            "SELECT",
+            "    instance_name,",
+            "    users_login,",
+            "    users_sourcetype,",
+            "    users_displayname,",
+            "    users_groups,",
+            "    users_userprofile,",
+            "    users_creationdate,",
+            "    users_enabled,",
+            "    users_resultinguserprofile,",
+            "    users_email,",
+            "    users_lastsuccessfullogin,",
+            "    users_lastfailedlogin,",
+            "    users_lastsessionactivity,",
+            "    users_first_commit_date,",
+            "    users_last_commit_date,",
+            "    run_ts,",
+            "    partition_date",
+            "FROM ranked",
+            "WHERE rn = 1",
+            "ORDER BY instance_name ASC;",
+        ]
     )
+    latest_directory_sql = "\n".join(line for line in latest_directory_sql.splitlines() if line.strip())
+
+    df_directory_records = query_df(latest_directory_sql, directory_params)
+    directory_records = [_normalize_directory_record(row) for row in _df_records(df_directory_records)]
+    primary_user = max(directory_records, key=_directory_record_rank_key) if directory_records else None
 
     daily_sql = "\n".join(
         [
@@ -1160,7 +1413,9 @@ def build_user_detail(login: str):
             "ok": True,
             "login": login_norm,
             "windowDays": window_days,
-            "user": _df_records(df_user)[0] if len(df_user.index) else None,
+            "user": primary_user,
+            "instances": directory_records,
+            "directoryRecords": directory_records,
             "summary": _df_records(df_summary)[0] if len(df_summary.index) else {},
             "activityDaily": _df_records(df_daily),
         }
@@ -1262,32 +1517,132 @@ def duckdb_tables():
 
 @app.route("/api/debug/duckdb/query")
 def duckdb_query():
-    return jsonify({"ok": False, "error": "Raw SQL debug queries are disabled; use table introspection endpoints instead."}), 403
+    sql = (request.args.get("sql") or "").strip()
+    if not sql:
+        return jsonify({"ok": False, "error": "Missing SQL query"}), 400
+
+    try:
+        df = query_df(sql)
+    except ReadOnlySQLError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+    total_rows = int(len(df.index))
+    truncated = total_rows > _READ_ONLY_QUERY_LIMIT
+    limited_df = df.head(_READ_ONLY_QUERY_LIMIT)
+
+    response = jsonify(
+        {
+            "ok": True,
+            "sql": sql,
+            "columns": list(limited_df.columns),
+            "rows": _df_records(limited_df),
+            "rowCount": total_rows,
+            "returnedRowCount": int(len(limited_df.index)),
+            "truncated": truncated,
+            "limit": _READ_ONLY_QUERY_LIMIT,
+        }
+    )
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @app.route("/api/debug/duckdb/table/<table_name>")
 def duckdb_table_info(table_name: str):
     conn = create_connection(read_only=True)
     try:
-        # minimal sanitization: allow only identifier-ish names
-        if not table_name.replace("_", "").isalnum():
+        try:
+            safe_table_name = validate_identifier(table_name)
+        except ValueError:
             return jsonify({"ok": False, "error": "Invalid table name"}), 400
 
         # Use information_schema so this works for both TABLEs and VIEWs.
+        object_df = conn.execute(
+            """
+            SELECT table_catalog, table_schema, table_name, table_type
+            FROM information_schema.tables
+            WHERE table_schema = 'main' AND table_name = ?
+            LIMIT 1;
+            """,
+            [safe_table_name],
+        ).df()
+
         cols_df = conn.execute(
             """
-            SELECT column_name, data_type
+            SELECT column_name, data_type, is_nullable, column_default
             FROM information_schema.columns
             WHERE table_schema = 'main' AND table_name = ?
             ORDER BY ordinal_position;
             """,
-            [table_name],
+            [safe_table_name],
         ).df()
 
-        if cols_df.shape[0] == 0:
-            return jsonify({"ok": False, "error": f"Object not found: {table_name}"}), 404
+        if cols_df.shape[0] == 0 or object_df.shape[0] == 0:
+            return jsonify({"ok": False, "error": f"Object not found: {safe_table_name}"}), 404
 
-        ident = '"' + table_name.replace('"', '') + '"'
+        ident = quote_identifier(safe_table_name)
+
+        row_count = None
+        row_count_error = None
+        try:
+            row_count_df = conn.execute(f"SELECT COUNT(*) AS row_count FROM {ident};").df()  # nosec B608 (table_name is validated)
+            if row_count_df.shape[0]:
+                row_count = int(row_count_df.iloc[0]["row_count"])
+        except Exception as e:
+            row_count_error = str(e)
+
+        size_bytes = None
+        try:
+            storage_df = conn.execute(
+                """
+                SELECT estimated_size
+                FROM duckdb_tables()
+                WHERE schema_name = 'main' AND table_name = ?
+                LIMIT 1;
+                """,
+                [safe_table_name],
+            ).df()
+            if storage_df.shape[0]:
+                raw_size = storage_df.iloc[0]["estimated_size"]
+                if raw_size is not None:
+                    size_bytes = int(raw_size)
+        except Exception:
+            size_bytes = None
+
+        pk_df = conn.execute(f"PRAGMA table_info({ident});").df()
+        pk_map = {}
+        if pk_df.shape[0]:
+            pk_map = {
+                str(row.get("name")): bool(row.get("pk"))
+                for row in pk_df.to_dict(orient="records")
+            }
+
+        object_row = object_df.to_dict(orient="records")[0]
+        summary = {
+            "objectName": object_row.get("table_name"),
+            "objectType": "view" if object_row.get("table_type") == "VIEW" else "table",
+            "columnCount": int(cols_df.shape[0]),
+            "rowCount": row_count,
+            "rowCountError": row_count_error,
+            "estimatedSizeBytes": size_bytes,
+            "schemaName": object_row.get("table_schema"),
+            "databaseName": object_row.get("table_catalog"),
+        }
+
+        columns = []
+        for row in cols_df.to_dict(orient="records"):
+            columns.append(
+                {
+                    "column": row.get("column_name"),
+                    "type": row.get("data_type"),
+                    "nullable": row.get("is_nullable"),
+                    "default": row.get("column_default"),
+                    "primaryKey": pk_map.get(str(row.get("column_name")), False),
+                }
+            )
 
         sample_error = None
         sample_df = None
@@ -1302,7 +1657,8 @@ def duckdb_table_info(table_name: str):
             {
                 "ok": True,
                 "table": table_name,
-                "columns": _df_records(cols_df),
+                "summary": summary,
+                "columns": columns,
                 "sample": _df_records(sample_df) if sample_df is not None else [],
                 "sample_error": sample_error,
             }

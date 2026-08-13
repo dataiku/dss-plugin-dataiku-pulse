@@ -1,4 +1,20 @@
 methods:
+  list_dashboards:
+    enabled: true
+    call_mode: auto
+    cleanup_mode: none
+    delta_mode: auto
+    artifact_key: dashboards
+    notes: Preserve explicit project-level dashboard extraction for product index coverage.
+
+  list_webapps:
+    enabled: true
+    call_mode: auto
+    cleanup_mode: none
+    delta_mode: auto
+    artifact_key: webapps
+    notes: Preserve explicit project-level webapp extraction for product index coverage.
+
   list_imported_bundles:
     enabled: false
     call_mode: auto

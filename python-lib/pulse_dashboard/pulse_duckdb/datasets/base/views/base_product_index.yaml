@@ -12,9 +12,14 @@ base_product_index:
     create the view successfully.
   depends_on:
     - base_projects_metadata
+    - base_api_services_metadata
+    - base_agent_tools_metadata
     - base_api_endpoints_metadata
     - base_agents_metadata
     - base_dashboards_metadata
+    - base_insights_metadata
+    - base_retrieval_augmented_llms_metadata
+    - base_saved_models_metadata
     - base_webapps_metadata
     - base_dataiku_applications_metadata
     - v_object_activity_events
@@ -51,6 +56,38 @@ base_product_index:
       created_at,
       updated_at
     FROM base_agents_metadata
+
+    UNION ALL
+
+    -- API services
+    SELECT
+      instance_name,
+      project_key,
+      'api_service' AS product_type,
+      api_services_id AS product_key,
+      api_services_name AS product_name,
+      api_services_type AS product_subtype,
+      owner_login,
+      last_modified_by_login,
+      created_at,
+      updated_at
+    FROM base_api_services_metadata
+
+    UNION ALL
+
+    -- Agent tools
+    SELECT
+      instance_name,
+      project_key,
+      'agent_tool' AS product_type,
+      agent_tools_id AS product_key,
+      agent_tools_name AS product_name,
+      agent_tools_type AS product_subtype,
+      owner_login,
+      last_modified_by_login,
+      created_at,
+      updated_at
+    FROM base_agent_tools_metadata
     
     UNION ALL
     
@@ -67,6 +104,22 @@ base_product_index:
       created_at,
       updated_at
     FROM base_dashboards_metadata
+
+    UNION ALL
+
+    -- Insights
+    SELECT
+      instance_name,
+      project_key,
+      'insight' AS product_type,
+      insights_id AS product_key,
+      insights_name AS product_name,
+      insights_type AS product_subtype,
+      owner_login,
+      last_modified_by_login,
+      created_at,
+      updated_at
+    FROM base_insights_metadata
     
     UNION ALL
     
@@ -98,7 +151,39 @@ base_product_index:
       last_modified_by_login,
       created_at,
       updated_at
-    FROM base_dataiku_applications_metadata;
+    FROM base_dataiku_applications_metadata
+
+    UNION ALL
+
+    -- Saved models
+    SELECT
+      instance_name,
+      project_key,
+      'saved_model' AS product_type,
+      saved_models_id AS product_key,
+      saved_models_name AS product_name,
+      COALESCE(saved_models_type, saved_models_backendtype, saved_models_predictiontype) AS product_subtype,
+      owner_login,
+      last_modified_by_login,
+      created_at,
+      updated_at
+    FROM base_saved_models_metadata
+
+    UNION ALL
+
+    -- Retrieval augmented LLMs
+    SELECT
+      instance_name,
+      project_key,
+      'retrieval_augmented_llm' AS product_type,
+      retrieval_augmented_llms_id AS product_key,
+      retrieval_augmented_llms_id AS product_name,
+      retrieval_augmented_llms_activeversion AS product_subtype,
+      owner_login,
+      last_modified_by_login,
+      created_at,
+      updated_at
+    FROM base_retrieval_augmented_llms_metadata;
   example_data: |
     -- This object is a VIEW.
     -- Minimal example: ensure upstream base table has at least one row.

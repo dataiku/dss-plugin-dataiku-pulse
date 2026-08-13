@@ -1,0 +1,38 @@
+base_api_services_metadata:
+  description: >
+    Inventory of API services across DSS instances, collapsed to the latest row per identity.
+  depends_on: []
+  build_order: 25
+  sql: |
+    CREATE OR REPLACE TABLE "base_api_services_metadata" AS
+    WITH ranked AS (
+      SELECT
+        instance_name,
+        project_key,
+        api_services_id,
+        api_services_name,
+        api_services_authmethod AS api_services_type,
+        CAST(NULL AS VARCHAR) AS owner_login,
+        CAST(NULL AS VARCHAR) AS last_modified_by_login,
+        CAST(NULL AS TIMESTAMP) AS created_at,
+        CAST(NULL AS TIMESTAMP) AS updated_at,
+        CAST(extras AS VARCHAR) AS details_json,
+        ROW_NUMBER() OVER (
+          PARTITION BY instance_name, project_key, api_services_id
+          ORDER BY try_cast(run_ts AS TIMESTAMP) DESC NULLS LAST, partition_date DESC NULLS LAST
+        ) AS rn
+      FROM base_api_services_project_metadata
+    )
+    SELECT
+      instance_name,
+      project_key,
+      api_services_id,
+      api_services_name,
+      api_services_type,
+      owner_login,
+      last_modified_by_login,
+      created_at,
+      updated_at,
+      details_json
+    FROM ranked
+    WHERE rn = 1;
