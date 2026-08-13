@@ -41,6 +41,15 @@ function appendScopeParams(path, extraParams) {
   return hashPart == null ? scopedPath : `${scopedPath}#${hashPart}`;
 }
 
+function resolveSelfScopedRequestParams(requestParams, authState) {
+  if (!requestParams || requestParams.scope !== 'self') return requestParams;
+  const login = authState?.data?.user?.login || '';
+  if (!login) return requestParams;
+  const nextParams = { ...requestParams, owner: login };
+  delete nextParams.scope;
+  return nextParams;
+}
+
 function PulseSection({ title, children }) {
   return (
     <div className="PulseCard">
@@ -3261,7 +3270,11 @@ function labelForProductType(type) {
 
 
 
-function ProductOutputsPage({ apiBase, requestParams = null }) {
+function ProductOutputsPage({ apiBase, authState, requestParams = null }) {
+  const effectiveRequestParams = useMemo(
+    () => resolveSelfScopedRequestParams(requestParams, authState),
+    [authState, requestParams]
+  );
   const [activeTab, setActiveTab] = useState('overview');
   const [typeSubTab, setTypeSubTab] = useState('overview');
 
@@ -3294,7 +3307,7 @@ function ProductOutputsPage({ apiBase, requestParams = null }) {
           params.set('offset', String(offset));
 
           const response = await fetch(
-            apiUrl(apiBase, appendScopeParams(`/api/build/products?${params.toString()}`, requestParams))
+            apiUrl(apiBase, appendScopeParams(`/api/build/products?${params.toString()}`, effectiveRequestParams))
           );
           const data = await response.json();
           if (!data.ok) throw new Error(data.error || 'Failed loading products');
@@ -3333,7 +3346,7 @@ function ProductOutputsPage({ apiBase, requestParams = null }) {
     return () => {
       cancelled = true;
     };
-  }, [apiBase, requestParams]);
+  }, [apiBase, effectiveRequestParams]);
 
   // Reset sub-tab when switching product types.
   useEffect(() => {
@@ -3358,7 +3371,7 @@ function ProductOutputsPage({ apiBase, requestParams = null }) {
     setTypeMetricsError('');
 
     fetch(
-      apiUrl(apiBase, appendScopeParams(`/api/build/products/type-metrics?${params.toString()}`, requestParams))
+      apiUrl(apiBase, appendScopeParams(`/api/build/products/type-metrics?${params.toString()}`, effectiveRequestParams))
     )
       .then((r) => r.json())
       .then((data) => {
@@ -3375,7 +3388,7 @@ function ProductOutputsPage({ apiBase, requestParams = null }) {
     return () => {
       cancelled = true;
     };
-  }, [apiBase, requestParams, selectedType]);
+  }, [apiBase, effectiveRequestParams, selectedType]);
 
   const summary = useMemo(() => {
     const byType = new Map();
@@ -3561,7 +3574,7 @@ function ProductOutputsPage({ apiBase, requestParams = null }) {
       </div>
 
       {isInventory ? (
-        <ProductInventoryTab apiBase={apiBase} requestParams={requestParams} />
+        <ProductInventoryTab apiBase={apiBase} authState={authState} requestParams={requestParams} />
       ) : (
         <>
           {loading ? <div className="PulseCard"><div className="PulseMuted">Loading…</div></div> : null}
@@ -6002,7 +6015,12 @@ function MonthlyRateChart({ title, points, yAxisLabel = 'Observed actor rate (%)
   );
 }
 
-function ProductInventoryTab({ apiBase, requestParams = null }) {
+function ProductInventoryTab({ apiBase, authState, requestParams = null }) {
+  const effectiveRequestParams = useMemo(
+    () => resolveSelfScopedRequestParams(requestParams, authState),
+    [authState, requestParams]
+  );
+
   return (
     <>
       <div className="PulseCard">
@@ -6018,7 +6036,7 @@ function ProductInventoryTab({ apiBase, requestParams = null }) {
         description="Browse products across instances with filtering and details capabilities"
         endpointBase="/api/build/products"
         facetsEndpoint="/api/build/products/facets"
-        requestParams={requestParams}
+        requestParams={effectiveRequestParams}
         typeFacetLabel="Product type"
         typeColumnLabel="Product type"
         detailsTitle="Product details"
