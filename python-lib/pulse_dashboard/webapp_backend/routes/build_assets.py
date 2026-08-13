@@ -244,6 +244,15 @@ def _current_authenticated_login() -> str | None:
     return login or None
 
 
+def _resolve_scoped_owner_login() -> str | None:
+    if not _self_scope_requested():
+        return None
+    owner = str(request.args.get("owner") or "").strip()
+    if owner:
+        return owner.lower()
+    return _current_authenticated_login()
+
+
 def register_routes(bp: Blueprint) -> None:
     @bp.route("/api/build/assets")
     def build_assets_list():
@@ -259,7 +268,7 @@ def register_routes(bp: Blueprint) -> None:
             completeness_status = (request.args.get("completenessStatus") or "").strip().lower()
             sort = (request.args.get("sort") or "updated_desc").strip()
             score_sql, status_sql = _metadata_completeness_sql_for_asset_inventory()
-            scoped_login = _current_authenticated_login() if _self_scope_requested() else None
+            scoped_login = _resolve_scoped_owner_login()
 
             if _self_scope_requested() and not scoped_login:
                 return _err("Unable to resolve authenticated user", status=403)
@@ -378,7 +387,7 @@ def register_routes(bp: Blueprint) -> None:
         try:
             query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
             _ensure_ready_if_enabled()
-            scoped_login = _current_authenticated_login() if _self_scope_requested() else None
+            scoped_login = _resolve_scoped_owner_login()
 
             if _self_scope_requested() and not scoped_login:
                 return _err("Unable to resolve authenticated user", status=403)
@@ -476,7 +485,7 @@ def register_routes(bp: Blueprint) -> None:
         try:
             query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
             _ensure_ready_if_enabled()
-            scoped_login = _current_authenticated_login() if _self_scope_requested() else None
+            scoped_login = _resolve_scoped_owner_login()
 
             if _self_scope_requested() and not scoped_login:
                 return _err("Unable to resolve authenticated user", status=403)
@@ -510,7 +519,7 @@ def register_routes(bp: Blueprint) -> None:
         try:
             query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
             _ensure_ready_if_enabled()
-            scoped_login = _current_authenticated_login() if _self_scope_requested() else None
+            scoped_login = _resolve_scoped_owner_login()
 
             if _self_scope_requested() and not scoped_login:
                 return _err("Unable to resolve authenticated user", status=403)
