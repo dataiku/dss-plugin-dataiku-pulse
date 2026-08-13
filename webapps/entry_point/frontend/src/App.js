@@ -26,6 +26,21 @@ function apiUrl(apiBase, path) {
   return apiBase ? `${apiBase}${normalizedPath}` : `.${normalizedPath}`;
 }
 
+function appendScopeParams(path, extraParams) {
+  if (!extraParams || Object.keys(extraParams).length === 0) return path;
+  const [basePath, hashPart] = String(path || '').split('#', 2);
+  const separator = basePath.includes('?') ? '&' : '?';
+  const params = new URLSearchParams();
+  Object.entries(extraParams).forEach(([key, value]) => {
+    if (value == null || value === '') return;
+    params.set(key, String(value));
+  });
+  const suffix = params.toString();
+  if (!suffix) return path;
+  const scopedPath = `${basePath}${separator}${suffix}`;
+  return hashPart == null ? scopedPath : `${scopedPath}#${hashPart}`;
+}
+
 function PulseSection({ title, children }) {
   return (
     <div className="PulseCard">
@@ -593,6 +608,7 @@ function BuildAssetsInventoryPage({
   typeColumnLabel = 'Type',
   detailsTitle = 'Asset details',
   typeDetailLabel = 'Type',
+  requestParams = null,
 } = {}) {
   const [allAssets, setAllAssets] = useState([]);
   const [total, setTotal] = useState(0);
@@ -645,7 +661,7 @@ function BuildAssetsInventoryPage({
   useEffect(() => {
     let cancelled = false;
 
-    fetch(apiUrl(apiBase, metadataSummaryEndpoint))
+    fetch(apiUrl(apiBase, appendScopeParams(metadataSummaryEndpoint, requestParams)))
       .then((r) => r.json())
       .then((data) => {
         if (!data.ok) throw new Error(data.error || 'Failed loading metadata summary');
@@ -663,7 +679,7 @@ function BuildAssetsInventoryPage({
     return () => {
       cancelled = true;
     };
-  }, [apiBase, metadataSummaryEndpoint]);
+  }, [apiBase, metadataSummaryEndpoint, requestParams]);
 
   useEffect(() => {
     if (!detailsOpen || !selectedAssetId) {
@@ -682,7 +698,10 @@ function BuildAssetsInventoryPage({
 
       try {
         const res = await fetch(
-          apiUrl(apiBase, `${detailsEndpoint}?assetId=${encodeURIComponent(selectedAssetId)}`)
+          apiUrl(
+            apiBase,
+            appendScopeParams(`${detailsEndpoint}?assetId=${encodeURIComponent(selectedAssetId)}`, requestParams)
+          )
         );
         const raw = await res.text();
         let data;
@@ -706,7 +725,7 @@ function BuildAssetsInventoryPage({
     return () => {
       cancelled = true;
     };
-  }, [apiBase, detailsEndpoint, detailsOpen, selectedAssetId]);
+  }, [apiBase, detailsEndpoint, detailsOpen, requestParams, selectedAssetId]);
 
   const applyQuickFilter = ({ instanceName, projectKey, objectType, ownerLogin }) => {
     // “Reset to tag”: clear all filters then apply the requested one(s)
@@ -733,7 +752,7 @@ function BuildAssetsInventoryPage({
   // Load facets once (for filter rail)
   useEffect(() => {
     setError('');
-    fetch(apiUrl(apiBase, facetsEndpoint))
+    fetch(apiUrl(apiBase, appendScopeParams(facetsEndpoint, requestParams)))
       .then((r) => r.json())
       .then((data) => {
         if (!data.ok) throw new Error(data.error || 'Failed loading facets');
@@ -745,7 +764,7 @@ function BuildAssetsInventoryPage({
         });
       })
       .catch((e) => setError(e.message));
-  }, [apiBase, facetsEndpoint]);
+  }, [apiBase, facetsEndpoint, requestParams]);
 
   // Load paginated rows from DuckDB
   useEffect(() => {
@@ -763,7 +782,7 @@ function BuildAssetsInventoryPage({
     setLoading(true);
     setError('');
 
-    fetch(apiUrl(apiBase, `${endpointBase}?${params.toString()}`))
+    fetch(apiUrl(apiBase, appendScopeParams(`${endpointBase}?${params.toString()}`, requestParams)))
       .then((r) => r.json())
       .then((data) => {
         if (!data.ok) throw new Error(data.error || 'Failed loading rows');
@@ -775,6 +794,7 @@ function BuildAssetsInventoryPage({
   }, [
     apiBase,
     endpointBase,
+    requestParams,
     q,
     owner,
     selectedInstances,
@@ -3241,7 +3261,7 @@ function labelForProductType(type) {
 
 
 
-function ProductOutputsPage({ apiBase }) {
+function ProductOutputsPage({ apiBase, requestParams = null }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [typeSubTab, setTypeSubTab] = useState('overview');
 
@@ -3273,7 +3293,9 @@ function ProductOutputsPage({ apiBase }) {
           params.set('limit', String(limit));
           params.set('offset', String(offset));
 
-          const response = await fetch(apiUrl(apiBase, `/api/build/products?${params.toString()}`));
+          const response = await fetch(
+            apiUrl(apiBase, appendScopeParams(`/api/build/products?${params.toString()}`, requestParams))
+          );
           const data = await response.json();
           if (!data.ok) throw new Error(data.error || 'Failed loading products');
 
@@ -3311,7 +3333,7 @@ function ProductOutputsPage({ apiBase }) {
     return () => {
       cancelled = true;
     };
-  }, [apiBase]);
+  }, [apiBase, requestParams]);
 
   // Reset sub-tab when switching product types.
   useEffect(() => {
@@ -3335,7 +3357,9 @@ function ProductOutputsPage({ apiBase }) {
     setTypeMetricsLoading(true);
     setTypeMetricsError('');
 
-    fetch(apiUrl(apiBase, `/api/build/products/type-metrics?${params.toString()}`))
+    fetch(
+      apiUrl(apiBase, appendScopeParams(`/api/build/products/type-metrics?${params.toString()}`, requestParams))
+    )
       .then((r) => r.json())
       .then((data) => {
         if (!data.ok) throw new Error(data.error || 'Failed loading product type metrics');
@@ -3351,7 +3375,7 @@ function ProductOutputsPage({ apiBase }) {
     return () => {
       cancelled = true;
     };
-  }, [apiBase, selectedType]);
+  }, [apiBase, requestParams, selectedType]);
 
   const summary = useMemo(() => {
     const byType = new Map();
@@ -3537,7 +3561,7 @@ function ProductOutputsPage({ apiBase }) {
       </div>
 
       {isInventory ? (
-        <ProductInventoryTab apiBase={apiBase} />
+        <ProductInventoryTab apiBase={apiBase} requestParams={requestParams} />
       ) : (
         <>
           {loading ? <div className="PulseCard"><div className="PulseMuted">Loading…</div></div> : null}
@@ -3861,7 +3885,7 @@ function ProductOutputsPage({ apiBase }) {
 
 
 
-function ConsumptionActivityPage({ apiBase }) {
+function ConsumptionActivityPage({ apiBase, requestParams = null }) {
   const [windowDays, setWindowDays] = useState(30);
   const [facets, setFacets] = useState({ instances: [], projects: [], types: [], owners: [] });
 
@@ -3917,7 +3941,7 @@ function ConsumptionActivityPage({ apiBase }) {
   }, [lifecycleSummary]);
 
   useEffect(() => {
-    fetch(apiUrl(apiBase, '/api/consumption/products/facets'))
+    fetch(apiUrl(apiBase, appendScopeParams('/api/consumption/products/facets', requestParams)))
       .then((r) => r.json())
       .then((data) => {
         if (!data.ok) throw new Error(data.error || 'Failed loading facets');
@@ -3932,7 +3956,7 @@ function ConsumptionActivityPage({ apiBase }) {
         // Non-fatal; keep empty facets.
         setFacets({ instances: [], projects: [], types: [], owners: [] });
       });
-  }, [apiBase]);
+  }, [apiBase, requestParams]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -3943,7 +3967,12 @@ function ConsumptionActivityPage({ apiBase }) {
 
     setLifecycleError('');
 
-    fetch(apiUrl(apiBase, `/api/consumption/products/lifecycle-summary?${params.toString()}`))
+    fetch(
+      apiUrl(
+        apiBase,
+        appendScopeParams(`/api/consumption/products/lifecycle-summary?${params.toString()}`, requestParams)
+      )
+    )
       .then((r) => r.json())
       .then((data) => {
         if (!data.ok) throw new Error(data.error || 'Failed loading lifecycle summary');
@@ -3953,7 +3982,7 @@ function ConsumptionActivityPage({ apiBase }) {
         setLifecycleSummary({});
         setLifecycleError(e.message);
       });
-  }, [apiBase, windowDays, selectedInstances, selectedProjects, selectedTypes]);
+  }, [apiBase, requestParams, windowDays, selectedInstances, selectedProjects, selectedTypes]);
 
   useEffect(() => {
     if (!selectedCapability) return;
@@ -3964,7 +3993,15 @@ function ConsumptionActivityPage({ apiBase }) {
     setCapabilityLoading(true);
     setCapabilityError('');
 
-    fetch(apiUrl(apiBase, `/api/consumption/process-usage/capability/${encodeURIComponent(selectedCapability)}?${params.toString()}`))
+    fetch(
+      apiUrl(
+        apiBase,
+        appendScopeParams(
+          `/api/consumption/process-usage/capability/${encodeURIComponent(selectedCapability)}?${params.toString()}`,
+          requestParams
+        )
+      )
+    )
       .then((r) => r.json())
       .then((data) => {
         if (!data.ok) throw new Error(data.error || 'Failed loading capability detail');
@@ -3972,7 +4009,7 @@ function ConsumptionActivityPage({ apiBase }) {
       })
       .catch((e) => setCapabilityError(e.message))
       .finally(() => setCapabilityLoading(false));
-  }, [apiBase, selectedCapability, windowDays]);
+  }, [apiBase, requestParams, selectedCapability, windowDays]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -3986,7 +4023,9 @@ function ConsumptionActivityPage({ apiBase }) {
     setLoading(true);
     setError('');
 
-    fetch(apiUrl(apiBase, `/api/consumption/products/summary?${params.toString()}`))
+    fetch(
+      apiUrl(apiBase, appendScopeParams(`/api/consumption/products/summary?${params.toString()}`, requestParams))
+    )
       .then((r) => r.json())
       .then((data) => {
         if (!data.ok) throw new Error(data.error || 'Failed loading consumption activity');
@@ -3997,7 +4036,7 @@ function ConsumptionActivityPage({ apiBase }) {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [apiBase, windowDays, q, owner, selectedInstances, selectedProjects, selectedTypes]);
+  }, [apiBase, requestParams, windowDays, q, owner, selectedInstances, selectedProjects, selectedTypes]);
 
   useEffect(() => {
     if (!detailsOpen || !selectedProductId) {
@@ -4017,7 +4056,9 @@ function ConsumptionActivityPage({ apiBase }) {
     setDetailsError('');
     setDetails(null);
 
-    fetch(apiUrl(apiBase, `/api/consumption/products/details?${params.toString()}`))
+    fetch(
+      apiUrl(apiBase, appendScopeParams(`/api/consumption/products/details?${params.toString()}`, requestParams))
+    )
       .then((r) => r.json())
       .then((data) => {
         if (!data.ok) throw new Error(data.error || 'Failed loading product details');
@@ -4033,7 +4074,7 @@ function ConsumptionActivityPage({ apiBase }) {
     return () => {
       cancelled = true;
     };
-  }, [apiBase, detailsOpen, selectedProductId, windowDays]);
+  }, [apiBase, detailsOpen, requestParams, selectedProductId, windowDays]);
 
   const sortedByType = useMemo(() => {
     const rows = [...(byType || [])];
@@ -5961,7 +6002,7 @@ function MonthlyRateChart({ title, points, yAxisLabel = 'Observed actor rate (%)
   );
 }
 
-function ProductInventoryTab({ apiBase }) {
+function ProductInventoryTab({ apiBase, requestParams = null }) {
   return (
     <>
       <div className="PulseCard">
@@ -5977,6 +6018,7 @@ function ProductInventoryTab({ apiBase }) {
         description="Browse products across instances with filtering and details capabilities"
         endpointBase="/api/build/products"
         facetsEndpoint="/api/build/products/facets"
+        requestParams={requestParams}
         typeFacetLabel="Product type"
         typeColumnLabel="Product type"
         detailsTitle="Product details"
@@ -6912,20 +6954,6 @@ function normalizeHashRouteForRegistry(hash, isAuthenticated = false) {
   return normalized;
 }
 
-function TemporaryPage({ title, description, status = 'This page is under development.' }) {
-  return (
-    <div className="PulseWide">
-      <div className="PulseHero">
-        <h1>{title}</h1>
-        <p>{description}</p>
-      </div>
-      <PulseSection title="Coming Soon">
-        <p>{status}</p>
-      </PulseSection>
-    </div>
-  );
-}
-
 function normalizePageRoute(route) {
   return route == null ? null : String(route).replace(/^#/, '').trim();
 }
@@ -6958,23 +6986,29 @@ export function buildPageRegistry({ homeHref, userActivityEnabled, llmMeshEnable
     },
     {
       key: 'my-assets', workspace: 'me', group: 'My Product Lifecycle', label: 'Assets', route: null, localPage: 'my-assets', permission: 'self', capability: null,
-      status: 'placeholder', component: TemporaryPage, placeholderTitle: 'Assets',
+      status: 'implemented', component: BuildAssetsInventoryPage, componentProps: {
+        title: 'My Assets',
+        description: 'Review assets you own across Dataiku Pulse.',
+        endpointBase: '/api/build/assets',
+        facetsEndpoint: '/api/build/assets/facets',
+        requestParams: { scope: 'self' },
+      },
       description: 'Review the Dataiku assets you have created, owned, or contributed to',
-      placeholderStatus: 'Personal asset insights are coming soon.', isDefault: false,
+      isDefault: false,
       active: ({ workspace, myPage }) => workspace === 'me' && myPage === 'my-assets',
     },
     {
       key: 'my-products', workspace: 'me', group: 'My Product Lifecycle', label: 'Products', route: null, localPage: 'my-products', permission: 'self', capability: null,
-      status: 'placeholder', component: TemporaryPage, placeholderTitle: 'Products',
+      status: 'implemented', component: ProductOutputsPage, componentProps: { requestParams: { scope: 'self' } },
       description: 'Review the products and outputs you have created or helped develop',
-      placeholderStatus: 'Personal product insights are coming soon.', isDefault: false,
+      isDefault: false,
       active: ({ workspace, myPage }) => workspace === 'me' && myPage === 'my-products',
     },
     {
       key: 'my-consumption', workspace: 'me', group: 'My Product Lifecycle', label: 'Consumption', route: null, localPage: 'my-consumption', permission: 'self', capability: null,
-      status: 'placeholder', component: TemporaryPage, placeholderTitle: 'Consumption',
+      status: 'implemented', component: ConsumptionActivityPage, componentProps: { requestParams: { scope: 'self' } },
       description: 'Review how your products and outputs are being consumed by others',
-      placeholderStatus: 'Personal consumption insights are coming soon.', isDefault: false,
+      isDefault: false,
       active: ({ workspace, myPage }) => workspace === 'me' && myPage === 'my-consumption',
     },
     {

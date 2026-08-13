@@ -9,6 +9,7 @@ from flask import Blueprint, request
 
 from pulse_dashboard.webapp_backend.services.users import _parse_csv_list
 from pulse_dashboard.webapp_backend.support import (
+    _current_user_auth_info,
     _df_records,
     _ensure_ready_if_enabled,
     _err,
@@ -233,6 +234,16 @@ def _fetch_description(*, query_df, instance_name: str, project_key: str | None,
     return _extract_description_from_extras(extras if isinstance(extras, str) else None)
 
 
+def _self_scope_requested() -> bool:
+    return (request.args.get("scope") or "").strip().lower() == "self"
+
+
+def _current_authenticated_login() -> str | None:
+    auth_info = _current_user_auth_info() or {}
+    login = str(auth_info.get("authIdentifier") or "").strip()
+    return login or None
+
+
 def register_routes(bp: Blueprint) -> None:
     @bp.route("/api/build/assets")
     def build_assets_list():
@@ -248,6 +259,10 @@ def register_routes(bp: Blueprint) -> None:
             completeness_status = (request.args.get("completenessStatus") or "").strip().lower()
             sort = (request.args.get("sort") or "updated_desc").strip()
             score_sql, status_sql = _metadata_completeness_sql_for_asset_inventory()
+            scoped_login = _current_authenticated_login() if _self_scope_requested() else None
+
+            if _self_scope_requested() and not scoped_login:
+                return _err("Unable to resolve authenticated user", status=403)
 
             limit = int(request.args.get("limit") or 25)
             offset = int(request.args.get("offset") or 0)
@@ -277,6 +292,10 @@ def register_routes(bp: Blueprint) -> None:
             if owner:
                 where.append("lower(t.owner_login) LIKE ?")
                 params.append(f"%{owner.lower()}%")
+
+            if scoped_login:
+                where.append("lower(COALESCE(t.owner_login, '')) = ?")
+                params.append(scoped_login.lower())
 
             if completeness_status:
                 if completeness_status not in {"complete", "partial", "sparse"}:
@@ -359,6 +378,16 @@ def register_routes(bp: Blueprint) -> None:
         try:
             query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
             _ensure_ready_if_enabled()
+            scoped_login = _current_authenticated_login() if _self_scope_requested() else None
+
+            if _self_scope_requested() and not scoped_login:
+                return _err("Unable to resolve authenticated user", status=403)
+
+            where_sql = ""
+            params: list[object] = []
+            if scoped_login:
+                where_sql = "\nWHERE lower(COALESCE(owner_login, '')) = ?"
+                params.append(scoped_login.lower())
 
             rows_df = query_df(
                 (
@@ -370,8 +399,9 @@ def register_routes(bp: Blueprint) -> None:
                     "  owner_login AS ownerLogin,\n"
                     "  created_at AS createdAt,\n"
                     "  updated_at AS updatedAt\n"
-                    "FROM base_asset_index;"
-                )
+                    f"FROM base_asset_index{where_sql};"
+                ),
+                params,
             )
             source_rows = _df_records(rows_df)
             rows: list[dict[str, Any]] = []
@@ -446,16 +476,27 @@ def register_routes(bp: Blueprint) -> None:
         try:
             query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
             _ensure_ready_if_enabled()
+            scoped_login = _current_authenticated_login() if _self_scope_requested() else None
+
+            if _self_scope_requested() and not scoped_login:
+                return _err("Unable to resolve authenticated user", status=403)
+
+            where_sql = ""
+            params: list[object] = []
+            if scoped_login:
+                where_sql = "\n                WHERE lower(COALESCE(owner_login, '')) = ?"
+                params.append(scoped_login.lower())
 
             df = query_df(
-                """
+                f"""
                 SELECT
                   array_agg(DISTINCT instance_name ORDER BY instance_name) AS instances,
                   array_agg(DISTINCT project_key ORDER BY project_key) AS projects,
                   array_agg(DISTINCT object_type ORDER BY object_type) AS types,
                   array_agg(DISTINCT owner_login ORDER BY owner_login) AS owners
-                FROM base_asset_index;
-                """
+                FROM base_asset_index{where_sql};
+                """,
+                params,
             )
             row = df.iloc[0].to_dict() if len(df.index) else {}
             row = {key: _to_jsonable(value) for key, value in row.items()}
@@ -469,6 +510,10 @@ def register_routes(bp: Blueprint) -> None:
         try:
             query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
             _ensure_ready_if_enabled()
+            scoped_login = _current_authenticated_login() if _self_scope_requested() else None
+
+            if _self_scope_requested() and not scoped_login:
+                return _err("Unable to resolve authenticated user", status=403)
 
             asset_id = (request.args.get("assetId") or "").strip()
             if not _is_md5(asset_id):
@@ -485,11 +530,15 @@ def register_routes(bp: Blueprint) -> None:
                     "  owner_login AS ownerLogin,",
                     "  updated_at AS updatedAt",
                     "FROM base_asset_index",
-                    "WHERE " + _asset_id_expr_for_build_assets() + " = ?",
+                    "WHERE " + _asset_id_expr_for_build_assets() + " = ?"
+                    + (" AND lower(COALESCE(owner_login, '')) = ?" if scoped_login else ""),
                     "LIMIT 1;",
                 ]
             )
-            df = query_df(asset_lookup_sql, [asset_id])
+            params: list[object] = [asset_id]
+            if scoped_login:
+                params.append(scoped_login.lower())
+            df = query_df(asset_lookup_sql, params)
 
             if not len(df.index):
                 return _err("Asset not found", status=404)

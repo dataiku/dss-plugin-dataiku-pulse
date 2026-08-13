@@ -14,6 +14,7 @@ from pulse_dashboard.webapp_backend.services.users import (
     _parse_int_arg,
 )
 from pulse_dashboard.webapp_backend.support import (
+    _current_user_auth_info,
     _df_records,
     _ensure_ready_if_enabled,
     _err,
@@ -188,29 +189,49 @@ def _fetch_description(*, query_df, instance_name: str, project_key: str | None,
 
 
 def _product_facets_payload() -> dict[str, list[str]]:
+    return _product_facets_payload_for_owner(owner_login=None)
+
+
+def _self_scope_requested() -> bool:
+    return (request.args.get("scope") or "").strip().lower() == "self"
+
+
+def _current_authenticated_login() -> str | None:
+    auth_info = _current_user_auth_info() or {}
+    login = str(auth_info.get("authIdentifier") or "").strip()
+    return login or None
+
+
+def _product_facets_payload_for_owner(*, owner_login: str | None) -> dict[str, list[str]]:
     _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
     _ensure_ready_if_enabled()
 
+    where_sql = ""
+    params: list[Any] = []
+    if owner_login:
+        where_sql = " WHERE lower(COALESCE(owner_login, '')) = ?"
+        params.append(owner_login.lower())
+
     instances = (
-        _query_df("SELECT DISTINCT instance_name FROM final_build_products_catalog ORDER BY 1;")["instance_name"]
+        _query_df(f"SELECT DISTINCT instance_name FROM final_build_products_catalog{where_sql} ORDER BY 1;", params)["instance_name"]
         .dropna()
         .astype(str)
         .tolist()
     )
     projects = (
-        _query_df("SELECT DISTINCT project_key FROM final_build_products_catalog ORDER BY 1;")["project_key"]
+        _query_df(f"SELECT DISTINCT project_key FROM final_build_products_catalog{where_sql} ORDER BY 1;", params)["project_key"]
         .dropna()
         .astype(str)
         .tolist()
     )
     types = (
-        _query_df("SELECT DISTINCT product_type FROM final_build_products_catalog ORDER BY 1;")["product_type"]
+        _query_df(f"SELECT DISTINCT product_type FROM final_build_products_catalog{where_sql} ORDER BY 1;", params)["product_type"]
         .dropna()
         .astype(str)
         .tolist()
     )
     owners = (
-        _query_df("SELECT DISTINCT owner_login FROM final_build_products_catalog ORDER BY 1;")["owner_login"]
+        _query_df(f"SELECT DISTINCT owner_login FROM final_build_products_catalog{where_sql} ORDER BY 1;", params)["owner_login"]
         .dropna()
         .astype(str)
         .tolist()
@@ -223,7 +244,10 @@ def register_routes(bp: Blueprint) -> None:
     @bp.route("/api/build/products/facets")
     def build_products_facets():
         try:
-            return _ok(_product_facets_payload())
+            scoped_login = _current_authenticated_login() if _self_scope_requested() else None
+            if _self_scope_requested() and not scoped_login:
+                return _err("Unable to resolve authenticated user", status=403)
+            return _ok(_product_facets_payload_for_owner(owner_login=scoped_login))
         except Exception as exc:
             logger.exception("products facets failed")
             return _err(str(exc), status=500)
@@ -233,6 +257,10 @@ def register_routes(bp: Blueprint) -> None:
         try:
             _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
             _ensure_ready_if_enabled()
+            scoped_login = _current_authenticated_login() if _self_scope_requested() else None
+
+            if _self_scope_requested() and not scoped_login:
+                return _err("Unable to resolve authenticated user", status=403)
 
             asset_id = (request.args.get("assetId") or "").strip()
             if not _is_md5(asset_id):
@@ -251,9 +279,10 @@ def register_routes(bp: Blueprint) -> None:
                   activity_30d AS activity30d
                 FROM final_build_products_catalog
                 WHERE product_id = ?
+                  AND (? IS NULL OR lower(COALESCE(owner_login, '')) = ?)
                 LIMIT 1;
                 """.strip(),
-                [asset_id],
+                [asset_id, scoped_login, scoped_login.lower() if scoped_login else None],
             )
 
             if not len(df.index):
@@ -302,6 +331,10 @@ def register_routes(bp: Blueprint) -> None:
         try:
             _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
             _ensure_ready_if_enabled()
+            scoped_login = _current_authenticated_login() if _self_scope_requested() else None
+
+            if _self_scope_requested() and not scoped_login:
+                return _err("Unable to resolve authenticated user", status=403)
 
             q = (request.args.get("q") or "").strip()
             owner = (request.args.get("owner") or "").strip()
@@ -327,6 +360,10 @@ def register_routes(bp: Blueprint) -> None:
             if owner:
                 where.append("owner_login = ?")
                 params.append(owner)
+
+            if scoped_login:
+                where.append("lower(COALESCE(owner_login, '')) = ?")
+                params.append(scoped_login.lower())
 
             if instances:
                 where.append(f"instance_name IN ({','.join(['?'] * len(instances))})")
@@ -393,6 +430,16 @@ def register_routes(bp: Blueprint) -> None:
         try:
             _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
             _ensure_ready_if_enabled()
+            scoped_login = _current_authenticated_login() if _self_scope_requested() else None
+
+            if _self_scope_requested() and not scoped_login:
+                return _err("Unable to resolve authenticated user", status=403)
+
+            where_sql = ""
+            params: list[Any] = []
+            if scoped_login:
+                where_sql = "\nWHERE lower(COALESCE(owner_login, '')) = ?"
+                params.append(scoped_login.lower())
 
             rows_df = _query_df(
                 (
@@ -403,8 +450,9 @@ def register_routes(bp: Blueprint) -> None:
                     "  owner_login AS ownerLogin,\n"
                     "  created_at AS createdAt,\n"
                     "  updated_at AS updatedAt\n"
-                    "FROM final_build_products_catalog;"
-                )
+                    f"FROM final_build_products_catalog{where_sql};"
+                ),
+                params,
             )
             source_rows = _df_records(rows_df)
             rows: list[dict[str, Any]] = []
@@ -482,6 +530,10 @@ def register_routes(bp: Blueprint) -> None:
         try:
             _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
             _ensure_ready_if_enabled()
+            scoped_login = _current_authenticated_login() if _self_scope_requested() else None
+
+            if _self_scope_requested() and not scoped_login:
+                return _err("Unable to resolve authenticated user", status=403)
 
             product_type = (request.args.get("type") or "").strip()
             if not product_type:
@@ -489,10 +541,19 @@ def register_routes(bp: Blueprint) -> None:
 
             days = _parse_days_arg(default=30)
 
-            allowed_df = _query_df("SELECT DISTINCT product_type FROM final_build_products_catalog ORDER BY 1;")
+            allowed_sql = "SELECT DISTINCT product_type FROM final_build_products_catalog"
+            allowed_params: list[Any] = []
+            if scoped_login:
+                allowed_sql += " WHERE lower(COALESCE(owner_login, '')) = ?"
+                allowed_params.append(scoped_login.lower())
+            allowed_sql += " ORDER BY 1;"
+            allowed_df = _query_df(allowed_sql, allowed_params)
             allowed = set(str(row.get("product_type") or "") for row in _df_records(allowed_df))
             if product_type not in allowed:
                 return _err("Invalid type", status=400)
+
+            owner_where = " AND lower(COALESCE(owner_login, '')) = ?" if scoped_login else ""
+            owner_params: list[Any] = [scoped_login.lower()] if scoped_login else []
 
             kpis_df = _query_df(
                 (
@@ -502,9 +563,9 @@ def register_routes(bp: Blueprint) -> None:
                     "  SUM(activity_30d) AS events_30d,\n"
                     "  MAX(last_activity_at) AS last_activity_at\n"
                     "FROM final_build_products_catalog\n"
-                    "WHERE product_type = ?;"
+                    f"WHERE product_type = ?{owner_where};"
                 ),
-                [product_type],
+                [product_type, *owner_params],
             )
             kpis_row = _df_records(kpis_df)[0] if len(kpis_df.index) else {}
 
@@ -514,12 +575,12 @@ def register_routes(bp: Blueprint) -> None:
                     "  owner_login AS label,\n"
                     "  COUNT(*) AS value\n"
                     "FROM final_build_products_catalog\n"
-                    "WHERE product_type = ?\n"
+                    f"WHERE product_type = ?{owner_where}\n"
                     "GROUP BY 1\n"
                     "ORDER BY value DESC\n"
                     "LIMIT 12;"
                 ),
-                [product_type],
+                [product_type, *owner_params],
             )
 
             top_products_df = _query_df(
@@ -529,11 +590,11 @@ def register_routes(bp: Blueprint) -> None:
                     "  product_name AS label,\n"
                     "  activity_30d AS value\n"
                     "FROM final_build_products_catalog\n"
-                    "WHERE product_type = ?\n"
+                    f"WHERE product_type = ?{owner_where}\n"
                     "ORDER BY value DESC NULLS LAST, product_name\n"
                     "LIMIT 12;"
                 ),
-                [product_type],
+                [product_type, *owner_params],
             )
 
             event_type = _PRODUCT_TO_EVENT_OBJECT_TYPE.get(product_type, product_type)

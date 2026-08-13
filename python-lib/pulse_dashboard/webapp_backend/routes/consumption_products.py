@@ -9,6 +9,7 @@ from flask import Blueprint, request
 
 from pulse_dashboard.webapp_backend.services.users import _parse_days_arg
 from pulse_dashboard.webapp_backend.support import (
+    _current_user_auth_info,
     _df_records,
     _ensure_ready_if_enabled,
     _err,
@@ -79,6 +80,16 @@ class ConsumptionProductQueryContext:
     matched_where_params: list[Any]
 
 
+def _self_scope_requested() -> bool:
+    return (request.args.get("scope") or "").strip().lower() == "self"
+
+
+def _current_authenticated_login() -> str | None:
+    auth_info = _current_user_auth_info() or {}
+    login = str(auth_info.get("authIdentifier") or "").strip()
+    return login or None
+
+
 def _consumption_product_filters_from_request(*, default_days: int = 30) -> dict[str, Any]:
     days = _parse_days_arg(default=default_days)
     q = (request.args.get("q") or "").strip()
@@ -86,6 +97,7 @@ def _consumption_product_filters_from_request(*, default_days: int = 30) -> dict
     projects = _parse_string_list_param(request.args.get("projects"))
     types = _parse_string_list_param(request.args.get("types"))
     owner = (request.args.get("owner") or "").strip()
+    self_owner_login = _current_authenticated_login() if _self_scope_requested() else None
     allowed_types = set(_supported_consumption_product_types())
     return {
         "days": days,
@@ -94,6 +106,7 @@ def _consumption_product_filters_from_request(*, default_days: int = 30) -> dict
         "projects": projects,
         "types": [value for value in types if value in allowed_types],
         "owner": owner,
+        "self_owner_login": self_owner_login,
     }
 
 
@@ -109,6 +122,7 @@ def _build_consumption_product_query_context(
     projects: list[str],
     types: list[str],
     owner: str,
+    self_owner_login: str | None,
 ) -> ConsumptionProductQueryContext:
     days_val = max(1, min(365, int(days)))
     params: list[Any] = []
@@ -213,6 +227,10 @@ matched_events AS (
         matched_where_clauses.append(" AND c.owner_login = ?")
         matched_where_params.append(owner)
 
+    if self_owner_login:
+        matched_where_clauses.append(" AND lower(COALESCE(c.owner_login, '')) = ?")
+        matched_where_params.append(self_owner_login.lower())
+
     if instances:
         matched_where_clauses.append(" AND e.instance_name IN (" + ", ".join(["?"] * len(instances)) + ")")
         matched_where_params.extend(instances)
@@ -265,11 +283,12 @@ def _query_consumption_product_product_rollups(query_df, context: ConsumptionPro
 WITH {context.matched_events_cte},
 product_stats AS (
   SELECT
-    concat_ws('|', e.instance_name, COALESCE(e.project_key, ''), e.object_type, e.object_key) AS product_id,
+    e.matched_product_id AS product_id,
     COUNT(*) AS events,
     COUNT(DISTINCT e.login) AS active_users
-  FROM eligible_events e
-  WHERE 1=1
+  FROM matched_events e
+  LEFT JOIN catalog c ON c.product_id = e.matched_product_id
+  WHERE 1=1{context.matched_where_sql}
   GROUP BY 1
 ),
 product_rollup AS (
@@ -330,8 +349,9 @@ user_product_stats AS (
     e.login,
     COUNT(*) AS events,
     COUNT(DISTINCT concat_ws('|', e.instance_name, COALESCE(e.project_key, ''), e.object_type, e.object_key)) AS active_products
-  FROM eligible_events e
-  WHERE 1=1
+  FROM matched_events e
+  LEFT JOIN catalog c ON c.product_id = e.matched_product_id
+  WHERE 1=1{context.matched_where_sql}
   GROUP BY 1
 ),
 user_rollup AS (
@@ -520,7 +540,7 @@ def _query_consumption_product_top_products(query_df, context: ConsumptionProduc
 WITH {context.matched_events_cte},
 act AS (
   SELECT
-    md5(concat_ws('|', e.instance_name, COALESCE(e.project_key, ''), e.object_type, e.object_key)) AS product_id,
+    e.matched_product_id AS product_id,
     e.instance_name,
     e.project_key,
     e.object_type,
@@ -528,8 +548,9 @@ act AS (
     COUNT(*) AS events,
     COUNT(DISTINCT e.login) AS active_users,
     MAX(e.timestamp) AS last_activity_at
-  FROM eligible_events e
-  WHERE 1=1
+  FROM matched_events e
+  LEFT JOIN catalog c ON c.product_id = e.matched_product_id
+  WHERE 1=1{context.matched_where_sql}
   GROUP BY 1,2,3,4,5
 ),
 catalog_null_project_unique AS (
@@ -577,7 +598,7 @@ LEFT JOIN catalog_null_project_unique c_null
 ORDER BY act.events DESC NULLS LAST, act.last_activity_at DESC NULLS LAST, act.instance_name, act.project_key, act.object_type, act.object_key
 LIMIT 50;
     """.strip()  # nosec B608
-    df = query_df(sql, context.params)
+    df = query_df(sql, [*context.params, *context.matched_where_params])
     return {"topProducts": _df_records(df)}
 
 
@@ -627,24 +648,47 @@ def register_routes(bp: Blueprint) -> None:
         try:
             query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
             _ensure_ready_if_enabled()
+            scoped_login = _current_authenticated_login() if _self_scope_requested() else None
+
+            if _self_scope_requested() and not scoped_login:
+                return _err("Unable to resolve authenticated user", status=403)
 
             supported_types = _supported_consumption_product_types()
-            facets_df = query_df(
-                """
-                WITH allowed_types AS (
-                  SELECT UNNEST(?::VARCHAR[]) AS object_type
+            if scoped_login:
+                facets_df = query_df(
+                    """
+                    WITH allowed_types AS (
+                      SELECT UNNEST(?::VARCHAR[]) AS object_type
+                    )
+                    SELECT DISTINCT
+                      instance_name,
+                      project_key,
+                      product_type AS object_type
+                    FROM final_build_products_catalog
+                    WHERE product_type IN (SELECT object_type FROM allowed_types)
+                      AND product_key IS NOT NULL
+                      AND length(trim(CAST(product_key AS VARCHAR))) > 0
+                      AND lower(COALESCE(owner_login, '')) = ?;
+                    """.strip(),
+                    [supported_types, scoped_login.lower()],
                 )
-                SELECT
-                  instance_name,
-                  project_key,
-                  object_type
-                FROM v_object_activity_events
-                WHERE object_type IN (SELECT object_type FROM allowed_types)
-                  AND object_key IS NOT NULL
-                  AND length(trim(CAST(object_key AS VARCHAR))) > 0;
-                """.strip(),
-                [supported_types],
-            )
+            else:
+                facets_df = query_df(
+                    """
+                    WITH allowed_types AS (
+                      SELECT UNNEST(?::VARCHAR[]) AS object_type
+                    )
+                    SELECT
+                      instance_name,
+                      project_key,
+                      object_type
+                    FROM v_object_activity_events
+                    WHERE object_type IN (SELECT object_type FROM allowed_types)
+                      AND object_key IS NOT NULL
+                      AND length(trim(CAST(object_key AS VARCHAR))) > 0;
+                    """.strip(),
+                    [supported_types],
+                )
 
             instances = (
                 facets_df["instance_name"]
@@ -671,7 +715,12 @@ def register_routes(bp: Blueprint) -> None:
                 .tolist()
             )
             owners = (
-                query_df("SELECT DISTINCT owner_login FROM final_build_products_catalog ORDER BY 1;")["owner_login"]
+                query_df(
+                    "SELECT DISTINCT owner_login FROM final_build_products_catalog"
+                    + (" WHERE lower(COALESCE(owner_login, '')) = ?" if scoped_login else "")
+                    + " ORDER BY 1;",
+                    [scoped_login.lower()] if scoped_login else [],
+                )["owner_login"]
                 .dropna()
                 .astype(str)
                 .tolist()
@@ -687,6 +736,10 @@ def register_routes(bp: Blueprint) -> None:
         try:
             query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
             _ensure_ready_if_enabled()
+            scoped_login = _current_authenticated_login() if _self_scope_requested() else None
+
+            if _self_scope_requested() and not scoped_login:
+                return _err("Unable to resolve authenticated user", status=403)
 
             product_id = (request.args.get("productId") or "").strip()
             if not _is_md5(product_id):
@@ -708,9 +761,10 @@ def register_routes(bp: Blueprint) -> None:
                   updated_at AS updatedAt
                 FROM final_build_products_catalog
                 WHERE product_id = ?
+                  AND (? IS NULL OR lower(COALESCE(owner_login, '')) = ?)
                 LIMIT 1;
                 """.strip(),
-                [product_id],
+                [product_id, scoped_login, scoped_login.lower() if scoped_login else None],
             )
             if not len(row_df.index):
                 return _err("Product not found", status=404)
@@ -840,6 +894,8 @@ LIMIT 25;
             query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
             _ensure_ready_if_enabled()
             filters = _parse_consumption_product_summary_filters()
+            if _self_scope_requested() and not filters.get("self_owner_login"):
+                return _err("Unable to resolve authenticated user", status=403)
             context = _build_consumption_product_query_context(**filters)
             totals = _query_consumption_product_totals(query_df, context)
             product_rollups = _query_consumption_product_product_rollups(query_df, context)
@@ -869,11 +925,16 @@ LIMIT 25;
             query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
             _ensure_ready_if_enabled()
             filters = _consumption_product_filters_from_request(default_days=365)
+            if _self_scope_requested() and not filters.get("self_owner_login"):
+                return _err("Unable to resolve authenticated user", status=403)
             context = _build_consumption_product_query_context(**filters)
+            lifecycle_owner_where_sql = ""
+            if filters.get("self_owner_login"):
+                lifecycle_owner_where_sql = "\n      AND lower(COALESCE(p.owner_login, '')) = ?"
 
             sql = _consumption_product_summary_sql(
                 context,
-                """
+                f"""
 SELECT
   COUNT(*) AS products_with_created_at,
   COUNT(*) FILTER (WHERE first_consumption_at IS NOT NULL) AS products_with_first_consumption,
@@ -947,6 +1008,9 @@ FROM (
      AND u.product_key = m.product_key
      AND u.event_day = m.event_day
     WHERE m.product_type IN (SELECT DISTINCT product_type FROM catalog)
+      AND (
+        p.product_id IS NOT NULL
+      ){lifecycle_owner_where_sql}
     GROUP BY 1, 2
   )
   SELECT
