@@ -433,8 +433,14 @@ ORDER BY 1;
 
 
 def _query_consumption_product_by_type(query_df, context: ConsumptionProductQueryContext) -> dict[str, Any]:
+    supported_types_sql = ", ".join(
+        "('" + product_type.replace("'", "''") + "')" for product_type in _supported_consumption_product_types()
+    )
     sql = f"""
 WITH {context.matched_events_cte},
+supported_types(label) AS (
+  VALUES {supported_types_sql}
+),
 product_rollup AS (
   SELECT
     e.object_type AS label,
@@ -490,19 +496,20 @@ type_maturity AS (
   GROUP BY 1
 )
 SELECT
-  tr.label,
+  st.label,
   COALESCE(ter.events, 0) AS events,
   COALESCE(ter.active_users, 0) AS active_users,
-  tr.active_products,
-  tr.avg_users_per_product,
-  tr.max_users_on_product,
+  COALESCE(tr.active_products, 0) AS active_products,
+  COALESCE(tr.avg_users_per_product, 0) AS avg_users_per_product,
+  COALESCE(tr.max_users_on_product, 0) AS max_users_on_product,
   COALESCE(tm.avg_maturity_score, 0) AS avg_maturity_score,
   COALESCE(tm.max_maturity_score, 0) AS max_maturity_score,
-  tr.adoption_count
-FROM type_rollup tr
-LEFT JOIN type_event_rollup ter ON ter.label = tr.label
-LEFT JOIN type_maturity tm ON tm.label = tr.label
-ORDER BY tr.events DESC;
+  COALESCE(tr.adoption_count, 0) AS adoption_count
+FROM supported_types st
+LEFT JOIN type_rollup tr ON tr.label = st.label
+LEFT JOIN type_event_rollup ter ON ter.label = st.label
+LEFT JOIN type_maturity tm ON tm.label = st.label
+ORDER BY COALESCE(tr.events, 0) DESC, st.label;
     """.strip()  # nosec B608
     df = query_df(sql, [*context.params, *context.matched_where_params, *context.matched_where_params, *context.matched_where_params])
     return {"byType": _df_records(df)}
