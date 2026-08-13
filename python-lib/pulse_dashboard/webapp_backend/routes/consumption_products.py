@@ -90,6 +90,15 @@ def _current_authenticated_login() -> str | None:
     return login or None
 
 
+def _resolve_effective_self_owner_login() -> str | None:
+    if not _self_scope_requested():
+        return None
+    owner = (request.args.get("owner") or "").strip()
+    if owner:
+        return owner.lower()
+    return _current_authenticated_login()
+
+
 def _consumption_product_filters_from_request(*, default_days: int = 30) -> dict[str, Any]:
     days = _parse_days_arg(default=default_days)
     q = (request.args.get("q") or "").strip()
@@ -97,7 +106,7 @@ def _consumption_product_filters_from_request(*, default_days: int = 30) -> dict
     projects = _parse_string_list_param(request.args.get("projects"))
     types = _parse_string_list_param(request.args.get("types"))
     owner = (request.args.get("owner") or "").strip()
-    self_owner_login = _current_authenticated_login() if _self_scope_requested() else None
+    self_owner_login = _resolve_effective_self_owner_login()
     allowed_types = set(_supported_consumption_product_types())
     return {
         "days": days,
@@ -648,7 +657,7 @@ def register_routes(bp: Blueprint) -> None:
         try:
             query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
             _ensure_ready_if_enabled()
-            scoped_login = _current_authenticated_login() if _self_scope_requested() else None
+            scoped_login = _resolve_effective_self_owner_login()
 
             if _self_scope_requested() and not scoped_login:
                 return _err("Unable to resolve authenticated user", status=403)
@@ -736,7 +745,7 @@ def register_routes(bp: Blueprint) -> None:
         try:
             query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
             _ensure_ready_if_enabled()
-            scoped_login = _current_authenticated_login() if _self_scope_requested() else None
+            scoped_login = _resolve_effective_self_owner_login()
 
             if _self_scope_requested() and not scoped_login:
                 return _err("Unable to resolve authenticated user", status=403)
@@ -929,8 +938,10 @@ LIMIT 25;
                 return _err("Unable to resolve authenticated user", status=403)
             context = _build_consumption_product_query_context(**filters)
             lifecycle_owner_where_sql = ""
+            lifecycle_owner_params: list[Any] = []
             if filters.get("self_owner_login"):
                 lifecycle_owner_where_sql = "\n      AND lower(COALESCE(p.owner_login, '')) = ?"
+                lifecycle_owner_params.append(str(filters["self_owner_login"]).lower())
 
             sql = _consumption_product_summary_sql(
                 context,
@@ -1022,7 +1033,7 @@ FROM (
 ) durations;
                 """,
             )
-            df = query_df(sql, [*context.params, *context.matched_where_params])
+            df = query_df(sql, [*context.params, *lifecycle_owner_params])
             row = _df_records(df)[0] if len(df.index) else {}
             return _ok(
                 {

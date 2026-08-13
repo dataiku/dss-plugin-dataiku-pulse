@@ -41,6 +41,22 @@ function appendScopeParams(path, extraParams) {
   return hashPart == null ? scopedPath : `${scopedPath}#${hashPart}`;
 }
 
+function resolveSelfScopedRequestParams(requestParams, authState) {
+  if (!requestParams || requestParams.scope !== 'self') return requestParams;
+  const login = authState?.data?.user?.login || '';
+  if (!login) return requestParams;
+  const nextParams = { ...requestParams, owner: login };
+  delete nextParams.scope;
+  return nextParams;
+}
+
+function enrichSelfScopedRequestParams(requestParams, authState) {
+  if (!requestParams || requestParams.scope !== 'self') return requestParams;
+  const login = authState?.data?.user?.login || '';
+  if (!login) return requestParams;
+  return { ...requestParams, owner: login };
+}
+
 function PulseSection({ title, children }) {
   return (
     <div className="PulseCard">
@@ -598,6 +614,7 @@ function UserDashboard({
 
 function BuildAssetsInventoryPage({
   apiBase = '',
+  authState = null,
   embedded = false,
   title = 'Assets Inventory',
   description =
@@ -610,6 +627,10 @@ function BuildAssetsInventoryPage({
   typeDetailLabel = 'Type',
   requestParams = null,
 } = {}) {
+  const effectiveRequestParams = useMemo(
+    () => enrichSelfScopedRequestParams(requestParams, authState),
+    [authState, requestParams]
+  );
   const [allAssets, setAllAssets] = useState([]);
   const [total, setTotal] = useState(0);
   const [facets, setFacets] = useState({ instances: [], projects: [], types: [], owners: [] });
@@ -661,7 +682,7 @@ function BuildAssetsInventoryPage({
   useEffect(() => {
     let cancelled = false;
 
-    fetch(apiUrl(apiBase, appendScopeParams(metadataSummaryEndpoint, requestParams)))
+    fetch(apiUrl(apiBase, appendScopeParams(metadataSummaryEndpoint, effectiveRequestParams)))
       .then((r) => r.json())
       .then((data) => {
         if (!data.ok) throw new Error(data.error || 'Failed loading metadata summary');
@@ -679,7 +700,7 @@ function BuildAssetsInventoryPage({
     return () => {
       cancelled = true;
     };
-  }, [apiBase, metadataSummaryEndpoint, requestParams]);
+  }, [apiBase, effectiveRequestParams, metadataSummaryEndpoint]);
 
   useEffect(() => {
     if (!detailsOpen || !selectedAssetId) {
@@ -700,7 +721,7 @@ function BuildAssetsInventoryPage({
         const res = await fetch(
           apiUrl(
             apiBase,
-            appendScopeParams(`${detailsEndpoint}?assetId=${encodeURIComponent(selectedAssetId)}`, requestParams)
+            appendScopeParams(`${detailsEndpoint}?assetId=${encodeURIComponent(selectedAssetId)}`, effectiveRequestParams)
           )
         );
         const raw = await res.text();
@@ -725,7 +746,7 @@ function BuildAssetsInventoryPage({
     return () => {
       cancelled = true;
     };
-  }, [apiBase, detailsEndpoint, detailsOpen, requestParams, selectedAssetId]);
+  }, [apiBase, detailsEndpoint, detailsOpen, effectiveRequestParams, selectedAssetId]);
 
   const applyQuickFilter = ({ instanceName, projectKey, objectType, ownerLogin }) => {
     // “Reset to tag”: clear all filters then apply the requested one(s)
@@ -752,7 +773,7 @@ function BuildAssetsInventoryPage({
   // Load facets once (for filter rail)
   useEffect(() => {
     setError('');
-    fetch(apiUrl(apiBase, appendScopeParams(facetsEndpoint, requestParams)))
+    fetch(apiUrl(apiBase, appendScopeParams(facetsEndpoint, effectiveRequestParams)))
       .then((r) => r.json())
       .then((data) => {
         if (!data.ok) throw new Error(data.error || 'Failed loading facets');
@@ -764,7 +785,7 @@ function BuildAssetsInventoryPage({
         });
       })
       .catch((e) => setError(e.message));
-  }, [apiBase, facetsEndpoint, requestParams]);
+  }, [apiBase, effectiveRequestParams, facetsEndpoint]);
 
   // Load paginated rows from DuckDB
   useEffect(() => {
@@ -782,7 +803,7 @@ function BuildAssetsInventoryPage({
     setLoading(true);
     setError('');
 
-    fetch(apiUrl(apiBase, appendScopeParams(`${endpointBase}?${params.toString()}`, requestParams)))
+    fetch(apiUrl(apiBase, appendScopeParams(`${endpointBase}?${params.toString()}`, effectiveRequestParams)))
       .then((r) => r.json())
       .then((data) => {
         if (!data.ok) throw new Error(data.error || 'Failed loading rows');
@@ -794,7 +815,7 @@ function BuildAssetsInventoryPage({
   }, [
     apiBase,
     endpointBase,
-    requestParams,
+    effectiveRequestParams,
     q,
     owner,
     selectedInstances,
@@ -3261,7 +3282,11 @@ function labelForProductType(type) {
 
 
 
-function ProductOutputsPage({ apiBase, requestParams = null }) {
+function ProductOutputsPage({ apiBase, authState, requestParams = null }) {
+  const effectiveRequestParams = useMemo(
+    () => resolveSelfScopedRequestParams(requestParams, authState),
+    [authState, requestParams]
+  );
   const [activeTab, setActiveTab] = useState('overview');
   const [typeSubTab, setTypeSubTab] = useState('overview');
 
@@ -3294,7 +3319,7 @@ function ProductOutputsPage({ apiBase, requestParams = null }) {
           params.set('offset', String(offset));
 
           const response = await fetch(
-            apiUrl(apiBase, appendScopeParams(`/api/build/products?${params.toString()}`, requestParams))
+            apiUrl(apiBase, appendScopeParams(`/api/build/products?${params.toString()}`, effectiveRequestParams))
           );
           const data = await response.json();
           if (!data.ok) throw new Error(data.error || 'Failed loading products');
@@ -3333,7 +3358,7 @@ function ProductOutputsPage({ apiBase, requestParams = null }) {
     return () => {
       cancelled = true;
     };
-  }, [apiBase, requestParams]);
+  }, [apiBase, effectiveRequestParams]);
 
   // Reset sub-tab when switching product types.
   useEffect(() => {
@@ -3358,7 +3383,7 @@ function ProductOutputsPage({ apiBase, requestParams = null }) {
     setTypeMetricsError('');
 
     fetch(
-      apiUrl(apiBase, appendScopeParams(`/api/build/products/type-metrics?${params.toString()}`, requestParams))
+      apiUrl(apiBase, appendScopeParams(`/api/build/products/type-metrics?${params.toString()}`, effectiveRequestParams))
     )
       .then((r) => r.json())
       .then((data) => {
@@ -3375,7 +3400,7 @@ function ProductOutputsPage({ apiBase, requestParams = null }) {
     return () => {
       cancelled = true;
     };
-  }, [apiBase, requestParams, selectedType]);
+  }, [apiBase, effectiveRequestParams, selectedType]);
 
   const summary = useMemo(() => {
     const byType = new Map();
@@ -3561,7 +3586,7 @@ function ProductOutputsPage({ apiBase, requestParams = null }) {
       </div>
 
       {isInventory ? (
-        <ProductInventoryTab apiBase={apiBase} requestParams={requestParams} />
+        <ProductInventoryTab apiBase={apiBase} authState={authState} requestParams={requestParams} />
       ) : (
         <>
           {loading ? <div className="PulseCard"><div className="PulseMuted">Loading…</div></div> : null}
@@ -3885,7 +3910,11 @@ function ProductOutputsPage({ apiBase, requestParams = null }) {
 
 
 
-function ConsumptionActivityPage({ apiBase, requestParams = null }) {
+function ConsumptionActivityPage({ apiBase, authState, requestParams = null }) {
+  const effectiveRequestParams = useMemo(
+    () => enrichSelfScopedRequestParams(requestParams, authState),
+    [authState, requestParams]
+  );
   const [windowDays, setWindowDays] = useState(30);
   const [facets, setFacets] = useState({ instances: [], projects: [], types: [], owners: [] });
 
@@ -3941,7 +3970,7 @@ function ConsumptionActivityPage({ apiBase, requestParams = null }) {
   }, [lifecycleSummary]);
 
   useEffect(() => {
-    fetch(apiUrl(apiBase, appendScopeParams('/api/consumption/products/facets', requestParams)))
+    fetch(apiUrl(apiBase, appendScopeParams('/api/consumption/products/facets', effectiveRequestParams)))
       .then((r) => r.json())
       .then((data) => {
         if (!data.ok) throw new Error(data.error || 'Failed loading facets');
@@ -3956,7 +3985,7 @@ function ConsumptionActivityPage({ apiBase, requestParams = null }) {
         // Non-fatal; keep empty facets.
         setFacets({ instances: [], projects: [], types: [], owners: [] });
       });
-  }, [apiBase, requestParams]);
+  }, [apiBase, effectiveRequestParams]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -3970,7 +3999,7 @@ function ConsumptionActivityPage({ apiBase, requestParams = null }) {
     fetch(
       apiUrl(
         apiBase,
-        appendScopeParams(`/api/consumption/products/lifecycle-summary?${params.toString()}`, requestParams)
+        appendScopeParams(`/api/consumption/products/lifecycle-summary?${params.toString()}`, effectiveRequestParams)
       )
     )
       .then((r) => r.json())
@@ -3982,7 +4011,7 @@ function ConsumptionActivityPage({ apiBase, requestParams = null }) {
         setLifecycleSummary({});
         setLifecycleError(e.message);
       });
-  }, [apiBase, requestParams, windowDays, selectedInstances, selectedProjects, selectedTypes]);
+  }, [apiBase, effectiveRequestParams, windowDays, selectedInstances, selectedProjects, selectedTypes]);
 
   useEffect(() => {
     if (!selectedCapability) return;
@@ -3998,7 +4027,7 @@ function ConsumptionActivityPage({ apiBase, requestParams = null }) {
         apiBase,
         appendScopeParams(
           `/api/consumption/process-usage/capability/${encodeURIComponent(selectedCapability)}?${params.toString()}`,
-          requestParams
+          effectiveRequestParams
         )
       )
     )
@@ -4009,7 +4038,7 @@ function ConsumptionActivityPage({ apiBase, requestParams = null }) {
       })
       .catch((e) => setCapabilityError(e.message))
       .finally(() => setCapabilityLoading(false));
-  }, [apiBase, requestParams, selectedCapability, windowDays]);
+  }, [apiBase, effectiveRequestParams, selectedCapability, windowDays]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -4024,7 +4053,7 @@ function ConsumptionActivityPage({ apiBase, requestParams = null }) {
     setError('');
 
     fetch(
-      apiUrl(apiBase, appendScopeParams(`/api/consumption/products/summary?${params.toString()}`, requestParams))
+      apiUrl(apiBase, appendScopeParams(`/api/consumption/products/summary?${params.toString()}`, effectiveRequestParams))
     )
       .then((r) => r.json())
       .then((data) => {
@@ -4036,7 +4065,7 @@ function ConsumptionActivityPage({ apiBase, requestParams = null }) {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [apiBase, requestParams, windowDays, q, owner, selectedInstances, selectedProjects, selectedTypes]);
+  }, [apiBase, effectiveRequestParams, windowDays, q, owner, selectedInstances, selectedProjects, selectedTypes]);
 
   useEffect(() => {
     if (!detailsOpen || !selectedProductId) {
@@ -4057,7 +4086,7 @@ function ConsumptionActivityPage({ apiBase, requestParams = null }) {
     setDetails(null);
 
     fetch(
-      apiUrl(apiBase, appendScopeParams(`/api/consumption/products/details?${params.toString()}`, requestParams))
+      apiUrl(apiBase, appendScopeParams(`/api/consumption/products/details?${params.toString()}`, effectiveRequestParams))
     )
       .then((r) => r.json())
       .then((data) => {
@@ -4074,7 +4103,7 @@ function ConsumptionActivityPage({ apiBase, requestParams = null }) {
     return () => {
       cancelled = true;
     };
-  }, [apiBase, detailsOpen, requestParams, selectedProductId, windowDays]);
+  }, [apiBase, detailsOpen, effectiveRequestParams, selectedProductId, windowDays]);
 
   const sortedByType = useMemo(() => {
     const rows = [...(byType || [])];
@@ -6002,7 +6031,12 @@ function MonthlyRateChart({ title, points, yAxisLabel = 'Observed actor rate (%)
   );
 }
 
-function ProductInventoryTab({ apiBase, requestParams = null }) {
+function ProductInventoryTab({ apiBase, authState, requestParams = null }) {
+  const effectiveRequestParams = useMemo(
+    () => resolveSelfScopedRequestParams(requestParams, authState),
+    [authState, requestParams]
+  );
+
   return (
     <>
       <div className="PulseCard">
@@ -6018,7 +6052,7 @@ function ProductInventoryTab({ apiBase, requestParams = null }) {
         description="Browse products across instances with filtering and details capabilities"
         endpointBase="/api/build/products"
         facetsEndpoint="/api/build/products/facets"
-        requestParams={requestParams}
+        requestParams={effectiveRequestParams}
         typeFacetLabel="Product type"
         typeColumnLabel="Product type"
         detailsTitle="Product details"
