@@ -202,6 +202,18 @@ def build_dim_dev_activity_event_classification(
     return "dim_dev_activity_event_classification"
 
 
+def _event_mapping_extras_expr(conn: duckdb.DuckDBPyConnection, view_name: str) -> str:
+    """Return the extras column expression for current and legacy SILVER schemas."""
+
+    columns = {
+        str(row[0]).lower()
+        for row in conn.execute(f"DESCRIBE {view_name}").fetchall()  # nosec B608 (view name is recipe-generated)
+    }
+    if "extras" in columns:
+        return "CAST(extras AS VARCHAR)"
+    return "CAST(NULL AS VARCHAR)"
+
+
 def build_fact_dev_activity_events(
     conn: duckdb.DuckDBPyConnection,
     *,
@@ -257,6 +269,7 @@ def build_fact_dev_activity_events(
                     continue
 
                 inserted_any = True
+                extras_expr = _event_mapping_extras_expr(module_setup.conn, view_name)
                 insert_sql = f"""
                     INSERT INTO fact_dev_activity_events
                     SELECT
@@ -268,7 +281,7 @@ def build_fact_dev_activity_events(
                       dataiku_category,
                       project_key,
                       callpath,
-                      extras,
+                      {extras_expr} AS extras,
                       try_cast(run_ts AS TIMESTAMP) AS run_timestamp,
                       CAST(year AS INTEGER) AS year,
                       CAST(month AS INTEGER) AS month,
