@@ -34,3 +34,16 @@ base_retrieval_augmented_llms_metadata:
       details_json
     FROM ranked
     WHERE rn = 1;
+  empty_sql: |
+    CREATE OR REPLACE TABLE "base_retrieval_augmented_llms_metadata" AS
+    SELECT
+      CAST(NULL AS VARCHAR) AS instance_name,
+      CAST(NULL AS VARCHAR) AS project_key,
+      CAST(NULL AS VARCHAR) AS retrieval_augmented_llms_id,
+      CAST(NULL AS VARCHAR) AS retrieval_augmented_llms_activeversion,
+      CAST(NULL AS VARCHAR) AS owner_login,
+      CAST(NULL AS VARCHAR) AS last_modified_by_login,
+      CAST(NULL AS TIMESTAMP) AS created_at,
+      CAST(NULL AS TIMESTAMP) AS updated_at,
+      CAST(NULL AS VARCHAR) AS details_json
+    WHERE 1 = 0;

@@ -22,6 +22,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 
+import duckdb
 import yaml
 from shared_duckdb.sql_utils import quote_identifier
 
@@ -92,7 +93,7 @@ def _set_status_callback(phase: str, message: str) -> None:
             logger.debug("DuckDB init status callback failed", exc_info=True)
 
 
-def _load_base_spec_sql(table_name: str) -> str:
+def _load_base_spec(table_name: str) -> dict[str, object]:
     path = _BASE_SPECS_DIR / f"{table_name}.yaml"
     doc = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(doc, dict) or len(doc) != 1:
@@ -100,10 +101,21 @@ def _load_base_spec_sql(table_name: str) -> str:
     name, payload = next(iter(doc.items()))
     if name != table_name:
         raise ValueError(f"Base spec name mismatch in {path}: expected {table_name}, got {name}")
+    if not isinstance(payload, dict):
+        raise ValueError(f"Invalid base spec payload (expected mapping): {path}")
+    return payload
+
+
+def _load_base_spec_sql(table_name: str) -> str:
+    payload = _load_base_spec(table_name)
     sql = str(payload.get("sql", "") or "").strip()
     if not sql:
-        raise ValueError(f"Missing `sql` in base spec: {path}")
+        raise ValueError(f"Missing `sql` in base spec: {table_name}")
     return sql
+
+
+def _load_base_spec_empty_sql(table_name: str) -> str | None:
+    return str(_load_base_spec(table_name).get("empty_sql", "") or "").strip() or None
 
 
 def _ensure_table_exists(conn, *, table_name: str) -> bool:
@@ -136,7 +148,17 @@ def _ensure_table_exists(conn, *, table_name: str) -> bool:
             pass
 
     sql = _load_base_spec_sql(table_name)
-    conn.execute(sql)
+    try:
+        conn.execute(sql)
+    except duckdb.CatalogException as exc:
+        empty_sql = _load_base_spec_empty_sql(table_name)
+        if not empty_sql or "Table with name" not in str(exc) or "does not exist" not in str(exc):
+            raise
+        logger.info(
+            "DuckDB init: source table missing for %s; creating empty inventory table",
+            table_name,
+        )
+        conn.execute(empty_sql)
     return True
 
 
