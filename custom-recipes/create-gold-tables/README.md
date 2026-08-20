@@ -49,12 +49,6 @@ Notes:
 - `lookback_days`
   - default: `3`
   - reprocesses a recent safety window on each incremental run to catch late-arriving data
-- `build_dev_activity`
-  - default: `true`
-  - controls whether `fact_dev_activity_events` is built and exported
-- `build_object_activity`
-  - default: `true`
-  - controls whether `fact_object_activity_events` is built and exported
 
 ## Local/debug runs
 
@@ -103,7 +97,11 @@ Use the recipe parameters in `custom-recipes/create-gold-tables/recipe.json` to 
 
 - whether incremental manifest-backed execution is enabled
 - how many lookback days are rescanned
-- whether the heavy dev/object activity fact exports are included
+
+The recipe always builds and exports these required activity facts:
+
+- `fact_dev_activity_events`
+- `fact_object_activity_events`
 
 ### Important notes
 

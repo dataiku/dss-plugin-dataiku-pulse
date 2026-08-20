@@ -20,6 +20,7 @@ FACT_TIME_COLUMNS: dict[str, str] = {
     "fact_user_activity_daily": "day",
     "fact_user_activity_project_daily": "day",
     "fact_formal_mau_daily": "day",
+    "fact_license_utilization_daily": "snapshot_date",
     "fact_dev_activity_events": "timestamp",
     "fact_object_activity_events": "timestamp",
 }

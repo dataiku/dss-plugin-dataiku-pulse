@@ -30,6 +30,7 @@ from data_collection.pulse_duckdb.table_groups import group_gold_tables_by_prefi
 from shared_duckdb.pathing import resolve_unique_db_path
 from data_collection.pulse_duckdb.table_inventory import list_table_names
 from data_collection.pulse_duckdb.user_activity import build_fact_formal_mau_daily, build_fact_user_activity_daily, build_fact_user_activity_project_daily, collect_user_activity_quality_report
+from data_collection.pulse_duckdb.license_utilization import build_fact_license_utilization_daily, collect_license_utilization_quality_report
 from data_collection.pulse_duckdb.views import create_silver_view
 from data_finalize import resolve_gold_folder_lookup
 from dataiku.customrecipe import get_recipe_config
@@ -41,8 +42,6 @@ def run():
 
     recipe_config = get_recipe_config() or {}
     unload_behavior = recipe_config.get("unload_behavior", "duckdb")
-    build_dev_activity = bool(recipe_config.get("build_dev_activity", True))
-    build_object_activity = bool(recipe_config.get("build_object_activity", True))
     manifest_enabled = bool(recipe_config.get("incremental_enabled", True))
     lookback_days = int(recipe_config.get("lookback_days", 3) or 3)
 
@@ -106,14 +105,13 @@ def run():
             built_dimensions.append(build_dim_addon_feature_flags(setup.conn))
 
     built_dev_activity = []
-    if build_dev_activity:
-        with log_timed_phase(setup.conn, label="build_dim_category_to_capability"):
-            built_dev_activity.append(build_dim_category_to_capability(setup.conn, base_dir=base_dir))
-        with log_timed_phase(setup.conn, label="build_dim_dev_activity_event_classification"):
-            built_dev_activity.append(build_dim_dev_activity_event_classification(setup.conn, base_dir=base_dir))
-        dev_activity_name = build_fact_dev_activity_events(setup.conn, ctx=silver_ctx, base_dir=base_dir)
-        if dev_activity_name:
-            built_dev_activity.append(dev_activity_name)
+    with log_timed_phase(setup.conn, label="build_dim_category_to_capability"):
+        built_dev_activity.append(build_dim_category_to_capability(setup.conn, base_dir=base_dir))
+    with log_timed_phase(setup.conn, label="build_dim_dev_activity_event_classification"):
+        built_dev_activity.append(build_dim_dev_activity_event_classification(setup.conn, base_dir=base_dir))
+    dev_activity_name = build_fact_dev_activity_events(setup.conn, ctx=silver_ctx, base_dir=base_dir)
+    if dev_activity_name:
+        built_dev_activity.append(dev_activity_name)
 
     built_user_activity = [
         name
@@ -121,17 +119,18 @@ def run():
             build_fact_user_activity_daily(setup.conn, ctx=silver_ctx),
             build_fact_user_activity_project_daily(setup.conn, ctx=silver_ctx),
             build_fact_formal_mau_daily(setup.conn, ctx=silver_ctx),
+            build_fact_license_utilization_daily(setup.conn, ctx=silver_ctx),
         ]
         if name
     ]
 
     user_activity_quality = collect_user_activity_quality_report(setup.conn)
+    license_utilization_quality = collect_license_utilization_quality_report(setup.conn)
 
     built_object_activity = []
-    if build_object_activity:
-        object_activity_name = build_fact_object_activity_events(setup.conn, ctx=silver_ctx, base_dir=base_dir)
-        if object_activity_name:
-            built_object_activity.append(object_activity_name)
+    object_activity_name = build_fact_object_activity_events(setup.conn, ctx=silver_ctx, base_dir=base_dir)
+    if object_activity_name:
+        built_object_activity.append(object_activity_name)
 
     built_products_registry = build_base_dataiku_products_registry(setup.conn, base_dir=base_dir)
 
@@ -169,7 +168,7 @@ def run():
                 view_name=f"v_event_mapping__{module_name}",
             )
 
-        if build_dev_activity and dev_modules:
+        if dev_modules:
             max_ts = (
                 setup.conn.execute(
                     "SELECT CAST(MAX(run_timestamp) AS VARCHAR) FROM fact_dev_activity_events;"
@@ -179,7 +178,7 @@ def run():
             )
             set_manifest_watermark(manifest, "fact_dev_activity_events", max_ts)
 
-        if build_object_activity and object_modules:
+        if object_modules:
             max_ts = (
                 setup.conn.execute(
                     "SELECT CAST(MAX(run_timestamp) AS VARCHAR) FROM fact_object_activity_events;"
@@ -209,8 +208,6 @@ def run():
         "connection_type": silver_ctx.connection_type,
         "connection_name": silver_ctx.connection_name,
         "unload_behavior": unload_behavior,
-        "build_dev_activity": build_dev_activity,
-        "build_object_activity": build_object_activity,
         "manifest_enabled": manifest_enabled,
         "lookback_days": lookback_days,
         "duckdb_connection_ready": setup.conn is not None,
@@ -220,6 +217,7 @@ def run():
         "built_dev_activity": built_dev_activity,
         "built_user_activity": built_user_activity,
         "user_activity_quality": user_activity_quality,
+        "license_utilization_quality": license_utilization_quality,
         "built_object_activity": built_object_activity,
         "built_products_registry": built_products_registry,
         "current_tables": current_tables,

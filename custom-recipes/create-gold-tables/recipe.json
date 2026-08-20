@@ -56,20 +56,6 @@
             "type": "INT",
             "defaultValue": 3,
             "mandatory": true
-        },
-        {
-            "name": "build_dev_activity",
-            "label": "Build Dev Activity Facts",
-            "description": "Build and export `fact_dev_activity_events`.",
-            "type": "BOOLEAN",
-            "defaultValue": true
-        },
-        {
-            "name": "build_object_activity",
-            "label": "Build Object Activity Facts",
-            "description": "Build and export `fact_object_activity_events`.",
-            "type": "BOOLEAN",
-            "defaultValue": true
         }
     ],
     "resourceKeys": []
