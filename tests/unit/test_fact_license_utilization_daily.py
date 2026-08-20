@@ -38,15 +38,15 @@ def seeded_views(conn):
         CREATE OR REPLACE VIEW v_users__instance_metadata AS
         SELECT * FROM (
           VALUES
-            ('inst_a', 'alice', 'True', 'FULL_DESIGNER', TIMESTAMPTZ '2026-08-01 08:00:00+00:00', 2026, 8, 1, DATE '2026-08-01'),
-            ('inst_a', 'alice', 'True', 'FULL_DESIGNER', TIMESTAMPTZ '2026-08-01 17:30:00+00:00', 2026, 8, 1, DATE '2026-08-01'),
-            ('inst_a', 'bob',   'True', 'FULL_DESIGNER', TIMESTAMPTZ '2026-08-01 17:45:00+00:00', 2026, 8, 1, DATE '2026-08-01'),
-            ('inst_a', 'carl',  'False','FULL_DESIGNER', TIMESTAMPTZ '2026-08-01 17:50:00+00:00', 2026, 8, 1, DATE '2026-08-01'),
-            ('inst_a', 'dana',  'True', 'DESIGNER',      TIMESTAMPTZ '2026-08-01 17:55:00+00:00', 2026, 8, 1, DATE '2026-08-01'),
-            ('inst_a', 'erin',  'True', 'FULL_DESIGNER', TIMESTAMPTZ '2026-08-02 09:15:00+00:00', 2026, 8, 2, DATE '2026-08-02'),
-            ('inst_b', 'alice', 'True', 'FULL_DESIGNER', TIMESTAMPTZ '2026-08-01 09:00:00+00:00', 2026, 8, 1, DATE '2026-08-01'),
-            ('inst_b', 'zoe',   'True', 'DESIGNER',      TIMESTAMPTZ '2026-08-01 09:30:00+00:00', 2026, 8, 1, DATE '2026-08-01')
-        ) AS t(instance_name, users_login, users_enabled, users_userprofile, run_ts, year, month, day, partition_date)
+            ('inst_a', 'alice', 'True', 'DESIGNER',      'FULL_DESIGNER', TIMESTAMPTZ '2026-08-01 08:00:00+00:00', 2026, 8, 1, DATE '2026-08-01'),
+            ('inst_a', 'alice', 'True', 'DESIGNER',      'FULL_DESIGNER', TIMESTAMPTZ '2026-08-01 17:30:00+00:00', 2026, 8, 1, DATE '2026-08-01'),
+            ('inst_a', 'bob',   'True', 'FULL_DESIGNER', NULL,            TIMESTAMPTZ '2026-08-01 17:45:00+00:00', 2026, 8, 1, DATE '2026-08-01'),
+            ('inst_a', 'carl',  'False','FULL_DESIGNER', 'FULL_DESIGNER', TIMESTAMPTZ '2026-08-01 17:50:00+00:00', 2026, 8, 1, DATE '2026-08-01'),
+            ('inst_a', 'dana',  'True', 'DESIGNER',      NULL,            TIMESTAMPTZ '2026-08-01 17:55:00+00:00', 2026, 8, 1, DATE '2026-08-01'),
+            ('inst_a', 'erin',  'True', 'FULL_DESIGNER', 'FULL_DESIGNER', TIMESTAMPTZ '2026-08-02 09:15:00+00:00', 2026, 8, 2, DATE '2026-08-02'),
+            ('inst_b', 'alice', 'True', 'FULL_DESIGNER', 'FULL_DESIGNER', TIMESTAMPTZ '2026-08-01 09:00:00+00:00', 2026, 8, 1, DATE '2026-08-01'),
+            ('inst_b', 'zoe',   'True', 'DESIGNER',      NULL,            TIMESTAMPTZ '2026-08-01 09:30:00+00:00', 2026, 8, 1, DATE '2026-08-01')
+        ) AS t(instance_name, users_login, users_enabled, users_userprofile, users_resultinguserprofile, run_ts, year, month, day, partition_date)
         """.strip()
     )
     return conn
@@ -228,3 +228,23 @@ def test_day_two_assignment_without_duplicate_day_one_users(seeded_views):
     ).fetchone()
 
     assert row == (100, 1, 99, pytest.approx(1.0))
+
+
+def test_assigned_counts_prefer_resulting_user_profile_when_present(seeded_views):
+    conn = seeded_views
+    _build(conn)
+
+    rows = conn.execute(
+        """
+        SELECT license_profile, assigned_count
+        FROM fact_license_utilization_daily
+        WHERE snapshot_date = DATE '2026-08-01'
+          AND instance_name = 'inst_a'
+        ORDER BY license_profile
+        """.strip()
+    ).fetchall()
+
+    assert rows == [
+        ('DESIGNER', 1),
+        ('FULL_DESIGNER', 2),
+    ]

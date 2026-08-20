@@ -53,7 +53,11 @@ def _build_fact_license_utilization_daily_from_views(
             CAST(date_trunc('day', try_cast(run_ts AS TIMESTAMP)) AS DATE) AS snapshot_date,
             instance_name,
             lower(trim(users_login)) AS login_norm,
-            coalesce(nullif(trim(users_userprofile), ''), 'UNKNOWN') AS license_profile,
+            coalesce(
+              nullif(trim(users_resultinguserprofile), ''),
+              nullif(trim(users_userprofile), ''),
+              'UNKNOWN'
+            ) AS license_profile,
             users_enabled,
             try_cast(run_ts AS TIMESTAMP) AS run_ts,
             partition_date,
@@ -65,7 +69,11 @@ def _build_fact_license_utilization_daily_from_views(
               ORDER BY
                 try_cast(run_ts AS TIMESTAMP) DESC NULLS LAST,
                 partition_date DESC NULLS LAST,
-                coalesce(nullif(trim(users_userprofile), ''), 'UNKNOWN') ASC,
+                coalesce(
+                  nullif(trim(users_resultinguserprofile), ''),
+                  nullif(trim(users_userprofile), ''),
+                  'UNKNOWN'
+                ) ASC,
                 coalesce(trim(users_enabled), '') DESC
             ) AS rn
           FROM {users_view}
