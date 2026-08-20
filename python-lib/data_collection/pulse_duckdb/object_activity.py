@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import duckdb
@@ -7,6 +8,63 @@ import yaml
 
 from data_collection.data_normalizer.flatten_config import _slug
 from data_collection.pulse_duckdb.sql_utils import canonical_norm_sql, log_table_stats
+
+
+logger = logging.getLogger(__name__)
+
+
+def _describe_view_columns(conn: duckdb.DuckDBPyConnection, view_name: str) -> list[str]:
+    rows = conn.execute(f"DESCRIBE {view_name}").fetchall()  # nosec B608 (view_name is plugin-controlled)
+    return [str(row[0]) for row in rows]
+
+
+def _find_event_mapping_files_missing_extras(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    glob: str,
+) -> list[str]:
+    rows = conn.execute(
+        """
+        SELECT file_name
+        FROM parquet_schema(?)
+        GROUP BY file_name
+        HAVING SUM(CASE WHEN lower(name) = 'extras' THEN 1 ELSE 0 END) = 0
+        ORDER BY file_name
+        """.strip(),
+        [glob],
+    ).fetchall()
+    return [str(row[0]) for row in rows]
+
+
+def _raise_missing_event_mapping_extras(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    module: str,
+    glob: str,
+    view_name: str,
+) -> None:
+    columns = _describe_view_columns(conn, view_name)
+    message_lines = [
+        "SILVER event_mapping schema missing 'extras'",
+        f"module={module}",
+        f"glob={glob}",
+        f"columns={columns}",
+    ]
+
+    try:
+        offending_files = _find_event_mapping_files_missing_extras(conn, glob=glob)
+    except duckdb.Error as exc:
+        logger.warning(
+            "Failed failure-only parquet schema diagnostic for event_mapping module=%s glob=%s: %s",
+            module,
+            glob,
+            exc,
+        )
+    else:
+        if offending_files:
+            message_lines.append(f"files_missing_extras={offending_files}")
+
+    raise ValueError("\n".join(message_lines))
 
 
 def load_object_activity_modules(base_dir: Path) -> list[str]:
@@ -89,6 +147,15 @@ def _create_event_mapping_module_view(
     ).fetchall()
     if not created_views:
         return ""
+
+    columns = _describe_view_columns(conn, view_name)
+    if "extras" not in {column.lower() for column in columns}:
+        _raise_missing_event_mapping_extras(
+            conn,
+            module=module,
+            glob=glob,
+            view_name=view_name,
+        )
 
     return view_name
 
