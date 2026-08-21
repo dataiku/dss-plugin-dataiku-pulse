@@ -90,12 +90,20 @@ def normalize_silver(
         # (Casting rules are applied after flattening.)
         return out
 
+    resolved_flatten_base = flatten_base
+    resolved_flatten_variant = flatten_variant
+    if todo_section == "audit" and category == "event_mapping":
+        if resolved_flatten_base is None:
+            resolved_flatten_base = ("audit_dataiku_usage", "audit_metadata")
+        if resolved_flatten_variant is None:
+            resolved_flatten_variant = module
+
     cfg = load_flatten_config(
         category=category,
         module=module,
         todo_section=todo_section,
-        base=flatten_base,
-        variant=flatten_variant,
+        base=resolved_flatten_base,
+        variant=resolved_flatten_variant,
     )
     required = []
     if cfg is not None and cfg.required_columns:
