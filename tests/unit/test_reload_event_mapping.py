@@ -385,9 +385,7 @@ def test_runnable_reports_delete_failed_after_successful_write(monkeypatch):
         pass
 
     fake_folder = FakeFolder()
-    monkeypatch.setattr(runnable_module, "build_context", lambda plugin_config: type("Ctx", (), {"param_set": {}, "remote_client": object()})())
-    monkeypatch.setattr(runnable_module, "ensure_output_folder", lambda param_set, remote_client: type("Target", (), {"project_key": "P", "folder_lookup": "partitioned_data"})())
-    monkeypatch.setattr(runnable_module, "get_managed_folder_handle", lambda target: fake_folder)
+    monkeypatch.setattr(runnable_module, "build_storage_context", lambda project_key, folder_lookup: type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_handle": fake_folder})())
     monkeypatch.setattr(runnable_module, "discover_event_mapping_paths", lambda folder: ["/silver/category=event_mapping/module=dataset/instance_name=inst/year=2026/month=08/day=24/audit_logs-1786510805050-dataset.parquet"])
     monkeypatch.setattr(runnable_module, "parse_event_mapping_source_path", lambda path: _audit_source_info(path))
     monkeypatch.setattr(runnable_module, "read_managed_folder_parquet", lambda folder, path: pd.DataFrame([{"msgtype": "X", "extras": '{"topic":"generic"}'}]))
@@ -421,6 +419,83 @@ def test_runnable_reports_delete_failed_after_successful_write(monkeypatch):
     assert "Delete Failed After Replacement" in html
     assert "cannot delete" in html
 
+
+
+
+def test_runnable_runs_without_remote_credentials_and_uses_local_project_folder(monkeypatch):
+    runnable_module = _load_runnable_module()
+    folder = object()
+    seen = {}
+
+    def fake_storage_context(*, project_key, folder_lookup):
+        seen["storage"] = (project_key, folder_lookup)
+        return type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_handle": folder})()
+
+    monkeypatch.setattr(runnable_module, "build_storage_context", fake_storage_context)
+    monkeypatch.setattr(runnable_module, "discover_event_mapping_paths", lambda found_folder: [] if seen.setdefault("discover", found_folder) is None else [])
+
+    runner = runnable_module.MyRunnable(
+        project_key="LOCAL_PROJECT",
+        config={},
+        plugin_config={"pulse_primary": {"pulse_partitioned_data": "local_partitioned"}},
+    )
+    html = runner.run(lambda _: None)
+
+    assert seen["storage"] == ("LOCAL_PROJECT", "local_partitioned")
+    assert seen["discover"] is folder
+    assert "Discovered parquet files:" in html
+
+
+def test_missing_local_folder_fails_without_create_upload_or_delete(monkeypatch):
+    runnable_module = _load_runnable_module()
+    calls = {"upload": 0, "delete": 0}
+
+    monkeypatch.setattr(
+        runnable_module,
+        "build_storage_context",
+        lambda project_key, folder_lookup: (_ for _ in ()).throw(ValueError("Managed folder 'missing' not found in project 'LOCAL_PROJECT' (by name or id)")),
+    )
+    monkeypatch.setattr(runnable_module, "upload_event_mapping_replacements", lambda *args, **kwargs: calls.__setitem__("upload", calls["upload"] + 1))
+    monkeypatch.setattr(runnable_module, "delete_managed_folder_file", lambda *args, **kwargs: calls.__setitem__("delete", calls["delete"] + 1))
+
+    runner = runnable_module.MyRunnable(
+        project_key="LOCAL_PROJECT",
+        config={},
+        plugin_config={"pulse_primary": {"pulse_partitioned_data": "missing"}},
+    )
+
+    with pytest.raises(ValueError, match="Managed folder 'missing' not found"):
+        runner.run(lambda _: None)
+
+    assert calls == {"upload": 0, "delete": 0}
+
+
+def test_local_target_uses_self_project_key_for_upload_and_folder_lookup(monkeypatch):
+    runnable_module = _load_runnable_module()
+    folder = object()
+    source = _audit_source_info()
+    captured = {}
+
+    def fake_storage_context(project_key, folder_lookup):
+        captured["storage"] = (project_key, folder_lookup)
+        return type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_handle": folder})()
+
+    monkeypatch.setattr(runnable_module, "build_storage_context", fake_storage_context)
+    monkeypatch.setattr(runnable_module, "discover_event_mapping_paths", lambda found_folder: [source.path])
+    monkeypatch.setattr(runnable_module, "parse_event_mapping_source_path", lambda path: source)
+    monkeypatch.setattr(runnable_module, "read_managed_folder_parquet", lambda found_folder, path: pd.DataFrame([{"msgtype": "X", "extras": '{"topic":"generic"}'}]))
+    monkeypatch.setattr(runnable_module, "plan_event_mapping_replay", lambda source, source_df: [])
+    monkeypatch.setattr(runnable_module, "delete_managed_folder_file", lambda found_folder, path: captured.setdefault("delete", (found_folder, path)))
+
+    runner = runnable_module.MyRunnable(
+        project_key="LOCAL_PROJECT",
+        config={},
+        plugin_config={"pulse_primary": {"pulse_partitioned_data": "local_partitioned", "pulse_project_key": "REMOTE_PROJECT"}},
+    )
+    runner.run(lambda _: None)
+
+    assert captured["storage"] == ("LOCAL_PROJECT", "local_partitioned")
+    assert captured["delete"] == (folder, source.path)
 
 def test_same_category_same_date_replay_uses_new_filename(monkeypatch):
     source = _audit_source_info()
@@ -511,9 +586,7 @@ def test_runnable_uses_configured_target_handle_for_list_read_delete(monkeypatch
     target = type("Target", (), {"project_key": "P", "folder_lookup": "partitioned_data"})()
     used = {}
 
-    monkeypatch.setattr(runnable_module, "build_context", lambda plugin_config: type("Ctx", (), {"param_set": {}, "remote_client": object()})())
-    monkeypatch.setattr(runnable_module, "ensure_output_folder", lambda param_set, remote_client: target)
-    monkeypatch.setattr(runnable_module, "get_managed_folder_handle", lambda target: folder)
+    monkeypatch.setattr(runnable_module, "build_storage_context", lambda project_key, folder_lookup: type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_handle": folder})())
     def fake_discover(found_folder):
         used.setdefault("discover", found_folder)
         return ["/silver/category=event_mapping/module=dataset/instance_name=inst/year=2026/month=08/day=24/audit_logs-1786510805050-dataset.parquet"]
@@ -657,9 +730,7 @@ def test_multi_category_source_uploads_all_before_source_deletion(monkeypatch):
         ),
     ]
 
-    monkeypatch.setattr(runnable_module, "build_context", lambda plugin_config: type("Ctx", (), {"param_set": {}, "remote_client": object()})())
-    monkeypatch.setattr(runnable_module, "ensure_output_folder", lambda param_set, remote_client: target)
-    monkeypatch.setattr(runnable_module, "get_managed_folder_handle", lambda target: folder)
+    monkeypatch.setattr(runnable_module, "build_storage_context", lambda project_key, folder_lookup: type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_handle": folder})())
     monkeypatch.setattr(runnable_module, "discover_event_mapping_paths", lambda folder: [source.path])
     monkeypatch.setattr(runnable_module, "parse_event_mapping_source_path", lambda path: source)
     monkeypatch.setattr(runnable_module, "read_managed_folder_parquet", lambda folder, path: pd.DataFrame([{"msgtype": "X", "extras": '{"topic":"generic"}'}]))
@@ -683,9 +754,7 @@ def test_upload_failure_retains_source_attempts_cleanup_and_reports_partial_writ
     target = type("Target", (), {"project_key": "P", "folder_lookup": "partitioned_data"})()
     folder = object()
     source = _audit_source_info()
-    monkeypatch.setattr(runnable_module, "build_context", lambda plugin_config: type("Ctx", (), {"param_set": {}, "remote_client": object()})())
-    monkeypatch.setattr(runnable_module, "ensure_output_folder", lambda param_set, remote_client: target)
-    monkeypatch.setattr(runnable_module, "get_managed_folder_handle", lambda target: folder)
+    monkeypatch.setattr(runnable_module, "build_storage_context", lambda project_key, folder_lookup: type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_handle": folder})())
     monkeypatch.setattr(runnable_module, "discover_event_mapping_paths", lambda folder: [source.path])
     monkeypatch.setattr(runnable_module, "parse_event_mapping_source_path", lambda path: source)
     monkeypatch.setattr(runnable_module, "read_managed_folder_parquet", lambda folder, path: pd.DataFrame([{"msgtype": "X", "extras": '{"topic":"generic"}'}]))

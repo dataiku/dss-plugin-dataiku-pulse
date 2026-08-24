@@ -17,7 +17,8 @@ from data_collection.audit_logs_modules.event_mapping_replay import (
     read_managed_folder_parquet,
     upload_event_mapping_replacements,
 )
-from data_collection.helper import build_context, ensure_output_folder, get_managed_folder_handle
+from data_collection.helper import DSSFolderTarget
+from shared_duckdb.context import build_storage_context
 
 logger = logging.getLogger(__name__)
 
@@ -87,10 +88,15 @@ class MyRunnable(Runnable):
     def get_progress_target(self):
         return None
 
+    def _resolve_folder_lookup(self) -> str:
+        param_set = self.plugin_config.get("pulse_primary", {}) or {}
+        return str(param_set.get("pulse_partitioned_data") or "partitioned_data")
+
     def run(self, progress_callback):
-        ctx = build_context(plugin_config=self.plugin_config)
-        target = ensure_output_folder(param_set=ctx.param_set, remote_client=ctx.remote_client)
-        folder = get_managed_folder_handle(target=target)
+        folder_lookup = self._resolve_folder_lookup()
+        storage_ctx = build_storage_context(project_key=self.project_key, folder_lookup=folder_lookup)
+        target = DSSFolderTarget(project_key=self.project_key, folder_lookup=storage_ctx.folder_lookup)
+        folder = storage_ctx.folder_handle
 
         source_paths = discover_event_mapping_paths(folder)
         outcomes: list[EventMappingReplayOutcome] = []
