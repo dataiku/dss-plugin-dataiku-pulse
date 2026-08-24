@@ -1,15 +1,25 @@
 from __future__ import annotations
 
-import base64
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator, Protocol
 
 import boto3
 from botocore.config import Config
 from botocore.credentials import Credentials
-from botocore.session import Session as BotocoreSession
 
-from shared_duckdb.context import StorageContext
-from shared_duckdb.storage_config import _connection_info, decrypt_string
+from shared_storage_credentials import connection_info, resolve_gcs_hmac_credentials
+
+if TYPE_CHECKING:
+    from shared_duckdb.context import StorageContext
+
+
+class StorageContextLike(Protocol):
+    connection_type: str
+    folder_root: str
+    bucket_or_container: str | None
+    project_handle: Any
+    connection_handle: Any
+    connection_name: str
+    cached_connection_info: dict[str, Any]
 
 
 def _normalize_relative_prefix(relative_prefix: str) -> str:
@@ -48,12 +58,11 @@ def _matches_suffix(path: str, suffix: str | None) -> bool:
     return path.endswith(suffix)
 
 
-def _iter_s3_paths(ctx: StorageContext, *, relative_prefix: str, suffix: str | None) -> Iterator[str]:
-    info = _connection_info(ctx, allow_cached=True)
+def _iter_s3_paths(ctx: StorageContextLike, *, relative_prefix: str, suffix: str | None) -> Iterator[str]:
+    info = connection_info(ctx, allow_cached=True)
     params = info.get("params") or {}
     credential_mode = params.get("credentialsMode")
 
-    session = BotocoreSession()
     if credential_mode == "KEYPAIR":
         credentials = Credentials(params["accessKey"], params["secretKey"])
     elif credential_mode in {"STS_ASSUME_ROLE", "ENVIRONMENT"}:
@@ -66,7 +75,6 @@ def _iter_s3_paths(ctx: StorageContext, *, relative_prefix: str, suffix: str | N
     else:
         raise RuntimeError(f"Unsupported AWS credentials mode for managed-folder discovery: {credential_mode}")
 
-    session._credentials = credentials
     region_name = params.get("regionOrEndpoint") or None
     client = boto3.client(
         "s3",
@@ -87,11 +95,11 @@ def _iter_s3_paths(ctx: StorageContext, *, relative_prefix: str, suffix: str | N
             yield rel
 
 
-def _build_azure_blob_service_client(ctx: StorageContext):
+def _build_azure_blob_service_client(ctx: StorageContextLike):
     from azure.storage.blob import BlobServiceClient
     from azure.identity import ClientSecretCredential
 
-    info = _connection_info(ctx, allow_cached=True)
+    info = connection_info(ctx, allow_cached=True)
     params = info.get("params") or {}
     auth_type = params.get("authType")
     account_name = params.get("storageAccount")
@@ -109,7 +117,7 @@ def _build_azure_blob_service_client(ctx: StorageContext):
     raise RuntimeError(f"Unsupported Azure authentication type for managed-folder discovery: {auth_type}")
 
 
-def _iter_azure_paths(ctx: StorageContext, *, relative_prefix: str, suffix: str | None) -> Iterator[str]:
+def _iter_azure_paths(ctx: StorageContextLike, *, relative_prefix: str, suffix: str | None) -> Iterator[str]:
     client = _build_azure_blob_service_client(ctx)
     prefix = _physical_prefix(folder_root=ctx.folder_root, relative_prefix=relative_prefix)
     container = ctx.bucket_or_container
@@ -121,38 +129,52 @@ def _iter_azure_paths(ctx: StorageContext, *, relative_prefix: str, suffix: str 
         yield rel
 
 
-def _build_gcs_client(ctx: StorageContext):
+def _build_gcs_environment_client(ctx: StorageContextLike):
     from google.cloud import storage
-    from google.auth.credentials import AnonymousCredentials
-    import gcsfs
+    from google.auth import default as google_auth_default
 
-    gcs_hmac = ((ctx.project_handle.get_variables() or {}).get("local") or {}).get("gcs_hmac")
-    if gcs_hmac:
-        salt = base64.b64decode(gcs_hmac["salt"])
-        ciphertext = base64.b64decode(gcs_hmac["ciphertext"])
-        access_key = gcs_hmac["access_key"]
-        hmac_secret = decrypt_string(ciphertext, password="DF2!&sEkm)f4}i99,e&9bS:Wj", salt=salt)
-        fs = gcsfs.GCSFileSystem(access=access_key, secret=hmac_secret)
-        return ("gcsfs", fs)
-
-    info = _connection_info(ctx, allow_cached=True)
+    info = connection_info(ctx, allow_cached=True)
     params = info.get("params") or {}
     credentials_mode = params.get("credentialsMode") or params.get("authType")
     if credentials_mode == "ENVIRONMENT":
-        client = storage.Client(credentials=AnonymousCredentials())
-        return ("google-cloud-storage", client)
+        credentials, project_id = google_auth_default()
+        return storage.Client(project=project_id, credentials=credentials)
 
     raise RuntimeError(
         f"Unsupported GCS credential mode for managed-folder discovery: {credentials_mode or 'filesystem'}"
     )
 
 
-def _iter_gcs_paths(ctx: StorageContext, *, relative_prefix: str, suffix: str | None) -> Iterator[str]:
+def _build_gcs_hmac_client(ctx: StorageContextLike):
+    import gcsfs
+
+    resolved = resolve_gcs_hmac_credentials(ctx)
+    if not resolved:
+        raise RuntimeError("Unsupported GCS credential mode for managed-folder discovery: missing_hmac")
+    access_key, hmac_secret = resolved
+    return gcsfs.GCSFileSystem(access=access_key, secret=hmac_secret)
+
+
+def _build_gcs_client(ctx: StorageContextLike):
+    info = connection_info(ctx, allow_cached=True)
+    params = info.get("params") or {}
+    credentials_mode = params.get("credentialsMode") or params.get("authType")
+    if credentials_mode == "ENVIRONMENT":
+        return ("google-cloud-storage", _build_gcs_environment_client(ctx))
+    if credentials_mode in {"HMAC", "INTEROP"} or resolve_gcs_hmac_credentials(ctx):
+        return ("gcsfs", _build_gcs_hmac_client(ctx))
+
+    raise RuntimeError(
+        f"Unsupported GCS credential mode for managed-folder discovery: {credentials_mode or 'filesystem'}"
+    )
+
+
+def _iter_gcs_paths(ctx: StorageContextLike, *, relative_prefix: str, suffix: str | None) -> Iterator[str]:
     backend, client = _build_gcs_client(ctx)
     prefix = _physical_prefix(folder_root=ctx.folder_root, relative_prefix=relative_prefix)
     bucket = ctx.bucket_or_container
     if backend == "gcsfs":
-        for item in client.ls(f"{bucket}/{prefix}", detail=True):
+        for item in client.find(f"{bucket}/{prefix}", detail=True).values():
             name = str((item or {}).get("name") or "")
             key = name.split("/", 1)[1] if "/" in name else name
             rel = _relative_from_physical_key(folder_root=ctx.folder_root, object_key=key)
@@ -170,7 +192,7 @@ def _iter_gcs_paths(ctx: StorageContext, *, relative_prefix: str, suffix: str | 
 
 
 def iter_managed_folder_paths(
-    storage_ctx: StorageContext,
+    storage_ctx: StorageContextLike,
     *,
     relative_prefix: str,
     suffix: str | None = None,
