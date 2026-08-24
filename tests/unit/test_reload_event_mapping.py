@@ -25,6 +25,12 @@ def _source_info(path: str = "/silver/category=event_mapping/module=oldcat/insta
     return replay.parse_event_mapping_source_path(path)
 
 
+def _audit_source_info(
+    path: str = "/silver/category=event_mapping/module=dataset/instance_name=tam-global/year=2026/month=08/day=12/audit_logs-1786510805050-dataset.parquet",
+):
+    return replay.parse_event_mapping_source_path(path)
+
+
 def test_rehydrate_extras_preserves_top_level_fields_and_restores_mapper_input():
     df = pd.DataFrame(
         [
@@ -91,26 +97,26 @@ def test_plan_replay_groups_by_new_category_and_preserves_partition_date(monkeyp
         )
 
     monkeypatch.setattr(replay.event_mapping, "main", fake_main)
-    plans = replay.plan_event_mapping_replay(source=_source_info(), source_df=source_df)
+    plans = replay.plan_event_mapping_replay(source=_audit_source_info(), source_df=source_df)
 
     assert "message_msgType" in captured["columns"]
     assert "dataiku_category" not in captured["columns"]
     assert {plan.module_name for plan in plans} == {"webapps", "projects"}
     assert all(str(plan.output_path).startswith("/silver/category=event_mapping/module=") for plan in plans)
-    assert all("instance_name=inst" in str(plan.output_path) for plan in plans)
+    assert all("instance_name=tam-global" in str(plan.output_path) for plan in plans)
 
 
 def test_plan_replay_returns_empty_when_mapper_drops_all_rows(monkeypatch):
     monkeypatch.setattr(replay.event_mapping, "main", lambda df: pd.DataFrame(columns=["dataiku_category"]))
     plans = replay.plan_event_mapping_replay(
-        source=_source_info(),
+        source=_audit_source_info(),
         source_df=pd.DataFrame([{"msgtype": "DROP_ME", "extras": '{"topic":"generic"}'}]),
     )
     assert plans == []
 
 
 def test_upload_failure_and_dq_failure_leave_deletion_to_caller(monkeypatch):
-    source = _source_info()
+    source = _audit_source_info()
     plan = replay.ReplayWritePlan(
         output_path=replay.build_event_mapping_output_path(source=source, module_name="webapps", event_date=source.run_date),
         silver_df=pd.DataFrame([{"instance_name": "inst", "run_ts": "2026-08-24T11:00:00Z"}]),
@@ -210,8 +216,8 @@ def test_runnable_reports_delete_failed_after_successful_write(monkeypatch):
     monkeypatch.setattr(runnable_module, "build_context", lambda plugin_config: type("Ctx", (), {"param_set": {}, "remote_client": object()})())
     monkeypatch.setattr(runnable_module, "ensure_output_folder", lambda param_set, remote_client: type("Target", (), {"project_key": "P", "folder_lookup": "partitioned_data"})())
     monkeypatch.setattr(runnable_module.dataiku, "Folder", lambda lookup, project_key=None: FakeFolder())
-    monkeypatch.setattr(runnable_module, "discover_event_mapping_paths", lambda folder: ["/silver/category=event_mapping/module=oldcat/instance_name=inst/year=2026/month=08/day=24/source.parquet"])
-    monkeypatch.setattr(runnable_module, "parse_event_mapping_source_path", lambda path: _source_info(path))
+    monkeypatch.setattr(runnable_module, "discover_event_mapping_paths", lambda folder: ["/silver/category=event_mapping/module=dataset/instance_name=inst/year=2026/month=08/day=24/audit_logs-1786510805050-dataset.parquet"])
+    monkeypatch.setattr(runnable_module, "parse_event_mapping_source_path", lambda path: _audit_source_info(path))
     monkeypatch.setattr(runnable_module, "read_managed_folder_parquet", lambda folder, path: pd.DataFrame([{"msgtype": "X", "extras": '{"topic":"generic"}'}]))
     monkeypatch.setattr(
         runnable_module,
@@ -242,3 +248,47 @@ def test_runnable_reports_delete_failed_after_successful_write(monkeypatch):
 
     assert "Delete Failed After Replacement" in html
     assert "cannot delete" in html
+
+
+def test_same_category_same_date_replay_uses_new_filename(monkeypatch):
+    source = _audit_source_info()
+    monkeypatch.setattr(replay, "next_replay_save_epoch_ms", lambda: 1786510805999)
+
+    out_path = replay.build_event_mapping_output_path(source=source, module_name="dataset", event_date=source.run_date)
+
+    assert str(out_path) != source.path
+    assert str(out_path).endswith("/audit_logs-1786510805999-dataset.parquet")
+    assert str(out_path).startswith(
+        "/silver/category=event_mapping/module=dataset/instance_name=tam-global/year=2026/month=08/day=12/"
+    )
+    assert source.path.endswith("/audit_logs-1786510805050-dataset.parquet")
+
+
+def test_changed_category_uses_target_module_name_in_new_filename(monkeypatch):
+    source = _audit_source_info()
+    monkeypatch.setattr(replay, "next_replay_save_epoch_ms", lambda: 1786510806001)
+
+    out_path = replay.build_event_mapping_output_path(source=source, module_name="webapps", event_date=source.run_date)
+
+    assert str(out_path).endswith("/audit_logs-1786510806001-webapps.parquet")
+    assert "/module=webapps/" in str(out_path)
+
+
+def test_two_replacement_writes_same_millisecond_get_distinct_paths(monkeypatch):
+    source = _audit_source_info()
+    monkeypatch.setattr(replay.time, "time_ns", lambda: 1786510805000 * 1_000_000)
+    monkeypatch.setattr(replay, "_LAST_REPLAY_SAVE_EPOCH_MS", 0)
+
+    first_path = replay.build_event_mapping_output_path(source=source, module_name="dataset", event_date=source.run_date)
+    second_path = replay.build_event_mapping_output_path(source=source, module_name="dataset", event_date=source.run_date)
+
+    assert str(first_path).endswith("/audit_logs-1786510805000-dataset.parquet")
+    assert str(second_path).endswith("/audit_logs-1786510805001-dataset.parquet")
+    assert first_path != second_path
+
+
+def test_normal_audit_gather_filename_logic_is_unchanged():
+    runnable_path = Path(__file__).resolve().parents[2] / "python-runnables" / "data-gather-audit-logs" / "runnable.py"
+    text = runnable_path.read_text(encoding="utf-8")
+
+    assert 'parquet_name = f"audit_logs-{run_epoch_ms}-{str(module_name)}.parquet"' in text

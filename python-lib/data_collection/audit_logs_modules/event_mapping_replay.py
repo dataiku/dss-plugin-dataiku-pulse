@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import time
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path, PurePosixPath
@@ -16,6 +18,8 @@ from data_collection.helper import DSSFolderTarget, upload_parquet
 logger = logging.getLogger(__name__)
 
 SILVER_EVENT_MAPPING_PREFIX = "/silver/category=event_mapping/"
+SOURCE_FILENAME_PATTERN = re.compile(r"^(audit_logs-)(\d+)(-[^.]+\.parquet)$")
+_LAST_REPLAY_SAVE_EPOCH_MS = 0
 
 
 @dataclass(frozen=True)
@@ -211,7 +215,28 @@ def resolve_replay_event_date(*, silver_df: pd.DataFrame, fallback_date: date) -
     return fallback_date
 
 
+def next_replay_save_epoch_ms() -> int:
+    global _LAST_REPLAY_SAVE_EPOCH_MS
+
+    current_epoch_ms = time.time_ns() // 1_000_000
+    next_epoch_ms = current_epoch_ms if current_epoch_ms > _LAST_REPLAY_SAVE_EPOCH_MS else _LAST_REPLAY_SAVE_EPOCH_MS + 1
+    _LAST_REPLAY_SAVE_EPOCH_MS = next_epoch_ms
+    return next_epoch_ms
+
+
+def build_replacement_filename(*, source_filename: str, module_name: str, save_epoch_ms: int) -> str:
+    match = SOURCE_FILENAME_PATTERN.match(source_filename)
+    if match is None:
+        raise ReplaySkipError(f"Unsupported event-mapping source filename: {source_filename}")
+    return f"{match.group(1)}{save_epoch_ms}-{module_name}.parquet"
+
+
 def build_event_mapping_output_path(*, source: EventMappingSourceInfo, module_name: str, event_date: date) -> PurePosixPath:
+    replacement_filename = build_replacement_filename(
+        source_filename=source.filename,
+        module_name=module_name,
+        save_epoch_ms=next_replay_save_epoch_ms(),
+    )
     return (
         PurePosixPath("/")
         / "silver"
@@ -221,7 +246,7 @@ def build_event_mapping_output_path(*, source: EventMappingSourceInfo, module_na
         / f"year={event_date.year:04d}"
         / f"month={event_date.month:02d}"
         / f"day={event_date.day:02d}"
-        / source.filename
+        / replacement_filename
     )
 
 
