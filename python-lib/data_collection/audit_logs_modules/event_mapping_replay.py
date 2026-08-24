@@ -130,6 +130,20 @@ def cleanup_written_replacements(*, folder: Any, paths: list[str]) -> tuple[tupl
     return tuple(cleaned_paths), cleanup_errors
 
 
+def format_partial_write_message(
+    *,
+    base_message: str,
+    written_paths: tuple[str, ...],
+    cleanup_paths: tuple[str, ...],
+) -> str:
+    parts = [base_message]
+    if written_paths:
+        parts.append(f"written_paths=[{', '.join(written_paths)}]")
+    if cleanup_paths:
+        parts.append(f"cleanup_paths=[{', '.join(cleanup_paths)}]")
+    return "; ".join(parts)
+
+
 def discover_event_mapping_paths(folder: Any) -> list[str]:
     return sorted(
         path
@@ -343,13 +357,21 @@ def upload_event_mapping_replacements(*, target: DSSFolderTarget, folder: Any, p
                 status="upload_failed_cleanup_failed",
                 written_paths=tuple(written_paths),
                 cleanup_paths=cleaned_paths,
-                message=f"Upload failed: {exc!r}; cleanup failed: {'; '.join(cleanup_errors)}",
+                message=format_partial_write_message(
+                    base_message=f"Upload failed: {exc!r}; cleanup failed: {'; '.join(cleanup_errors)}",
+                    written_paths=tuple(written_paths),
+                    cleanup_paths=cleaned_paths,
+                ),
             )
         return ReplacementUploadResult(
             status="upload_failed_cleaned",
             written_paths=tuple(written_paths),
             cleanup_paths=cleaned_paths,
-            message=f"Upload failed: {exc!r}; cleaned {len(cleaned_paths)} replacement(s)",
+            message=format_partial_write_message(
+                base_message=f"Upload failed: {exc!r}; cleaned {len(cleaned_paths)} replacement(s)",
+                written_paths=tuple(written_paths),
+                cleanup_paths=cleaned_paths,
+            ),
         )
 
     return ReplacementUploadResult(

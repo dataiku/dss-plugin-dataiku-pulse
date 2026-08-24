@@ -384,6 +384,89 @@ def test_dq_invalid_plan_performs_zero_uploads_and_retains_source(monkeypatch):
     assert upload_calls == []
 
 
+
+
+def test_direct_upload_failure_cleans_first_written_path_with_configured_folder(monkeypatch):
+    folder = object()
+    target = object()
+    cleanup_calls = []
+    upload_calls = []
+    plans = [
+        replay.ReplayWritePlan(
+            output_path=Path("/silver/category=event_mapping/module=dataset/instance_name=tam-global/year=2026/month=08/day=12/audit_logs-1-dataset.parquet"),
+            silver_df=pd.DataFrame([{"instance_name": "inst", "run_ts": "2026-08-24T11:00:00Z"}]),
+            dq=replay.DQResult(ok=True, errors=[]),
+            module_name="dataset",
+            event_date=_audit_source_info().run_date,
+        ),
+        replay.ReplayWritePlan(
+            output_path=Path("/silver/category=event_mapping/module=webapps/instance_name=tam-global/year=2026/month=08/day=12/audit_logs-2-webapps.parquet"),
+            silver_df=pd.DataFrame([{"instance_name": "inst", "run_ts": "2026-08-24T11:00:00Z"}]),
+            dq=replay.DQResult(ok=True, errors=[]),
+            module_name="webapps",
+            event_date=_audit_source_info().run_date,
+        ),
+    ]
+
+    def upload_side_effect(**kwargs):
+        upload_calls.append(str(kwargs["output_path"]))
+        if len(upload_calls) == 2:
+            raise RuntimeError("second upload failed")
+
+    def cleanup_side_effect(*, folder, paths):
+        cleanup_calls.append((folder, list(paths)))
+        return (tuple(paths), [])
+
+    monkeypatch.setattr(replay, "upload_parquet", upload_side_effect)
+    monkeypatch.setattr(replay, "cleanup_written_replacements", cleanup_side_effect)
+
+    result = replay.upload_event_mapping_replacements(target=target, folder=folder, plans=plans)
+
+    assert result.status == "upload_failed_cleaned"
+    assert result.written_paths == (str(plans[0].output_path),)
+    assert result.cleanup_paths == (str(plans[0].output_path),)
+    assert cleanup_calls == [(folder, [str(plans[0].output_path)])]
+
+
+def test_direct_upload_failure_preserves_written_path_evidence_when_cleanup_fails(monkeypatch):
+    folder = object()
+    target = object()
+    plans = [
+        replay.ReplayWritePlan(
+            output_path=Path("/silver/category=event_mapping/module=dataset/instance_name=tam-global/year=2026/month=08/day=12/audit_logs-1-dataset.parquet"),
+            silver_df=pd.DataFrame([{"instance_name": "inst", "run_ts": "2026-08-24T11:00:00Z"}]),
+            dq=replay.DQResult(ok=True, errors=[]),
+            module_name="dataset",
+            event_date=_audit_source_info().run_date,
+        ),
+        replay.ReplayWritePlan(
+            output_path=Path("/silver/category=event_mapping/module=webapps/instance_name=tam-global/year=2026/month=08/day=12/audit_logs-2-webapps.parquet"),
+            silver_df=pd.DataFrame([{"instance_name": "inst", "run_ts": "2026-08-24T11:00:00Z"}]),
+            dq=replay.DQResult(ok=True, errors=[]),
+            module_name="webapps",
+            event_date=_audit_source_info().run_date,
+        ),
+    ]
+
+    def upload_side_effect(**kwargs):
+        if str(kwargs["output_path"]) == str(plans[1].output_path):
+            raise RuntimeError("second upload failed")
+
+    monkeypatch.setattr(replay, "upload_parquet", upload_side_effect)
+    monkeypatch.setattr(
+        replay,
+        "cleanup_written_replacements",
+        lambda *, folder, paths: ((), [f"{paths[0]}: RuntimeError('cleanup failed')"]),
+    )
+
+    result = replay.upload_event_mapping_replacements(target=target, folder=folder, plans=plans)
+
+    assert result.status == "upload_failed_cleanup_failed"
+    assert result.written_paths == (str(plans[0].output_path),)
+    assert result.cleanup_paths == ()
+    assert str(plans[0].output_path) in result.message
+    assert "cleanup failed" in result.message
+
 def test_multi_category_source_uploads_all_before_source_deletion(monkeypatch):
     runnable_module = _load_runnable_module()
     events = []
@@ -459,7 +542,11 @@ def test_upload_failure_retains_source_attempts_cleanup_and_reports_partial_writ
             status="upload_failed_cleanup_failed",
             written_paths=(str(plans[0].output_path),),
             cleanup_paths=(),
-            message="Upload failed: RuntimeError('boom'); cleanup failed: /silver/...",
+            message=replay.format_partial_write_message(
+                base_message="Upload failed: RuntimeError('boom'); cleanup failed: /silver/...",
+                written_paths=(str(plans[0].output_path),),
+                cleanup_paths=(),
+            ),
         ),
     )
     deleted = []
@@ -471,3 +558,4 @@ def test_upload_failure_retains_source_attempts_cleanup_and_reports_partial_writ
     assert deleted == []
     assert "Upload Failed, Replacement Cleanup Failed" in html
     assert "boom" in html
+    assert str(Path("/silver/category=event_mapping/module=dataset/instance_name=tam-global/year=2026/month=08/day=12/audit_logs-1-dataset.parquet")) in html
