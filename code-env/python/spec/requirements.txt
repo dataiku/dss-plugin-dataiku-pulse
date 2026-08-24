@@ -33,6 +33,8 @@ tomli==2.4.1
 # =========================
 # Cloud
 # =========================
+azure-identity==1.24.0
+azure-storage-blob==12.27.0
 boto3==1.43.12
 gcsfs==2026.5.0
 google-cloud-storage==3.10.1

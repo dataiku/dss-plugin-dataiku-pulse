@@ -18,6 +18,7 @@ from data_collection.audit_logs_modules.event_mapping_replay import (
     upload_event_mapping_replacements,
 )
 from data_collection.helper import DSSFolderTarget
+from shared_storage_discovery import iter_managed_folder_paths
 from shared_duckdb.context import build_storage_context
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,13 @@ class MyRunnable(Runnable):
         target = DSSFolderTarget(project_key=self.project_key, folder_lookup=storage_ctx.folder_lookup)
         folder = storage_ctx.folder_handle
 
-        source_paths = discover_event_mapping_paths(folder)
+        source_paths = sorted(
+            iter_managed_folder_paths(
+                storage_ctx,
+                relative_prefix="silver/category=event_mapping/",
+                suffix=".parquet",
+            )
+        )
         outcomes: list[EventMappingReplayOutcome] = []
 
         for index, path in enumerate(source_paths, start=1):
