@@ -1,30 +1,158 @@
-# This file is the actual code for the Python runnable reload-event-mapping
+from __future__ import annotations
+
+import html
+import logging
+from collections import Counter
+from dataclasses import dataclass
+
+import dataiku
 from dataiku.runnables import Runnable
 
-class MyRunnable(Runnable):
-    """The base interface for a Python runnable"""
+from data_collection.audit_logs_modules.event_mapping_replay import (
+    EventMappingReplayOutcome,
+    ReplaySkipError,
+    delete_managed_folder_file,
+    discover_event_mapping_paths,
+    parse_event_mapping_source_path,
+    plan_event_mapping_replay,
+    read_managed_folder_parquet,
+    upload_event_mapping_replacements,
+)
+from data_collection.helper import build_context, ensure_output_folder
 
+logger = logging.getLogger(__name__)
+
+SAMPLE_LIMIT = 5
+
+
+@dataclass(frozen=True)
+class OutcomeSample:
+    path: str
+    message: str
+
+
+def _sample_list(items: list[OutcomeSample], *, limit: int = SAMPLE_LIMIT) -> str:
+    if not items:
+        return "<em>None</em>"
+    rendered = "".join(
+        f"<li><code>{html.escape(item.path)}</code>: {html.escape(item.message)}</li>" for item in items[:limit]
+    )
+    suffix = "" if len(items) <= limit else f"<li><em>... {len(items) - limit} more</em></li>"
+    return f"<ul>{rendered}{suffix}</ul>"
+
+
+def _build_summary_html(
+    *,
+    project_key: str,
+    folder_lookup: str,
+    outcomes: list[EventMappingReplayOutcome],
+    discovered: int,
+) -> str:
+    counts = Counter(outcome.status for outcome in outcomes)
+    grouped_samples: dict[str, list[OutcomeSample]] = {}
+    for outcome in outcomes:
+        grouped_samples.setdefault(outcome.status, [])
+        if len(grouped_samples[outcome.status]) < SAMPLE_LIMIT:
+            grouped_samples[outcome.status].append(OutcomeSample(path=outcome.source_path, message=outcome.message))
+
+    statuses = [
+        ("replaced", "Replaced"),
+        ("dropped", "Dropped"),
+        ("skipped", "Skipped"),
+        ("failed", "Failed"),
+        ("delete_failed", "Delete Failed After Replacement"),
+    ]
+    lines = [
+        "<h2>Reload Event-Mapping SILVER</h2>",
+        f"<p><strong>Project:</strong> <code>{html.escape(project_key)}</code><br/>",
+        f"<strong>Folder:</strong> <code>{html.escape(folder_lookup)}</code><br/>",
+        f"<strong>Discovered parquet files:</strong> {discovered}</p>",
+        "<ul>",
+    ]
+    for status, label in statuses:
+        lines.append(f"<li><strong>{label}:</strong> {counts.get(status, 0)}</li>")
+    lines.append("</ul>")
+    for status, label in statuses:
+        lines.append(f"<h3>{label}</h3>{_sample_list(grouped_samples.get(status, []))}")
+    return "\n".join(lines)
+
+
+class MyRunnable(Runnable):
     def __init__(self, project_key, config, plugin_config):
-        """
-        :param project_key: the project in which the runnable executes
-        :param config: the dict of the configuration of the object
-        :param plugin_config: contains the plugin settings
-        """
         self.project_key = project_key
-        self.config = config
-        self.plugin_config = plugin_config
-        
+        self.config = config or {}
+        self.plugin_config = plugin_config or {}
+
     def get_progress_target(self):
-        """
-        If the runnable will return some progress info, have this function return a tuple of 
-        (target, unit) where unit is one of: SIZE, FILES, RECORDS, NONE
-        """
         return None
 
     def run(self, progress_callback):
-        """
-        Do stuff here. Can return a string or raise an exception.
-        The progress_callback is a function expecting 1 value: current progress
-        """
-        raise Exception("unimplemented")
-        
+        ctx = build_context(plugin_config=self.plugin_config)
+        target = ensure_output_folder(param_set=ctx.param_set, remote_client=ctx.remote_client)
+        folder = dataiku.Folder(target.folder_lookup, project_key=target.project_key)
+
+        source_paths = discover_event_mapping_paths(folder)
+        outcomes: list[EventMappingReplayOutcome] = []
+
+        for index, path in enumerate(source_paths, start=1):
+            progress_callback(index)
+            try:
+                source = parse_event_mapping_source_path(path)
+                source_df = read_managed_folder_parquet(folder, path)
+                plans = plan_event_mapping_replay(source=source, source_df=source_df)
+                if not plans:
+                    delete_managed_folder_file(folder, path)
+                    outcomes.append(
+                        EventMappingReplayOutcome(
+                            status="dropped",
+                            message="All rows were intentionally dropped by current mapping",
+                            source_path=path,
+                        )
+                    )
+                    continue
+
+                written_paths, dq_errors = upload_event_mapping_replacements(target=target, plans=plans)
+                if dq_errors:
+                    outcomes.append(
+                        EventMappingReplayOutcome(
+                            status="failed",
+                            message=f"DQ failed: {', '.join(dq_errors)}",
+                            source_path=path,
+                        )
+                    )
+                    continue
+
+                try:
+                    delete_managed_folder_file(folder, path)
+                except Exception as exc:
+                    logger.exception("Source delete failed after replacement writes for %s", path)
+                    outcomes.append(
+                        EventMappingReplayOutcome(
+                            status="delete_failed",
+                            message=repr(exc),
+                            source_path=path,
+                            replacement_paths=written_paths,
+                        )
+                    )
+                    continue
+
+                outcomes.append(
+                    EventMappingReplayOutcome(
+                        status="replaced",
+                        message=f"Wrote {len(written_paths)} replacement file(s)",
+                        source_path=path,
+                        replacement_paths=written_paths,
+                    )
+                )
+            except ReplaySkipError as exc:
+                outcomes.append(EventMappingReplayOutcome(status="skipped", message=str(exc), source_path=path))
+            except Exception as exc:
+                logger.exception("Reload event-mapping failed for %s", path)
+                outcomes.append(EventMappingReplayOutcome(status="failed", message=repr(exc), source_path=path))
+
+        return _build_summary_html(
+            project_key=target.project_key,
+            folder_lookup=target.folder_lookup,
+            outcomes=outcomes,
+            discovered=len(source_paths),
+        )
