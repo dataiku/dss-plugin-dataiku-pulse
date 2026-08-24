@@ -54,6 +54,15 @@ class ReplayWritePlan:
     event_date: date
 
 
+@dataclass(frozen=True)
+class ReplacementUploadResult:
+    status: str
+    written_paths: tuple[str, ...] = ()
+    cleanup_paths: tuple[str, ...] = ()
+    dq_errors: tuple[str, ...] = ()
+    message: str = ""
+
+
 class ReplaySkipError(ValueError):
     """Raised when a source file cannot be replayed safely."""
 
@@ -106,6 +115,19 @@ def delete_managed_folder_file(folder: Any, path: str) -> None:
         folder.delete_file(cleaned)
         return
     raise TypeError(f"Unsupported folder handle type for delete: {type(folder)!r}")
+
+
+def cleanup_written_replacements(*, folder: Any, paths: list[str]) -> tuple[tuple[str, ...], list[str]]:
+    cleaned_paths: list[str] = []
+    cleanup_errors: list[str] = []
+    for path in paths:
+        try:
+            delete_managed_folder_file(folder, path)
+            cleaned_paths.append(path)
+        except Exception as exc:
+            logger.exception("Failed cleaning replay replacement %s", path)
+            cleanup_errors.append(f"{path}: {exc!r}")
+    return tuple(cleaned_paths), cleanup_errors
 
 
 def discover_event_mapping_paths(folder: Any) -> list[str]:
@@ -294,19 +316,44 @@ def plan_event_mapping_replay(*, source: EventMappingSourceInfo, source_df: pd.D
     return plans
 
 
-def upload_event_mapping_replacements(*, target: DSSFolderTarget, plans: list[ReplayWritePlan]) -> tuple[tuple[str, ...], list[str]]:
-    written_paths: list[str] = []
-    dq_errors: list[str] = []
-    for plan in plans:
-        if not plan.dq.ok:
-            dq_errors.extend(plan.dq.errors)
-            continue
-        upload_parquet(
-            target=target,
-            output_path=Path(str(plan.output_path)),
-            output_base_dir=Path("/"),
-            df=plan.silver_df,
-            compression="snappy",
+def upload_event_mapping_replacements(*, target: DSSFolderTarget, folder: Any, plans: list[ReplayWritePlan]) -> ReplacementUploadResult:
+    dq_errors = [error for plan in plans if not plan.dq.ok for error in plan.dq.errors]
+    if dq_errors:
+        return ReplacementUploadResult(
+            status="dq_failed",
+            dq_errors=tuple(dq_errors),
+            message=", ".join(dq_errors),
         )
-        written_paths.append(str(plan.output_path))
-    return tuple(written_paths), dq_errors
+
+    written_paths: list[str] = []
+    try:
+        for plan in plans:
+            upload_parquet(
+                target=target,
+                output_path=Path(str(plan.output_path)),
+                output_base_dir=Path("/"),
+                df=plan.silver_df,
+                compression="snappy",
+            )
+            written_paths.append(str(plan.output_path))
+    except Exception as exc:
+        cleaned_paths, cleanup_errors = cleanup_written_replacements(folder=folder, paths=written_paths)
+        if cleanup_errors:
+            return ReplacementUploadResult(
+                status="upload_failed_cleanup_failed",
+                written_paths=tuple(written_paths),
+                cleanup_paths=cleaned_paths,
+                message=f"Upload failed: {exc!r}; cleanup failed: {'; '.join(cleanup_errors)}",
+            )
+        return ReplacementUploadResult(
+            status="upload_failed_cleaned",
+            written_paths=tuple(written_paths),
+            cleanup_paths=cleaned_paths,
+            message=f"Upload failed: {exc!r}; cleaned {len(cleaned_paths)} replacement(s)",
+        )
+
+    return ReplacementUploadResult(
+        status="uploaded",
+        written_paths=tuple(written_paths),
+        message=f"Wrote {len(written_paths)} replacement file(s)",
+    )

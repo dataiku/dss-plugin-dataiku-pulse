@@ -4,6 +4,7 @@ from .chunking import chunked
 from .dss_folder_writer import (
     DSSFolderTarget,
     ensure_managed_folder,
+    get_managed_folder_handle,
     upload_json,
     upload_json_gzip,
     upload_parquet,
@@ -23,6 +24,7 @@ __all__ = [
     "chunked",
     "DSSFolderTarget",
     "ensure_managed_folder",
+    "get_managed_folder_handle",
     "upload_json",
     "upload_json_gzip",
     "upload_parquet",

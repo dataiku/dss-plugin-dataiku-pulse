@@ -4,13 +4,12 @@ import html
 import logging
 from collections import Counter
 from dataclasses import dataclass
-
-import dataiku
 from dataiku.runnables import Runnable
 
 from data_collection.audit_logs_modules.event_mapping_replay import (
     EventMappingReplayOutcome,
     ReplaySkipError,
+    ReplacementUploadResult,
     delete_managed_folder_file,
     discover_event_mapping_paths,
     parse_event_mapping_source_path,
@@ -18,7 +17,7 @@ from data_collection.audit_logs_modules.event_mapping_replay import (
     read_managed_folder_parquet,
     upload_event_mapping_replacements,
 )
-from data_collection.helper import build_context, ensure_output_folder
+from data_collection.helper import build_context, ensure_output_folder, get_managed_folder_handle
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +59,8 @@ def _build_summary_html(
         ("dropped", "Dropped"),
         ("skipped", "Skipped"),
         ("failed", "Failed"),
+        ("partial_write_cleaned", "Upload Failed, Replacement Cleanup Succeeded"),
+        ("partial_write_cleanup_failed", "Upload Failed, Replacement Cleanup Failed"),
         ("delete_failed", "Delete Failed After Replacement"),
     ]
     lines = [
@@ -89,7 +90,7 @@ class MyRunnable(Runnable):
     def run(self, progress_callback):
         ctx = build_context(plugin_config=self.plugin_config)
         target = ensure_output_folder(param_set=ctx.param_set, remote_client=ctx.remote_client)
-        folder = dataiku.Folder(target.folder_lookup, project_key=target.project_key)
+        folder = get_managed_folder_handle(target=target)
 
         source_paths = discover_event_mapping_paths(folder)
         outcomes: list[EventMappingReplayOutcome] = []
@@ -111,13 +112,35 @@ class MyRunnable(Runnable):
                     )
                     continue
 
-                written_paths, dq_errors = upload_event_mapping_replacements(target=target, plans=plans)
-                if dq_errors:
+                upload_result: ReplacementUploadResult = upload_event_mapping_replacements(target=target, folder=folder, plans=plans)
+                if upload_result.status == "dq_failed":
                     outcomes.append(
                         EventMappingReplayOutcome(
                             status="failed",
-                            message=f"DQ failed: {', '.join(dq_errors)}",
+                            message=f"DQ failed: {upload_result.message}",
                             source_path=path,
+                        )
+                    )
+                    continue
+
+                if upload_result.status == "upload_failed_cleaned":
+                    outcomes.append(
+                        EventMappingReplayOutcome(
+                            status="partial_write_cleaned",
+                            message=upload_result.message,
+                            source_path=path,
+                            replacement_paths=upload_result.written_paths,
+                        )
+                    )
+                    continue
+
+                if upload_result.status == "upload_failed_cleanup_failed":
+                    outcomes.append(
+                        EventMappingReplayOutcome(
+                            status="partial_write_cleanup_failed",
+                            message=upload_result.message,
+                            source_path=path,
+                            replacement_paths=upload_result.written_paths,
                         )
                     )
                     continue
@@ -131,7 +154,7 @@ class MyRunnable(Runnable):
                             status="delete_failed",
                             message=repr(exc),
                             source_path=path,
-                            replacement_paths=written_paths,
+                            replacement_paths=upload_result.written_paths,
                         )
                     )
                     continue
@@ -139,9 +162,9 @@ class MyRunnable(Runnable):
                 outcomes.append(
                     EventMappingReplayOutcome(
                         status="replaced",
-                        message=f"Wrote {len(written_paths)} replacement file(s)",
+                        message=upload_result.message,
                         source_path=path,
-                        replacement_paths=written_paths,
+                        replacement_paths=upload_result.written_paths,
                     )
                 )
             except ReplaySkipError as exc:

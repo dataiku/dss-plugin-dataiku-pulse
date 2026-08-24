@@ -8,7 +8,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+import data_collection.helper.dss_folder_writer as dss_folder_writer
 from data_collection.audit_logs_modules import event_mapping_replay as replay
+from data_collection.helper.dss_folder_writer import DSSFolderTarget
 
 
 def _load_runnable_module():
@@ -124,9 +126,10 @@ def test_upload_failure_and_dq_failure_leave_deletion_to_caller(monkeypatch):
         module_name="webapps",
         event_date=source.run_date,
     )
-    written, dq_errors = replay.upload_event_mapping_replacements(target=object(), plans=[plan])
-    assert written == ()
-    assert dq_errors == ["empty_dataframe"]
+    result = replay.upload_event_mapping_replacements(target=object(), folder=object(), plans=[plan])
+    assert result.status == "dq_failed"
+    assert result.written_paths == ()
+    assert result.dq_errors == ("empty_dataframe",)
 
     ok_plan = replay.ReplayWritePlan(
         output_path=plan.output_path,
@@ -140,8 +143,9 @@ def test_upload_failure_and_dq_failure_leave_deletion_to_caller(monkeypatch):
         raise RuntimeError("upload failed")
 
     monkeypatch.setattr(replay, "upload_parquet", boom)
-    with pytest.raises(RuntimeError):
-        replay.upload_event_mapping_replacements(target=object(), plans=[ok_plan])
+    monkeypatch.setattr(replay, "cleanup_written_replacements", lambda folder, paths: (tuple(paths), []))
+    result = replay.upload_event_mapping_replacements(target=object(), folder=object(), plans=[ok_plan])
+    assert result.status == "upload_failed_cleaned"
 
 
 def test_discover_read_and_delete_support_local_and_remote_folder_modes():
@@ -213,9 +217,10 @@ def test_runnable_reports_delete_failed_after_successful_write(monkeypatch):
     class FakeFolder:
         pass
 
+    fake_folder = FakeFolder()
     monkeypatch.setattr(runnable_module, "build_context", lambda plugin_config: type("Ctx", (), {"param_set": {}, "remote_client": object()})())
     monkeypatch.setattr(runnable_module, "ensure_output_folder", lambda param_set, remote_client: type("Target", (), {"project_key": "P", "folder_lookup": "partitioned_data"})())
-    monkeypatch.setattr(runnable_module.dataiku, "Folder", lambda lookup, project_key=None: FakeFolder())
+    monkeypatch.setattr(runnable_module, "get_managed_folder_handle", lambda target: fake_folder)
     monkeypatch.setattr(runnable_module, "discover_event_mapping_paths", lambda folder: ["/silver/category=event_mapping/module=dataset/instance_name=inst/year=2026/month=08/day=24/audit_logs-1786510805050-dataset.parquet"])
     monkeypatch.setattr(runnable_module, "parse_event_mapping_source_path", lambda path: _audit_source_info(path))
     monkeypatch.setattr(runnable_module, "read_managed_folder_parquet", lambda folder, path: pd.DataFrame([{"msgtype": "X", "extras": '{"topic":"generic"}'}]))
@@ -235,7 +240,7 @@ def test_runnable_reports_delete_failed_after_successful_write(monkeypatch):
     monkeypatch.setattr(
         runnable_module,
         "upload_event_mapping_replacements",
-        lambda target, plans: ((str(plans[0].output_path),), []),
+        lambda target, folder, plans: replay.ReplacementUploadResult(status="uploaded", written_paths=(str(plans[0].output_path),), message="ok"),
     )
 
     def delete_fail(folder, path):
@@ -292,3 +297,177 @@ def test_normal_audit_gather_filename_logic_is_unchanged():
     text = runnable_path.read_text(encoding="utf-8")
 
     assert 'parquet_name = f"audit_logs-{run_epoch_ms}-{str(module_name)}.parquet"' in text
+
+
+def test_get_managed_folder_handle_returns_cached_local_and_remote_handles(monkeypatch):
+    target_local = DSSFolderTarget(project_key="P", folder_lookup="partitioned_data")
+    remote_client = type("RemoteClient", (), {"host": "https://remote.example"})()
+    target_remote = DSSFolderTarget(project_key="P", folder_lookup="partitioned_data", client=remote_client)
+    local_folder = object()
+    remote_folder = object()
+
+    monkeypatch.setattr(dss_folder_writer, "_FOLDER_HANDLE_CACHE", {})
+    monkeypatch.setattr(dss_folder_writer, "_get_or_create_local_folder", lambda target: local_folder)
+    monkeypatch.setattr(dss_folder_writer, "_get_or_create_remote_folder", lambda target: remote_folder)
+
+    assert dss_folder_writer.get_managed_folder_handle(target=target_local) is local_folder
+    assert dss_folder_writer.get_managed_folder_handle(target=target_local) is local_folder
+    assert dss_folder_writer.get_managed_folder_handle(target=target_remote) is remote_folder
+    assert dss_folder_writer.get_managed_folder_handle(target=target_remote) is remote_folder
+
+
+def test_upload_helpers_still_use_existing_resolved_handles(monkeypatch):
+    calls = []
+    local_folder = type("LocalFolder", (), {"upload_stream": lambda self, path, data: calls.append(("local", path))})()
+    remote_folder = type("RemoteFolder", (), {"put_file": lambda self, path, data: calls.append(("remote", path))})()
+    monkeypatch.setattr(dss_folder_writer, "_get_or_create_folder", lambda target: local_folder if target.project_key == "L" else remote_folder)
+
+    dss_folder_writer.upload_bytes(
+        target=DSSFolderTarget(project_key="L", folder_lookup="partitioned_data"),
+        output_path=Path("/silver/x.parquet"),
+        output_base_dir=Path("/"),
+        content=b"abc",
+    )
+    dss_folder_writer.upload_bytes(
+        target=DSSFolderTarget(project_key="R", folder_lookup="partitioned_data", client=object()),
+        output_path=Path("/silver/y.parquet"),
+        output_base_dir=Path("/"),
+        content=b"abc",
+    )
+
+    assert calls == [("local", "silver/x.parquet"), ("remote", "/silver/y.parquet")]
+
+
+def test_runnable_uses_configured_target_handle_for_list_read_delete(monkeypatch):
+    runnable_module = _load_runnable_module()
+    folder = object()
+    target = type("Target", (), {"project_key": "P", "folder_lookup": "partitioned_data"})()
+    used = {}
+
+    monkeypatch.setattr(runnable_module, "build_context", lambda plugin_config: type("Ctx", (), {"param_set": {}, "remote_client": object()})())
+    monkeypatch.setattr(runnable_module, "ensure_output_folder", lambda param_set, remote_client: target)
+    monkeypatch.setattr(runnable_module, "get_managed_folder_handle", lambda target: folder)
+    def fake_discover(found_folder):
+        used.setdefault("discover", found_folder)
+        return ["/silver/category=event_mapping/module=dataset/instance_name=inst/year=2026/month=08/day=24/audit_logs-1786510805050-dataset.parquet"]
+
+    def fake_read(found_folder, path):
+        used.setdefault("read", found_folder)
+        return pd.DataFrame([{"msgtype": "X", "extras": '{"topic":"generic"}'}])
+
+    monkeypatch.setattr(runnable_module, "discover_event_mapping_paths", fake_discover)
+    monkeypatch.setattr(runnable_module, "parse_event_mapping_source_path", lambda path: _audit_source_info(path))
+    monkeypatch.setattr(runnable_module, "read_managed_folder_parquet", fake_read)
+    monkeypatch.setattr(runnable_module, "plan_event_mapping_replay", lambda source, source_df: [])
+    monkeypatch.setattr(runnable_module, "delete_managed_folder_file", lambda found_folder, path: used.setdefault("delete", found_folder))
+
+    runner = runnable_module.MyRunnable(project_key="P", config={}, plugin_config={})
+    runner.run(lambda _: None)
+
+    assert used == {"discover": folder, "read": folder, "delete": folder}
+
+
+def test_dq_invalid_plan_performs_zero_uploads_and_retains_source(monkeypatch):
+    plan = replay.ReplayWritePlan(
+        output_path=Path("/silver/category=event_mapping/module=webapps/instance_name=inst/year=2026/month=08/day=24/audit_logs-1-webapps.parquet"),
+        silver_df=pd.DataFrame([{"instance_name": "inst", "run_ts": "2026-08-24T11:00:00Z"}]),
+        dq=replay.DQResult(ok=False, errors=["missing_column:run_ts"]),
+        module_name="webapps",
+        event_date=_audit_source_info().run_date,
+    )
+    upload_calls = []
+    monkeypatch.setattr(replay, "upload_parquet", lambda **kwargs: upload_calls.append(kwargs))
+
+    result = replay.upload_event_mapping_replacements(target=object(), folder=object(), plans=[plan])
+
+    assert result.status == "dq_failed"
+    assert upload_calls == []
+
+
+def test_multi_category_source_uploads_all_before_source_deletion(monkeypatch):
+    runnable_module = _load_runnable_module()
+    events = []
+    target = type("Target", (), {"project_key": "P", "folder_lookup": "partitioned_data"})()
+    folder = object()
+    source = _audit_source_info()
+    plans = [
+        replay.ReplayWritePlan(
+            output_path=Path("/silver/category=event_mapping/module=dataset/instance_name=tam-global/year=2026/month=08/day=12/audit_logs-1-dataset.parquet"),
+            silver_df=pd.DataFrame([{"instance_name": "inst", "run_ts": "2026-08-24T11:00:00Z"}]),
+            dq=replay.DQResult(ok=True, errors=[]),
+            module_name="dataset",
+            event_date=source.run_date,
+        ),
+        replay.ReplayWritePlan(
+            output_path=Path("/silver/category=event_mapping/module=webapps/instance_name=tam-global/year=2026/month=08/day=12/audit_logs-2-webapps.parquet"),
+            silver_df=pd.DataFrame([{"instance_name": "inst", "run_ts": "2026-08-24T11:00:00Z"}]),
+            dq=replay.DQResult(ok=True, errors=[]),
+            module_name="webapps",
+            event_date=source.run_date,
+        ),
+    ]
+
+    monkeypatch.setattr(runnable_module, "build_context", lambda plugin_config: type("Ctx", (), {"param_set": {}, "remote_client": object()})())
+    monkeypatch.setattr(runnable_module, "ensure_output_folder", lambda param_set, remote_client: target)
+    monkeypatch.setattr(runnable_module, "get_managed_folder_handle", lambda target: folder)
+    monkeypatch.setattr(runnable_module, "discover_event_mapping_paths", lambda folder: [source.path])
+    monkeypatch.setattr(runnable_module, "parse_event_mapping_source_path", lambda path: source)
+    monkeypatch.setattr(runnable_module, "read_managed_folder_parquet", lambda folder, path: pd.DataFrame([{"msgtype": "X", "extras": '{"topic":"generic"}'}]))
+    monkeypatch.setattr(runnable_module, "plan_event_mapping_replay", lambda source, source_df: plans)
+    monkeypatch.setattr(
+        runnable_module,
+        "upload_event_mapping_replacements",
+        lambda target, folder, plans: events.append(("upload", tuple(str(plan.output_path) for plan in plans))) or replay.ReplacementUploadResult(status="uploaded", written_paths=tuple(str(plan.output_path) for plan in plans), message="ok"),
+    )
+    monkeypatch.setattr(runnable_module, "delete_managed_folder_file", lambda folder, path: events.append(("delete", path)))
+
+    runner = runnable_module.MyRunnable(project_key="P", config={}, plugin_config={})
+    runner.run(lambda _: None)
+
+    assert events[0][0] == "upload"
+    assert events[1] == ("delete", source.path)
+
+
+def test_upload_failure_retains_source_attempts_cleanup_and_reports_partial_write(monkeypatch):
+    runnable_module = _load_runnable_module()
+    target = type("Target", (), {"project_key": "P", "folder_lookup": "partitioned_data"})()
+    folder = object()
+    source = _audit_source_info()
+    monkeypatch.setattr(runnable_module, "build_context", lambda plugin_config: type("Ctx", (), {"param_set": {}, "remote_client": object()})())
+    monkeypatch.setattr(runnable_module, "ensure_output_folder", lambda param_set, remote_client: target)
+    monkeypatch.setattr(runnable_module, "get_managed_folder_handle", lambda target: folder)
+    monkeypatch.setattr(runnable_module, "discover_event_mapping_paths", lambda folder: [source.path])
+    monkeypatch.setattr(runnable_module, "parse_event_mapping_source_path", lambda path: source)
+    monkeypatch.setattr(runnable_module, "read_managed_folder_parquet", lambda folder, path: pd.DataFrame([{"msgtype": "X", "extras": '{"topic":"generic"}'}]))
+    monkeypatch.setattr(
+        runnable_module,
+        "plan_event_mapping_replay",
+        lambda source, source_df: [
+            replay.ReplayWritePlan(
+                output_path=Path("/silver/category=event_mapping/module=dataset/instance_name=tam-global/year=2026/month=08/day=12/audit_logs-1-dataset.parquet"),
+                silver_df=pd.DataFrame([{"instance_name": "inst", "run_ts": "2026-08-24T11:00:00Z"}]),
+                dq=replay.DQResult(ok=True, errors=[]),
+                module_name="dataset",
+                event_date=source.run_date,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        runnable_module,
+        "upload_event_mapping_replacements",
+        lambda target, folder, plans: replay.ReplacementUploadResult(
+            status="upload_failed_cleanup_failed",
+            written_paths=(str(plans[0].output_path),),
+            cleanup_paths=(),
+            message="Upload failed: RuntimeError('boom'); cleanup failed: /silver/...",
+        ),
+    )
+    deleted = []
+    monkeypatch.setattr(runnable_module, "delete_managed_folder_file", lambda folder, path: deleted.append(path))
+
+    runner = runnable_module.MyRunnable(project_key="P", config={}, plugin_config={})
+    html = runner.run(lambda _: None)
+
+    assert deleted == []
+    assert "Upload Failed, Replacement Cleanup Failed" in html
+    assert "boom" in html
