@@ -50,9 +50,37 @@ def test_rehydrate_extras_preserves_top_level_fields_and_restores_mapper_input()
     assert "dataiku_category" not in out.columns
     assert "extras" not in out.columns
     assert out.loc[0, "message_msgType"] == "LOGIN"
-    assert out.loc[0, "msgtype"] == "LOGIN"
+    assert "msgtype" not in out.columns
     assert out.loc[0, "topic"] == "generic"
     assert out.loc[0, "custom"] == "value"
+
+
+def test_rehydrate_event_mapping_source_drops_stale_mapper_fields_and_preserves_mapper_inputs():
+    df = pd.DataFrame(
+        [
+            {
+                "topic": "generic",
+                "msgtype": "OLD_TYPE",
+                "msgtypebase": "OLD_BASE",
+                "dataiku_category": "old_category",
+                "authvia": "ticket:job:PROJ_1.job",
+                "timestamp": "2026-08-24T10:00:00Z",
+                "extras": '{"message_msgType":"SHOULD_NOT_OVERRIDE","severity":"INFO","callpath":"/path"}',
+            }
+        ]
+    )
+
+    out = replay.rehydrate_event_mapping_source(df)
+
+    assert out.loc[0, "message_msgType"] == "OLD_TYPE"
+    assert "msgtype" not in out.columns
+    assert "msgtypebase" not in out.columns
+    assert "dataiku_category" not in out.columns
+    assert "extras" not in out.columns
+    assert out.loc[0, "topic"] == "generic"
+    assert out.loc[0, "authvia"] == "ticket:job:PROJ_1.job"
+    assert out.loc[0, "severity"] == "INFO"
+    assert out.loc[0, "callpath"] == "/path"
 
 
 @pytest.mark.parametrize("extras_value", [None, "", "   "])
@@ -106,6 +134,145 @@ def test_plan_replay_groups_by_new_category_and_preserves_partition_date(monkeyp
     assert {plan.module_name for plan in plans} == {"webapps", "projects"}
     assert all(str(plan.output_path).startswith("/silver/category=event_mapping/module=") for plan in plans)
     assert all("instance_name=tam-global" in str(plan.output_path) for plan in plans)
+
+
+def test_plan_replay_uses_current_mapper_msgtypebase_without_duplicates(monkeypatch):
+    source = _audit_source_info()
+    source_df = pd.DataFrame(
+        [
+            {
+                "topic": "generic",
+                "msgtype": "OLD_TYPE",
+                "msgtypebase": "OLD_BASE",
+                "dataiku_category": "old_category",
+                "authvia": "ticket:job:PROJ_1.job",
+                "timestamp": "2026-08-24T10:00:00Z",
+                "run_ts": "2026-08-24T11:00:00Z",
+                "extras": '{"severity":"INFO","callpath":"/path"}',
+            }
+        ]
+    )
+    captured = {}
+
+    def fake_main(df: pd.DataFrame) -> pd.DataFrame:
+        captured["columns"] = list(df.columns)
+        captured["row"] = df.iloc[0].to_dict()
+        return pd.DataFrame(
+            [
+                {
+                    "topic": "generic",
+                    "msgtype": "NEW_TYPE",
+                    "msgtypebase": "NEW_BASE",
+                    "dataiku_category": "dataset",
+                    "authvia": df.iloc[0]["authvia"],
+                    "callpath": df.iloc[0]["callpath"],
+                    "timestamp": df.iloc[0]["timestamp"],
+                    "date": "2026-08-24",
+                    "severity": df.iloc[0]["severity"],
+                }
+            ]
+        )
+
+    monkeypatch.setattr(replay.event_mapping, "main", fake_main)
+    plans = replay.plan_event_mapping_replay(source=source, source_df=source_df)
+
+    assert captured["row"]["message_msgType"] == "OLD_TYPE"
+    assert "msgtype" not in captured["columns"]
+    assert "msgtypebase" not in captured["columns"]
+    assert "dataiku_category" not in captured["columns"]
+    assert captured["row"]["topic"] == "generic"
+    assert captured["row"]["authvia"] == "ticket:job:PROJ_1.job"
+
+    assert len(plans) == 1
+    silver_df = plans[0].silver_df
+    assert not silver_df.columns.duplicated().any()
+    assert list(silver_df.columns).count("msgtype") == 1
+    assert list(silver_df.columns).count("msgtypebase") == 1
+    assert silver_df.loc[0, "msgtypebase"] == "NEW_BASE"
+    assert silver_df.loc[0, "msgtype"] == "NEW_TYPE"
+
+
+def test_wide_source_without_extras_replays_and_packs_non_schema_fields(monkeypatch):
+    source = _audit_source_info()
+    source_df = pd.DataFrame(
+        [
+            {
+                "topic": "generic",
+                "msgtype": "DATASET_DELETE",
+                "msgtypebase": "STALE_BASE",
+                "dataiku_category": "dataset",
+                "authvia": "ticket:job:PROJ_2.job",
+                "timestamp": "2026-08-24T10:00:00Z",
+                "run_ts": "2026-08-24T11:00:00Z",
+                "severity": "WARN",
+                "logger": "audit.logger",
+                "calltime": 123,
+                "audittopic": "generic",
+                "clientip": "127.0.0.1",
+                "datasetname": "ds1",
+                "fulldatasetname": "PROJ_2.ds1",
+                "callpath": "/projects/PROJ_2/datasets/ds1",
+            }
+        ]
+    )
+
+    def fake_main(df: pd.DataFrame) -> pd.DataFrame:
+        return pd.DataFrame(
+            [
+                {
+                    "topic": df.iloc[0]["topic"],
+                    "msgtype": "DATASET_DELETE",
+                    "msgtypebase": "DATASET",
+                    "dataiku_category": "dataset",
+                    "authvia": df.iloc[0]["authvia"],
+                    "callpath": df.iloc[0]["callpath"],
+                    "timestamp": df.iloc[0]["timestamp"],
+                    "date": "2026-08-24",
+                    "severity": df.iloc[0]["severity"],
+                    "logger": df.iloc[0]["logger"],
+                    "calltime": df.iloc[0]["calltime"],
+                    "audittopic": df.iloc[0]["audittopic"],
+                    "clientip": df.iloc[0]["clientip"],
+                    "datasetname": df.iloc[0]["datasetname"],
+                    "fulldatasetname": df.iloc[0]["fulldatasetname"],
+                    "project_key_source_call": "PROJ_2",
+                }
+            ]
+        )
+
+    monkeypatch.setattr(replay.event_mapping, "main", fake_main)
+    plans = replay.plan_event_mapping_replay(source=source, source_df=source_df)
+
+    assert len(plans) == 1
+    silver_df = plans[0].silver_df
+    assert "extras" in silver_df.columns
+    assert list(silver_df.columns) == [
+        "instance_name",
+        "project_key",
+        "project_key_source_call",
+        "authuser",
+        "authsource",
+        "authvia",
+        "msgtype",
+        "msgtypebase",
+        "dataiku_category",
+        "callpath",
+        "timestamp",
+        "date",
+        "run_ts",
+        "extras",
+    ]
+    extras = silver_df.loc[0, "extras"]
+    assert extras is not None
+    payload = __import__("json").loads(extras)
+    assert payload["severity"] == "WARN"
+    assert payload["logger"] == "audit.logger"
+    assert payload["calltime"] == 123
+    assert payload["audittopic"] == "generic"
+    assert payload["clientip"] == "127.0.0.1"
+    assert payload["datasetname"] == "ds1"
+    assert payload["fulldatasetname"] == "PROJ_2.ds1"
+    assert silver_df.loc[0, "msgtypebase"] == "DATASET"
 
 
 def test_plan_replay_returns_empty_when_mapper_drops_all_rows(monkeypatch):

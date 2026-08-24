@@ -224,12 +224,15 @@ def rehydrate_event_mapping_source(df: pd.DataFrame) -> pd.DataFrame:
         base_rows.append(merged)
 
     rehydrated = pd.DataFrame(base_rows)
-    if "msgtype" in rehydrated.columns and "message_msgType" not in rehydrated.columns:
+    if "msgtype" in rehydrated.columns:
         rehydrated["message_msgType"] = rehydrated["msgtype"]
-    if "dataiku_category" in rehydrated.columns:
-        rehydrated = rehydrated.drop(columns=["dataiku_category"])
-    if "extras" in rehydrated.columns:
-        rehydrated = rehydrated.drop(columns=["extras"])
+    stale_mapper_columns = [
+        column_name
+        for column_name in ["msgtype", "msgtypebase", "dataiku_category", "extras"]
+        if column_name in rehydrated.columns
+    ]
+    if stale_mapper_columns:
+        rehydrated = rehydrated.drop(columns=stale_mapper_columns)
     return rehydrated
 
 
