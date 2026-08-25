@@ -65,7 +65,7 @@ def _new_outcome_accumulator() -> OutcomeAccumulator:
 def _configure_runtime_logging() -> None:
     for logger_name in NOISY_DEBUG_LOGGERS:
         noisy_logger = logging.getLogger(logger_name)
-        if noisy_logger.level == logging.DEBUG:
+        if noisy_logger.getEffectiveLevel() <= logging.DEBUG:
             noisy_logger.setLevel(logging.WARNING)
 
 

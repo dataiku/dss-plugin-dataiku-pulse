@@ -914,3 +914,37 @@ def test_runnable_suppresses_noisy_debug_loggers_and_bounds_tracebacks(monkeypat
     assert len(error_logs) >= 1
     assert "traceback logging suppressed" in error_logs[0]
     assert "<strong>Failed:</strong> 5" in html
+
+
+def test_configure_runtime_logging_suppresses_inherited_root_debug_and_preserves_warnings():
+    runnable_module = _load_runnable_module()
+    root_logger = logging.getLogger()
+    botocore_logger = logging.getLogger("botocore")
+    urllib3_logger = logging.getLogger("urllib3")
+
+    original_root_level = root_logger.level
+    original_botocore_level = botocore_logger.level
+    original_urllib3_level = urllib3_logger.level
+
+    try:
+        root_logger.setLevel(logging.DEBUG)
+        botocore_logger.setLevel(logging.NOTSET)
+        urllib3_logger.setLevel(logging.NOTSET)
+
+        assert botocore_logger.getEffectiveLevel() == logging.DEBUG
+        assert urllib3_logger.getEffectiveLevel() == logging.DEBUG
+
+        runnable_module._configure_runtime_logging()
+
+        assert botocore_logger.level == logging.WARNING
+        assert urllib3_logger.level == logging.WARNING
+        assert botocore_logger.getEffectiveLevel() == logging.WARNING
+        assert urllib3_logger.getEffectiveLevel() == logging.WARNING
+        assert botocore_logger.isEnabledFor(logging.WARNING)
+        assert urllib3_logger.isEnabledFor(logging.ERROR)
+        assert not botocore_logger.isEnabledFor(logging.DEBUG)
+        assert not urllib3_logger.isEnabledFor(logging.DEBUG)
+    finally:
+        root_logger.setLevel(original_root_level)
+        botocore_logger.setLevel(original_botocore_level)
+        urllib3_logger.setLevel(original_urllib3_level)
