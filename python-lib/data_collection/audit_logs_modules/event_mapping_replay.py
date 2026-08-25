@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import logging
 import re
@@ -97,11 +98,7 @@ def read_managed_folder_parquet(folder: Any, path: str) -> pd.DataFrame:
     cleaned = clean_managed_folder_path(path)
     if hasattr(folder, "get_download_stream"):
         with folder.get_download_stream(cleaned) as stream:
-            return pd.read_parquet(stream)
-
-    if hasattr(folder, "get_file"):
-        with folder.get_file(cleaned) as response:
-            return pd.read_parquet(response.raw)
+            return pd.read_parquet(io.BytesIO(stream.read()))
 
     raise TypeError(f"Unsupported folder handle type for parquet read: {type(folder)!r}")
 
