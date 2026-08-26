@@ -68,7 +68,25 @@ def get_output_names_for_role(role: str) -> list[str]:
 
 _customrecipe.get_recipe_config = get_recipe_config
 _customrecipe.get_output_names_for_role = get_output_names_for_role
+
+
+def get_recipe_resource() -> str | None:
+    return None
+
+
+_customrecipe.get_recipe_resource = get_recipe_resource
 sys.modules["dataiku.customrecipe"] = _customrecipe
+
+_customwebapp = types.ModuleType("dataiku.customwebapp")
+
+
+def get_webapp_resource() -> str | None:
+    return None
+
+
+_customwebapp.get_webapp_resource = get_webapp_resource
+sys.modules["dataiku.customwebapp"] = _customwebapp
 
 runnables = _runnables
 customrecipe = _customrecipe
+customwebapp = _customwebapp
