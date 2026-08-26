@@ -420,7 +420,7 @@ def test_runnable_reports_delete_failed_after_successful_write(monkeypatch):
     runnable_module = _load_runnable_module()
 
     local_folder = object()
-    monkeypatch.setattr(runnable_module, "build_storage_context", lambda project_key, folder_lookup: type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_id": "FOLDER_ID"})())
+    monkeypatch.setattr(runnable_module, "build_storage_context", lambda project_key, folder_lookup: type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_id": "FOLDER_ID", "connection_type": "EC2"})())
     monkeypatch.setattr(runnable_module.dataiku, "Folder", lambda lookup, project_key, ignore_flow: local_folder)
     monkeypatch.setattr(runnable_module, "iter_managed_folder_paths", lambda storage_ctx, relative_prefix, suffix: ["/silver/category=event_mapping/module=dataset/instance_name=inst/year=2026/month=08/day=24/audit_logs-1786510805050-dataset.parquet"])
     monkeypatch.setattr(runnable_module, "parse_event_mapping_source_path", lambda path: _audit_source_info(path))
@@ -464,14 +464,10 @@ def test_runnable_runs_without_remote_credentials_and_uses_local_project_folder(
 
     def fake_storage_context(*, project_key, folder_lookup):
         seen["storage"] = (project_key, folder_lookup)
-        return type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_id": "LOCAL_FOLDER_ID"})()
-
-    def fake_folder(*, lookup, project_key, ignore_flow):
-        seen["folder"] = (lookup, project_key, ignore_flow)
-        return object()
+        return type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_id": "LOCAL_FOLDER_ID", "connection_type": "EC2"})()
 
     monkeypatch.setattr(runnable_module, "build_storage_context", fake_storage_context)
-    monkeypatch.setattr(runnable_module.dataiku, "Folder", fake_folder)
+    monkeypatch.setattr(runnable_module, "_make_local_folder", lambda project_key, folder_id: seen.setdefault("folder", (folder_id, project_key)) or object())
     def fake_iter(storage_ctx, relative_prefix, suffix):
         seen["discover_args"] = (storage_ctx, relative_prefix, suffix)
         return []
@@ -486,7 +482,7 @@ def test_runnable_runs_without_remote_credentials_and_uses_local_project_folder(
     html = runner.run(lambda _: None)
 
     assert seen["storage"] == ("LOCAL_PROJECT", "local_partitioned")
-    assert seen["folder"] == ("LOCAL_FOLDER_ID", "LOCAL_PROJECT", True)
+    assert "folder" not in seen
     assert seen["discover_args"][1:] == ("silver/category=event_mapping/", ".parquet")
     assert "Discovered parquet files:" in html
 
@@ -523,7 +519,7 @@ def test_local_target_uses_self_project_key_for_upload_and_folder_lookup(monkeyp
 
     def fake_storage_context(project_key, folder_lookup):
         captured["storage"] = (project_key, folder_lookup)
-        return type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_id": "FOLDER_ID"})()
+        return type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_id": "FOLDER_ID", "connection_type": "EC2"})()
 
     monkeypatch.setattr(runnable_module, "build_storage_context", fake_storage_context)
     monkeypatch.setattr(runnable_module.dataiku, "Folder", lambda lookup, project_key, ignore_flow: folder)
@@ -632,7 +628,7 @@ def test_runnable_uses_configured_target_handle_for_list_read_delete(monkeypatch
     target = type("Target", (), {"project_key": "P", "folder_lookup": "partitioned_data"})()
     used = {}
 
-    monkeypatch.setattr(runnable_module, "build_storage_context", lambda project_key, folder_lookup: type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_id": "FOLDER_ID"})())
+    monkeypatch.setattr(runnable_module, "build_storage_context", lambda project_key, folder_lookup: type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_id": "FOLDER_ID", "connection_type": "EC2"})())
     monkeypatch.setattr(runnable_module.dataiku, "Folder", lambda lookup, project_key, ignore_flow: folder)
     def fake_discover(found_folder):
         used.setdefault("discover", found_folder)
@@ -777,7 +773,7 @@ def test_multi_category_source_uploads_all_before_source_deletion(monkeypatch):
         ),
     ]
 
-    monkeypatch.setattr(runnable_module, "build_storage_context", lambda project_key, folder_lookup: type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_id": "FOLDER_ID"})())
+    monkeypatch.setattr(runnable_module, "build_storage_context", lambda project_key, folder_lookup: type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_id": "FOLDER_ID", "connection_type": "EC2"})())
     monkeypatch.setattr(runnable_module.dataiku, "Folder", lambda lookup, project_key, ignore_flow: folder)
     monkeypatch.setattr(runnable_module, "iter_managed_folder_paths", lambda storage_ctx, relative_prefix, suffix: [source.path])
     monkeypatch.setattr(runnable_module, "parse_event_mapping_source_path", lambda path: source)
@@ -802,7 +798,7 @@ def test_upload_failure_retains_source_attempts_cleanup_and_reports_partial_writ
     target = type("Target", (), {"project_key": "P", "folder_lookup": "partitioned_data"})()
     folder = object()
     source = _audit_source_info()
-    monkeypatch.setattr(runnable_module, "build_storage_context", lambda project_key, folder_lookup: type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_id": "FOLDER_ID"})())
+    monkeypatch.setattr(runnable_module, "build_storage_context", lambda project_key, folder_lookup: type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_id": "FOLDER_ID", "connection_type": "EC2"})())
     monkeypatch.setattr(runnable_module.dataiku, "Folder", lambda lookup, project_key, ignore_flow: folder)
     monkeypatch.setattr(runnable_module, "iter_managed_folder_paths", lambda storage_ctx, relative_prefix, suffix: [source.path])
     monkeypatch.setattr(runnable_module, "parse_event_mapping_source_path", lambda path: source)
@@ -859,7 +855,7 @@ def test_runnable_bounds_progress_counts_and_samples(monkeypatch):
         def delete_path(self, path):
             return None
 
-    monkeypatch.setattr(runnable_module, "build_storage_context", lambda project_key, folder_lookup: type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_id": "FOLDER_ID"})())
+    monkeypatch.setattr(runnable_module, "build_storage_context", lambda project_key, folder_lookup: type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_id": "FOLDER_ID", "connection_type": "EC2"})())
     monkeypatch.setattr(runnable_module.dataiku, "Folder", lambda lookup, project_key, ignore_flow: LocalFolder())
     monkeypatch.setattr(runnable_module, "iter_managed_folder_paths", lambda storage_ctx, relative_prefix, suffix: source_paths)
     monkeypatch.setattr(runnable_module, "parse_event_mapping_source_path", lambda path: _audit_source_info(path))
@@ -870,8 +866,8 @@ def test_runnable_bounds_progress_counts_and_samples(monkeypatch):
     runner = runnable_module.MyRunnable(project_key="P", config={}, plugin_config={})
     html = runner.run(progress_calls.append)
 
-    assert progress_calls == [1, 1000, 2000, 2505]
-    assert sum("Reload event-mapping progress:" in line for line in info_logs) == 4
+    assert progress_calls == [1, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300, 2400, 2500, 2505]
+    assert sum("Reload event-mapping replay progress:" in line for line in info_logs) == 27
     assert "<strong>Dropped:</strong> 2505" in html
     assert "... 2500 more" in html
 
@@ -891,7 +887,7 @@ def test_runnable_suppresses_noisy_debug_loggers_and_bounds_tracebacks(monkeypat
     botocore_logger.setLevel(logging.DEBUG)
     urllib3_logger.setLevel(logging.DEBUG)
 
-    monkeypatch.setattr(runnable_module, "build_storage_context", lambda project_key, folder_lookup: type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_id": "FOLDER_ID"})())
+    monkeypatch.setattr(runnable_module, "build_storage_context", lambda project_key, folder_lookup: type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_id": "FOLDER_ID", "connection_type": "EC2"})())
     monkeypatch.setattr(runnable_module.dataiku, "Folder", lambda lookup, project_key, ignore_flow: object())
     monkeypatch.setattr(runnable_module, "iter_managed_folder_paths", lambda storage_ctx, relative_prefix, suffix: source_paths)
     monkeypatch.setattr(runnable_module, "parse_event_mapping_source_path", lambda path: _audit_source_info(path))
@@ -948,3 +944,232 @@ def test_configure_runtime_logging_suppresses_inherited_root_debug_and_preserves
         root_logger.setLevel(original_root_level)
         botocore_logger.setLevel(original_botocore_level)
         urllib3_logger.setLevel(original_urllib3_level)
+
+
+def test_reload_runnable_manifest_uses_only_pulse_primary_preset():
+    import json
+
+    payload = json.loads((Path(__file__).resolve().parents[2] / "python-runnables" / "reload-event-mapping" / "runnable.json").read_text())
+
+    assert payload["params"] == [
+        {
+            "type": "PRESET",
+            "name": "pulse_primary",
+            "label": "Choose PULSE Primary Configuration",
+            "parameterSetId": "params-dashboard-instance",
+            "mandatory": True,
+        }
+    ]
+
+
+def test_discovery_snapshot_logs_start_progress_and_completion(monkeypatch):
+    runnable_module = _load_runnable_module()
+    info_logs = []
+    paths = [f"/silver/category=event_mapping/module=dataset/file-{index}.parquet" for index in range(10005)]
+
+    storage_ctx = type("StorageCtx", (), {"connection_type": "EC2"})()
+    monkeypatch.setattr(runnable_module.logger, "info", lambda msg, *args: info_logs.append(msg % args if args else msg))
+    monkeypatch.setattr(runnable_module, "iter_managed_folder_paths", lambda storage_ctx, relative_prefix, suffix: iter(paths))
+
+    snapshot = runnable_module._discover_source_snapshot(storage_ctx=storage_ctx, folder_lookup="partitioned_data")
+
+    assert snapshot == sorted(paths)
+    assert "Reload event-mapping discovery started folder=partitioned_data provider=EC2 prefix=silver/category=event_mapping/" in info_logs[0]
+    assert any("Reload event-mapping discovery progress matched=10000" in line for line in info_logs)
+    assert any("Reload event-mapping discovery completed matched=10005" in line for line in info_logs)
+    assert all("file-1.parquet" not in line for line in info_logs)
+
+
+@pytest.mark.parametrize(
+    ("param_set", "expected"),
+    [
+        ({"do_parallel": False, "cores": 8}, 1),
+        ({"do_parallel": True, "cores": 6}, 6),
+        ({"do_parallel": True, "cores": "3"}, 3),
+    ],
+)
+def test_resolve_worker_count_honors_admin_configuration(param_set, expected):
+    runnable_module = _load_runnable_module()
+    assert runnable_module._resolve_worker_count(param_set) == expected
+
+
+@pytest.mark.parametrize("cores", [None, "", "abc", 0, -2])
+def test_resolve_worker_count_falls_back_only_for_missing_or_invalid_values(monkeypatch, cores):
+    runnable_module = _load_runnable_module()
+    monkeypatch.setattr(runnable_module.os, "cpu_count", lambda: 8)
+    assert runnable_module._resolve_worker_count({"do_parallel": True, "cores": cores}) == 4
+
+
+def test_yield_worker_results_uses_bounded_batches_and_parallel_completion(monkeypatch):
+    runnable_module = _load_runnable_module()
+    submit_calls = []
+    source_paths = [f"p{index}" for index in range(5)]
+
+    class FakeFuture:
+        def __init__(self, value):
+            self._value = value
+
+        def result(self):
+            return self._value
+
+    class FakeExecutor:
+        def __init__(self, max_workers):
+            self.max_workers = max_workers
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def submit(self, worker_fn, path):
+            submit_calls.append(path)
+            return FakeFuture(worker_fn(path))
+
+    monkeypatch.setattr(runnable_module, "ThreadPoolExecutor", FakeExecutor)
+    monkeypatch.setattr(runnable_module, "as_completed", lambda futures: iter(reversed(futures)))
+
+    results = list(
+        runnable_module._yield_worker_results(
+            source_paths=source_paths,
+            worker_count=2,
+            batch_size=2,
+            worker_fn=lambda path: runnable_module.WorkerResult(
+                outcome=replay.EventMappingReplayOutcome(status="replaced", message="ok", source_path=path)
+            ),
+        )
+    )
+
+    assert submit_calls == ["p0", "p1", "p2", "p3", "p4"]
+    assert [result.outcome.source_path for result in results] == ["p1", "p0", "p3", "p2", "p4"]
+
+
+@pytest.mark.parametrize("parallel_enabled", [False, True])
+def test_replay_progress_logs_completion_counts_in_sequential_and_parallel_modes(monkeypatch, parallel_enabled):
+    runnable_module = _load_runnable_module()
+    source_paths = [
+        f"/silver/category=event_mapping/module=dataset/instance_name=inst/year=2026/month=08/day=24/audit_logs-{index}-dataset.parquet"
+        for index in range(205)
+    ]
+    info_logs = []
+    progress_calls = []
+    payloads = {
+        source_paths[0]: runnable_module.WorkerResult(outcome=replay.EventMappingReplayOutcome(status="replaced", message="ok", source_path=source_paths[0])),
+        source_paths[1]: runnable_module.WorkerResult(outcome=replay.EventMappingReplayOutcome(status="dropped", message="drop", source_path=source_paths[1])),
+        source_paths[2]: runnable_module.WorkerResult(outcome=replay.EventMappingReplayOutcome(status="skipped", message="skip", source_path=source_paths[2])),
+        source_paths[3]: runnable_module.WorkerResult(outcome=replay.EventMappingReplayOutcome(status="failed", message="DQ failed", source_path=source_paths[3])),
+        source_paths[4]: runnable_module.WorkerResult(outcome=replay.EventMappingReplayOutcome(status="partial_write_cleaned", message="cleaned", source_path=source_paths[4])),
+        source_paths[5]: runnable_module.WorkerResult(outcome=replay.EventMappingReplayOutcome(status="partial_write_cleanup_failed", message="cleanup failed", source_path=source_paths[5])),
+        source_paths[6]: runnable_module.WorkerResult(outcome=replay.EventMappingReplayOutcome(status="delete_failed", message="delete failed", source_path=source_paths[6])),
+    }
+    for path in source_paths[7:]:
+        payloads[path] = runnable_module.WorkerResult(
+            outcome=replay.EventMappingReplayOutcome(status="replaced", message="ok", source_path=path)
+        )
+
+    monkeypatch.setattr(runnable_module, "build_storage_context", lambda project_key, folder_lookup: type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_id": "FOLDER_ID", "connection_type": "EC2"})())
+    monkeypatch.setattr(runnable_module, "_discover_source_snapshot", lambda storage_ctx, folder_lookup: source_paths)
+    monkeypatch.setattr(runnable_module.logger, "info", lambda msg, *args: info_logs.append(msg % args if args else msg))
+    monkeypatch.setattr(runnable_module, "_process_source_path", lambda source_path, project_key, folder_id, target: payloads[source_path])
+
+    def fake_yield_worker_results(*, source_paths, worker_count, batch_size, worker_fn):
+        assert batch_size == runnable_module.REPLAY_BATCH_SIZE
+        assert worker_count == (2 if parallel_enabled else 1)
+        for path in source_paths:
+            yield worker_fn(path)
+
+    monkeypatch.setattr(runnable_module, "_yield_worker_results", fake_yield_worker_results)
+
+    runner = runnable_module.MyRunnable(
+        project_key="P",
+        config={},
+        plugin_config={"pulse_primary": {"do_parallel": parallel_enabled, "cores": 2}},
+    )
+    html = runner.run(progress_calls.append)
+
+    assert progress_calls == [1, 100, 200, 205]
+    assert any("replay started total=205 parallel=%s workers=%s batch_size=100" % (str(parallel_enabled), 2 if parallel_enabled else 1) in line for line in info_logs)
+    assert any("replay progress: 1/205 completed" in line and "replaced=1" in line for line in info_logs)
+    assert any("replay progress: 100/205 completed" in line for line in info_logs)
+    assert any("replay progress: 205/205 completed" in line for line in info_logs)
+    assert "<strong>Replaced:</strong> 199" in html
+    assert "<strong>Dropped:</strong> 1" in html
+    assert "<strong>Skipped:</strong> 1" in html
+    assert "<strong>Failed:</strong> 1" in html
+    assert "<strong>Upload Failed, Replacement Cleanup Succeeded:</strong> 1" in html
+    assert "<strong>Upload Failed, Replacement Cleanup Failed:</strong> 1" in html
+    assert "<strong>Delete Failed After Replacement:</strong> 1" in html
+
+
+@pytest.mark.parametrize("parallel_enabled", [False, True])
+def test_mixed_outcomes_match_in_sequential_and_parallel_modes(monkeypatch, parallel_enabled):
+    runnable_module = _load_runnable_module()
+    source_paths = [f"/silver/category=event_mapping/module=dataset/instance_name=inst/year=2026/month=08/day=24/audit_logs-{index}-dataset.parquet" for index in range(6)]
+    results = {
+        source_paths[0]: runnable_module.WorkerResult(outcome=replay.EventMappingReplayOutcome(status="replaced", message="ok", source_path=source_paths[0])),
+        source_paths[1]: runnable_module.WorkerResult(outcome=replay.EventMappingReplayOutcome(status="dropped", message="drop", source_path=source_paths[1])),
+        source_paths[2]: runnable_module.WorkerResult(outcome=replay.EventMappingReplayOutcome(status="skipped", message="skip", source_path=source_paths[2])),
+        source_paths[3]: runnable_module.WorkerResult(outcome=replay.EventMappingReplayOutcome(status="failed", message="DQ failed", source_path=source_paths[3])),
+        source_paths[4]: runnable_module.WorkerResult(outcome=replay.EventMappingReplayOutcome(status="partial_write_cleanup_failed", message="cleanup", source_path=source_paths[4])),
+        source_paths[5]: runnable_module.WorkerResult(outcome=replay.EventMappingReplayOutcome(status="delete_failed", message="delete", source_path=source_paths[5])),
+    }
+
+    monkeypatch.setattr(runnable_module, "build_storage_context", lambda project_key, folder_lookup: type("StorageCtx", (), {"folder_lookup": folder_lookup, "folder_id": "FOLDER_ID", "connection_type": "EC2"})())
+    monkeypatch.setattr(runnable_module, "_discover_source_snapshot", lambda storage_ctx, folder_lookup: source_paths)
+    monkeypatch.setattr(runnable_module, "_process_source_path", lambda source_path, project_key, folder_id, target: results[source_path])
+    monkeypatch.setattr(runnable_module, "_yield_worker_results", lambda source_paths, worker_count, batch_size, worker_fn: (worker_fn(path) for path in source_paths))
+
+    runner = runnable_module.MyRunnable(
+        project_key="P",
+        config={},
+        plugin_config={"pulse_primary": {"do_parallel": parallel_enabled, "cores": 2}},
+    )
+    html = runner.run(lambda _: None)
+
+    assert "<strong>Replaced:</strong> 1" in html
+    assert "<strong>Dropped:</strong> 1" in html
+    assert "<strong>Skipped:</strong> 1" in html
+    assert "<strong>Failed:</strong> 1" in html
+    assert "<strong>Upload Failed, Replacement Cleanup Failed:</strong> 1" in html
+    assert "<strong>Delete Failed After Replacement:</strong> 1" in html
+
+
+def test_process_source_path_keeps_source_scoped_delete_order(monkeypatch):
+    runnable_module = _load_runnable_module()
+    events = []
+    source_path = "/silver/category=event_mapping/module=dataset/instance_name=inst/year=2026/month=08/day=24/audit_logs-1-dataset.parquet"
+
+    class LocalFolder:
+        pass
+
+    monkeypatch.setattr(runnable_module, "_make_local_folder", lambda project_key, folder_id: LocalFolder())
+    monkeypatch.setattr(runnable_module, "parse_event_mapping_source_path", lambda path: _audit_source_info(path))
+    monkeypatch.setattr(runnable_module, "read_managed_folder_parquet", lambda folder, path: events.append(("read", path)) or pd.DataFrame([{"msgtype": "X", "extras": '{"topic":"generic"}'}]))
+    monkeypatch.setattr(
+        runnable_module,
+        "plan_event_mapping_replay",
+        lambda source, source_df: [
+            replay.ReplayWritePlan(
+                output_path=Path("/silver/category=event_mapping/module=dataset/instance_name=inst/year=2026/month=08/day=24/audit_logs-2-dataset.parquet"),
+                silver_df=pd.DataFrame([{"instance_name": "inst", "run_ts": "2026-08-24T11:00:00Z"}]),
+                dq=replay.DQResult(ok=True, errors=[]),
+                module_name="dataset",
+                event_date=source.run_date,
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        runnable_module,
+        "upload_event_mapping_replacements",
+        lambda target, folder, plans: events.append(("upload", tuple(str(plan.output_path) for plan in plans))) or replay.ReplacementUploadResult(status="uploaded", written_paths=tuple(str(plan.output_path) for plan in plans), message="ok"),
+    )
+    monkeypatch.setattr(runnable_module, "delete_managed_folder_file", lambda folder, path: events.append(("delete", path)))
+
+    result = runnable_module._process_source_path(source_path=source_path, project_key="P", folder_id="FOLDER_ID", target=object())
+
+    assert result.outcome.status == "replaced"
+    assert events == [
+        ("read", source_path),
+        ("upload", ("/silver/category=event_mapping/module=dataset/instance_name=inst/year=2026/month=08/day=24/audit_logs-2-dataset.parquet",)),
+        ("delete", source_path),
+    ]

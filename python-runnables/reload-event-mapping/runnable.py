@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import html
 import logging
+import os
+import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from typing import Callable, Iterator
 
 import dataiku
 from dataiku.runnables import Runnable
@@ -25,9 +29,12 @@ from shared_duckdb.context import build_storage_context
 logger = logging.getLogger(__name__)
 
 SAMPLE_LIMIT = 5
-PROGRESS_INTERVAL = 1000
+DISCOVERY_PROGRESS_INTERVAL = 10_000
+REPLAY_PROGRESS_INTERVAL = 100
+REPLAY_BATCH_SIZE = 100
 TRACEBACK_SAMPLE_LIMIT = 3
 NOISY_DEBUG_LOGGERS = ("botocore", "urllib3")
+EVENT_MAPPING_PREFIX = "silver/category=event_mapping/"
 
 
 @dataclass(frozen=True)
@@ -46,6 +53,19 @@ class OutcomeAccumulator:
         samples = self.grouped_samples.setdefault(outcome.status, [])
         if len(samples) < SAMPLE_LIMIT:
             samples.append(OutcomeSample(path=outcome.source_path, message=outcome.message))
+
+
+@dataclass(frozen=True)
+class WorkerResult:
+    outcome: EventMappingReplayOutcome
+    unexpected_error: Exception | None = None
+    log_prefix: str | None = None
+
+
+@dataclass(frozen=True)
+class TracebackState:
+    logged: int = 0
+    suppressed_logged: bool = False
 
 
 def _sample_list(items: list[OutcomeSample], *, total: int, limit: int = SAMPLE_LIMIT) -> str:
@@ -69,21 +89,59 @@ def _configure_runtime_logging() -> None:
             noisy_logger.setLevel(logging.WARNING)
 
 
-def _should_report_progress(*, processed: int, total: int) -> bool:
+def _resolve_parallel_enabled(param_set: dict) -> bool:
+    return bool(param_set.get("do_parallel", False))
+
+
+def _default_worker_count() -> int:
+    return min(max((os.cpu_count() or 2) - 1, 1), 4)
+
+
+def _resolve_worker_count(param_set: dict) -> int:
+    if not _resolve_parallel_enabled(param_set):
+        return 1
+    raw_cores = param_set.get("cores")
+    try:
+        resolved_cores = int(raw_cores)
+    except (TypeError, ValueError):
+        return _default_worker_count()
+    if resolved_cores <= 0:
+        return _default_worker_count()
+    return resolved_cores
+
+
+def _format_outcome_counts(outcomes: OutcomeAccumulator) -> str:
+    return (
+        f"replaced={outcomes.counts.get('replaced', 0)} "
+        f"dropped={outcomes.counts.get('dropped', 0)} "
+        f"skipped={outcomes.counts.get('skipped', 0)} "
+        f"failed={outcomes.counts.get('failed', 0)} "
+        f"partial_write_cleaned={outcomes.counts.get('partial_write_cleaned', 0)} "
+        f"partial_write_cleanup_failed={outcomes.counts.get('partial_write_cleanup_failed', 0)} "
+        f"delete_failed={outcomes.counts.get('delete_failed', 0)}"
+    )
+
+
+def _should_report_replay_progress(*, completed: int, total: int) -> bool:
     if total <= 0:
         return False
-    return processed == 1 or processed == total or processed % PROGRESS_INTERVAL == 0
+    return completed == 1 or completed == total or completed % REPLAY_PROGRESS_INTERVAL == 0
 
 
-def _report_progress(progress_callback, *, processed: int, total: int) -> None:
-    if not _should_report_progress(processed=processed, total=total):
+def _report_replay_progress(progress_callback, *, completed: int, total: int, outcomes: OutcomeAccumulator) -> None:
+    if not _should_report_replay_progress(completed=completed, total=total):
         return
-    logger.info("Reload event-mapping progress: %s/%s processed", processed, total)
-    progress_callback(processed)
+    logger.info(
+        "Reload event-mapping replay progress: %s/%s completed %s",
+        completed,
+        total,
+        _format_outcome_counts(outcomes),
+    )
+    progress_callback(completed)
 
 
-def _record_outcome(accumulator: OutcomeAccumulator, *, status: str, message: str, source_path: str) -> None:
-    accumulator.record(EventMappingReplayOutcome(status=status, message=message, source_path=source_path))
+def _record_outcome(accumulator: OutcomeAccumulator, outcome: EventMappingReplayOutcome) -> None:
+    accumulator.record(outcome)
 
 
 def _log_bounded_exception(
@@ -91,13 +149,12 @@ def _log_bounded_exception(
     prefix: str,
     path: str,
     exc: Exception,
-    tracebacks_logged: int,
-    suppressed_logged: bool,
-) -> tuple[int, bool]:
-    if tracebacks_logged < TRACEBACK_SAMPLE_LIMIT:
+    state: TracebackState,
+) -> TracebackState:
+    if state.logged < TRACEBACK_SAMPLE_LIMIT:
         logger.exception("%s %s", prefix, path)
-        return tracebacks_logged + 1, suppressed_logged
-    if not suppressed_logged:
+        return TracebackState(logged=state.logged + 1, suppressed_logged=state.suppressed_logged)
+    if not state.suppressed_logged:
         logger.error(
             "%s traceback logging suppressed after %s failures; latest source=%s error=%r",
             prefix,
@@ -105,8 +162,8 @@ def _log_bounded_exception(
             path,
             exc,
         )
-        return tracebacks_logged, True
-    return tracebacks_logged, suppressed_logged
+        return TracebackState(logged=state.logged, suppressed_logged=True)
+    return state
 
 
 def _build_summary_html(
@@ -142,18 +199,158 @@ def _build_summary_html(
     return "\n".join(lines)
 
 
+def _make_local_folder(*, project_key: str, folder_id: str):
+    return dataiku.Folder(
+        lookup=folder_id,
+        project_key=project_key,
+        ignore_flow=True,
+    )
+
+
+def _discover_source_snapshot(*, storage_ctx, folder_lookup: str) -> list[str]:
+    logger.info(
+        "Reload event-mapping discovery started folder=%s provider=%s prefix=%s",
+        folder_lookup,
+        storage_ctx.connection_type,
+        EVENT_MAPPING_PREFIX,
+    )
+    started_at = time.monotonic()
+    source_paths: list[str] = []
+    for path in iter_managed_folder_paths(
+        storage_ctx,
+        relative_prefix=EVENT_MAPPING_PREFIX,
+        suffix=".parquet",
+    ):
+        source_paths.append(path)
+        if len(source_paths) % DISCOVERY_PROGRESS_INTERVAL == 0:
+            logger.info(
+                "Reload event-mapping discovery progress matched=%s prefix=%s elapsed=%.1fs",
+                len(source_paths),
+                EVENT_MAPPING_PREFIX,
+                time.monotonic() - started_at,
+            )
+    source_paths.sort()
+    logger.info(
+        "Reload event-mapping discovery completed matched=%s prefix=%s elapsed=%.1fs",
+        len(source_paths),
+        EVENT_MAPPING_PREFIX,
+        time.monotonic() - started_at,
+    )
+    return source_paths
+
+
+def _process_source_path(*, source_path: str, project_key: str, folder_id: str, target: DSSFolderTarget) -> WorkerResult:
+    folder = _make_local_folder(project_key=project_key, folder_id=folder_id)
+    try:
+        source = parse_event_mapping_source_path(source_path)
+        source_df = read_managed_folder_parquet(folder, source_path)
+        plans = plan_event_mapping_replay(source=source, source_df=source_df)
+        if not plans:
+            delete_managed_folder_file(folder, source_path)
+            return WorkerResult(
+                outcome=EventMappingReplayOutcome(
+                    status="dropped",
+                    message="All rows were intentionally dropped by current mapping",
+                    source_path=source_path,
+                )
+            )
+
+        upload_result: ReplacementUploadResult = upload_event_mapping_replacements(target=target, folder=folder, plans=plans)
+        if upload_result.status == "dq_failed":
+            return WorkerResult(
+                outcome=EventMappingReplayOutcome(
+                    status="failed",
+                    message=f"DQ failed: {upload_result.message}",
+                    source_path=source_path,
+                )
+            )
+
+        if upload_result.status == "upload_failed_cleaned":
+            return WorkerResult(
+                outcome=EventMappingReplayOutcome(
+                    status="partial_write_cleaned",
+                    message=upload_result.message,
+                    source_path=source_path,
+                )
+            )
+
+        if upload_result.status == "upload_failed_cleanup_failed":
+            return WorkerResult(
+                outcome=EventMappingReplayOutcome(
+                    status="partial_write_cleanup_failed",
+                    message=upload_result.message,
+                    source_path=source_path,
+                )
+            )
+
+        try:
+            delete_managed_folder_file(folder, source_path)
+        except Exception as exc:
+            return WorkerResult(
+                outcome=EventMappingReplayOutcome(
+                    status="delete_failed",
+                    message=repr(exc),
+                    source_path=source_path,
+                ),
+                unexpected_error=exc,
+                log_prefix="Source delete failed after replacement writes for",
+            )
+
+        return WorkerResult(
+            outcome=EventMappingReplayOutcome(
+                status="replaced",
+                message=upload_result.message,
+                source_path=source_path,
+            )
+        )
+    except ReplaySkipError as exc:
+        return WorkerResult(
+            outcome=EventMappingReplayOutcome(status="skipped", message=str(exc), source_path=source_path)
+        )
+    except Exception as exc:
+        return WorkerResult(
+            outcome=EventMappingReplayOutcome(status="failed", message=repr(exc), source_path=source_path),
+            unexpected_error=exc,
+            log_prefix="Reload event-mapping failed for",
+        )
+
+
+def _iter_batches(items: list[str], *, batch_size: int) -> Iterator[list[str]]:
+    for start in range(0, len(items), batch_size):
+        yield items[start : start + batch_size]
+
+
+def _yield_worker_results(
+    *,
+    source_paths: list[str],
+    worker_count: int,
+    batch_size: int,
+    worker_fn: Callable[[str], WorkerResult],
+) -> Iterator[WorkerResult]:
+    for batch in _iter_batches(source_paths, batch_size=batch_size):
+        if worker_count == 1:
+            for path in batch:
+                yield worker_fn(path)
+            continue
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = [executor.submit(worker_fn, path) for path in batch]
+            for future in as_completed(futures):
+                yield future.result()
+
+
 class MyRunnable(Runnable):
     def __init__(self, project_key, config, plugin_config):
         self.project_key = project_key
         self.config = config or {}
         self.plugin_config = plugin_config or {}
+        self.param_set = self.plugin_config.get("pulse_primary", {}) or {}
 
     def get_progress_target(self):
         return None
 
     def _resolve_folder_lookup(self) -> str:
-        param_set = self.plugin_config.get("pulse_primary", {}) or {}
-        return str(param_set.get("pulse_partitioned_data") or "partitioned_data")
+        return str(self.param_set.get("pulse_partitioned_data") or "partitioned_data")
 
     def run(self, progress_callback):
         _configure_runtime_logging()
@@ -161,115 +358,53 @@ class MyRunnable(Runnable):
         folder_lookup = self._resolve_folder_lookup()
         storage_ctx = build_storage_context(project_key=self.project_key, folder_lookup=folder_lookup)
         target = DSSFolderTarget(project_key=self.project_key, folder_lookup=storage_ctx.folder_lookup)
-        folder = dataiku.Folder(
-            lookup=storage_ctx.folder_id,
-            project_key=self.project_key,
-            ignore_flow=True,
-        )
+        source_paths = _discover_source_snapshot(storage_ctx=storage_ctx, folder_lookup=folder_lookup)
 
-        source_paths = sorted(
-            iter_managed_folder_paths(
-                storage_ctx,
-                relative_prefix="silver/category=event_mapping/",
-                suffix=".parquet",
-            )
+        worker_count = _resolve_worker_count(self.param_set)
+        parallel_enabled = worker_count > 1
+        logger.info(
+            "Reload event-mapping replay started total=%s parallel=%s workers=%s batch_size=%s",
+            len(source_paths),
+            parallel_enabled,
+            worker_count,
+            REPLAY_BATCH_SIZE,
         )
-        logger.info("Discovered %s event-mapping parquet source file(s)", len(source_paths))
 
         outcomes = _new_outcome_accumulator()
-        unexpected_failure_tracebacks = 0
-        unexpected_failure_logs_suppressed = False
+        traceback_state = TracebackState()
+        replay_started_at = time.monotonic()
 
-        for index, path in enumerate(source_paths, start=1):
-            _report_progress(progress_callback, processed=index, total=len(source_paths))
-            try:
-                source = parse_event_mapping_source_path(path)
-                source_df = read_managed_folder_parquet(folder, path)
-                plans = plan_event_mapping_replay(source=source, source_df=source_df)
-                if not plans:
-                    delete_managed_folder_file(folder, path)
-                    _record_outcome(
-                        outcomes,
-                        status="dropped",
-                        message="All rows were intentionally dropped by current mapping",
-                        source_path=path,
-                    )
-                    continue
+        worker_fn = lambda source_path: _process_source_path(
+            source_path=source_path,
+            project_key=self.project_key,
+            folder_id=storage_ctx.folder_id,
+            target=target,
+        )
 
-                upload_result: ReplacementUploadResult = upload_event_mapping_replacements(target=target, folder=folder, plans=plans)
-                if upload_result.status == "dq_failed":
-                    _record_outcome(
-                        outcomes,
-                        status="failed",
-                        message=f"DQ failed: {upload_result.message}",
-                        source_path=path,
-                    )
-                    continue
-
-                if upload_result.status == "upload_failed_cleaned":
-                    _record_outcome(
-                        outcomes,
-                        status="partial_write_cleaned",
-                        message=upload_result.message,
-                        source_path=path,
-                    )
-                    continue
-
-                if upload_result.status == "upload_failed_cleanup_failed":
-                    _record_outcome(
-                        outcomes,
-                        status="partial_write_cleanup_failed",
-                        message=upload_result.message,
-                        source_path=path,
-                    )
-                    continue
-
-                try:
-                    delete_managed_folder_file(folder, path)
-                except Exception as exc:
-                    unexpected_failure_tracebacks, unexpected_failure_logs_suppressed = _log_bounded_exception(
-                        prefix="Source delete failed after replacement writes for",
-                        path=path,
-                        exc=exc,
-                        tracebacks_logged=unexpected_failure_tracebacks,
-                        suppressed_logged=unexpected_failure_logs_suppressed,
-                    )
-                    _record_outcome(
-                        outcomes,
-                        status="delete_failed",
-                        message=repr(exc),
-                        source_path=path,
-                    )
-                    continue
-
-                _record_outcome(
-                    outcomes,
-                    status="replaced",
-                    message=upload_result.message,
-                    source_path=path,
+        completed = 0
+        for result in _yield_worker_results(
+            source_paths=source_paths,
+            worker_count=worker_count,
+            batch_size=REPLAY_BATCH_SIZE,
+            worker_fn=worker_fn,
+        ):
+            completed += 1
+            _record_outcome(outcomes, result.outcome)
+            if result.unexpected_error is not None and result.log_prefix is not None:
+                traceback_state = _log_bounded_exception(
+                    prefix=result.log_prefix,
+                    path=result.outcome.source_path,
+                    exc=result.unexpected_error,
+                    state=traceback_state,
                 )
-            except ReplaySkipError as exc:
-                _record_outcome(outcomes, status="skipped", message=str(exc), source_path=path)
-            except Exception as exc:
-                unexpected_failure_tracebacks, unexpected_failure_logs_suppressed = _log_bounded_exception(
-                    prefix="Reload event-mapping failed for",
-                    path=path,
-                    exc=exc,
-                    tracebacks_logged=unexpected_failure_tracebacks,
-                    suppressed_logged=unexpected_failure_logs_suppressed,
-                )
-                _record_outcome(outcomes, status="failed", message=repr(exc), source_path=path)
+            _report_replay_progress(progress_callback, completed=completed, total=len(source_paths), outcomes=outcomes)
 
         logger.info(
-            "Reload event-mapping completed discovered=%s replaced=%s dropped=%s skipped=%s failed=%s partial_write_cleaned=%s partial_write_cleanup_failed=%s delete_failed=%s",
+            "Reload event-mapping completed discovered=%s completed=%s elapsed=%.1fs %s",
             len(source_paths),
-            outcomes.counts.get("replaced", 0),
-            outcomes.counts.get("dropped", 0),
-            outcomes.counts.get("skipped", 0),
-            outcomes.counts.get("failed", 0),
-            outcomes.counts.get("partial_write_cleaned", 0),
-            outcomes.counts.get("partial_write_cleanup_failed", 0),
-            outcomes.counts.get("delete_failed", 0),
+            completed,
+            time.monotonic() - replay_started_at,
+            _format_outcome_counts(outcomes),
         )
 
         return _build_summary_html(
