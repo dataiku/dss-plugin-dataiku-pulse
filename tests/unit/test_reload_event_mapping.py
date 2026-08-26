@@ -4,6 +4,7 @@ import importlib.util
 import io
 import logging
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pandas as pd
@@ -574,6 +575,27 @@ def test_two_replacement_writes_same_millisecond_get_distinct_paths(monkeypatch)
     assert str(first_path).endswith("/audit_logs-1786510805000-dataset.parquet")
     assert str(second_path).endswith("/audit_logs-1786510805001-dataset.parquet")
     assert first_path != second_path
+
+
+def test_concurrent_same_millisecond_allocations_are_unique_and_monotonic(monkeypatch):
+    source = _audit_source_info()
+    monkeypatch.setattr(replay.time, "time_ns", lambda: 1786510805000 * 1_000_000)
+    monkeypatch.setattr(replay, "_LAST_REPLAY_SAVE_EPOCH_MS", 0)
+
+    def build_path(_index: int):
+        return replay.build_event_mapping_output_path(source=source, module_name="dataset", event_date=source.run_date)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        paths = list(executor.map(build_path, range(16)))
+
+    path_strings = [str(path) for path in paths]
+    epochs = [int(path.name.split("-")[1]) for path in paths]
+
+    assert len(path_strings) == 16
+    assert len(set(path_strings)) == 16
+    assert len(set(epochs)) == 16
+    assert sorted(epochs) == list(range(1786510805000, 1786510805016))
+    assert all(path.endswith("-dataset.parquet") for path in path_strings)
 
 
 def test_normal_audit_gather_filename_logic_is_unchanged():
