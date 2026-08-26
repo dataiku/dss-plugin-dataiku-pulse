@@ -1,7 +1,7 @@
 {
     "meta": {
         "label": "Compact Silver Layer",
-        "description": "Compact the Silver layer. Reduces the number of parquet files, option filters and replay options (BETA)",
+        "description": "Compact the Silver layer. Reduces the number of parquet files, option filters and replay options (BETA). *Currently only does category=event_mapping",
         "icon": "fas fa-sync-alt",
         "category": "Dataiku PULSE Insights: Data Gather"
     },
