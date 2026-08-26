@@ -8,7 +8,7 @@
     "impersonate": false,
     "permissions": ["ADMIN"],
     "requiresGlobalAdmin": true,
-    "resultType": "HTML",
+    "resultType": "RESULT_TABLE",
     "resultLabel": "RESULTS",
     "extension": "txt",
     "mimeType": "text/plain",
