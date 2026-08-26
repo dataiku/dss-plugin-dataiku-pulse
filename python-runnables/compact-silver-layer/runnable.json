@@ -25,7 +25,7 @@
             "name": "normalize_silver",
             "label": "Replay Normalizer and Silver checks",
             "type": "BOOLEAN",
-            "default": true
+            "defaultValue": true
         }
         
     ]
