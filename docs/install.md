@@ -273,10 +273,24 @@ a three-step fallback (`shared_duckdb/extensions.py`):
    `resource/duckdb_extensions/<duckdb_version>/<platform>/<ext>.duckdb_extension`,
    shipped with the plugin for the pinned DuckDB version on `linux_amd64`.
 
+In DSS runtimes, the bundled-extension fallback resolves the plugin resource
+directory through the native plugin APIs backed by
+`DKU_CUSTOM_RESOURCE_FOLDER`:
+
+- webapps: `dataiku.customwebapp.get_webapp_resource()`
+- recipes: `dataiku.customrecipe.get_recipe_resource()`
+
+Outside DSS (for local development and unit tests), Pulse falls back to the
+repo layout `dataiku-pulse/resource/`. Pulse never searches recursively for a
+binary and never crosses DuckDB versions or platforms when selecting a bundled
+extension.
+
 If all three fail, the error names the exact expected bundled path and the
-version/platform matrix actually shipped. On air-gapped instances with a
-platform outside the bundled matrix, pre-populate the DuckDB extension cache
-or add the matching bundled binary.
+resource-resolution stage that failed (resource directory, `duckdb_extensions`
+directory, version/platform directory, or specific extension file), plus the
+version/platform matrix actually shipped when available. On air-gapped
+instances with a platform outside the bundled matrix, pre-populate the DuckDB
+extension cache or add the matching bundled binary.
 
 The DuckDB version is pinned in lockstep between `code-env/python/spec/requirements.txt`
 and `tests/requirements-dev.txt`; when bumping it, also re-vendor the bundled
