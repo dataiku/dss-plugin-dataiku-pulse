@@ -23,7 +23,7 @@ from data_collection.audit_logs_modules.event_mapping_replay import (
     upload_event_mapping_replacements,
 )
 from data_collection.helper import DSSFolderTarget
-from shared_storage_discovery import iter_managed_folder_paths
+from shared_storage_discovery import collect_managed_folder_snapshot
 from shared_duckdb.context import build_storage_context
 
 logger = logging.getLogger(__name__)
@@ -215,21 +215,18 @@ def _discover_source_snapshot(*, storage_ctx, folder_lookup: str) -> list[str]:
         EVENT_MAPPING_PREFIX,
     )
     started_at = time.monotonic()
-    source_paths: list[str] = []
-    for path in iter_managed_folder_paths(
+    source_paths = collect_managed_folder_snapshot(
         storage_ctx,
         relative_prefix=EVENT_MAPPING_PREFIX,
         suffix=".parquet",
-    ):
-        source_paths.append(path)
-        if len(source_paths) % DISCOVERY_PROGRESS_INTERVAL == 0:
-            logger.info(
-                "Reload event-mapping discovery progress matched=%s prefix=%s elapsed=%.1fs",
-                len(source_paths),
-                EVENT_MAPPING_PREFIX,
-                time.monotonic() - started_at,
-            )
-    source_paths.sort()
+        progress_interval=DISCOVERY_PROGRESS_INTERVAL,
+        progress_callback=lambda matched: logger.info(
+            "Reload event-mapping discovery progress matched=%s prefix=%s elapsed=%.1fs",
+            matched,
+            EVENT_MAPPING_PREFIX,
+            time.monotonic() - started_at,
+        ),
+    )
     logger.info(
         "Reload event-mapping discovery completed matched=%s prefix=%s elapsed=%.1fs",
         len(source_paths),

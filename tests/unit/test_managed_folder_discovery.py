@@ -7,6 +7,9 @@ from types import SimpleNamespace
 import pytest
 
 import shared_storage_discovery as discovery
+import shared_storage_discovery_azure as discovery_azure
+import shared_storage_discovery_gcs as discovery_gcs
+import shared_storage_discovery_s3 as discovery_s3
 
 
 class _Ctx(SimpleNamespace):
@@ -46,10 +49,13 @@ def test_s3_paginated_prefix_listing_translates_to_relative_paths(monkeypatch):
             assert name == "list_objects_v2"
             return Paginator()
 
-    monkeypatch.setattr(discovery.boto3, "client", lambda *args, **kwargs: Client())
-    ctx = _Ctx(connection_type="EC2", folder_root="root/nested", bucket_or_container="bucket", cached_connection_info={}, connection_name="c", connection_handle=object(), project_handle=object())
-    monkeypatch.setattr(discovery, "connection_info", lambda ctx, allow_cached=True: {"params": {"credentialsMode": "KEYPAIR", "accessKey": "a", "secretKey": "b", "regionOrEndpoint": "us-east-1"}})
-    ctx.folder_root = "root"
+    monkeypatch.setattr(discovery_s3.boto3, "client", lambda *args, **kwargs: Client())
+    monkeypatch.setattr(
+        discovery_s3,
+        "connection_info",
+        lambda ctx, allow_cached=True: {"params": {"credentialsMode": "KEYPAIR", "accessKey": "a", "secretKey": "b", "regionOrEndpoint": "us-east-1"}},
+    )
+    ctx = _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket", cached_connection_info={}, connection_name="c", connection_handle=object(), project_handle=object())
 
     paths = list(discovery.iter_managed_folder_paths(ctx, relative_prefix="/silver/category=event_mapping//", suffix=".parquet"))
 
@@ -77,7 +83,7 @@ def test_azure_credential_selection_and_prefix_listing(monkeypatch):
             seen["container"] = container
             return ContainerClient()
 
-    monkeypatch.setattr(discovery, "_build_azure_blob_service_client", lambda ctx: ServiceClient())
+    monkeypatch.setattr(discovery_azure, "_build_azure_blob_service_client", lambda ctx: ServiceClient())
     ctx = _Ctx(connection_type="Azure", folder_root="root", bucket_or_container="container", cached_connection_info={}, connection_name="c", connection_handle=object(), project_handle=object())
 
     paths = list(discovery.iter_managed_folder_paths(ctx, relative_prefix="silver/category=event_mapping", suffix=".parquet"))
@@ -104,7 +110,7 @@ def test_gcs_environment_requests_default_credentials_and_never_anonymous(monkey
             return [Blob("root/silver/category=event_mapping/module=a/file1.parquet")]
 
     fake_credentials = object()
-    monkeypatch.setattr(discovery, "connection_info", lambda ctx, allow_cached=True: {"params": {"credentialsMode": "ENVIRONMENT"}})
+    monkeypatch.setattr(discovery_gcs, "connection_info", lambda ctx, allow_cached=True: {"params": {"credentialsMode": "ENVIRONMENT"}})
     monkeypatch.setitem(sys.modules, "google.auth", SimpleNamespace(default=lambda: (fake_credentials, "proj")))
     monkeypatch.setitem(sys.modules, "google.cloud", SimpleNamespace(storage=SimpleNamespace(Client=Client)))
 
@@ -121,9 +127,11 @@ def test_gcs_environment_requests_default_credentials_and_never_anonymous(monkey
 
 
 def test_gcs_environment_missing_default_credentials_fails_clearly(monkeypatch):
-    monkeypatch.setattr(discovery, "connection_info", lambda ctx, allow_cached=True: {"params": {"credentialsMode": "ENVIRONMENT"}})
+    monkeypatch.setattr(discovery_gcs, "connection_info", lambda ctx, allow_cached=True: {"params": {"credentialsMode": "ENVIRONMENT"}})
+
     class MissingCreds(Exception):
         pass
+
     monkeypatch.setitem(sys.modules, "google.auth", SimpleNamespace(default=lambda: (_ for _ in ()).throw(MissingCreds("no creds"))))
     monkeypatch.setitem(sys.modules, "google.cloud", SimpleNamespace(storage=SimpleNamespace(Client=object)))
     ctx = _Ctx(connection_type="GCS", folder_root="root", bucket_or_container="bucket", cached_connection_info={}, connection_name="c", connection_handle=object(), project_handle=SimpleNamespace(get_variables=lambda: {}))
@@ -149,8 +157,8 @@ def test_gcs_hmac_uses_decrypted_established_hmac_and_is_recursive(monkeypatch):
                 "d": {"name": "bucket/root/silver/category=event_mapping/module=a/subdir/"},
             }
 
-    monkeypatch.setattr(discovery, "connection_info", lambda ctx, allow_cached=True: {"params": {"credentialsMode": "HMAC"}})
-    monkeypatch.setattr(discovery, "resolve_gcs_hmac_credentials", lambda ctx: ("AKIAHMAC", "SECRET-HMAC"))
+    monkeypatch.setattr(discovery_gcs, "connection_info", lambda ctx, allow_cached=True: {"params": {"credentialsMode": "HMAC"}})
+    monkeypatch.setattr(discovery_gcs, "resolve_gcs_hmac_credentials", lambda ctx: ("AKIAHMAC", "SECRET-HMAC"))
     monkeypatch.setitem(sys.modules, "gcsfs", SimpleNamespace(GCSFileSystem=GCSFSClient))
     ctx = _Ctx(connection_type="GCS", folder_root="root", bucket_or_container="bucket", cached_connection_info={}, connection_name="c", connection_handle=object(), project_handle=SimpleNamespace(get_variables=lambda: {}))
 
@@ -173,7 +181,7 @@ def test_unsupported_provider_and_modes_fail_clearly(monkeypatch):
         list(discovery.iter_managed_folder_paths(_Ctx(connection_type="LocalFS"), relative_prefix="silver/category=event_mapping", suffix=".parquet"))
 
     ctx = _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket", cached_connection_info={}, connection_name="c", connection_handle=object(), project_handle=object())
-    monkeypatch.setattr(discovery, "connection_info", lambda ctx, allow_cached=True: {"params": {"credentialsMode": "UNKNOWN"}})
+    monkeypatch.setattr(discovery_s3, "connection_info", lambda ctx, allow_cached=True: {"params": {"credentialsMode": "UNKNOWN"}})
     with pytest.raises(RuntimeError, match="Unsupported AWS credentials mode"):
         list(discovery.iter_managed_folder_paths(ctx, relative_prefix="silver/category=event_mapping", suffix=".parquet"))
 
@@ -194,9 +202,57 @@ def test_discovery_does_not_call_broad_dss_listing(monkeypatch):
         def get_paginator(self, name):
             return Paginator()
 
-    monkeypatch.setattr(discovery.boto3, "client", lambda *args, **kwargs: Client())
-    monkeypatch.setattr(discovery, "connection_info", lambda ctx, allow_cached=True: {"params": {"credentialsMode": "KEYPAIR", "accessKey": "a", "secretKey": "b", "regionOrEndpoint": "us-east-1"}})
+    monkeypatch.setattr(discovery_s3.boto3, "client", lambda *args, **kwargs: Client())
+    monkeypatch.setattr(
+        discovery_s3,
+        "connection_info",
+        lambda ctx, allow_cached=True: {"params": {"credentialsMode": "KEYPAIR", "accessKey": "a", "secretKey": "b", "regionOrEndpoint": "us-east-1"}},
+    )
     ctx = _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket", cached_connection_info={}, connection_name="c", connection_handle=object(), project_handle=object(), folder_handle=Folder())
 
     paths = list(discovery.iter_managed_folder_paths(ctx, relative_prefix="silver/category=event_mapping", suffix=".parquet"))
     assert paths == ["/silver/category=event_mapping/module=a/file1.parquet"]
+
+
+def test_count_api_counts_without_materializing_list(monkeypatch):
+    seen = {"iterated": 0}
+
+    def fake_iter(storage_ctx, *, relative_prefix, suffix=None):
+        assert relative_prefix == "silver/category=event_mapping/"
+        assert suffix == ".parquet"
+        for index in range(7):
+            seen["iterated"] += 1
+            yield f"/silver/category=event_mapping/module=a/file-{index}.parquet"
+
+    monkeypatch.setattr(discovery, "iter_managed_folder_paths", fake_iter)
+
+    count = discovery.count_managed_folder_paths(
+        _Ctx(connection_type="EC2"),
+        relative_prefix="silver/category=event_mapping/",
+        suffix=".parquet",
+    )
+
+    assert count == 7
+    assert seen["iterated"] == 7
+
+
+def test_snapshot_api_sorts_and_reports_bounded_progress(monkeypatch):
+    seen = []
+    paths = [
+        "/silver/category=event_mapping/module=b/file-2.parquet",
+        "/silver/category=event_mapping/module=a/file-1.parquet",
+        "/silver/category=event_mapping/module=c/file-3.parquet",
+    ]
+
+    monkeypatch.setattr(discovery, "iter_managed_folder_paths", lambda *args, **kwargs: iter(paths))
+
+    snapshot = discovery.collect_managed_folder_snapshot(
+        _Ctx(connection_type="EC2"),
+        relative_prefix="silver/category=event_mapping/",
+        suffix=".parquet",
+        progress_interval=2,
+        progress_callback=seen.append,
+    )
+
+    assert snapshot == sorted(paths)
+    assert seen == [2]

@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any
 
 from dataiku.runnables import ResultTable, Runnable
 
 from shared_duckdb.context import build_storage_context
+from shared_storage_discovery import count_managed_folder_paths
+
+
+logger = logging.getLogger(__name__)
 
 
 PROVIDER_LABELS: dict[str, str] = {
@@ -13,36 +19,72 @@ PROVIDER_LABELS: dict[str, str] = {
     "GCS": "Google Cloud Storage",
 }
 
+EVENT_MAPPING_PREFIX = "silver/category=event_mapping/"
+
+
+def _new_result_table() -> ResultTable:
+    rt = ResultTable()
+    rt.add_column(1, "step", "STRING")
+    rt.add_column(2, "value", "STRING")
+    rt.add_column(3, "scope", "STRING")
+    rt.add_column(4, "status", "STRING")
+    rt.add_column(5, "details", "STRING")
+    return rt
+
 
 def _build_result_table(*, project_key: str, folder_lookup: str) -> ResultTable:
     storage_ctx = build_storage_context(project_key=project_key, folder_lookup=folder_lookup)
     provider_label = PROVIDER_LABELS.get(storage_ctx.connection_type)
     status = "ok" if provider_label else "unsupported"
-    message = (
-        f"Resolved managed folder via {provider_label}"
-        if provider_label
-        else f"Unsupported managed-folder provider type: {storage_ctx.connection_type}"
-    )
+    rt = _new_result_table()
+    rt.add_record([
+        "Resolve Folder",
+        storage_ctx.folder_id,
+        folder_lookup,
+        "info",
+        "resolved managed-folder ID",
+    ])
+    rt.add_record([
+        "Connection Name",
+        storage_ctx.connection_name,
+        folder_lookup,
+        "info",
+        "resolved DSS connection name",
+    ])
+    rt.add_record([
+        "Connection Type",
+        provider_label or "unsupported",
+        folder_lookup,
+        status,
+        f"raw DSS type: {storage_ctx.connection_type}",
+    ])
 
-    rt = ResultTable()
-    rt.add_column(1, "status", "STRING")
-    rt.add_column(2, "message", "STRING")
-    rt.add_column(3, "managed_folder_lookup", "STRING")
-    rt.add_column(4, "managed_folder_id", "STRING")
-    rt.add_column(5, "connection_name", "STRING")
-    rt.add_column(6, "connection_type", "STRING")
-    rt.add_column(7, "provider_label", "STRING")
-    rt.add_record(
-        [
-            status,
-            message,
-            folder_lookup,
-            storage_ctx.folder_id,
-            storage_ctx.connection_name,
-            storage_ctx.connection_type,
-            provider_label or "unsupported",
-        ]
+    logger.info(
+        "Compact silver native discovery started folder=%s provider=%s prefix=%s",
+        folder_lookup,
+        storage_ctx.connection_type,
+        EVENT_MAPPING_PREFIX,
     )
+    started_at = time.monotonic()
+    parquet_count = count_managed_folder_paths(
+        storage_ctx,
+        relative_prefix=EVENT_MAPPING_PREFIX,
+        suffix=".parquet",
+    )
+    elapsed = time.monotonic() - started_at
+    logger.info(
+        "Compact silver native discovery completed count=%s prefix=%s elapsed=%.1fs",
+        parquet_count,
+        EVENT_MAPPING_PREFIX,
+        elapsed,
+    )
+    rt.add_record([
+        "All Parquet Found",
+        str(parquet_count),
+        "silver/category=event_mapping/**/*.parquet",
+        "info",
+        f"native full-prefix scan; elapsed={elapsed:.1f}s",
+    ])
     return rt
 
 

@@ -1,15 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterator, Protocol
-
-import boto3
-from botocore.config import Config
-from botocore.credentials import Credentials
-
-from shared_storage_credentials import connection_info, resolve_gcs_hmac_credentials
-
-if TYPE_CHECKING:
-    from shared_duckdb.context import StorageContext
+from typing import Any, Callable, Iterator, Protocol
 
 
 class StorageContextLike(Protocol):
@@ -58,137 +49,24 @@ def _matches_suffix(path: str, suffix: str | None) -> bool:
     return path.endswith(suffix)
 
 
-def _iter_s3_paths(ctx: StorageContextLike, *, relative_prefix: str, suffix: str | None) -> Iterator[str]:
-    info = connection_info(ctx, allow_cached=True)
-    params = info.get("params") or {}
-    credential_mode = params.get("credentialsMode")
+def _iter_provider_object_keys(storage_ctx: StorageContextLike, *, physical_prefix: str) -> Iterator[str]:
+    connection_type = storage_ctx.connection_type
+    if connection_type == "EC2":
+        from shared_storage_discovery_s3 import iter_s3_object_keys
 
-    if credential_mode == "KEYPAIR":
-        credentials = Credentials(params["accessKey"], params["secretKey"])
-    elif credential_mode in {"STS_ASSUME_ROLE", "ENVIRONMENT"}:
-        resolved = info.get("resolvedAWSCredential") or {}
-        credentials = Credentials(
-            resolved["accessKey"],
-            resolved["secretKey"],
-            resolved["sessionToken"],
-        )
-    else:
-        raise RuntimeError(f"Unsupported AWS credentials mode for managed-folder discovery: {credential_mode}")
-
-    region_name = params.get("regionOrEndpoint") or None
-    client = boto3.client(
-        "s3",
-        region_name=region_name,
-        config=Config(signature_version="s3v4"),
-        aws_access_key_id=credentials.access_key,
-        aws_secret_access_key=credentials.secret_key,
-        aws_session_token=credentials.token,
-    )
-    paginator = client.get_paginator("list_objects_v2")
-    prefix = _physical_prefix(folder_root=ctx.folder_root, relative_prefix=relative_prefix)
-    for page in paginator.paginate(Bucket=ctx.bucket_or_container, Prefix=prefix):
-        for item in page.get("Contents") or []:
-            key = str(item.get("Key") or "")
-            rel = _relative_from_physical_key(folder_root=ctx.folder_root, object_key=key)
-            if rel is None or rel.endswith("/") or not _matches_suffix(rel, suffix):
-                continue
-            yield rel
-
-
-def _build_azure_blob_service_client(ctx: StorageContextLike):
-    from azure.storage.blob import BlobServiceClient
-    from azure.identity import ClientSecretCredential
-
-    info = connection_info(ctx, allow_cached=True)
-    params = info.get("params") or {}
-    auth_type = params.get("authType")
-    account_name = params.get("storageAccount")
-    if auth_type == "SHARED_KEY":
-        account_url = f"https://{account_name}.blob.core.windows.net"
-        return BlobServiceClient(account_url=account_url, credential=params["accessKey"])
-    if auth_type == "OAUTH2_APP":
-        credential = ClientSecretCredential(
-            tenant_id=params["tenantId"],
-            client_id=params["appId"],
-            client_secret=params["appSecret"],
-        )
-        account_url = f"https://{account_name}.blob.core.windows.net"
-        return BlobServiceClient(account_url=account_url, credential=credential)
-    raise RuntimeError(f"Unsupported Azure authentication type for managed-folder discovery: {auth_type}")
-
-
-def _iter_azure_paths(ctx: StorageContextLike, *, relative_prefix: str, suffix: str | None) -> Iterator[str]:
-    client = _build_azure_blob_service_client(ctx)
-    prefix = _physical_prefix(folder_root=ctx.folder_root, relative_prefix=relative_prefix)
-    container = ctx.bucket_or_container
-    for blob in client.get_container_client(container).list_blobs(name_starts_with=prefix):
-        name = str(getattr(blob, "name", "") or "")
-        rel = _relative_from_physical_key(folder_root=ctx.folder_root, object_key=name)
-        if rel is None or rel.endswith("/") or not _matches_suffix(rel, suffix):
-            continue
-        yield rel
-
-
-def _build_gcs_environment_client(ctx: StorageContextLike):
-    from google.cloud import storage
-    from google.auth import default as google_auth_default
-
-    info = connection_info(ctx, allow_cached=True)
-    params = info.get("params") or {}
-    credentials_mode = params.get("credentialsMode") or params.get("authType")
-    if credentials_mode == "ENVIRONMENT":
-        credentials, project_id = google_auth_default()
-        return storage.Client(project=project_id, credentials=credentials)
-
-    raise RuntimeError(
-        f"Unsupported GCS credential mode for managed-folder discovery: {credentials_mode or 'filesystem'}"
-    )
-
-
-def _build_gcs_hmac_client(ctx: StorageContextLike):
-    import gcsfs
-
-    resolved = resolve_gcs_hmac_credentials(ctx)
-    if not resolved:
-        raise RuntimeError("Unsupported GCS credential mode for managed-folder discovery: missing_hmac")
-    access_key, hmac_secret = resolved
-    return gcsfs.GCSFileSystem(access=access_key, secret=hmac_secret)
-
-
-def _build_gcs_client(ctx: StorageContextLike):
-    info = connection_info(ctx, allow_cached=True)
-    params = info.get("params") or {}
-    credentials_mode = params.get("credentialsMode") or params.get("authType")
-    if credentials_mode == "ENVIRONMENT":
-        return ("google-cloud-storage", _build_gcs_environment_client(ctx))
-    if credentials_mode in {"HMAC", "INTEROP"} or resolve_gcs_hmac_credentials(ctx):
-        return ("gcsfs", _build_gcs_hmac_client(ctx))
-
-    raise RuntimeError(
-        f"Unsupported GCS credential mode for managed-folder discovery: {credentials_mode or 'filesystem'}"
-    )
-
-
-def _iter_gcs_paths(ctx: StorageContextLike, *, relative_prefix: str, suffix: str | None) -> Iterator[str]:
-    backend, client = _build_gcs_client(ctx)
-    prefix = _physical_prefix(folder_root=ctx.folder_root, relative_prefix=relative_prefix)
-    bucket = ctx.bucket_or_container
-    if backend == "gcsfs":
-        for item in client.find(f"{bucket}/{prefix}", detail=True).values():
-            name = str((item or {}).get("name") or "")
-            key = name.split("/", 1)[1] if "/" in name else name
-            rel = _relative_from_physical_key(folder_root=ctx.folder_root, object_key=key)
-            if rel is None or rel.endswith("/") or not _matches_suffix(rel, suffix):
-                continue
-            yield rel
+        yield from iter_s3_object_keys(storage_ctx, physical_prefix=physical_prefix)
         return
+    if connection_type == "Azure":
+        from shared_storage_discovery_azure import iter_azure_blob_names
 
-    for blob in client.list_blobs(bucket, prefix=prefix):
-        name = str(getattr(blob, "name", "") or "")
-        rel = _relative_from_physical_key(folder_root=ctx.folder_root, object_key=name)
-        if rel is None or rel.endswith("/") or not _matches_suffix(rel, suffix):
-            continue
-        yield rel
+        yield from iter_azure_blob_names(storage_ctx, physical_prefix=physical_prefix)
+        return
+    if connection_type == "GCS":
+        from shared_storage_discovery_gcs import iter_gcs_object_names
+
+        yield from iter_gcs_object_names(storage_ctx, physical_prefix=physical_prefix)
+        return
+    raise RuntimeError(f"Unsupported managed-folder provider for native discovery: {connection_type}")
 
 
 def iter_managed_folder_paths(
@@ -197,14 +75,50 @@ def iter_managed_folder_paths(
     relative_prefix: str,
     suffix: str | None = None,
 ) -> Iterator[str]:
-    connection_type = storage_ctx.connection_type
-    if connection_type == "EC2":
-        yield from _iter_s3_paths(storage_ctx, relative_prefix=relative_prefix, suffix=suffix)
-        return
-    if connection_type == "Azure":
-        yield from _iter_azure_paths(storage_ctx, relative_prefix=relative_prefix, suffix=suffix)
-        return
-    if connection_type == "GCS":
-        yield from _iter_gcs_paths(storage_ctx, relative_prefix=relative_prefix, suffix=suffix)
-        return
-    raise RuntimeError(f"Unsupported managed-folder provider for native discovery: {connection_type}")
+    if storage_ctx.connection_type not in {"EC2", "Azure", "GCS"}:
+        raise RuntimeError(f"Unsupported managed-folder provider for native discovery: {storage_ctx.connection_type}")
+    physical_prefix = _physical_prefix(folder_root=storage_ctx.folder_root, relative_prefix=relative_prefix)
+    for object_key in _iter_provider_object_keys(storage_ctx, physical_prefix=physical_prefix):
+        rel = _relative_from_physical_key(folder_root=storage_ctx.folder_root, object_key=object_key)
+        if rel is None or rel.endswith("/") or not _matches_suffix(rel, suffix):
+            continue
+        yield rel
+
+
+def count_managed_folder_paths(
+    storage_ctx: StorageContextLike,
+    *,
+    relative_prefix: str,
+    suffix: str | None = None,
+) -> int:
+    return sum(1 for _ in iter_managed_folder_paths(storage_ctx, relative_prefix=relative_prefix, suffix=suffix))
+
+
+def collect_managed_folder_snapshot(
+    storage_ctx: StorageContextLike,
+    *,
+    relative_prefix: str,
+    suffix: str | None = None,
+    progress_interval: int | None = None,
+    progress_callback: Callable[[int], None] | None = None,
+) -> list[str]:
+    source_paths: list[str] = []
+    for path in iter_managed_folder_paths(storage_ctx, relative_prefix=relative_prefix, suffix=suffix):
+        source_paths.append(path)
+        if (
+            progress_callback is not None
+            and progress_interval is not None
+            and progress_interval > 0
+            and len(source_paths) % progress_interval == 0
+        ):
+            progress_callback(len(source_paths))
+    source_paths.sort()
+    return source_paths
+
+
+__all__ = [
+    "StorageContextLike",
+    "collect_managed_folder_snapshot",
+    "count_managed_folder_paths",
+    "iter_managed_folder_paths",
+]
