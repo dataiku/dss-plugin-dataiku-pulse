@@ -20,6 +20,13 @@
             "label": "Choose PULSE Primary Configuration",
             "parameterSetId": "params-dashboard-instance",
             "mandatory": true
+        },
+        {
+            "name": "normalize_silver",
+            "label": "Replay Normalizer and Silver checks",
+            "type": "BOOLEAN",
+            "default": true
         }
+        
     ]
 }
