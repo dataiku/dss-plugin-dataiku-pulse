@@ -1,30 +1,69 @@
-# This file is the actual code for the Python runnable compact-silver-layer
-from dataiku.runnables import Runnable
+from __future__ import annotations
+
+from typing import Any
+
+from dataiku.runnables import ResultTable, Runnable
+
+from shared_duckdb.context import build_storage_context
+
+
+PROVIDER_LABELS: dict[str, str] = {
+    "EC2": "AWS/S3",
+    "Azure": "Azure Blob Storage",
+    "GCS": "Google Cloud Storage",
+}
+
+
+def _build_result_table(*, project_key: str, folder_lookup: str) -> ResultTable:
+    storage_ctx = build_storage_context(project_key=project_key, folder_lookup=folder_lookup)
+    provider_label = PROVIDER_LABELS.get(storage_ctx.connection_type)
+    status = "ok" if provider_label else "unsupported"
+    message = (
+        f"Resolved managed folder via {provider_label}"
+        if provider_label
+        else f"Unsupported managed-folder provider type: {storage_ctx.connection_type}"
+    )
+
+    rt = ResultTable()
+    rt.add_column(1, "status", "STRING")
+    rt.add_column(2, "message", "STRING")
+    rt.add_column(3, "managed_folder_lookup", "STRING")
+    rt.add_column(4, "managed_folder_id", "STRING")
+    rt.add_column(5, "connection_name", "STRING")
+    rt.add_column(6, "connection_type", "STRING")
+    rt.add_column(7, "provider_label", "STRING")
+    rt.add_record(
+        [
+            status,
+            message,
+            folder_lookup,
+            storage_ctx.folder_id,
+            storage_ctx.connection_name,
+            storage_ctx.connection_type,
+            provider_label or "unsupported",
+        ]
+    )
+    return rt
+
 
 class MyRunnable(Runnable):
-    """The base interface for a Python runnable"""
+    """Compact Silver Layer Phase 1 observability runnable."""
 
-    def __init__(self, project_key, config, plugin_config):
-        """
-        :param project_key: the project in which the runnable executes
-        :param config: the dict of the configuration of the object
-        :param plugin_config: contains the plugin settings
-        """
+    def __init__(
+        self,
+        project_key: str,
+        config: dict[str, Any] | None,
+        plugin_config: dict[str, Any] | None,
+    ):
         self.project_key = project_key
-        self.config = config
-        self.plugin_config = plugin_config
-        
+        self.config = config or {}
+        self.plugin_config = plugin_config or {}
+
     def get_progress_target(self):
-        """
-        If the runnable will return some progress info, have this function return a tuple of 
-        (target, unit) where unit is one of: SIZE, FILES, RECORDS, NONE
-        """
         return None
 
     def run(self, progress_callback):
-        """
-        Do stuff here. Can return a string or raise an exception.
-        The progress_callback is a function expecting 1 value: current progress
-        """
-        raise Exception("unimplemented")
-        
+        return _build_result_table(
+            project_key=self.project_key,
+            folder_lookup="partitioned_data",
+        )
