@@ -35,7 +35,7 @@
           "name": "my_preset_param",
           "label": "Select Preset",
           "type": "PRESET",
-          "parameterSetId": "your-preset-id-here"
+          "parameterSetId": "params-dashboard-instance"
         },
         {
             "name": "normalize_silver",
