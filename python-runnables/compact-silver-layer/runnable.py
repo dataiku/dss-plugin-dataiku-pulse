@@ -7,11 +7,8 @@ from typing import Any
 from dataiku.runnables import ResultTable, Runnable
 
 from shared_duckdb.context import build_storage_context
-from shared_storage_discovery import (
-    build_managed_folder_path_index,
-    filter_path_index,
-    select_latest_partition_day,
-)
+from shared_runtime_logging import suppress_inherited_provider_debug_logging
+from shared_storage_discovery import select_latest_partition_paths
 from shared_storage_parquet_s3 import read_s3_parquet_files
 
 
@@ -75,89 +72,79 @@ def _build_result_table(*, project_key: str, folder_lookup: str) -> ResultTable:
     ])
 
     logger.info(
-        "Compact silver native index scan started folder=%s provider=%s prefix=%s",
+        "Compact silver native streaming scan started folder=%s provider=%s prefix=%s",
         folder_lookup,
         storage_ctx.connection_type,
         EVENT_MAPPING_PREFIX,
     )
     started_at = time.monotonic()
-    path_index_df = build_managed_folder_path_index(
+    selected = select_latest_partition_paths(
         storage_ctx,
         relative_prefix=EVENT_MAPPING_PREFIX,
         suffix=".parquet",
+        partition_filters=PHASE3_FILTERS,
     )
     elapsed = time.monotonic() - started_at
     logger.info(
-        "Compact silver native index scan completed rows=%s prefix=%s elapsed=%.1fs",
-        len(path_index_df),
+        "Compact silver native streaming scan completed scanned=%s filtered=%s selected_day=%s/%s/%s retained_files=%s elapsed=%.1fs",
+        selected.total_matched_paths,
+        selected.filtered_matching_paths,
+        selected.year,
+        selected.month,
+        selected.day,
+        len(selected.full_paths),
         EVENT_MAPPING_PREFIX,
         elapsed,
     )
     rt.add_record([
         "All Parquet Found",
-        str(len(path_index_df)),
+        str(selected.total_matched_paths),
         "silver/category=event_mapping/**/*.parquet",
         "info",
-        f"native full-prefix scan; elapsed={elapsed:.1f}s",
+        f"native streaming full-prefix scan; elapsed={elapsed:.1f}s",
     ])
     rt.add_record([
-        "DataFrame Built",
-        f"rows={len(path_index_df)}, columns={len(path_index_df.columns)}",
+        "Full DataFrame",
+        "not built",
         "full native discovery index",
         "info",
-        f"columns={', '.join(path_index_df.columns.tolist())}",
+        "intentionally deferred: exceeds macro memory at this scale",
     ])
-
-    filtered_df = filter_path_index(path_index_df, **PHASE3_FILTERS)
     rt.add_record([
         "Filtered Subset",
-        f"rows={len(filtered_df)}, columns={len(filtered_df.columns)}",
+        str(selected.filtered_matching_paths),
         PHASE3_FILTER_SCOPE,
         "info",
-        "exact Phase 3 development filter",
+        "streaming, no full in-memory path index",
     ])
-    if filtered_df.empty:
+    if selected.filtered_matching_paths <= 0:
         raise ValueError(f"No SILVER parquet files matched the Phase 3 development filter: {PHASE3_FILTER_SCOPE}")
 
-    selected_year, selected_month, selected_day = select_latest_partition_day(filtered_df)
     logger.info(
         "Compact silver selected partition year=%s month=%s day=%s scope=%s",
-        selected_year,
-        selected_month,
-        selected_day,
+        selected.year,
+        selected.month,
+        selected.day,
         PHASE3_FILTER_SCOPE,
     )
     rt.add_record([
         "Selected Day Test",
-        _format_day_scope(selected_year, selected_month, selected_day),
+        _format_day_scope(selected.year, selected.month, selected.day),
         PHASE3_FILTER_SCOPE,
         "info",
-        "deterministic latest matching day",
+        f"latest numeric matching day; retained files={len(selected.full_paths)}",
     ])
-
-    selected_day_df = filter_path_index(
-        filtered_df,
-        year=selected_year,
-        month=selected_month,
-        day=selected_day,
-    )
-    if selected_day_df.empty:
-        raise ValueError(
-            f"No SILVER parquet files matched the selected Phase 3 day: {_format_day_scope(selected_year, selected_month, selected_day)}"
-        )
-
-    selected_full_paths = selected_day_df["full_path"].tolist()
     logger.info(
         "Compact silver native S3 day read started day=%s files=%s",
-        _format_day_scope(selected_year, selected_month, selected_day),
-        len(selected_full_paths),
+        _format_day_scope(selected.year, selected.month, selected.day),
+        len(selected.full_paths),
     )
     read_started_at = time.monotonic()
-    selected_day_data = read_s3_parquet_files(storage_ctx, full_paths=selected_full_paths)
+    selected_day_data = read_s3_parquet_files(storage_ctx, full_paths=selected.full_paths)
     read_elapsed = time.monotonic() - read_started_at
     logger.info(
         "Compact silver native S3 day read completed day=%s files=%s raw_rows=%s deduped_rows=%s columns=%s elapsed=%.1fs",
-        _format_day_scope(selected_year, selected_month, selected_day),
+        _format_day_scope(selected.year, selected.month, selected.day),
         selected_day_data.attrs.get("files_read", 0),
         selected_day_data.attrs.get("raw_rows", 0),
         selected_day_data.attrs.get("rows_after_drop_duplicates", 0),
@@ -167,7 +154,7 @@ def _build_result_table(*, project_key: str, folder_lookup: str) -> ResultTable:
     rt.add_record([
         "Native S3 Day Read",
         f"rows={len(selected_day_data)}, columns={len(selected_day_data.columns)}",
-        _format_day_scope(selected_year, selected_month, selected_day),
+        _format_day_scope(selected.year, selected.month, selected.day),
         "info",
         (
             f"files={selected_day_data.attrs.get('files_read', 0)}; "
@@ -196,6 +183,7 @@ class MyRunnable(Runnable):
         return None
 
     def run(self, progress_callback):
+        suppress_inherited_provider_debug_logging()
         return _build_result_table(
             project_key=self.project_key,
             folder_lookup="partitioned_data",

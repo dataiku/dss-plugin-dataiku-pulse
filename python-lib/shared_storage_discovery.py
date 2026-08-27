@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Callable, Iterator, Protocol
 
 import pandas as pd
@@ -27,6 +28,16 @@ PATH_INDEX_COLUMNS = [
     "day",
     "base_name",
 ]
+
+
+@dataclass(frozen=True)
+class SelectedDayPaths:
+    total_matched_paths: int
+    filtered_matching_paths: int
+    year: str
+    month: str
+    day: str
+    full_paths: list[str]
 
 
 def _normalize_relative_prefix(relative_prefix: str) -> str:
@@ -118,6 +129,15 @@ def _path_index_row(storage_ctx: StorageContextLike, relative_path: str) -> dict
     }
 
 
+def _day_key(*, year: str, month: str, day: str) -> tuple[int, int, int]:
+    try:
+        return int(year), int(month), int(day)
+    except ValueError as exc:
+        raise ValueError(
+            f"Unexpected managed-folder path format: non-numeric day partition year={year!r} month={month!r} day={day!r}"
+        ) from exc
+
+
 def _iter_provider_object_keys(storage_ctx: StorageContextLike, *, physical_prefix: str) -> Iterator[str]:
     connection_type = storage_ctx.connection_type
     if connection_type == "EC2":
@@ -198,6 +218,52 @@ def build_managed_folder_path_index(
     return pd.DataFrame(rows, columns=PATH_INDEX_COLUMNS)
 
 
+def select_latest_partition_paths(
+    storage_ctx: StorageContextLike,
+    *,
+    relative_prefix: str,
+    suffix: str | None = None,
+    partition_filters: dict[str, str],
+) -> SelectedDayPaths:
+    selected_day: tuple[int, int, int] | None = None
+    selected_day_parts: tuple[str, str, str] | None = None
+    selected_full_paths: list[str] = []
+    total_matched_paths = 0
+    filtered_matching_paths = 0
+
+    for relative_path in iter_managed_folder_paths(storage_ctx, relative_prefix=relative_prefix, suffix=suffix):
+        total_matched_paths += 1
+        row = _path_index_row(storage_ctx, relative_path)
+        if any(row.get(column_name) != expected_value for column_name, expected_value in partition_filters.items()):
+            continue
+
+        filtered_matching_paths += 1
+        candidate_day = _day_key(year=row["year"], month=row["month"], day=row["day"])
+        candidate_parts = (row["year"], row["month"], row["day"])
+
+        if selected_day is None or candidate_day > selected_day:
+            selected_day = candidate_day
+            selected_day_parts = candidate_parts
+            selected_full_paths = [row["full_path"]]
+            continue
+
+        if candidate_day == selected_day:
+            selected_full_paths.append(row["full_path"])
+
+    if selected_day_parts is None or not selected_full_paths:
+        raise ValueError("No managed-folder paths matched the requested exact partition filters")
+
+    selected_full_paths.sort()
+    return SelectedDayPaths(
+        total_matched_paths=total_matched_paths,
+        filtered_matching_paths=filtered_matching_paths,
+        year=selected_day_parts[0],
+        month=selected_day_parts[1],
+        day=selected_day_parts[2],
+        full_paths=selected_full_paths,
+    )
+
+
 def filter_path_index(df: pd.DataFrame, **filters: str) -> pd.DataFrame:
     filtered = df.copy()
     for column_name, expected_value in filters.items():
@@ -229,11 +295,13 @@ def select_latest_partition_day(df: pd.DataFrame) -> tuple[str, str, str]:
 
 __all__ = [
     "PATH_INDEX_COLUMNS",
+    "SelectedDayPaths",
     "StorageContextLike",
     "build_managed_folder_path_index",
     "collect_managed_folder_snapshot",
     "count_managed_folder_paths",
     "filter_path_index",
     "iter_managed_folder_paths",
+    "select_latest_partition_paths",
     "select_latest_partition_day",
 ]

@@ -326,3 +326,62 @@ def test_filter_and_latest_day_selection_are_exact_and_numeric():
 
     assert filtered["full_path"].tolist() == ["p1", "p2"]
     assert selected == ("2026", "04", "24")
+
+
+def test_streaming_selector_chooses_latest_day_independent_of_input_order(monkeypatch):
+    ctx = _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket")
+    seen = {"iterated": 0}
+    paths = [
+        "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=04/day=09/older-2.parquet",
+        "/silver/category=event_mapping/module=administration/instance_name=other/year=2028/month=01/day=01/ignored.parquet",
+        "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=04/day=24/latest-2.parquet",
+        "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=04/day=09/older-1.parquet",
+        "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=04/day=24/latest-1.parquet",
+    ]
+
+    def fake_iter(*args, **kwargs):
+        for path in paths:
+            seen["iterated"] += 1
+            yield path
+
+    monkeypatch.setattr(discovery, "iter_managed_folder_paths", fake_iter)
+
+    selected = discovery.select_latest_partition_paths(
+        ctx,
+        relative_prefix="silver/category=event_mapping/",
+        suffix=".parquet",
+        partition_filters={
+            "category": "event_mapping",
+            "module": "administration",
+            "instance_name": "mazzei_pulse",
+        },
+    )
+
+    assert seen["iterated"] == 5
+    assert selected.total_matched_paths == 5
+    assert selected.filtered_matching_paths == 4
+    assert (selected.year, selected.month, selected.day) == ("2026", "04", "24")
+    assert selected.full_paths == [
+        "bucket/root/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=04/day=24/latest-1.parquet",
+        "bucket/root/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=04/day=24/latest-2.parquet",
+    ]
+
+
+def test_streaming_selector_fails_clearly_when_no_exact_match(monkeypatch):
+    monkeypatch.setattr(
+        discovery,
+        "iter_managed_folder_paths",
+        lambda *args, **kwargs: iter(["/silver/category=event_mapping/module=administration/instance_name=other/year=2026/month=04/day=24/file.parquet"]),
+    )
+
+    with pytest.raises(ValueError, match="requested exact partition filters"):
+        discovery.select_latest_partition_paths(
+            _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket"),
+            relative_prefix="silver/category=event_mapping/",
+            suffix=".parquet",
+            partition_filters={
+                "category": "event_mapping",
+                "module": "administration",
+                "instance_name": "mazzei_pulse",
+            },
+        )

@@ -25,6 +25,7 @@ from data_collection.audit_logs_modules.event_mapping_replay import (
 from data_collection.helper import DSSFolderTarget
 from shared_storage_discovery import collect_managed_folder_snapshot
 from shared_duckdb.context import build_storage_context
+from shared_runtime_logging import suppress_inherited_provider_debug_logging
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,6 @@ DISCOVERY_PROGRESS_INTERVAL = 10_000
 REPLAY_PROGRESS_INTERVAL = 100
 REPLAY_BATCH_SIZE = 100
 TRACEBACK_SAMPLE_LIMIT = 3
-NOISY_DEBUG_LOGGERS = ("botocore", "urllib3")
 EVENT_MAPPING_PREFIX = "silver/category=event_mapping/"
 
 
@@ -80,13 +80,6 @@ def _sample_list(items: list[OutcomeSample], *, total: int, limit: int = SAMPLE_
 
 def _new_outcome_accumulator() -> OutcomeAccumulator:
     return OutcomeAccumulator(counts=Counter(), grouped_samples={})
-
-
-def _configure_runtime_logging() -> None:
-    for logger_name in NOISY_DEBUG_LOGGERS:
-        noisy_logger = logging.getLogger(logger_name)
-        if noisy_logger.getEffectiveLevel() <= logging.DEBUG:
-            noisy_logger.setLevel(logging.WARNING)
 
 
 def _resolve_parallel_enabled(param_set: dict) -> bool:
@@ -350,7 +343,7 @@ class MyRunnable(Runnable):
         return str(self.param_set.get("pulse_partitioned_data") or "partitioned_data")
 
     def run(self, progress_callback):
-        _configure_runtime_logging()
+        suppress_inherited_provider_debug_logging()
 
         folder_lookup = self._resolve_folder_lookup()
         storage_ctx = build_storage_context(project_key=self.project_key, folder_lookup=folder_lookup)
