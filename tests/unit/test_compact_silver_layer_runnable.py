@@ -292,6 +292,81 @@ def test_run_uses_event_mapping_mode_when_config_true(monkeypatch):
     ]
 
 
+def test_run_retains_sources_when_event_mapping_produces_no_output(monkeypatch):
+    module = _load_runnable_module()
+    monkeypatch.setattr(module, "suppress_inherited_provider_debug_logging", lambda: None)
+    monkeypatch.setattr(module, "build_storage_context", lambda **kwargs: _storage_context("EC2"))
+    monkeypatch.setattr(module, "select_latest_partition_paths", lambda *args, **kwargs: _selected_day_paths())
+
+    def fake_read(*args, **kwargs):
+        out = pd.DataFrame([{"a": 1}, {"a": 1}]).drop_duplicates()
+        out.attrs["files_read"] = 2
+        out.attrs["raw_rows"] = 2
+        out.attrs["rows_after_drop_duplicates"] = 1
+        out.attrs["output_column_count"] = 1
+        return out
+
+    monkeypatch.setattr(module, "read_s3_parquet_files", fake_read)
+    monkeypatch.setattr(module, "next_compact_save_epoch_ms", lambda: 1786510805000)
+    monkeypatch.setattr(
+        module,
+        "plan_compact_selected_day",
+        lambda **kwargs: (
+            [],
+            SimpleNamespace(
+                mode="event_mapping_replay",
+                run_epoch_ms=1786510805000,
+                input_rows=1,
+                input_columns=1,
+                rehydrated_rows=1,
+                rehydrated_columns=47,
+                mapper_rows=0,
+                mapper_columns=13,
+                mapper_groups=0,
+                metrics=(),
+            ),
+        ),
+    )
+    monkeypatch.setattr(module, "get_managed_folder_handle", lambda target: "FOLDER_HANDLE")
+    monkeypatch.setattr(
+        module,
+        "apply_compact_replacement_plans",
+        lambda **kwargs: SimpleNamespace(
+            status="no_mapped_output_retained",
+            written_paths=(),
+            verified_paths=(),
+            deleted_source_paths=(),
+            retained_source_paths=tuple(record.relative_path for record in _selected_day_paths().selected_records),
+            message="Current event-mapping replay produced no replacement output; written=0, verified=0, deleted=0, retained=2",
+        ),
+    )
+
+    runnable = module.MyRunnable("P", {"normalize_silver": True}, {})
+    result = runnable.run(progress_callback=None)
+
+    assert result.records[15] == [
+        "Normalized Output",
+        "plans=0",
+        "2026/08/23",
+        "info",
+        "no normalized output plans",
+    ]
+    assert result.records[16] == [
+        "Replacement Writes",
+        "written=0, verified=0",
+        "1786510805000",
+        "no_mapped_output_retained",
+        "Current event-mapping replay produced no replacement output; written=0, verified=0, deleted=0, retained=2",
+    ]
+    assert result.records[17] == [
+        "Source Deletion",
+        "deleted=0, retained=2",
+        "2026/08/23",
+        "no_mapped_output_retained",
+        "Current event-mapping replay produced no replacement output; written=0, verified=0, deleted=0, retained=2",
+    ]
+
+
 def test_all_recent_matches_fail_before_s3_reader(monkeypatch):
     module = _load_runnable_module()
     monkeypatch.setattr(module, "suppress_inherited_provider_debug_logging", lambda: None)

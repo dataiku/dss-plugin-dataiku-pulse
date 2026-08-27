@@ -127,6 +127,34 @@ def test_event_mapping_mode_rehydrates_maps_normalizes_and_reports_shapes(monkey
     assert str(plans[0].output_path).endswith("/compact_silver-1786510805000-0001.parquet")
 
 
+def test_zero_mapped_output_retains_all_sources_without_uploads_or_deletes(monkeypatch):
+    uploads = []
+    verifications = []
+    deletions = []
+
+    monkeypatch.setattr(replay, "upload_parquet", lambda **kwargs: uploads.append(kwargs))
+    monkeypatch.setattr(replay, "verify_managed_folder_file", lambda folder, path: verifications.append(path))
+    monkeypatch.setattr(replay, "delete_managed_folder_file", lambda folder, path: deletions.append(path))
+
+    result = replay.apply_compact_replacement_plans(
+        target=object(),
+        folder=object(),
+        source_relative_paths=[record.relative_path for record in _selected_records()],
+        plans=[],
+    )
+
+    assert result.status == "no_mapped_output_retained"
+    assert result.written_paths == ()
+    assert result.verified_paths == ()
+    assert result.deleted_source_paths == ()
+    assert result.retained_source_paths == tuple(record.relative_path for record in _selected_records())
+    assert "produced no replacement output" in result.message
+    assert "written=0, verified=0, deleted=0, retained=2" in result.message
+    assert uploads == []
+    assert verifications == []
+    assert deletions == []
+
+
 def test_dq_failure_means_zero_uploads_and_zero_source_deletion(monkeypatch):
     folder = object()
     target = object()

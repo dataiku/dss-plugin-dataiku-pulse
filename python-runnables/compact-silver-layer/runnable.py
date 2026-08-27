@@ -53,7 +53,7 @@ def _format_day_scope(year: str, month: str, day: str) -> str:
 
 def _format_plan_metrics(metrics) -> str:
     if not metrics:
-        return "plans=0"
+        return "no normalized output plans"
     return "; ".join(
         f"{metric.module_name}:rows={metric.rows},columns={metric.columns},dq_ok={str(metric.dq_ok).lower()}"
         for metric in metrics

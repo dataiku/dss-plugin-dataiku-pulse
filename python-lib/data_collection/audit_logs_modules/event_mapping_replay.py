@@ -548,6 +548,16 @@ def apply_compact_replacement_plans(
     source_relative_paths: list[str],
     plans: list[ReplayWritePlan],
 ) -> CompactApplyResult:
+    if not plans:
+        return CompactApplyResult(
+            status="no_mapped_output_retained",
+            retained_source_paths=tuple(source_relative_paths),
+            message=(
+                "Current event-mapping replay produced no replacement output; "
+                f"written=0, verified=0, deleted=0, retained={len(source_relative_paths)}"
+            ),
+        )
+
     upload_result = upload_event_mapping_replacements(target=target, folder=folder, plans=plans)
     if upload_result.status != "uploaded":
         return CompactApplyResult(
