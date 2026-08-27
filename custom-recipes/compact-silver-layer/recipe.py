@@ -1,14 +1,14 @@
 import dataiku
-from dataiku.customrecipe import get_recipe_config, get_plugin_config
+from dataiku.customrecipe import get_plugin_config, get_recipe_config 
 
 def run():
     project_key = dataiku.default_project_key()
     
-    recipe_config = get_recipe_config() or {}
     plugin_config = get_plugin_config() or {}
+    recipe_config = get_recipe_config() or {}
     
-    print(f"AHHHHHHH -- {recipe_config}")
     print(f"AHHHHHHH -- {plugin_config}")
+    print(f"AHHHHHHH -- {recipe_config}")
     
     
     return 
