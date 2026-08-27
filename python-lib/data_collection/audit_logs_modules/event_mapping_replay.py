@@ -15,8 +15,9 @@ import pandas as pd
 
 from data_collection.audit_logs_modules import event_mapping
 from data_collection.data_normalizer import DQResult, check_silver_dq, normalize_silver
-from data_collection.helper import DSSFolderTarget, upload_parquet
-from shared_storage_discovery import SelectedPathRecord
+from data_collection.helper import DSSFolderTarget, get_managed_folder_handle, upload_parquet
+from shared_storage_discovery import SelectedPartitionPaths, SelectedPathRecord
+from shared_storage_parquet_s3 import read_s3_parquet_files
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,38 @@ class CompactApplyResult:
     retained_source_paths: tuple[str, ...] = ()
     dq_errors: tuple[str, ...] = ()
     message: str = ""
+
+
+@dataclass(frozen=True)
+class CompactPartitionOutcome:
+    year: str
+    month: str
+    day: str
+    replay_mode: str
+    status: str
+    message: str
+    run_epoch_ms: int
+    files_read: int
+    raw_rows: int
+    rows_after_drop_duplicates: int
+    output_column_count: int
+    input_rows: int
+    input_columns: int
+    plan_count: int
+    rehydrated_rows: int | None = None
+    rehydrated_columns: int | None = None
+    mapper_rows: int | None = None
+    mapper_columns: int | None = None
+    mapper_groups: int = 0
+    metrics: tuple[CompactPlanMetric, ...] = ()
+    written_count: int = 0
+    verified_count: int = 0
+    deleted_count: int = 0
+    retained_count: int = 0
+
+    @property
+    def day_scope(self) -> str:
+        return f"{self.year}/{self.month}/{self.day}"
 
 
 class ReplaySkipError(ValueError):
@@ -616,6 +649,57 @@ def apply_compact_replacement_plans(
         deleted_source_paths=tuple(deleted_paths),
         retained_source_paths=(),
         message=f"Verified {len(verified_paths)} replacement file(s) and deleted {len(deleted_paths)} source file(s)",
+    )
+
+
+def process_compact_selected_partition(
+    *,
+    storage_ctx: Any,
+    target: DSSFolderTarget,
+    selected_partition: SelectedPartitionPaths,
+    normalize_silver_mode: bool,
+) -> CompactPartitionOutcome:
+    replay_mode = "event_mapping_replay" if normalize_silver_mode else "generic_compaction"
+    selected_day_data = read_s3_parquet_files(storage_ctx, full_paths=selected_partition.full_paths)
+    run_epoch_ms = next_compact_save_epoch_ms()
+    plans, plan_summary = plan_compact_selected_day(
+        selected_records=selected_partition.selected_records,
+        selected_df=selected_day_data,
+        normalize_silver_mode=normalize_silver_mode,
+        run_epoch_ms=run_epoch_ms,
+    )
+    folder = get_managed_folder_handle(target=target)
+    apply_result = apply_compact_replacement_plans(
+        target=target,
+        folder=folder,
+        source_relative_paths=selected_partition.relative_paths,
+        plans=plans,
+    )
+    return CompactPartitionOutcome(
+        year=selected_partition.year,
+        month=selected_partition.month,
+        day=selected_partition.day,
+        replay_mode=replay_mode,
+        status=apply_result.status,
+        message=apply_result.message,
+        run_epoch_ms=run_epoch_ms,
+        files_read=int(selected_day_data.attrs.get("files_read", len(selected_partition.full_paths))),
+        raw_rows=int(selected_day_data.attrs.get("raw_rows", len(selected_day_data))),
+        rows_after_drop_duplicates=int(selected_day_data.attrs.get("rows_after_drop_duplicates", len(selected_day_data))),
+        output_column_count=int(selected_day_data.attrs.get("output_column_count", len(selected_day_data.columns))),
+        input_rows=int(len(selected_day_data)),
+        input_columns=int(len(selected_day_data.columns)),
+        plan_count=len(plans),
+        rehydrated_rows=plan_summary.rehydrated_rows,
+        rehydrated_columns=plan_summary.rehydrated_columns,
+        mapper_rows=plan_summary.mapper_rows,
+        mapper_columns=plan_summary.mapper_columns,
+        mapper_groups=plan_summary.mapper_groups,
+        metrics=plan_summary.metrics,
+        written_count=len(apply_result.written_paths),
+        verified_count=len(apply_result.verified_paths),
+        deleted_count=len(apply_result.deleted_source_paths),
+        retained_count=len(apply_result.retained_source_paths),
     )
 
 

@@ -283,3 +283,43 @@ def test_source_deletion_failure_is_distinct_and_stops_additional_uncertain_dele
         ("verify", str(plan.output_path)),
         ("delete", _selected_records()[0].relative_path),
     ]
+
+
+def test_process_compact_selected_partition_isolates_one_day_and_returns_counts(monkeypatch):
+    selected_partition = SimpleNamespace(
+        year="2026",
+        month="08",
+        day="23",
+        selected_records=_selected_records(),
+        full_paths=[record.full_path for record in _selected_records()],
+        relative_paths=[record.relative_path for record in _selected_records()],
+    )
+
+    def fake_read(storage_ctx, *, full_paths):
+        out = pd.DataFrame([{"a": 1}, {"a": 1}, {"a": 2}]).drop_duplicates()
+        out.attrs["files_read"] = len(full_paths)
+        out.attrs["raw_rows"] = 3
+        out.attrs["rows_after_drop_duplicates"] = 2
+        out.attrs["output_column_count"] = 1
+        return out
+
+    monkeypatch.setattr(replay, "read_s3_parquet_files", fake_read)
+    monkeypatch.setattr(replay, "next_compact_save_epoch_ms", lambda: 1786510805000)
+    monkeypatch.setattr(replay, "plan_compact_selected_day", lambda **kwargs: ([SimpleNamespace(output_path=Path("/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/compact_silver-1786510805000-0001.parquet"), silver_df=kwargs["selected_df"], dq=SimpleNamespace(ok=True, errors=[]), module_name="administration", event_date=date(2026, 8, 23))], replay.CompactPlanSummary(mode="generic_compaction", run_epoch_ms=1786510805000, input_rows=2, input_columns=1, metrics=(replay.CompactPlanMetric(module_name="administration", rows=2, columns=1, dq_ok=True, dq_errors=()),))))
+    monkeypatch.setattr(replay, "get_managed_folder_handle", lambda target: "FOLDER_HANDLE")
+    monkeypatch.setattr(replay, "apply_compact_replacement_plans", lambda **kwargs: replay.CompactApplyResult(status="succeeded", written_paths=("/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/compact_silver-1786510805000-0001.parquet",), verified_paths=("/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/compact_silver-1786510805000-0001.parquet",), deleted_source_paths=tuple(selected_partition.relative_paths), message="ok"))
+
+    outcome = replay.process_compact_selected_partition(
+        storage_ctx=object(),
+        target=object(),
+        selected_partition=selected_partition,
+        normalize_silver_mode=False,
+    )
+
+    assert outcome.day_scope == "2026/08/23"
+    assert outcome.status == "succeeded"
+    assert outcome.files_read == 2
+    assert outcome.raw_rows == 3
+    assert outcome.rows_after_drop_duplicates == 2
+    assert outcome.written_count == 1
+    assert outcome.deleted_count == 2

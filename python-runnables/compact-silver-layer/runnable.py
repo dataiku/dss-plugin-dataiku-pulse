@@ -1,21 +1,21 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any
 
 from dataiku.runnables import ResultTable, Runnable
+from joblib import Parallel, delayed
 
 from data_collection.audit_logs_modules.event_mapping_replay import (
-    apply_compact_replacement_plans,
-    next_compact_save_epoch_ms,
-    plan_compact_selected_day,
+    CompactPartitionOutcome,
+    process_compact_selected_partition,
 )
-from data_collection.helper import DSSFolderTarget, get_managed_folder_handle
+from data_collection.helper import DSSFolderTarget, chunked
 from shared_duckdb.context import build_storage_context
 from shared_runtime_logging import suppress_inherited_provider_debug_logging
-from shared_storage_discovery import select_latest_partition_paths
-from shared_storage_parquet_s3 import read_s3_parquet_files
+from shared_storage_discovery import SelectedPartitionBatch, SelectedPartitionPaths, select_latest_partition_paths_batch
 
 
 logger = logging.getLogger(__name__)
@@ -29,6 +29,7 @@ PROVIDER_LABELS: dict[str, str] = {
 
 EVENT_MAPPING_PREFIX = "silver/category=event_mapping/"
 MINIMUM_AGE_DAYS = 3
+SELECTED_PARTITION_COUNT = 2
 PHASE3_FILTERS = {
     "category": "event_mapping",
     "module": "administration",
@@ -60,25 +61,171 @@ def _format_plan_metrics(metrics) -> str:
     )
 
 
-def _build_result_table(*, project_key: str, folder_lookup: str, normalize_silver_mode: bool) -> ResultTable:
+def _selected_partition_labels(selected_partitions: list[SelectedPartitionPaths]) -> str:
+    return ", ".join(_format_day_scope(item.year, item.month, item.day) for item in selected_partitions)
+
+
+def _result_status(status: str) -> str:
+    return "success" if status == "succeeded" else status
+
+
+def _aggregate_execution_status(outcomes: list[CompactPartitionOutcome]) -> str:
+    if outcomes and all(outcome.status == "succeeded" for outcome in outcomes):
+        return "success"
+    return "partial"
+
+
+def _process_partition_job(
+    *,
+    storage_ctx: Any,
+    target: DSSFolderTarget,
+    selected_partition: SelectedPartitionPaths,
+    normalize_silver_mode: bool,
+) -> CompactPartitionOutcome:
+    try:
+        return process_compact_selected_partition(
+            storage_ctx=storage_ctx,
+            target=target,
+            selected_partition=selected_partition,
+            normalize_silver_mode=normalize_silver_mode,
+        )
+    except Exception as exc:
+        return CompactPartitionOutcome(
+            year=selected_partition.year,
+            month=selected_partition.month,
+            day=selected_partition.day,
+            replay_mode="event_mapping_replay" if normalize_silver_mode else "generic_compaction",
+            status="failed",
+            message=repr(exc),
+            run_epoch_ms=0,
+            files_read=0,
+            raw_rows=0,
+            rows_after_drop_duplicates=0,
+            output_column_count=0,
+            input_rows=0,
+            input_columns=0,
+            plan_count=0,
+            retained_count=len(selected_partition.relative_paths),
+        )
+
+
+def _run_partition_jobs(
+    *,
+    storage_ctx: Any,
+    target: DSSFolderTarget,
+    selected_partitions: list[SelectedPartitionPaths],
+    normalize_silver_mode: bool,
+    do_parallel: bool,
+    n_jobs: int,
+    batch_size: int,
+) -> list[CompactPartitionOutcome]:
+    outcomes: list[CompactPartitionOutcome] = []
+    worker_count = n_jobs if do_parallel else 1
+    for partition_batch in chunked(selected_partitions, batch_size):
+        if worker_count <= 1:
+            batch_outcomes = [
+                _process_partition_job(
+                    storage_ctx=storage_ctx,
+                    target=target,
+                    selected_partition=selected_partition,
+                    normalize_silver_mode=normalize_silver_mode,
+                )
+                for selected_partition in partition_batch
+            ]
+        else:
+            batch_outcomes = Parallel(n_jobs=worker_count, prefer="threads")(
+                delayed(_process_partition_job)(
+                    storage_ctx=storage_ctx,
+                    target=target,
+                    selected_partition=selected_partition,
+                    normalize_silver_mode=normalize_silver_mode,
+                )
+                for selected_partition in partition_batch
+            )
+        outcomes.extend(batch_outcomes)
+    return outcomes
+
+
+def _add_partition_result_rows(rt: ResultTable, outcome: CompactPartitionOutcome) -> None:
+    rt.add_record([
+        "Native S3 Day Read",
+        f"rows={outcome.input_rows}, columns={outcome.output_column_count}",
+        outcome.day_scope,
+        "info",
+        (
+            f"files={outcome.files_read}; raw_rows={outcome.raw_rows}; "
+            f"rows_after_drop_duplicates={outcome.rows_after_drop_duplicates}"
+        ),
+    ])
+    rt.add_record([
+        "Input DataFrame",
+        f"rows={outcome.input_rows}, columns={outcome.input_columns}",
+        outcome.day_scope,
+        "info",
+        f"files read={outcome.files_read}; deduped reader result",
+    ])
+    rt.add_record([
+        "Replay Mode",
+        outcome.replay_mode,
+        outcome.day_scope,
+        "info",
+        f"run_epoch_ms={outcome.run_epoch_ms}; status={outcome.status}",
+    ])
+    if outcome.replay_mode == "event_mapping_replay":
+        rt.add_record([
+            "Rehydrated DataFrame",
+            f"rows={outcome.rehydrated_rows}, columns={outcome.rehydrated_columns}",
+            outcome.day_scope,
+            "info",
+            "SILVER extras unpacked",
+        ])
+        rt.add_record([
+            "Mapper Output",
+            f"rows={outcome.mapper_rows}, columns={outcome.mapper_columns}, groups={outcome.mapper_groups}",
+            outcome.day_scope,
+            "info",
+            "unchanged mapper output",
+        ])
+    rt.add_record([
+        "Normalized Output",
+        f"plans={outcome.plan_count}",
+        outcome.day_scope,
+        "info",
+        _format_plan_metrics(outcome.metrics),
+    ])
+    rt.add_record([
+        "Replacement Writes",
+        f"written={outcome.written_count}, verified={outcome.verified_count}",
+        str(outcome.run_epoch_ms),
+        _result_status(outcome.status),
+        outcome.message,
+    ])
+    rt.add_record([
+        "Source Deletion",
+        f"deleted={outcome.deleted_count}, retained={outcome.retained_count}",
+        outcome.day_scope,
+        _result_status(outcome.status),
+        outcome.message,
+    ])
+
+
+def _build_result_table(
+    *,
+    project_key: str,
+    folder_lookup: str,
+    normalize_silver_mode: bool,
+    do_parallel: bool,
+    n_jobs: int,
+    batch_size: int,
+) -> ResultTable:
     storage_ctx = build_storage_context(project_key=project_key, folder_lookup=folder_lookup)
     provider_label = PROVIDER_LABELS.get(storage_ctx.connection_type)
     status = "ok" if provider_label else "unsupported"
+    target = DSSFolderTarget(project_key=project_key, folder_lookup=folder_lookup)
+
     rt = _new_result_table()
-    rt.add_record([
-        "Resolve Folder",
-        storage_ctx.folder_id,
-        folder_lookup,
-        "info",
-        "resolved managed-folder ID",
-    ])
-    rt.add_record([
-        "Connection Name",
-        storage_ctx.connection_name,
-        folder_lookup,
-        "info",
-        "resolved DSS connection name",
-    ])
+    rt.add_record(["Resolve Folder", storage_ctx.folder_id, folder_lookup, "info", "resolved managed-folder ID"])
+    rt.add_record(["Connection Name", storage_ctx.connection_name, folder_lookup, "info", "resolved DSS connection name"])
     rt.add_record([
         "Connection Type",
         provider_label or "unsupported",
@@ -94,30 +241,30 @@ def _build_result_table(*, project_key: str, folder_lookup: str, normalize_silve
         EVENT_MAPPING_PREFIX,
     )
     started_at = time.monotonic()
-    selected = select_latest_partition_paths(
+    selected_batch: SelectedPartitionBatch = select_latest_partition_paths_batch(
         storage_ctx,
         relative_prefix=EVENT_MAPPING_PREFIX,
         suffix=".parquet",
         partition_filters=PHASE3_FILTERS,
+        partition_count=SELECTED_PARTITION_COUNT,
         minimum_age_days=MINIMUM_AGE_DAYS,
     )
     elapsed = time.monotonic() - started_at
+    selected_labels = _selected_partition_labels(selected_batch.selected_partitions)
     logger.info(
-        "Compact silver native streaming scan completed scanned=%s filtered=%s excluded_recent=%s eligible=%s cutoff_date=%s selected_day=%s/%s/%s retained_files=%s elapsed=%.1fs",
-        selected.total_matched_paths,
-        selected.filtered_matching_paths,
-        selected.excluded_recent_paths,
-        selected.eligible_paths,
-        selected.cutoff_date.isoformat(),
-        selected.year,
-        selected.month,
-        selected.day,
-        len(selected.full_paths),
+        "Compact silver native streaming scan completed scanned=%s filtered=%s excluded_recent=%s eligible=%s cutoff_date=%s selected_partitions=%s elapsed=%.1fs",
+        selected_batch.total_matched_paths,
+        selected_batch.filtered_matching_paths,
+        selected_batch.excluded_recent_paths,
+        selected_batch.eligible_paths,
+        selected_batch.cutoff_date.isoformat(),
+        selected_labels,
         elapsed,
     )
+
     rt.add_record([
         "All Parquet Found",
-        str(selected.total_matched_paths),
+        str(selected_batch.total_matched_paths),
         "silver/category=event_mapping/**/*.parquet",
         "info",
         f"native streaming full-prefix scan; elapsed={elapsed:.1f}s",
@@ -131,178 +278,99 @@ def _build_result_table(*, project_key: str, folder_lookup: str, normalize_silve
     ])
     rt.add_record([
         "Filtered Subset",
-        str(selected.filtered_matching_paths),
+        str(selected_batch.filtered_matching_paths),
         PHASE3_FILTER_SCOPE,
         "info",
         "includes all matching dates before age guard",
     ])
     rt.add_record([
         "Recent Partitions Excluded",
-        str(selected.excluded_recent_paths),
-        f"UTC dates >= {selected.cutoff_date.isoformat()}",
+        str(selected_batch.excluded_recent_paths),
+        f"UTC dates >= {selected_batch.cutoff_date.isoformat()}",
         "info",
-        f"minimum_age_days={selected.minimum_age_days}; cutoff_date={selected.cutoff_date.isoformat()}",
+        f"minimum_age_days={selected_batch.minimum_age_days}; cutoff_date={selected_batch.cutoff_date.isoformat()}",
     ])
     rt.add_record([
         "Eligible Subset",
-        str(selected.eligible_paths),
-        f"UTC dates < {selected.cutoff_date.isoformat()}",
+        str(selected_batch.eligible_paths),
+        f"UTC dates < {selected_batch.cutoff_date.isoformat()}",
         "info",
         "streaming; no full index",
     ])
-    if selected.filtered_matching_paths <= 0:
+    if selected_batch.filtered_matching_paths <= 0:
         raise ValueError(f"No SILVER parquet files matched the Phase 3 development filter: {PHASE3_FILTER_SCOPE}")
 
-    logger.info(
-        "Compact silver selected partition year=%s month=%s day=%s scope=%s",
-        selected.year,
-        selected.month,
-        selected.day,
-        PHASE3_FILTER_SCOPE,
-    )
     rt.add_record([
-        "Selected Day Test",
-        _format_day_scope(selected.year, selected.month, selected.day),
+        "Selected Partitions",
+        str(len(selected_batch.selected_partitions)),
         PHASE3_FILTER_SCOPE,
         "info",
-        f"latest eligible numeric day; retained files={len(selected.full_paths)}",
+        f"newest to oldest: {selected_labels}",
     ])
     rt.add_record([
         "Skipped Compact Outputs",
-        str(selected.skipped_compact_outputs),
+        str(selected_batch.skipped_compact_outputs),
         PHASE3_FILTER_SCOPE,
         "info",
         "existing compact_silver-* sources excluded from selection",
     ])
-    logger.info(
-        "Compact silver native S3 day read started day=%s files=%s",
-        _format_day_scope(selected.year, selected.month, selected.day),
-        len(selected.full_paths),
-    )
-    read_started_at = time.monotonic()
-    selected_day_data = read_s3_parquet_files(storage_ctx, full_paths=selected.full_paths)
-    read_elapsed = time.monotonic() - read_started_at
-    logger.info(
-        "Compact silver native S3 day read completed day=%s files=%s raw_rows=%s deduped_rows=%s columns=%s elapsed=%.1fs",
-        _format_day_scope(selected.year, selected.month, selected.day),
-        selected_day_data.attrs.get("files_read", 0),
-        selected_day_data.attrs.get("raw_rows", 0),
-        selected_day_data.attrs.get("rows_after_drop_duplicates", 0),
-        selected_day_data.attrs.get("output_column_count", 0),
-        read_elapsed,
-    )
-    rt.add_record([
-        "Native S3 Day Read",
-        f"rows={len(selected_day_data)}, columns={len(selected_day_data.columns)}",
-        _format_day_scope(selected.year, selected.month, selected.day),
-        "info",
-        (
-            f"files={selected_day_data.attrs.get('files_read', 0)}; "
-            f"raw_rows={selected_day_data.attrs.get('raw_rows', 0)}; "
-            f"rows_after_drop_duplicates={selected_day_data.attrs.get('rows_after_drop_duplicates', 0)}; "
-            f"elapsed={read_elapsed:.1f}s"
-        ),
-    ])
 
-    selected_day_scope = _format_day_scope(selected.year, selected.month, selected.day)
-    rt.add_record([
-        "Input DataFrame",
-        f"rows={len(selected_day_data)}, columns={len(selected_day_data.columns)}",
-        selected_day_scope,
-        "info",
-        f"files read={selected_day_data.attrs.get('files_read', 0)}; deduped reader result",
-    ])
-    replay_mode = "event_mapping_replay" if normalize_silver_mode else "generic_compaction"
-    rt.add_record([
-        "Replay Mode",
-        replay_mode,
-        selected_day_scope,
-        "info",
-        f"normalize_silver={str(normalize_silver_mode).lower()} from self.config",
-    ])
-
-    run_epoch_ms = next_compact_save_epoch_ms()
-    plans, plan_summary = plan_compact_selected_day(
-        selected_records=selected.selected_records,
-        selected_df=selected_day_data,
-        normalize_silver_mode=normalize_silver_mode,
-        run_epoch_ms=run_epoch_ms,
-    )
-    if normalize_silver_mode:
-        rt.add_record([
-            "Rehydrated DataFrame",
-            f"rows={plan_summary.rehydrated_rows}, columns={plan_summary.rehydrated_columns}",
-            selected_day_scope,
-            "info",
-            "SILVER extras unpacked",
-        ])
-        rt.add_record([
-            "Mapper Output",
-            f"rows={plan_summary.mapper_rows}, columns={plan_summary.mapper_columns}, groups={plan_summary.mapper_groups}",
-            selected_day_scope,
-            "info",
-            "unchanged mapper output",
-        ])
-        rt.add_record([
-            "Normalized Output",
-            f"plans={len(plans)}",
-            selected_day_scope,
-            "info",
-            _format_plan_metrics(plan_summary.metrics),
-        ])
-    else:
-        rt.add_record([
-            "Normalized Output",
-            f"plans={len(plans)}",
-            selected_day_scope,
-            "info",
-            _format_plan_metrics(plan_summary.metrics),
-        ])
-
-    target = DSSFolderTarget(project_key=project_key, folder_lookup=folder_lookup)
-    folder = get_managed_folder_handle(target=target)
+    worker_count = n_jobs if do_parallel else 1
+    execution_mode = "joblib_threads" if worker_count > 1 else "sequential"
     logger.info(
-        "Compact silver replacement apply started day=%s mode=%s plans=%s run_epoch_ms=%s",
-        selected_day_scope,
-        replay_mode,
-        len(plans),
-        run_epoch_ms,
+        "Compact silver execution started partitions=%s mode=%s workers=%s batch_size=%s",
+        len(selected_batch.selected_partitions),
+        execution_mode,
+        worker_count,
+        batch_size,
     )
-    apply_result = apply_compact_replacement_plans(
+    outcomes = _run_partition_jobs(
+        storage_ctx=storage_ctx,
         target=target,
-        folder=folder,
-        source_relative_paths=selected.relative_paths,
-        plans=plans,
+        selected_partitions=selected_batch.selected_partitions,
+        normalize_silver_mode=normalize_silver_mode,
+        do_parallel=do_parallel,
+        n_jobs=n_jobs,
+        batch_size=batch_size,
     )
+    for outcome in outcomes:
+        logger.info(
+            "Compact silver partition completed day=%s status=%s written=%s verified=%s deleted=%s retained=%s",
+            outcome.day_scope,
+            outcome.status,
+            outcome.written_count,
+            outcome.verified_count,
+            outcome.deleted_count,
+            outcome.retained_count,
+        )
+        _add_partition_result_rows(rt, outcome)
+
+    total_written = sum(outcome.written_count for outcome in outcomes)
+    total_verified = sum(outcome.verified_count for outcome in outcomes)
+    total_deleted = sum(outcome.deleted_count for outcome in outcomes)
+    total_retained = sum(outcome.retained_count for outcome in outcomes)
+    aggregate_status = _aggregate_execution_status(outcomes)
     logger.info(
-        "Compact silver replacement apply completed status=%s written=%s verified=%s deleted=%s retained=%s",
-        apply_result.status,
-        len(apply_result.written_paths),
-        len(apply_result.verified_paths),
-        len(apply_result.deleted_source_paths),
-        len(apply_result.retained_source_paths),
+        "Compact silver execution completed status=%s partitions=%s written=%s verified=%s deleted=%s retained=%s",
+        aggregate_status,
+        len(outcomes),
+        total_written,
+        total_verified,
+        total_deleted,
+        total_retained,
     )
-    write_status = "success" if apply_result.status == "succeeded" else apply_result.status
     rt.add_record([
-        "Replacement Writes",
-        f"written={len(apply_result.written_paths)}, verified={len(apply_result.verified_paths)}",
-        str(run_epoch_ms),
-        write_status,
-        apply_result.message,
-    ])
-    delete_status = "success" if apply_result.status == "succeeded" else apply_result.status
-    rt.add_record([
-        "Source Deletion",
-        f"deleted={len(apply_result.deleted_source_paths)}, retained={len(apply_result.retained_source_paths)}",
-        selected_day_scope,
-        delete_status,
-        apply_result.message,
+        "Partition Totals",
+        f"partitions={len(outcomes)}",
+        PHASE3_FILTER_SCOPE,
+        aggregate_status,
+        f"written={total_written}; verified={total_verified}; deleted={total_deleted}; retained={total_retained}",
     ])
     return rt
 
 
 class MyRunnable(Runnable):
-    """Compact Silver Layer Phase 1 observability runnable."""
+    """Compact SILVER development runnable."""
 
     def __init__(
         self,
@@ -313,6 +381,13 @@ class MyRunnable(Runnable):
         self.project_key = project_key
         self.config = config or {}
         self.plugin_config = plugin_config or {}
+        self.param_set = self.plugin_config.get("pulse_primary", {}) or {}
+
+        self.do_parallel = bool(self.param_set.get("do_parallel", True))
+        default_cores = max((os.cpu_count() or 2) - 1, 1)
+        safe_default_cores = min(default_cores, 4)
+        self.n_jobs = max(1, int(self.param_set.get("cores", safe_default_cores)))
+        self.batch_size = int(self.param_set.get("batch_size", 25))
 
     def get_progress_target(self):
         return None
@@ -324,4 +399,7 @@ class MyRunnable(Runnable):
             project_key=self.project_key,
             folder_lookup="partitioned_data",
             normalize_silver_mode=normalize_silver_mode,
+            do_parallel=self.do_parallel,
+            n_jobs=self.n_jobs,
+            batch_size=self.batch_size,
         )

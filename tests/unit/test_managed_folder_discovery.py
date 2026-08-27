@@ -248,6 +248,55 @@ def test_count_api_counts_without_materializing_list(monkeypatch):
     assert seen["iterated"] == 7
 
 
+def test_two_day_selector_returns_exact_top_two_eligible_days_newest_first(monkeypatch):
+    monkeypatch.setattr(
+        discovery,
+        "iter_managed_folder_paths",
+        lambda *args, **kwargs: iter([
+            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=22/source-b.parquet",
+            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=24/source-recent.parquet",
+            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=21/source-a.parquet",
+            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/compact_silver-1786510805000-0001.parquet",
+            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=20/source-a.parquet",
+            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/source-a.parquet",
+            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=22/source-a.parquet",
+            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/source-b.parquet",
+        ]),
+    )
+
+    selected = discovery.select_latest_partition_paths_batch(
+        _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket"),
+        relative_prefix="silver/category=event_mapping/",
+        suffix=".parquet",
+        partition_filters={
+            "category": "event_mapping",
+            "module": "administration",
+            "instance_name": "mazzei_pulse",
+        },
+        partition_count=2,
+        minimum_age_days=3,
+        utc_today=date(2026, 8, 27),
+    )
+
+    assert selected.total_matched_paths == 8
+    assert selected.filtered_matching_paths == 7
+    assert selected.skipped_compact_outputs == 1
+    assert selected.excluded_recent_paths == 1
+    assert selected.eligible_paths == 6
+    assert [(item.year, item.month, item.day) for item in selected.selected_partitions] == [
+        ("2026", "08", "23"),
+        ("2026", "08", "22"),
+    ]
+    assert selected.selected_partitions[0].relative_paths == [
+        "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/source-a.parquet",
+        "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/source-b.parquet",
+    ]
+    assert selected.selected_partitions[1].full_paths == [
+        "bucket/root/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=22/source-a.parquet",
+        "bucket/root/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=22/source-b.parquet",
+    ]
+
+
 def test_snapshot_api_sorts_and_reports_bounded_progress(monkeypatch):
     seen = []
     paths = [
