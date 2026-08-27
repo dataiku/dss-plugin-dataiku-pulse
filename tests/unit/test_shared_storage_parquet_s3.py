@@ -48,8 +48,14 @@ def test_read_s3_parquet_files_uses_resolved_credentials_and_reports_metrics(mon
             "region_name": "us-east-1",
         },
     )
-    monkeypatch.setitem(sys.modules, "pyarrow.fs", SimpleNamespace(S3FileSystem=FakeS3FileSystem))
-    monkeypatch.setitem(sys.modules, "pyarrow.dataset", SimpleNamespace(dataset=fake_dataset))
+    monkeypatch.setitem(
+        sys.modules,
+        "pyarrow",
+        SimpleNamespace(
+            fs=SimpleNamespace(S3FileSystem=FakeS3FileSystem),
+            dataset=SimpleNamespace(dataset=fake_dataset),
+        ),
+    )
 
     df = parquet_s3.read_s3_parquet_files(
         _Ctx(connection_type="EC2"),

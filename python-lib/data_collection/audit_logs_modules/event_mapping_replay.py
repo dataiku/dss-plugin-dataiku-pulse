@@ -16,6 +16,7 @@ import pandas as pd
 from data_collection.audit_logs_modules import event_mapping
 from data_collection.data_normalizer import DQResult, check_silver_dq, normalize_silver
 from data_collection.helper import DSSFolderTarget, upload_parquet
+from shared_storage_discovery import SelectedPathRecord
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,8 @@ SILVER_EVENT_MAPPING_PREFIX = "/silver/category=event_mapping/"
 SOURCE_FILENAME_PATTERN = re.compile(r"^(audit_logs-)(\d+)(-[^.]+\.parquet)$")
 _LAST_REPLAY_SAVE_EPOCH_MS = 0
 _REPLAY_SAVE_EPOCH_LOCK = threading.Lock()
+_LAST_COMPACT_SAVE_EPOCH_MS = 0
+_COMPACT_SAVE_EPOCH_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,41 @@ class ReplacementUploadResult:
     status: str
     written_paths: tuple[str, ...] = ()
     cleanup_paths: tuple[str, ...] = ()
+    dq_errors: tuple[str, ...] = ()
+    message: str = ""
+
+
+@dataclass(frozen=True)
+class CompactPlanMetric:
+    module_name: str
+    rows: int
+    columns: int
+    dq_ok: bool
+    dq_errors: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class CompactPlanSummary:
+    mode: str
+    run_epoch_ms: int
+    input_rows: int
+    input_columns: int
+    rehydrated_rows: int | None = None
+    rehydrated_columns: int | None = None
+    mapper_rows: int | None = None
+    mapper_columns: int | None = None
+    mapper_groups: int = 0
+    metrics: tuple[CompactPlanMetric, ...] = ()
+
+
+@dataclass(frozen=True)
+class CompactApplyResult:
+    status: str
+    written_paths: tuple[str, ...] = ()
+    verified_paths: tuple[str, ...] = ()
+    cleanup_paths: tuple[str, ...] = ()
+    deleted_source_paths: tuple[str, ...] = ()
+    retained_source_paths: tuple[str, ...] = ()
     dq_errors: tuple[str, ...] = ()
     message: str = ""
 
@@ -265,6 +303,46 @@ def next_replay_save_epoch_ms() -> int:
         return next_epoch_ms
 
 
+def next_compact_save_epoch_ms() -> int:
+    global _LAST_COMPACT_SAVE_EPOCH_MS
+
+    with _COMPACT_SAVE_EPOCH_LOCK:
+        current_epoch_ms = time.time_ns() // 1_000_000
+        next_epoch_ms = (
+            current_epoch_ms if current_epoch_ms > _LAST_COMPACT_SAVE_EPOCH_MS else _LAST_COMPACT_SAVE_EPOCH_MS + 1
+        )
+        _LAST_COMPACT_SAVE_EPOCH_MS = next_epoch_ms
+        return next_epoch_ms
+
+
+def build_compact_replacement_filename(*, run_epoch_ms: int, sequence_number: int) -> str:
+    if sequence_number <= 0:
+        raise ValueError(f"sequence_number must be positive, got {sequence_number}")
+    return f"compact_silver-{run_epoch_ms}-{sequence_number:04d}.parquet"
+
+
+def build_compact_output_path(
+    *,
+    category: str,
+    module_name: str,
+    instance_name: str,
+    event_date: date,
+    run_epoch_ms: int,
+    sequence_number: int,
+) -> PurePosixPath:
+    return (
+        PurePosixPath("/")
+        / "silver"
+        / f"category={category}"
+        / f"module={module_name}"
+        / f"instance_name={instance_name}"
+        / f"year={event_date.year:04d}"
+        / f"month={event_date.month:02d}"
+        / f"day={event_date.day:02d}"
+        / build_compact_replacement_filename(run_epoch_ms=run_epoch_ms, sequence_number=sequence_number)
+    )
+
+
 def build_replacement_filename(*, source_filename: str, module_name: str, save_epoch_ms: int) -> str:
     match = SOURCE_FILENAME_PATTERN.match(source_filename)
     if match is None:
@@ -299,6 +377,236 @@ def _resolve_replay_run_ts(source_df: pd.DataFrame, fallback_date: date, explici
         if non_null.shape[0] > 0:
             return str(non_null.astype(str).iloc[0])
     return f"{fallback_date.isoformat()}T00:00:00Z"
+
+
+def _selected_event_date(selected_records: list[SelectedPathRecord]) -> date:
+    if not selected_records:
+        raise ReplaySkipError("No selected source records were provided")
+    record = selected_records[0]
+    return date(int(record.year), int(record.month), int(record.day))
+
+
+def _selected_partition_identity(selected_records: list[SelectedPathRecord]) -> tuple[str, str, str]:
+    if not selected_records:
+        raise ReplaySkipError("No selected source records were provided")
+    record = selected_records[0]
+    return record.category, record.module, record.instance_name
+
+
+def _validate_output_paths_do_not_overlap_sources(*, plans: list[ReplayWritePlan], selected_records: list[SelectedPathRecord]) -> None:
+    source_paths = {record.relative_path for record in selected_records}
+    for plan in plans:
+        if str(plan.output_path) in source_paths:
+            raise ReplaySkipError(f"Replacement output path overlaps selected source path: {plan.output_path}")
+
+
+def plan_compact_selected_day(
+    *,
+    selected_records: list[SelectedPathRecord],
+    selected_df: pd.DataFrame,
+    normalize_silver_mode: bool,
+    run_epoch_ms: int,
+) -> tuple[list[ReplayWritePlan], CompactPlanSummary]:
+    if not isinstance(selected_df, pd.DataFrame):
+        raise ReplaySkipError("Selected parquet payload did not load as a dataframe")
+    if selected_df.shape[0] == 0:
+        raise ReplaySkipError("Selected parquet payload is empty")
+    if not selected_records:
+        raise ReplaySkipError("No selected source records were provided")
+
+    selected_event_date = _selected_event_date(selected_records)
+    category, module_name, instance_name = _selected_partition_identity(selected_records)
+
+    if not normalize_silver_mode:
+        output_path = build_compact_output_path(
+            category=category,
+            module_name=module_name,
+            instance_name=instance_name,
+            event_date=selected_event_date,
+            run_epoch_ms=run_epoch_ms,
+            sequence_number=1,
+        )
+        plan = ReplayWritePlan(
+            output_path=output_path,
+            silver_df=selected_df.copy(),
+            dq=check_silver_dq(selected_df),
+            module_name=module_name,
+            event_date=selected_event_date,
+        )
+        plans = [plan]
+        _validate_output_paths_do_not_overlap_sources(plans=plans, selected_records=selected_records)
+        return plans, CompactPlanSummary(
+            mode="generic_compaction",
+            run_epoch_ms=run_epoch_ms,
+            input_rows=int(selected_df.shape[0]),
+            input_columns=int(selected_df.shape[1]),
+            metrics=(
+                CompactPlanMetric(
+                    module_name=module_name,
+                    rows=int(plan.silver_df.shape[0]),
+                    columns=int(plan.silver_df.shape[1]),
+                    dq_ok=bool(plan.dq.ok),
+                    dq_errors=tuple(str(error) for error in plan.dq.errors),
+                ),
+            ),
+        )
+
+    rehydrated = rehydrate_event_mapping_source(selected_df)
+    mapped_df = event_mapping.main(rehydrated)
+    if mapped_df is None or not isinstance(mapped_df, pd.DataFrame):
+        raise ReplaySkipError("event_mapping.main() did not return a dataframe")
+    if mapped_df.shape[0] == 0:
+        return [], CompactPlanSummary(
+            mode="event_mapping_replay",
+            run_epoch_ms=run_epoch_ms,
+            input_rows=int(selected_df.shape[0]),
+            input_columns=int(selected_df.shape[1]),
+            rehydrated_rows=int(rehydrated.shape[0]),
+            rehydrated_columns=int(rehydrated.shape[1]),
+            mapper_rows=0,
+            mapper_columns=int(mapped_df.shape[1]),
+            mapper_groups=0,
+            metrics=(),
+        )
+    if "dataiku_category" not in mapped_df.columns:
+        raise ReplaySkipError("Mapped dataframe is missing dataiku_category")
+
+    replay_run_ts = _resolve_replay_run_ts(selected_df, selected_event_date, None)
+    grouped_modules = sorted(str(module_value) for module_value in mapped_df["dataiku_category"].dropna().unique().tolist())
+
+    plans: list[ReplayWritePlan] = []
+    metrics: list[CompactPlanMetric] = []
+    for sequence_number, mapped_module_name in enumerate(grouped_modules, start=1):
+        group_df = mapped_df.loc[mapped_df["dataiku_category"] == mapped_module_name].copy()
+        silver_df = normalize_silver(
+            df=group_df,
+            instance_name=instance_name,
+            run_ts=replay_run_ts,
+            **resolve_event_mapping_normalize_args(module_name=mapped_module_name),
+        )
+        event_date = resolve_replay_event_date(silver_df=silver_df, fallback_date=selected_event_date)
+        dq = check_silver_dq(silver_df)
+        plans.append(
+            ReplayWritePlan(
+                output_path=build_compact_output_path(
+                    category="event_mapping",
+                    module_name=mapped_module_name,
+                    instance_name=instance_name,
+                    event_date=event_date,
+                    run_epoch_ms=run_epoch_ms,
+                    sequence_number=sequence_number,
+                ),
+                silver_df=silver_df,
+                dq=dq,
+                module_name=mapped_module_name,
+                event_date=event_date,
+            )
+        )
+        metrics.append(
+            CompactPlanMetric(
+                module_name=mapped_module_name,
+                rows=int(silver_df.shape[0]),
+                columns=int(silver_df.shape[1]),
+                dq_ok=bool(dq.ok),
+                dq_errors=tuple(str(error) for error in dq.errors),
+            )
+        )
+
+    _validate_output_paths_do_not_overlap_sources(plans=plans, selected_records=selected_records)
+    return plans, CompactPlanSummary(
+        mode="event_mapping_replay",
+        run_epoch_ms=run_epoch_ms,
+        input_rows=int(selected_df.shape[0]),
+        input_columns=int(selected_df.shape[1]),
+        rehydrated_rows=int(rehydrated.shape[0]),
+        rehydrated_columns=int(rehydrated.shape[1]),
+        mapper_rows=int(mapped_df.shape[0]),
+        mapper_columns=int(mapped_df.shape[1]),
+        mapper_groups=len(grouped_modules),
+        metrics=tuple(metrics),
+    )
+
+
+def verify_managed_folder_file(folder: Any, path: str) -> None:
+    cleaned = clean_managed_folder_path(path)
+    if hasattr(folder, "get_download_stream"):
+        with folder.get_download_stream(cleaned) as stream:
+            stream.read(1)
+        return
+    if hasattr(folder, "get_file"):
+        payload = folder.get_file(cleaned)
+        if hasattr(payload, "read"):
+            payload.read(1)
+        return
+    raise TypeError(f"Unsupported folder handle type for verification: {type(folder)!r}")
+
+
+def apply_compact_replacement_plans(
+    *,
+    target: DSSFolderTarget,
+    folder: Any,
+    source_relative_paths: list[str],
+    plans: list[ReplayWritePlan],
+) -> CompactApplyResult:
+    upload_result = upload_event_mapping_replacements(target=target, folder=folder, plans=plans)
+    if upload_result.status != "uploaded":
+        return CompactApplyResult(
+            status=upload_result.status,
+            written_paths=upload_result.written_paths,
+            cleanup_paths=upload_result.cleanup_paths,
+            retained_source_paths=tuple(source_relative_paths),
+            dq_errors=upload_result.dq_errors,
+            message=upload_result.message,
+        )
+
+    verified_paths: list[str] = []
+    try:
+        for written_path in upload_result.written_paths:
+            verify_managed_folder_file(folder, written_path)
+            verified_paths.append(written_path)
+    except Exception as exc:
+        cleaned_paths, cleanup_errors = cleanup_written_replacements(folder=folder, paths=list(upload_result.written_paths))
+        if cleanup_errors:
+            return CompactApplyResult(
+                status="verification_failed_cleanup_failed",
+                written_paths=upload_result.written_paths,
+                verified_paths=tuple(verified_paths),
+                cleanup_paths=cleaned_paths,
+                retained_source_paths=tuple(source_relative_paths),
+                message=f"Verification failed: {exc!r}; cleanup failed: {'; '.join(cleanup_errors)}",
+            )
+        return CompactApplyResult(
+            status="verification_failed_cleaned",
+            written_paths=upload_result.written_paths,
+            verified_paths=tuple(verified_paths),
+            cleanup_paths=cleaned_paths,
+            retained_source_paths=tuple(source_relative_paths),
+            message=f"Verification failed: {exc!r}; cleaned {len(cleaned_paths)} replacement(s)",
+        )
+
+    deleted_paths: list[str] = []
+    for index, source_path in enumerate(source_relative_paths):
+        try:
+            delete_managed_folder_file(folder, source_path)
+            deleted_paths.append(source_path)
+        except Exception as exc:
+            return CompactApplyResult(
+                status="delete_failed",
+                written_paths=upload_result.written_paths,
+                verified_paths=tuple(verified_paths),
+                deleted_source_paths=tuple(deleted_paths),
+                retained_source_paths=tuple(source_relative_paths[index:]),
+                message=f"Delete failed after verified writes: {exc!r}",
+            )
+
+    return CompactApplyResult(
+        status="succeeded",
+        written_paths=upload_result.written_paths,
+        verified_paths=tuple(verified_paths),
+        deleted_source_paths=tuple(deleted_paths),
+        retained_source_paths=(),
+        message=f"Verified {len(verified_paths)} replacement file(s) and deleted {len(deleted_paths)} source file(s)",
+    )
 
 
 def plan_event_mapping_replay(*, source: EventMappingSourceInfo, source_df: pd.DataFrame, run_ts: str | None = None) -> list[ReplayWritePlan]:

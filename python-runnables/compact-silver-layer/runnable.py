@@ -6,6 +6,12 @@ from typing import Any
 
 from dataiku.runnables import ResultTable, Runnable
 
+from data_collection.audit_logs_modules.event_mapping_replay import (
+    apply_compact_replacement_plans,
+    next_compact_save_epoch_ms,
+    plan_compact_selected_day,
+)
+from data_collection.helper import DSSFolderTarget, get_managed_folder_handle
 from shared_duckdb.context import build_storage_context
 from shared_runtime_logging import suppress_inherited_provider_debug_logging
 from shared_storage_discovery import select_latest_partition_paths
@@ -45,7 +51,16 @@ def _format_day_scope(year: str, month: str, day: str) -> str:
     return f"{year}/{month}/{day}"
 
 
-def _build_result_table(*, project_key: str, folder_lookup: str) -> ResultTable:
+def _format_plan_metrics(metrics) -> str:
+    if not metrics:
+        return "plans=0"
+    return "; ".join(
+        f"{metric.module_name}:rows={metric.rows},columns={metric.columns},dq_ok={str(metric.dq_ok).lower()}"
+        for metric in metrics
+    )
+
+
+def _build_result_table(*, project_key: str, folder_lookup: str, normalize_silver_mode: bool) -> ResultTable:
     storage_ctx = build_storage_context(project_key=project_key, folder_lookup=folder_lookup)
     provider_label = PROVIDER_LABELS.get(storage_ctx.connection_type)
     status = "ok" if provider_label else "unsupported"
@@ -152,6 +167,13 @@ def _build_result_table(*, project_key: str, folder_lookup: str) -> ResultTable:
         "info",
         f"latest eligible numeric day; retained files={len(selected.full_paths)}",
     ])
+    rt.add_record([
+        "Skipped Compact Outputs",
+        str(selected.skipped_compact_outputs),
+        PHASE3_FILTER_SCOPE,
+        "info",
+        "existing compact_silver-* sources excluded from selection",
+    ])
     logger.info(
         "Compact silver native S3 day read started day=%s files=%s",
         _format_day_scope(selected.year, selected.month, selected.day),
@@ -181,6 +203,101 @@ def _build_result_table(*, project_key: str, folder_lookup: str) -> ResultTable:
             f"elapsed={read_elapsed:.1f}s"
         ),
     ])
+
+    selected_day_scope = _format_day_scope(selected.year, selected.month, selected.day)
+    rt.add_record([
+        "Input DataFrame",
+        f"rows={len(selected_day_data)}, columns={len(selected_day_data.columns)}",
+        selected_day_scope,
+        "info",
+        f"files read={selected_day_data.attrs.get('files_read', 0)}; deduped reader result",
+    ])
+    replay_mode = "event_mapping_replay" if normalize_silver_mode else "generic_compaction"
+    rt.add_record([
+        "Replay Mode",
+        replay_mode,
+        selected_day_scope,
+        "info",
+        f"normalize_silver={str(normalize_silver_mode).lower()} from self.config",
+    ])
+
+    run_epoch_ms = next_compact_save_epoch_ms()
+    plans, plan_summary = plan_compact_selected_day(
+        selected_records=selected.selected_records,
+        selected_df=selected_day_data,
+        normalize_silver_mode=normalize_silver_mode,
+        run_epoch_ms=run_epoch_ms,
+    )
+    if normalize_silver_mode:
+        rt.add_record([
+            "Rehydrated DataFrame",
+            f"rows={plan_summary.rehydrated_rows}, columns={plan_summary.rehydrated_columns}",
+            selected_day_scope,
+            "info",
+            "SILVER extras unpacked",
+        ])
+        rt.add_record([
+            "Mapper Output",
+            f"rows={plan_summary.mapper_rows}, columns={plan_summary.mapper_columns}, groups={plan_summary.mapper_groups}",
+            selected_day_scope,
+            "info",
+            "unchanged mapper output",
+        ])
+        rt.add_record([
+            "Normalized Output",
+            f"plans={len(plans)}",
+            selected_day_scope,
+            "info",
+            _format_plan_metrics(plan_summary.metrics),
+        ])
+    else:
+        rt.add_record([
+            "Normalized Output",
+            f"plans={len(plans)}",
+            selected_day_scope,
+            "info",
+            _format_plan_metrics(plan_summary.metrics),
+        ])
+
+    target = DSSFolderTarget(project_key=project_key, folder_lookup=folder_lookup)
+    folder = get_managed_folder_handle(target=target)
+    logger.info(
+        "Compact silver replacement apply started day=%s mode=%s plans=%s run_epoch_ms=%s",
+        selected_day_scope,
+        replay_mode,
+        len(plans),
+        run_epoch_ms,
+    )
+    apply_result = apply_compact_replacement_plans(
+        target=target,
+        folder=folder,
+        source_relative_paths=selected.relative_paths,
+        plans=plans,
+    )
+    logger.info(
+        "Compact silver replacement apply completed status=%s written=%s verified=%s deleted=%s retained=%s",
+        apply_result.status,
+        len(apply_result.written_paths),
+        len(apply_result.verified_paths),
+        len(apply_result.deleted_source_paths),
+        len(apply_result.retained_source_paths),
+    )
+    write_status = "success" if apply_result.status == "succeeded" else apply_result.status
+    rt.add_record([
+        "Replacement Writes",
+        f"written={len(apply_result.written_paths)}, verified={len(apply_result.verified_paths)}",
+        str(run_epoch_ms),
+        write_status,
+        apply_result.message,
+    ])
+    delete_status = "success" if apply_result.status == "succeeded" else apply_result.status
+    rt.add_record([
+        "Source Deletion",
+        f"deleted={len(apply_result.deleted_source_paths)}, retained={len(apply_result.retained_source_paths)}",
+        selected_day_scope,
+        delete_status,
+        apply_result.message,
+    ])
     return rt
 
 
@@ -202,7 +319,9 @@ class MyRunnable(Runnable):
 
     def run(self, progress_callback):
         suppress_inherited_provider_debug_logging()
+        normalize_silver_mode = bool(self.config.get("normalize_silver", False))
         return _build_result_table(
             project_key=self.project_key,
             folder_lookup="partitioned_data",
+            normalize_silver_mode=normalize_silver_mode,
         )

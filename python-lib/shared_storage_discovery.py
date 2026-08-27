@@ -30,11 +30,28 @@ PATH_INDEX_COLUMNS = [
     "base_name",
 ]
 
+COMPACT_OUTPUT_PREFIX = "compact_silver-"
+
+
+@dataclass(frozen=True)
+class SelectedPathRecord:
+    relative_path: str
+    full_path: str
+    base_name: str
+    layer: str
+    category: str
+    module: str
+    instance_name: str
+    year: str
+    month: str
+    day: str
+
 
 @dataclass(frozen=True)
 class SelectedDayPaths:
     total_matched_paths: int
     filtered_matching_paths: int
+    skipped_compact_outputs: int
     excluded_recent_paths: int
     eligible_paths: int
     cutoff_date: date
@@ -42,7 +59,15 @@ class SelectedDayPaths:
     year: str
     month: str
     day: str
-    full_paths: list[str]
+    selected_records: list[SelectedPathRecord]
+
+    @property
+    def full_paths(self) -> list[str]:
+        return [record.full_path for record in self.selected_records]
+
+    @property
+    def relative_paths(self) -> list[str]:
+        return [record.relative_path for record in self.selected_records]
 
 
 def _normalize_relative_prefix(relative_prefix: str) -> str:
@@ -132,6 +157,26 @@ def _path_index_row(storage_ctx: StorageContextLike, relative_path: str) -> dict
         "day": day,
         "base_name": base_name,
     }
+
+
+def _selected_path_record(storage_ctx: StorageContextLike, relative_path: str) -> SelectedPathRecord:
+    row = _path_index_row(storage_ctx, relative_path)
+    return SelectedPathRecord(
+        relative_path=str(relative_path),
+        full_path=row["full_path"],
+        base_name=row["base_name"],
+        layer=row["layer"],
+        category=row["category"],
+        module=row["module"],
+        instance_name=row["instance_name"],
+        year=row["year"],
+        month=row["month"],
+        day=row["day"],
+    )
+
+
+def _is_compact_output(base_name: str) -> bool:
+    return str(base_name).startswith(COMPACT_OUTPUT_PREFIX) and str(base_name).endswith(".parquet")
 
 
 def _day_key(*, year: str, month: str, day: str) -> tuple[int, int, int]:
@@ -248,48 +293,54 @@ def select_latest_partition_paths(
     cutoff_date = today_utc - timedelta(days=minimum_age_days)
     selected_day: tuple[int, int, int] | None = None
     selected_day_parts: tuple[str, str, str] | None = None
-    selected_full_paths: list[str] = []
+    selected_records: list[SelectedPathRecord] = []
     total_matched_paths = 0
     filtered_matching_paths = 0
+    skipped_compact_outputs = 0
     excluded_recent_paths = 0
     eligible_paths = 0
 
     for relative_path in iter_managed_folder_paths(storage_ctx, relative_prefix=relative_prefix, suffix=suffix):
         total_matched_paths += 1
-        row = _path_index_row(storage_ctx, relative_path)
-        if any(row.get(column_name) != expected_value for column_name, expected_value in partition_filters.items()):
+        record = _selected_path_record(storage_ctx, relative_path)
+        if any(getattr(record, column_name) != expected_value for column_name, expected_value in partition_filters.items()):
+            continue
+
+        if _is_compact_output(record.base_name):
+            skipped_compact_outputs += 1
             continue
 
         filtered_matching_paths += 1
-        partition_day = _partition_date(year=row["year"], month=row["month"], day=row["day"])
+        partition_day = _partition_date(year=record.year, month=record.month, day=record.day)
         if partition_day >= cutoff_date:
             excluded_recent_paths += 1
             continue
 
         eligible_paths += 1
-        candidate_day = _day_key(year=row["year"], month=row["month"], day=row["day"])
-        candidate_parts = (row["year"], row["month"], row["day"])
+        candidate_day = _day_key(year=record.year, month=record.month, day=record.day)
+        candidate_parts = (record.year, record.month, record.day)
 
         if selected_day is None or candidate_day > selected_day:
             selected_day = candidate_day
             selected_day_parts = candidate_parts
-            selected_full_paths = [row["full_path"]]
+            selected_records = [record]
             continue
 
         if candidate_day == selected_day:
-            selected_full_paths.append(row["full_path"])
+            selected_records.append(record)
 
     if filtered_matching_paths > 0 and eligible_paths <= 0:
         raise ValueError(
             f"All exact-filter matches are excluded by minimum_age_days={minimum_age_days}; cutoff_date={cutoff_date.isoformat()}"
         )
-    if selected_day_parts is None or not selected_full_paths:
+    if selected_day_parts is None or not selected_records:
         raise ValueError("No managed-folder paths matched the requested exact partition filters")
 
-    selected_full_paths.sort()
+    selected_records = sorted(selected_records, key=lambda item: item.relative_path)
     return SelectedDayPaths(
         total_matched_paths=total_matched_paths,
         filtered_matching_paths=filtered_matching_paths,
+        skipped_compact_outputs=skipped_compact_outputs,
         excluded_recent_paths=excluded_recent_paths,
         eligible_paths=eligible_paths,
         cutoff_date=cutoff_date,
@@ -297,7 +348,7 @@ def select_latest_partition_paths(
         year=selected_day_parts[0],
         month=selected_day_parts[1],
         day=selected_day_parts[2],
-        full_paths=selected_full_paths,
+        selected_records=selected_records,
     )
 
 
@@ -332,6 +383,7 @@ def select_latest_partition_day(df: pd.DataFrame) -> tuple[str, str, str]:
 
 __all__ = [
     "PATH_INDEX_COLUMNS",
+    "SelectedPathRecord",
     "SelectedDayPaths",
     "StorageContextLike",
     "build_managed_folder_path_index",
