@@ -7,8 +7,8 @@ def run():
     recipe_config = get_recipe_config() or {}
     plugin_config = get_plugin_config() or {}
     
-    print(f"AHHHHHHH -- {plugin_config}")
     print(f"AHHHHHHH -- {recipe_config}")
+    print(f"AHHHHHHH -- {plugin_config}")
     
     
     return 
