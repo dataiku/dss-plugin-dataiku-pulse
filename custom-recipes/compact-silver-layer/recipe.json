@@ -32,11 +32,11 @@
             "type": "SEPARATOR"
         },
         {
-  "name": "my_preset_param",
-  "label": "Select Preset",
-  "type": "PRESET",
-  "parameterSetId": "your-preset-id-here"
-},
+          "name": "my_preset_param",
+          "label": "Select Preset",
+          "type": "PRESET",
+          "parameterSetId": "your-preset-id-here"
+        },
         {
             "name": "normalize_silver",
             "label": "Replay Normalizer and Silver checks",
