@@ -5,7 +5,7 @@ def run():
     project_key = dataiku.default_project_key()
     
     plugin_config = get_plugin_config() or {}
-    recipe_config = get_recipe_config() or {}
+    recipe_config = get_recipe_config() or {"foo": "bar"}
     
     print(f"AHHHHHHH -- {plugin_config}")
     print(f"AHHHHHHH -- {recipe_config}")    
