@@ -1,0 +1,42 @@
+{
+    "meta": {
+        "label": "Compact Silver Layer",
+        "description": "Compact the Silver layer. Reduces the number of parquet files, option filters and replay options (BETA). *Currently only does category=event_mapping",
+        "icon": "fas fa-sync-alt",
+        "iconColor": "blue"
+    },
+    "kind": "PYTHON",
+    "inputRoles": [],
+    "outputRoles": [
+        {
+            "name": "compact_silver_layer_output",
+            "label": "Compact Silver Layer Output",
+            "description": "Output folder for the compacted Silver layer",
+            "arity": "UNARY",
+            "required": true,
+            "acceptsDataset": true,
+            "acceptsManagedFolder": false
+        }
+    ],
+    "params": [
+        {
+            "name": "warning",
+            "label": "⚠️ DO NOT ATTEMPT TO EDIT THIS RECIPE!",
+            "description": "This recipe is self-managed by the Dataiku Pulse Dashboard plugin. Only adjust the below settings as needed.",
+            "type": "SEPARATOR"
+        },
+        {
+            "name": "customer_separator",
+            "label": "",
+            "description": "<hr color='#000000' size='3' noshade><h3>Custom Configurations</h3>",
+            "type": "SEPARATOR"
+        },
+        {
+            "name": "normalize_silver",
+            "label": "Replay Normalizer and Silver checks",
+            "type": "BOOLEAN",
+            "defaultValue": true
+        }
+    ],
+    "resourceKeys": []
+}
