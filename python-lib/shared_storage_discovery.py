@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Iterator, Protocol
 
 import pandas as pd
@@ -244,7 +244,7 @@ def select_latest_partition_paths(
     if minimum_age_days < 0:
         raise ValueError(f"minimum_age_days must be non-negative, got {minimum_age_days}")
 
-    today_utc = utc_today or date.today()
+    today_utc = utc_today or datetime.now(timezone.utc).date()
     cutoff_date = today_utc - timedelta(days=minimum_age_days)
     selected_day: tuple[int, int, int] | None = None
     selected_day_parts: tuple[str, str, str] | None = None

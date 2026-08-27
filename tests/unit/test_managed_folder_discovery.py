@@ -368,6 +368,44 @@ def test_streaming_selector_applies_three_day_utc_guard_and_keeps_latest_eligibl
     ]
 
 
+def test_streaming_selector_default_clock_uses_utc_today(monkeypatch):
+    class _FakeNow:
+        def date(self):
+            return date(2026, 8, 27)
+
+    seen = {}
+
+    def fake_now(tz):
+        seen["tz"] = tz
+        return _FakeNow()
+
+    monkeypatch.setattr(discovery, "datetime", SimpleNamespace(now=fake_now))
+    monkeypatch.setattr(
+        discovery,
+        "iter_managed_folder_paths",
+        lambda *args, **kwargs: iter([
+            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/eligible-23.parquet",
+            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=24/recent-24.parquet",
+        ]),
+    )
+
+    selected = discovery.select_latest_partition_paths(
+        _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket"),
+        relative_prefix="silver/category=event_mapping/",
+        suffix=".parquet",
+        partition_filters={
+            "category": "event_mapping",
+            "module": "administration",
+            "instance_name": "mazzei_pulse",
+        },
+        minimum_age_days=3,
+    )
+
+    assert seen["tz"] is discovery.timezone.utc
+    assert selected.cutoff_date == date(2026, 8, 24)
+    assert (selected.year, selected.month, selected.day) == ("2026", "08", "23")
+
+
 def test_streaming_selector_all_recent_matches_fail_before_read(monkeypatch):
     monkeypatch.setattr(
         discovery,
