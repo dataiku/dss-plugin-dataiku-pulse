@@ -22,6 +22,7 @@ PROVIDER_LABELS: dict[str, str] = {
 }
 
 EVENT_MAPPING_PREFIX = "silver/category=event_mapping/"
+MINIMUM_AGE_DAYS = 3
 PHASE3_FILTERS = {
     "category": "event_mapping",
     "module": "administration",
@@ -83,12 +84,16 @@ def _build_result_table(*, project_key: str, folder_lookup: str) -> ResultTable:
         relative_prefix=EVENT_MAPPING_PREFIX,
         suffix=".parquet",
         partition_filters=PHASE3_FILTERS,
+        minimum_age_days=MINIMUM_AGE_DAYS,
     )
     elapsed = time.monotonic() - started_at
     logger.info(
-        "Compact silver native streaming scan completed scanned=%s filtered=%s selected_day=%s/%s/%s retained_files=%s elapsed=%.1fs",
+        "Compact silver native streaming scan completed scanned=%s filtered=%s excluded_recent=%s eligible=%s cutoff_date=%s selected_day=%s/%s/%s retained_files=%s elapsed=%.1fs",
         selected.total_matched_paths,
         selected.filtered_matching_paths,
+        selected.excluded_recent_paths,
+        selected.eligible_paths,
+        selected.cutoff_date.isoformat(),
         selected.year,
         selected.month,
         selected.day,
@@ -114,7 +119,21 @@ def _build_result_table(*, project_key: str, folder_lookup: str) -> ResultTable:
         str(selected.filtered_matching_paths),
         PHASE3_FILTER_SCOPE,
         "info",
-        "streaming, no full in-memory path index",
+        "includes all matching dates before age guard",
+    ])
+    rt.add_record([
+        "Recent Partitions Excluded",
+        str(selected.excluded_recent_paths),
+        f"UTC dates >= {selected.cutoff_date.isoformat()}",
+        "info",
+        f"minimum_age_days={selected.minimum_age_days}; cutoff_date={selected.cutoff_date.isoformat()}",
+    ])
+    rt.add_record([
+        "Eligible Subset",
+        str(selected.eligible_paths),
+        f"UTC dates < {selected.cutoff_date.isoformat()}",
+        "info",
+        "streaming; no full index",
     ])
     if selected.filtered_matching_paths <= 0:
         raise ValueError(f"No SILVER parquet files matched the Phase 3 development filter: {PHASE3_FILTER_SCOPE}")
@@ -131,7 +150,7 @@ def _build_result_table(*, project_key: str, folder_lookup: str) -> ResultTable:
         _format_day_scope(selected.year, selected.month, selected.day),
         PHASE3_FILTER_SCOPE,
         "info",
-        f"latest numeric matching day; retained files={len(selected.full_paths)}",
+        f"latest eligible numeric day; retained files={len(selected.full_paths)}",
     ])
     logger.info(
         "Compact silver native S3 day read started day=%s files=%s",

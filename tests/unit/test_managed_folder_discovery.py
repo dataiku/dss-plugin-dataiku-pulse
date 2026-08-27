@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+from datetime import date
 from types import SimpleNamespace
 
 import pandas as pd
@@ -328,23 +329,19 @@ def test_filter_and_latest_day_selection_are_exact_and_numeric():
     assert selected == ("2026", "04", "24")
 
 
-def test_streaming_selector_chooses_latest_day_independent_of_input_order(monkeypatch):
+def test_streaming_selector_applies_three_day_utc_guard_and_keeps_latest_eligible(monkeypatch):
     ctx = _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket")
-    seen = {"iterated": 0}
     paths = [
-        "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=04/day=09/older-2.parquet",
-        "/silver/category=event_mapping/module=administration/instance_name=other/year=2028/month=01/day=01/ignored.parquet",
-        "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=04/day=24/latest-2.parquet",
-        "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=04/day=09/older-1.parquet",
-        "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=04/day=24/latest-1.parquet",
+        "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=24/recent-24.parquet",
+        "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/eligible-23-b.parquet",
+        "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=27/recent-27.parquet",
+        "/silver/category=event_mapping/module=administration/instance_name=other/year=2026/month=08/day=22/ignored.parquet",
+        "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=26/recent-26.parquet",
+        "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=22/eligible-22.parquet",
+        "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=25/recent-25.parquet",
+        "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/eligible-23-a.parquet",
     ]
-
-    def fake_iter(*args, **kwargs):
-        for path in paths:
-            seen["iterated"] += 1
-            yield path
-
-    monkeypatch.setattr(discovery, "iter_managed_folder_paths", fake_iter)
+    monkeypatch.setattr(discovery, "iter_managed_folder_paths", lambda *args, **kwargs: iter(paths))
 
     selected = discovery.select_latest_partition_paths(
         ctx,
@@ -355,26 +352,33 @@ def test_streaming_selector_chooses_latest_day_independent_of_input_order(monkey
             "module": "administration",
             "instance_name": "mazzei_pulse",
         },
+        minimum_age_days=3,
+        utc_today=date(2026, 8, 27),
     )
 
-    assert seen["iterated"] == 5
-    assert selected.total_matched_paths == 5
-    assert selected.filtered_matching_paths == 4
-    assert (selected.year, selected.month, selected.day) == ("2026", "04", "24")
+    assert selected.cutoff_date == date(2026, 8, 24)
+    assert selected.total_matched_paths == 8
+    assert selected.filtered_matching_paths == 7
+    assert selected.excluded_recent_paths == 4
+    assert selected.eligible_paths == 3
+    assert (selected.year, selected.month, selected.day) == ("2026", "08", "23")
     assert selected.full_paths == [
-        "bucket/root/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=04/day=24/latest-1.parquet",
-        "bucket/root/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=04/day=24/latest-2.parquet",
+        "bucket/root/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/eligible-23-a.parquet",
+        "bucket/root/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/eligible-23-b.parquet",
     ]
 
 
-def test_streaming_selector_fails_clearly_when_no_exact_match(monkeypatch):
+def test_streaming_selector_all_recent_matches_fail_before_read(monkeypatch):
     monkeypatch.setattr(
         discovery,
         "iter_managed_folder_paths",
-        lambda *args, **kwargs: iter(["/silver/category=event_mapping/module=administration/instance_name=other/year=2026/month=04/day=24/file.parquet"]),
+        lambda *args, **kwargs: iter([
+            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=24/recent-24.parquet",
+            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=27/recent-27.parquet",
+        ]),
     )
 
-    with pytest.raises(ValueError, match="requested exact partition filters"):
+    with pytest.raises(ValueError, match="All exact-filter matches are excluded by minimum_age_days=3; cutoff_date=2026-08-24"):
         discovery.select_latest_partition_paths(
             _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket"),
             relative_prefix="silver/category=event_mapping/",
@@ -384,4 +388,30 @@ def test_streaming_selector_fails_clearly_when_no_exact_match(monkeypatch):
                 "module": "administration",
                 "instance_name": "mazzei_pulse",
             },
+            minimum_age_days=3,
+            utc_today=date(2026, 8, 27),
+        )
+
+
+def test_streaming_selector_invalid_date_components_fail_clearly(monkeypatch):
+    monkeypatch.setattr(
+        discovery,
+        "iter_managed_folder_paths",
+        lambda *args, **kwargs: iter([
+            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=13/day=40/bad-date.parquet",
+        ]),
+    )
+
+    with pytest.raises(ValueError, match="invalid UTC calendar date"):
+        discovery.select_latest_partition_paths(
+            _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket"),
+            relative_prefix="silver/category=event_mapping/",
+            suffix=".parquet",
+            partition_filters={
+                "category": "event_mapping",
+                "module": "administration",
+                "instance_name": "mazzei_pulse",
+            },
+            minimum_age_days=3,
+            utc_today=date(2026, 8, 27),
         )

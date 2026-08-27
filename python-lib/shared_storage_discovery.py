@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, timedelta
 from typing import Any, Callable, Iterator, Protocol
 
 import pandas as pd
@@ -34,6 +35,10 @@ PATH_INDEX_COLUMNS = [
 class SelectedDayPaths:
     total_matched_paths: int
     filtered_matching_paths: int
+    excluded_recent_paths: int
+    eligible_paths: int
+    cutoff_date: date
+    minimum_age_days: int
     year: str
     month: str
     day: str
@@ -138,6 +143,15 @@ def _day_key(*, year: str, month: str, day: str) -> tuple[int, int, int]:
         ) from exc
 
 
+def _partition_date(*, year: str, month: str, day: str) -> date:
+    try:
+        return date(int(year), int(month), int(day))
+    except ValueError as exc:
+        raise ValueError(
+            f"Unexpected managed-folder path format: invalid UTC calendar date year={year!r} month={month!r} day={day!r}"
+        ) from exc
+
+
 def _iter_provider_object_keys(storage_ctx: StorageContextLike, *, physical_prefix: str) -> Iterator[str]:
     connection_type = storage_ctx.connection_type
     if connection_type == "EC2":
@@ -224,12 +238,21 @@ def select_latest_partition_paths(
     relative_prefix: str,
     suffix: str | None = None,
     partition_filters: dict[str, str],
+    minimum_age_days: int = 0,
+    utc_today: date | None = None,
 ) -> SelectedDayPaths:
+    if minimum_age_days < 0:
+        raise ValueError(f"minimum_age_days must be non-negative, got {minimum_age_days}")
+
+    today_utc = utc_today or date.today()
+    cutoff_date = today_utc - timedelta(days=minimum_age_days)
     selected_day: tuple[int, int, int] | None = None
     selected_day_parts: tuple[str, str, str] | None = None
     selected_full_paths: list[str] = []
     total_matched_paths = 0
     filtered_matching_paths = 0
+    excluded_recent_paths = 0
+    eligible_paths = 0
 
     for relative_path in iter_managed_folder_paths(storage_ctx, relative_prefix=relative_prefix, suffix=suffix):
         total_matched_paths += 1
@@ -238,6 +261,12 @@ def select_latest_partition_paths(
             continue
 
         filtered_matching_paths += 1
+        partition_day = _partition_date(year=row["year"], month=row["month"], day=row["day"])
+        if partition_day >= cutoff_date:
+            excluded_recent_paths += 1
+            continue
+
+        eligible_paths += 1
         candidate_day = _day_key(year=row["year"], month=row["month"], day=row["day"])
         candidate_parts = (row["year"], row["month"], row["day"])
 
@@ -250,6 +279,10 @@ def select_latest_partition_paths(
         if candidate_day == selected_day:
             selected_full_paths.append(row["full_path"])
 
+    if filtered_matching_paths > 0 and eligible_paths <= 0:
+        raise ValueError(
+            f"All exact-filter matches are excluded by minimum_age_days={minimum_age_days}; cutoff_date={cutoff_date.isoformat()}"
+        )
     if selected_day_parts is None or not selected_full_paths:
         raise ValueError("No managed-folder paths matched the requested exact partition filters")
 
@@ -257,6 +290,10 @@ def select_latest_partition_paths(
     return SelectedDayPaths(
         total_matched_paths=total_matched_paths,
         filtered_matching_paths=filtered_matching_paths,
+        excluded_recent_paths=excluded_recent_paths,
+        eligible_paths=eligible_paths,
+        cutoff_date=cutoff_date,
+        minimum_age_days=minimum_age_days,
         year=selected_day_parts[0],
         month=selected_day_parts[1],
         day=selected_day_parts[2],
