@@ -40,6 +40,31 @@ def connection_info(ctx: StorageContextLike, *, allow_cached: bool = False) -> d
     return {}
 
 
+def resolve_aws_access(ctx: StorageContextLike) -> dict[str, str | None]:
+    info = connection_info(ctx, allow_cached=True)
+    params = info.get("params") or {}
+    credential_mode = params.get("credentialsMode")
+
+    if credential_mode == "KEYPAIR":
+        return {
+            "access_key": params["accessKey"],
+            "secret_key": params["secretKey"],
+            "session_token": None,
+            "region_name": params.get("regionOrEndpoint") or None,
+        }
+
+    if credential_mode in {"STS_ASSUME_ROLE", "ENVIRONMENT"}:
+        resolved = info.get("resolvedAWSCredential") or {}
+        return {
+            "access_key": resolved["accessKey"],
+            "secret_key": resolved["secretKey"],
+            "session_token": resolved["sessionToken"],
+            "region_name": params.get("regionOrEndpoint") or None,
+        }
+
+    raise RuntimeError(f"Unsupported AWS credentials mode for managed-folder discovery: {credential_mode}")
+
+
 def derive_key_from_password(password: str, salt: bytes) -> bytes:
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC

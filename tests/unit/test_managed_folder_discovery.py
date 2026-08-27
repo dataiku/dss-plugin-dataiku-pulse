@@ -4,6 +4,7 @@ import importlib
 import sys
 from types import SimpleNamespace
 
+import pandas as pd
 import pytest
 
 import shared_storage_discovery as discovery
@@ -52,8 +53,13 @@ def test_s3_paginated_prefix_listing_translates_to_relative_paths(monkeypatch):
     monkeypatch.setattr(discovery_s3.boto3, "client", lambda *args, **kwargs: Client())
     monkeypatch.setattr(
         discovery_s3,
-        "connection_info",
-        lambda ctx, allow_cached=True: {"params": {"credentialsMode": "KEYPAIR", "accessKey": "a", "secretKey": "b", "regionOrEndpoint": "us-east-1"}},
+        "resolve_aws_access",
+        lambda ctx: {
+            "access_key": "a",
+            "secret_key": "b",
+            "session_token": None,
+            "region_name": "us-east-1",
+        },
     )
     ctx = _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket", cached_connection_info={}, connection_name="c", connection_handle=object(), project_handle=object())
 
@@ -181,7 +187,7 @@ def test_unsupported_provider_and_modes_fail_clearly(monkeypatch):
         list(discovery.iter_managed_folder_paths(_Ctx(connection_type="LocalFS"), relative_prefix="silver/category=event_mapping", suffix=".parquet"))
 
     ctx = _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket", cached_connection_info={}, connection_name="c", connection_handle=object(), project_handle=object())
-    monkeypatch.setattr(discovery_s3, "connection_info", lambda ctx, allow_cached=True: {"params": {"credentialsMode": "UNKNOWN"}})
+    monkeypatch.setattr(discovery_s3, "resolve_aws_access", lambda ctx: (_ for _ in ()).throw(RuntimeError("Unsupported AWS credentials mode for managed-folder discovery: UNKNOWN")))
     with pytest.raises(RuntimeError, match="Unsupported AWS credentials mode"):
         list(discovery.iter_managed_folder_paths(ctx, relative_prefix="silver/category=event_mapping", suffix=".parquet"))
 
@@ -205,8 +211,13 @@ def test_discovery_does_not_call_broad_dss_listing(monkeypatch):
     monkeypatch.setattr(discovery_s3.boto3, "client", lambda *args, **kwargs: Client())
     monkeypatch.setattr(
         discovery_s3,
-        "connection_info",
-        lambda ctx, allow_cached=True: {"params": {"credentialsMode": "KEYPAIR", "accessKey": "a", "secretKey": "b", "regionOrEndpoint": "us-east-1"}},
+        "resolve_aws_access",
+        lambda ctx: {
+            "access_key": "a",
+            "secret_key": "b",
+            "session_token": None,
+            "region_name": "us-east-1",
+        },
     )
     ctx = _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket", cached_connection_info={}, connection_name="c", connection_handle=object(), project_handle=object(), folder_handle=Folder())
 
@@ -256,3 +267,62 @@ def test_snapshot_api_sorts_and_reports_bounded_progress(monkeypatch):
 
     assert snapshot == sorted(paths)
     assert seen == [2]
+
+
+def test_build_managed_folder_path_index_returns_exact_clean_schema(monkeypatch):
+    ctx = _Ctx(connection_type="EC2", folder_root="mazzzei-designer/dataiku/DATAIKU_PULSE_DASHBOARD/TggdpIiE", bucket_or_container="mazzei-dss-bucket")
+    path = "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=04/day=24/audit_logs-history-1780699259547-2.parquet"
+    monkeypatch.setattr(discovery, "iter_managed_folder_paths", lambda *args, **kwargs: iter([path]))
+
+    df = discovery.build_managed_folder_path_index(ctx, relative_prefix="silver/category=event_mapping/", suffix=".parquet")
+
+    assert list(df.columns) == discovery.PATH_INDEX_COLUMNS
+    assert df.to_dict(orient="records") == [{
+        "full_path": "mazzei-dss-bucket/mazzzei-designer/dataiku/DATAIKU_PULSE_DASHBOARD/TggdpIiE/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=04/day=24/audit_logs-history-1780699259547-2.parquet",
+        "header_path": "mazzei-dss-bucket/mazzzei-designer/dataiku/DATAIKU_PULSE_DASHBOARD/TggdpIiE",
+        "layer": "silver",
+        "category": "event_mapping",
+        "module": "administration",
+        "instance_name": "mazzei_pulse",
+        "year": "2026",
+        "month": "04",
+        "day": "24",
+        "base_name": "audit_logs-history-1780699259547-2.parquet",
+    }]
+
+
+def test_build_managed_folder_path_index_rejects_malformed_paths(monkeypatch):
+    monkeypatch.setattr(
+        discovery,
+        "iter_managed_folder_paths",
+        lambda *args, **kwargs: iter(["/silver/category=event_mapping/module=administration/bad-segment/year=2026/month=04/day=24/file.parquet"]),
+    )
+
+    with pytest.raises(ValueError, match="Unexpected managed-folder path format"):
+        discovery.build_managed_folder_path_index(
+            _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket"),
+            relative_prefix="silver/category=event_mapping/",
+            suffix=".parquet",
+        )
+
+
+def test_filter_and_latest_day_selection_are_exact_and_numeric():
+    df = pd.DataFrame(
+        [
+            {"full_path": "p1", "header_path": "h", "layer": "silver", "category": "event_mapping", "module": "administration", "instance_name": "mazzei_pulse", "year": "2026", "month": "04", "day": "09", "base_name": "a.parquet"},
+            {"full_path": "p2", "header_path": "h", "layer": "silver", "category": "event_mapping", "module": "administration", "instance_name": "mazzei_pulse", "year": "2026", "month": "04", "day": "24", "base_name": "b.parquet"},
+            {"full_path": "p3", "header_path": "h", "layer": "silver", "category": "event_mapping", "module": "administration", "instance_name": "other_instance", "year": "2027", "month": "12", "day": "31", "base_name": "c.parquet"},
+        ],
+        columns=discovery.PATH_INDEX_COLUMNS,
+    )
+
+    filtered = discovery.filter_path_index(
+        df,
+        category="event_mapping",
+        module="administration",
+        instance_name="mazzei_pulse",
+    )
+    selected = discovery.select_latest_partition_day(filtered)
+
+    assert filtered["full_path"].tolist() == ["p1", "p2"]
+    assert selected == ("2026", "04", "24")
