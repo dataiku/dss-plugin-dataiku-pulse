@@ -93,7 +93,6 @@ def _build_result_table(*, project_key: str, folder_lookup: str) -> ResultTable:
         selected.month,
         selected.day,
         len(selected.full_paths),
-        EVENT_MAPPING_PREFIX,
         elapsed,
     )
     rt.add_record([

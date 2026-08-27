@@ -52,6 +52,7 @@ def _selected_day_paths() -> SimpleNamespace:
 def test_run_uses_streaming_selector_once_and_exact_selected_paths(monkeypatch):
     module = _load_runnable_module()
     seen: dict[str, object] = {"suppressed": 0, "selector_calls": 0}
+    info_logs: list[str] = []
 
     def fake_suppress():
         seen["suppressed"] += 1
@@ -87,6 +88,7 @@ def test_run_uses_streaming_selector_once_and_exact_selected_paths(monkeypatch):
     monkeypatch.setattr(module, "read_s3_parquet_files", fake_read)
     monkeypatch.setattr(module, "count_managed_folder_paths", fail_old_count, raising=False)
     monkeypatch.setattr(module, "build_managed_folder_path_index", fail_old_index, raising=False)
+    monkeypatch.setattr(module.logger, "info", lambda msg, *args: info_logs.append(msg % args if args else msg))
 
     runnable = module.MyRunnable("DASHBOARD_PROJECT", {}, {})
     result = runnable.run(progress_callback=None)
@@ -149,6 +151,11 @@ def test_run_uses_streaming_selector_once_and_exact_selected_paths(monkeypatch):
         "info",
     ]
     assert "files=2; raw_rows=2; rows_after_drop_duplicates=1;" in result.records[7][4]
+    assert any(
+        "Compact silver native streaming scan completed scanned=3 filtered=2 selected_day=2026/04/24 retained_files=2 elapsed="
+        in line
+        for line in info_logs
+    )
 
 
 def test_unknown_provider_is_visibly_unsupported(monkeypatch):
