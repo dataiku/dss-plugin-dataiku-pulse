@@ -347,3 +347,135 @@ def test_process_compact_selected_partition_isolates_one_day_and_returns_counts(
     assert outcome.rows_after_drop_duplicates == 2
     assert outcome.written_count == 1
     assert outcome.deleted_count == 2
+
+
+def test_same_day_different_instances_process_independently_with_instance_only_outputs_and_deletes(monkeypatch):
+    alpha_records = [
+        discovery.SelectedPathRecord(
+            relative_path="/silver/category=event_mapping/module=administration/instance_name=alpha/year=2026/month=08/day=23/source-a.parquet",
+            full_path="bucket/root/silver/category=event_mapping/module=administration/instance_name=alpha/year=2026/month=08/day=23/source-a.parquet",
+            base_name="source-a.parquet",
+            layer="silver",
+            category="event_mapping",
+            module="administration",
+            instance_name="alpha",
+            year="2026",
+            month="08",
+            day="23",
+        )
+    ]
+    beta_records = [
+        discovery.SelectedPathRecord(
+            relative_path="/silver/category=event_mapping/module=administration/instance_name=beta/year=2026/month=08/day=23/source-b.parquet",
+            full_path="bucket/root/silver/category=event_mapping/module=administration/instance_name=beta/year=2026/month=08/day=23/source-b.parquet",
+            base_name="source-b.parquet",
+            layer="silver",
+            category="event_mapping",
+            module="administration",
+            instance_name="beta",
+            year="2026",
+            month="08",
+            day="23",
+        )
+    ]
+    alpha_partition = discovery.SelectedPartitionPaths(
+        category="event_mapping",
+        module="administration",
+        instance_name="alpha",
+        year="2026",
+        month="08",
+        day="23",
+        selected_records=alpha_records,
+    )
+    beta_partition = discovery.SelectedPartitionPaths(
+        category="event_mapping",
+        module="administration",
+        instance_name="beta",
+        year="2026",
+        month="08",
+        day="23",
+        selected_records=beta_records,
+    )
+
+    observed_reads: list[list[str]] = []
+    observed_plans: list[tuple[str, str]] = []
+    observed_deletes: list[list[str]] = []
+
+    def fake_read(storage_ctx, *, full_paths):
+        observed_reads.append(list(full_paths))
+        out = pd.DataFrame([{"a": 1}])
+        out.attrs["files_read"] = len(full_paths)
+        out.attrs["raw_rows"] = 1
+        out.attrs["rows_after_drop_duplicates"] = 1
+        out.attrs["output_column_count"] = 1
+        return out
+
+    def fake_plan(*, selected_records, selected_df, normalize_silver_mode, run_epoch_ms):
+        instance_name = selected_records[0].instance_name
+        output_path = Path(
+            f"/silver/category=event_mapping/module=administration/instance_name={instance_name}/year=2026/month=08/day=23/compact_silver-{run_epoch_ms}-0001.parquet"
+        )
+        observed_plans.append((instance_name, str(output_path)))
+        return (
+            [
+                replay.ReplayWritePlan(
+                    output_path=output_path,
+                    silver_df=selected_df,
+                    dq=replay.DQResult(ok=True, errors=[]),
+                    module_name="administration",
+                    event_date=date(2026, 8, 23),
+                )
+            ],
+            replay.CompactPlanSummary(
+                mode="generic_compaction",
+                run_epoch_ms=run_epoch_ms,
+                input_rows=1,
+                input_columns=1,
+                metrics=(replay.CompactPlanMetric(module_name="administration", rows=1, columns=1, dq_ok=True, dq_errors=()),),
+            ),
+        )
+
+    def fake_apply(*, target, folder, source_relative_paths, plans):
+        observed_deletes.append(list(source_relative_paths))
+        return replay.CompactApplyResult(
+            status="succeeded",
+            written_paths=(str(plans[0].output_path),),
+            verified_paths=(str(plans[0].output_path),),
+            deleted_source_paths=tuple(source_relative_paths),
+            message="ok",
+        )
+
+    epochs = iter([1786510805000, 1786510805001])
+    monkeypatch.setattr(replay, "read_s3_parquet_files", fake_read)
+    monkeypatch.setattr(replay, "next_compact_save_epoch_ms", lambda: next(epochs))
+    monkeypatch.setattr(replay, "plan_compact_selected_day", fake_plan)
+    monkeypatch.setattr(replay, "get_managed_folder_handle", lambda target: "FOLDER_HANDLE")
+    monkeypatch.setattr(replay, "apply_compact_replacement_plans", fake_apply)
+
+    alpha_outcome = replay.process_compact_selected_partition(
+        storage_ctx=object(),
+        target=object(),
+        selected_partition=alpha_partition,
+        normalize_silver_mode=False,
+    )
+    beta_outcome = replay.process_compact_selected_partition(
+        storage_ctx=object(),
+        target=object(),
+        selected_partition=beta_partition,
+        normalize_silver_mode=False,
+    )
+
+    assert observed_reads == [
+        ["bucket/root/silver/category=event_mapping/module=administration/instance_name=alpha/year=2026/month=08/day=23/source-a.parquet"],
+        ["bucket/root/silver/category=event_mapping/module=administration/instance_name=beta/year=2026/month=08/day=23/source-b.parquet"],
+    ]
+    assert observed_plans == [
+        ("alpha", "/silver/category=event_mapping/module=administration/instance_name=alpha/year=2026/month=08/day=23/compact_silver-1786510805000-0001.parquet"),
+        ("beta", "/silver/category=event_mapping/module=administration/instance_name=beta/year=2026/month=08/day=23/compact_silver-1786510805001-0001.parquet"),
+    ]
+    assert observed_deletes == [
+        ["/silver/category=event_mapping/module=administration/instance_name=alpha/year=2026/month=08/day=23/source-a.parquet"],
+        ["/silver/category=event_mapping/module=administration/instance_name=beta/year=2026/month=08/day=23/source-b.parquet"],
+    ]
+    assert alpha_outcome.deleted_count == 1
+    assert beta_outcome.deleted_count == 1
