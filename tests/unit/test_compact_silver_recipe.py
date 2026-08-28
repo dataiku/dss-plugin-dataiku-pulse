@@ -44,7 +44,7 @@ def _run_result(*, status: str = "success") -> SimpleNamespace:
         excluded_recent_paths=3,
         eligible_paths=4,
         cutoff_date=pd.Timestamp("2026-08-24", tz="UTC").date(),
-        selected_partitions=[SimpleNamespace(year="2026", month="08", day="23"), SimpleNamespace(year="2026", month="08", day="22")],
+        selected_partitions=[SimpleNamespace(category="event_mapping", module="administration", instance_name="mazzei_pulse", year="2026", month="08", day="23", partition_scope="category=event_mapping; module=administration; instance_name=mazzei_pulse; date=2026/08/23"), SimpleNamespace(category="event_mapping", module="administration", instance_name="tam-global", year="2026", month="08", day="23", partition_scope="category=event_mapping; module=administration; instance_name=tam-global; date=2026/08/23")],
     )
     outcomes = [
         SimpleNamespace(
@@ -70,7 +70,7 @@ def _run_result(*, status: str = "success") -> SimpleNamespace:
             message="ok" if status == "success" else "current mapper produced no output",
         ),
         SimpleNamespace(
-            day_scope="2026/08/22",
+            day_scope="2026/08/23",
             replay_mode="event_mapping_replay",
             status="succeeded",
             files_read=2,
@@ -174,6 +174,7 @@ def test_recipe_resolves_preset_from_plugin_config_and_mode_from_recipe_config(m
         "cores": 3,
         "batch_size": 11,
     }
+    assert seen["config"].partition_filters == {"category": "event_mapping", "module": "administration"}
     assert seen["config"].execution_environment == "local"
     assert seen["config"].batch_size == 11
     assert seen["config"].selection_mode == "all_eligible_filtered"
@@ -336,6 +337,7 @@ def test_recipe_writes_bounded_audit_dataframe_without_paths_or_secrets(monkeypa
         "processed_partition_count",
         "dispatch_batch_size",
         "selected_partition_count",
+        "selected_partition_scope",
         "selected_day",
         "selected_days",
         "replay_mode",
@@ -369,6 +371,11 @@ def test_recipe_writes_bounded_audit_dataframe_without_paths_or_secrets(monkeypa
     assert set(audit_df["configured_cores"].dropna()) == {2}
     assert set(audit_df["partition_cap"]) == {2}
     assert set(audit_df["selection_mode"]) == {"all_eligible_filtered"}
+    assert set(audit_df["selected_partition_scope"].dropna()) == {
+        "category=event_mapping; module=administration; instance_name=mazzei_pulse; date=2026/08/23",
+        "category=event_mapping; module=administration; instance_name=tam-global; date=2026/08/23",
+    }
+    assert set(audit_df["filter_scope"]) == {"category=event_mapping; module=administration"}
     assert set(audit_df["eligible_partition_count"]) == {2}
     assert set(audit_df["processed_partition_count"]) == {2}
     assert set(audit_df["dispatch_batch_size"]) == {2}
@@ -467,3 +474,15 @@ def test_recipe_has_no_managed_folder_input_role_lookup():
 
     assert "get_input_names_for_role" not in recipe_text
     assert "source_folder_lookup = str(param_set.get(\"pulse_partitioned_data\") or \"partitioned_data\")" in recipe_text
+
+
+def test_recipe_expands_to_all_administration_instances_while_macro_text_stays_fixed():
+    recipe_text = RECIPE_PATH.read_text(encoding="utf-8")
+    runnable_text = RUNNABLE_PATH.read_text(encoding="utf-8")
+
+    assert '"category": "event_mapping"' in recipe_text
+    assert '"module": "administration"' in recipe_text
+    assert '"instance_name": "mazzei_pulse"' not in recipe_text
+    assert 'PHASE3_FILTER_SCOPE = "category=event_mapping; module=administration"' in recipe_text
+    assert '"instance_name": "mazzei_pulse"' in runnable_text
+

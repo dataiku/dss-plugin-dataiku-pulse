@@ -72,6 +72,9 @@ class SelectedDayPaths:
 
 @dataclass(frozen=True)
 class SelectedPartitionPaths:
+    category: str
+    module: str
+    instance_name: str
     year: str
     month: str
     day: str
@@ -84,6 +87,13 @@ class SelectedPartitionPaths:
     @property
     def relative_paths(self) -> list[str]:
         return [record.relative_path for record in self.selected_records]
+
+    @property
+    def partition_scope(self) -> str:
+        return (
+            f"category={self.category}; module={self.module}; instance_name={self.instance_name}; "
+            f"date={self.year}/{self.month}/{self.day}"
+        )
 
 
 @dataclass(frozen=True)
@@ -108,8 +118,8 @@ def _raise_selection_failure(*, filtered_matching_paths: int, eligible_paths: in
 
 def _selection_batch_from_records(
     *,
-    retained_records: dict[tuple[int, int, int], list[SelectedPathRecord]],
-    retained_parts: dict[tuple[int, int, int], tuple[str, str, str]],
+    retained_records: dict[tuple[int, int, int, str, str, str], list[SelectedPathRecord]],
+    retained_parts: dict[tuple[int, int, int, str, str, str], tuple[str, str, str, str, str, str]],
     total_matched_paths: int,
     filtered_matching_paths: int,
     skipped_compact_outputs: int,
@@ -128,9 +138,12 @@ def _selection_batch_from_records(
         )
     selected_partitions = [
         SelectedPartitionPaths(
-            year=retained_parts[retained_day][0],
-            month=retained_parts[retained_day][1],
-            day=retained_parts[retained_day][2],
+            category=retained_parts[retained_day][0],
+            module=retained_parts[retained_day][1],
+            instance_name=retained_parts[retained_day][2],
+            year=retained_parts[retained_day][3],
+            month=retained_parts[retained_day][4],
+            day=retained_parts[retained_day][5],
             selected_records=sorted(retained_records[retained_day], key=lambda item: item.relative_path),
         )
         for retained_day in retained_days
@@ -265,6 +278,16 @@ def _day_key(*, year: str, month: str, day: str) -> tuple[int, int, int]:
         ) from exc
 
 
+
+def _partition_key(record: SelectedPathRecord) -> tuple[int, int, int, str, str, str]:
+    year, month, day = _day_key(year=record.year, month=record.month, day=record.day)
+    return year, month, day, record.category, record.module, record.instance_name
+
+
+def _partition_parts(record: SelectedPathRecord) -> tuple[str, str, str, str, str, str]:
+    return record.category, record.module, record.instance_name, record.year, record.month, record.day
+
+
 def _partition_date(*, year: str, month: str, day: str) -> date:
     try:
         return date(int(year), int(month), int(day))
@@ -390,8 +413,8 @@ def select_latest_partition_paths_batch(
 
     today_utc = utc_today or datetime.now(timezone.utc).date()
     cutoff_date = today_utc - timedelta(days=minimum_age_days)
-    retained_records: dict[tuple[int, int, int], list[SelectedPathRecord]] = {}
-    retained_parts: dict[tuple[int, int, int], tuple[str, str, str]] = {}
+    retained_records: dict[tuple[int, int, int, str, str, str], list[SelectedPathRecord]] = {}
+    retained_parts: dict[tuple[int, int, int, str, str, str], tuple[str, str, str, str, str, str]] = {}
     total_matched_paths = 0
     filtered_matching_paths = 0
     skipped_compact_outputs = 0
@@ -415,8 +438,8 @@ def select_latest_partition_paths_batch(
             continue
 
         eligible_paths += 1
-        candidate_day = _day_key(year=record.year, month=record.month, day=record.day)
-        candidate_parts = (record.year, record.month, record.day)
+        candidate_day = _partition_key(record)
+        candidate_parts = _partition_parts(record)
 
         if candidate_day in retained_records:
             retained_records[candidate_day].append(record)
@@ -461,8 +484,8 @@ def select_all_eligible_partition_paths_batch(
 
     today_utc = utc_today or datetime.now(timezone.utc).date()
     cutoff_date = today_utc - timedelta(days=minimum_age_days)
-    retained_records: dict[tuple[int, int, int], list[SelectedPathRecord]] = {}
-    retained_parts: dict[tuple[int, int, int], tuple[str, str, str]] = {}
+    retained_records: dict[tuple[int, int, int, str, str, str], list[SelectedPathRecord]] = {}
+    retained_parts: dict[tuple[int, int, int, str, str, str], tuple[str, str, str, str, str, str]] = {}
     total_matched_paths = 0
     filtered_matching_paths = 0
     skipped_compact_outputs = 0
@@ -486,8 +509,8 @@ def select_all_eligible_partition_paths_batch(
             continue
 
         eligible_paths += 1
-        candidate_day = _day_key(year=record.year, month=record.month, day=record.day)
-        candidate_parts = (record.year, record.month, record.day)
+        candidate_day = _partition_key(record)
+        candidate_parts = _partition_parts(record)
         retained_parts[candidate_day] = candidate_parts
         retained_records.setdefault(candidate_day, []).append(record)
 

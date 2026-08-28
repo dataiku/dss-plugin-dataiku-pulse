@@ -419,11 +419,32 @@ def _selected_event_date(selected_records: list[SelectedPathRecord]) -> date:
     return date(int(record.year), int(record.month), int(record.day))
 
 
-def _selected_partition_identity(selected_records: list[SelectedPathRecord]) -> tuple[str, str, str]:
+def _selected_partition_identity(selected_records: list[SelectedPathRecord]) -> tuple[str, str, str, str, str, str]:
     if not selected_records:
         raise ReplaySkipError("No selected source records were provided")
     record = selected_records[0]
-    return record.category, record.module, record.instance_name
+    expected_identity = (
+        record.category,
+        record.module,
+        record.instance_name,
+        record.year,
+        record.month,
+        record.day,
+    )
+    for candidate in selected_records[1:]:
+        candidate_identity = (
+            candidate.category,
+            candidate.module,
+            candidate.instance_name,
+            candidate.year,
+            candidate.month,
+            candidate.day,
+        )
+        if candidate_identity != expected_identity:
+            raise ReplaySkipError(
+                "Selected source records span multiple logical compact partitions; refusing mixed-instance/day compaction"
+            )
+    return expected_identity
 
 
 def _validate_output_paths_do_not_overlap_sources(*, plans: list[ReplayWritePlan], selected_records: list[SelectedPathRecord]) -> None:
@@ -448,7 +469,9 @@ def plan_compact_selected_day(
         raise ReplaySkipError("No selected source records were provided")
 
     selected_event_date = _selected_event_date(selected_records)
-    category, module_name, instance_name = _selected_partition_identity(selected_records)
+    category, module_name, instance_name, event_year, event_month, event_day = _selected_partition_identity(selected_records)
+    if (f"{selected_event_date.year:04d}", f"{selected_event_date.month:02d}", f"{selected_event_date.day:02d}") != (event_year, event_month, event_day):
+        raise ReplaySkipError("Selected source records contain inconsistent logical partition dates")
 
     if not normalize_silver_mode:
         output_path = build_compact_output_path(

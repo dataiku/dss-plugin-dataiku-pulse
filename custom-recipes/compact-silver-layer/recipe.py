@@ -21,9 +21,8 @@ MINIMUM_AGE_DAYS = 1
 PHASE3_FILTERS = {
     "category": "event_mapping",
     "module": "administration",
-    "instance_name": "mazzei_pulse",
 }
-PHASE3_FILTER_SCOPE = "category=event_mapping; module=administration; instance_name=mazzei_pulse"
+PHASE3_FILTER_SCOPE = "category=event_mapping; module=administration"
 OUTPUT_ROLE = "compact_silver_audit"
 
 
@@ -58,9 +57,7 @@ def _build_audit_dataframe(
     storage_ctx = run_result.storage_ctx
     selected_batch = run_result.selected_batch
     worker_resolution = run_result.worker_resolution
-    selected_days = ",".join(
-        f"{item.year}/{item.month}/{item.day}" for item in selected_batch.selected_partitions
-    )
+    selected_days = ",".join(item.partition_scope for item in selected_batch.selected_partitions)
 
     rows: list[dict[str, Any]] = [
         {
@@ -86,6 +83,7 @@ def _build_audit_dataframe(
             "processed_partition_count": len(run_result.outcomes),
             "dispatch_batch_size": run_result.dispatch_batch_size,
             "selected_partition_count": len(selected_batch.selected_partitions),
+            "selected_partition_scope": None,
             "selected_day": None,
             "selected_days": selected_days,
             "replay_mode": "event_mapping_replay" if normalize_silver_mode else "generic_compaction",
@@ -114,7 +112,7 @@ def _build_audit_dataframe(
         }
     ]
 
-    for outcome in run_result.outcomes:
+    for selected_partition, outcome in zip(selected_batch.selected_partitions, run_result.outcomes, strict=False):
         rows.append(
             {
                 "run_ts_utc": run_started_at,
@@ -139,6 +137,7 @@ def _build_audit_dataframe(
                 "processed_partition_count": len(run_result.outcomes),
                 "dispatch_batch_size": run_result.dispatch_batch_size,
                 "selected_partition_count": len(selected_batch.selected_partitions),
+                "selected_partition_scope": selected_partition.partition_scope,
                 "selected_day": outcome.day_scope,
                 "selected_days": selected_days,
                 "replay_mode": outcome.replay_mode,
@@ -186,6 +185,7 @@ def _build_audit_dataframe(
         "processed_partition_count",
         "dispatch_batch_size",
         "selected_partition_count",
+        "selected_partition_scope",
         "selected_day",
         "selected_days",
         "replay_mode",

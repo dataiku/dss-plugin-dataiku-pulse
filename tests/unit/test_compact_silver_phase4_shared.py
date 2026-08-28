@@ -87,6 +87,30 @@ def test_compact_filename_uses_one_epoch_and_ordered_suffixes():
     assert second == "compact_silver-1786510805000-0002.parquet"
 
 
+def test_mixed_instance_selected_records_fail_before_planning():
+    records = _selected_records()
+    records[1] = discovery.SelectedPathRecord(
+        relative_path="/silver/category=event_mapping/module=administration/instance_name=other/year=2026/month=08/day=23/source-b.parquet",
+        full_path="bucket/root/silver/category=event_mapping/module=administration/instance_name=other/year=2026/month=08/day=23/source-b.parquet",
+        base_name="source-b.parquet",
+        layer="silver",
+        category="event_mapping",
+        module="administration",
+        instance_name="other",
+        year="2026",
+        month="08",
+        day="23",
+    )
+
+    with pytest.raises(replay.ReplaySkipError, match="multiple logical compact partitions"):
+        replay.plan_compact_selected_day(
+            selected_records=records,
+            selected_df=pd.DataFrame([{"a": 1}]),
+            normalize_silver_mode=False,
+            run_epoch_ms=1786510805000,
+        )
+
+
 def test_generic_compaction_mode_builds_one_dq_checked_plan(monkeypatch):
     df = pd.DataFrame([{"instance_name": "mazzei_pulse", "run_ts": "2026-08-23T00:00:00Z", "value": 1}])
     monkeypatch.setattr(replay, "check_silver_dq", lambda incoming_df: replay.DQResult(ok=True, errors=[]))
