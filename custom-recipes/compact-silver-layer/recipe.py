@@ -17,7 +17,7 @@ from shared_runtime_logging import suppress_inherited_provider_debug_logging
 
 
 EVENT_MAPPING_PREFIX = "silver/category=event_mapping/"
-MINIMUM_AGE_DAYS = 3
+MINIMUM_AGE_DAYS = 1
 PHASE3_FILTERS = {
     "category": "event_mapping",
     "module": "administration",
