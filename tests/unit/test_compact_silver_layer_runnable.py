@@ -19,63 +19,13 @@ def _load_runnable_module():
     return module
 
 
-def _storage_context(connection_type: str) -> SimpleNamespace:
-    return SimpleNamespace(
+def _run_result(*, provider_label: str | None = "AWS/S3", connection_type: str = "EC2", statuses: tuple[str, str] = ("succeeded", "succeeded")) -> SimpleNamespace:
+    storage_ctx = SimpleNamespace(
         folder_id="resolved-folder-id",
         connection_name="resolved-connection",
         connection_type=connection_type,
-        folder_lookup="partitioned_data",
-        folder_root="redacted/root",
-        bucket_or_container="secret-bucket",
-        blob_header="s3",
-        cached_connection_info={
-            "type": connection_type,
-            "params": {"secretKey": "top-secret", "accessKey": "also-secret"},
-        },
     )
-
-
-def _selected_partition(*, day: str) -> SimpleNamespace:
-    relative_base = f"/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day={day}"
-    full_base = f"bucket/root/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day={day}"
-    records = [
-        SimpleNamespace(
-            relative_path=f"{relative_base}/source-a.parquet",
-            full_path=f"{full_base}/source-a.parquet",
-            base_name="source-a.parquet",
-            layer="silver",
-            category="event_mapping",
-            module="administration",
-            instance_name="mazzei_pulse",
-            year="2026",
-            month="08",
-            day=day,
-        ),
-        SimpleNamespace(
-            relative_path=f"{relative_base}/source-b.parquet",
-            full_path=f"{full_base}/source-b.parquet",
-            base_name="source-b.parquet",
-            layer="silver",
-            category="event_mapping",
-            module="administration",
-            instance_name="mazzei_pulse",
-            year="2026",
-            month="08",
-            day=day,
-        ),
-    ]
-    return SimpleNamespace(
-        year="2026",
-        month="08",
-        day=day,
-        selected_records=records,
-        full_paths=[record.full_path for record in records],
-        relative_paths=[record.relative_path for record in records],
-    )
-
-
-def _selected_partition_batch() -> SimpleNamespace:
-    return SimpleNamespace(
+    selected_batch = SimpleNamespace(
         total_matched_paths=11,
         filtered_matching_paths=8,
         skipped_compact_outputs=1,
@@ -83,99 +33,77 @@ def _selected_partition_batch() -> SimpleNamespace:
         eligible_paths=4,
         cutoff_date=date(2026, 8, 24),
         minimum_age_days=3,
-        selected_partitions=[_selected_partition(day="23"), _selected_partition(day="22")],
+        selected_partitions=[
+            SimpleNamespace(year="2026", month="08", day="23"),
+            SimpleNamespace(year="2026", month="08", day="22"),
+        ],
     )
 
+    def _outcome(day: str, status: str, replay_mode: str = "generic_compaction") -> SimpleNamespace:
+        return SimpleNamespace(
+            day_scope=f"2026/08/{day}",
+            replay_mode=replay_mode,
+            status=status,
+            files_read=2,
+            raw_rows=4,
+            rows_after_drop_duplicates=3,
+            output_column_count=5,
+            input_rows=3,
+            input_columns=5,
+            rehydrated_rows=3 if replay_mode == "event_mapping_replay" else None,
+            rehydrated_columns=47 if replay_mode == "event_mapping_replay" else None,
+            mapper_rows=3 if status == "succeeded" and replay_mode == "event_mapping_replay" else 0 if replay_mode == "event_mapping_replay" else None,
+            mapper_columns=13 if replay_mode == "event_mapping_replay" else None,
+            mapper_groups=1 if status == "succeeded" and replay_mode == "event_mapping_replay" else 0,
+            plan_count=1 if status == "succeeded" else 0,
+            metrics=() if status != "succeeded" else (SimpleNamespace(module_name="administration", rows=3, columns=5, dq_ok=True, dq_errors=()),),
+            written_count=1 if status == "succeeded" else 0,
+            verified_count=1 if status == "succeeded" else 0,
+            deleted_count=2 if status == "succeeded" else 0,
+            retained_count=0 if status == "succeeded" else 2,
+            run_epoch_ms=1786510805000 + int(day),
+            message="ok" if status == "succeeded" else "current mapper produced no output",
+        )
 
-def _outcome(*, day: str, status: str = "succeeded", replay_mode: str = "generic_compaction") -> SimpleNamespace:
     return SimpleNamespace(
-        year="2026",
-        month="08",
-        day=day,
-        day_scope=f"2026/08/{day}",
-        replay_mode=replay_mode,
-        status=status,
-        message="ok" if status == "succeeded" else "current mapper produced no output",
-        run_epoch_ms=1786510805000 + int(day),
-        files_read=2,
-        raw_rows=4,
-        rows_after_drop_duplicates=3,
-        output_column_count=5,
-        input_rows=3,
-        input_columns=5,
-        plan_count=1 if status == "succeeded" else 0,
-        rehydrated_rows=3 if replay_mode == "event_mapping_replay" else None,
-        rehydrated_columns=47 if replay_mode == "event_mapping_replay" else None,
-        mapper_rows=3 if replay_mode == "event_mapping_replay" and status == "succeeded" else 0 if replay_mode == "event_mapping_replay" else None,
-        mapper_columns=13 if replay_mode == "event_mapping_replay" else None,
-        mapper_groups=1 if replay_mode == "event_mapping_replay" and status == "succeeded" else 0,
-        metrics=() if status != "succeeded" else (SimpleNamespace(module_name="administration", rows=3, columns=5, dq_ok=True, dq_errors=()),),
-        written_count=1 if status == "succeeded" else 0,
-        verified_count=1 if status == "succeeded" else 0,
-        deleted_count=2 if status == "succeeded" else 0,
-        retained_count=0 if status == "succeeded" else 2,
+        storage_ctx=storage_ctx,
+        provider_label=provider_label,
+        selected_batch=selected_batch,
+        outcomes=[_outcome("23", statuses[0]), _outcome("22", statuses[1])],
+        execution_mode="joblib_threads",
     )
 
 
-def test_run_sequential_uses_two_partition_selector_and_processes_both_days(monkeypatch):
+def test_run_resolves_pulse_primary_and_calls_shared_coordinator(monkeypatch):
     module = _load_runnable_module()
-    seen: dict[str, object] = {"suppressed": 0}
+    seen = {"suppressed": 0}
 
     monkeypatch.setattr(module, "suppress_inherited_provider_debug_logging", lambda: seen.__setitem__("suppressed", 1))
-    monkeypatch.setattr(module, "build_storage_context", lambda **kwargs: _storage_context("EC2"))
 
-    def fake_selector(storage_ctx, *, relative_prefix, suffix=None, partition_filters, partition_count, minimum_age_days, utc_today=None):
-        seen["selector_args"] = (relative_prefix, suffix, partition_filters, partition_count, minimum_age_days)
-        return _selected_partition_batch()
+    def fake_run_compact(config):
+        seen["config"] = config
+        return _run_result()
 
-    def fake_run_jobs(*, storage_ctx, target, selected_partitions, normalize_silver_mode, do_parallel, n_jobs, batch_size):
-        seen["run_jobs"] = {
-            "count": len(selected_partitions),
-            "normalize_silver_mode": normalize_silver_mode,
-            "do_parallel": do_parallel,
-            "n_jobs": n_jobs,
-            "batch_size": batch_size,
-            "days": [(item.year, item.month, item.day) for item in selected_partitions],
-        }
-        return [_outcome(day="23"), _outcome(day="22")]
-
-    monkeypatch.setattr(module, "select_latest_partition_paths_batch", fake_selector)
-    monkeypatch.setattr(module, "_run_partition_jobs", fake_run_jobs)
+    monkeypatch.setattr(module, "run_compact_silver", fake_run_compact)
 
     runnable = module.MyRunnable("DASHBOARD_PROJECT", {}, {"pulse_primary": {"do_parallel": False, "cores": 3, "batch_size": 25}})
     result = runnable.run(progress_callback=None)
 
     assert seen["suppressed"] == 1
-    assert seen["selector_args"] == (
-        "silver/category=event_mapping/",
-        ".parquet",
-        {
-            "category": "event_mapping",
-            "module": "administration",
-            "instance_name": "mazzei_pulse",
-        },
-        2,
-        3,
-    )
-    assert seen["run_jobs"] == {
-        "count": 2,
-        "normalize_silver_mode": False,
-        "do_parallel": False,
-        "n_jobs": 3,
-        "batch_size": 25,
-        "days": [("2026", "08", "23"), ("2026", "08", "22")],
+    assert seen["config"].project_key == "DASHBOARD_PROJECT"
+    assert seen["config"].folder_lookup == "partitioned_data"
+    assert seen["config"].relative_prefix == "silver/category=event_mapping/"
+    assert seen["config"].partition_filters == {
+        "category": "event_mapping",
+        "module": "administration",
+        "instance_name": "mazzei_pulse",
     }
-    assert [record[0] for record in result.records[:9]] == [
-        "Resolve Folder",
-        "Connection Name",
-        "Connection Type",
-        "All Parquet Found",
-        "Full DataFrame",
-        "Filtered Subset",
-        "Recent Partitions Excluded",
-        "Eligible Subset",
-        "Selected Partitions",
-    ]
+    assert seen["config"].selected_partition_count == 2
+    assert seen["config"].minimum_age_days == 3
+    assert seen["config"].normalize_silver_mode is False
+    assert seen["config"].do_parallel is False
+    assert seen["config"].n_jobs == 3
+    assert seen["config"].batch_size == 25
     assert result.records[8] == [
         "Selected Partitions",
         "2",
@@ -192,85 +120,115 @@ def test_run_sequential_uses_two_partition_selector_and_processes_both_days(monk
     ]
 
 
-def test_run_parallel_uses_joblib_threads_with_configured_workers(monkeypatch):
-    module = _load_runnable_module()
-    seen: dict[str, object] = {}
-    selected_batch = _selected_partition_batch()
-
-    monkeypatch.setattr(module, "build_storage_context", lambda **kwargs: _storage_context("EC2"))
-    monkeypatch.setattr(module, "select_latest_partition_paths_batch", lambda *args, **kwargs: selected_batch)
-    monkeypatch.setattr(module, "suppress_inherited_provider_debug_logging", lambda: None)
-
-    class FakeParallel:
-        def __init__(self, *, n_jobs, prefer):
-            seen["parallel_init"] = {"n_jobs": n_jobs, "prefer": prefer}
-
-        def __call__(self, tasks):
-            task_list = list(tasks)
-            seen["parallel_tasks"] = len(task_list)
-            return [task() for task in task_list]
-
-    monkeypatch.setattr(module, "Parallel", FakeParallel)
-    monkeypatch.setattr(module, "delayed", lambda fn: (lambda **kwargs: (lambda: fn(**kwargs))))
-    monkeypatch.setattr(
-        module,
-        "process_compact_selected_partition",
-        lambda **kwargs: _outcome(day=kwargs["selected_partition"].day),
-    )
-
-    runnable = module.MyRunnable("P", {}, {"pulse_primary": {"do_parallel": True, "cores": 2, "batch_size": 25}})
-    result = runnable.run(progress_callback=None)
-
-    assert seen["parallel_init"] == {"n_jobs": 2, "prefer": "threads"}
-    assert seen["parallel_tasks"] == 2
-    assert result.records[-1][3] == "success"
-
-
-def test_run_partition_jobs_sequential_branch_processes_both_days(monkeypatch):
-    module = _load_runnable_module()
-    seen = []
-
-    monkeypatch.setattr(
-        module,
-        "_process_partition_job",
-        lambda **kwargs: seen.append(kwargs["selected_partition"].day) or _outcome(day=kwargs["selected_partition"].day),
-    )
-
-    outcomes = module._run_partition_jobs(
-        storage_ctx=object(),
-        target=object(),
-        selected_partitions=[_selected_partition(day="23"), _selected_partition(day="22")],
-        normalize_silver_mode=False,
-        do_parallel=False,
-        n_jobs=4,
-        batch_size=25,
-    )
-
-    assert seen == ["23", "22"]
-    assert [outcome.day for outcome in outcomes] == ["23", "22"]
-
-
-def test_parallel_day_failures_remain_isolated_and_aggregate_partial(monkeypatch):
+def test_run_uses_event_mapping_mode_when_config_true(monkeypatch):
     module = _load_runnable_module()
     monkeypatch.setattr(module, "suppress_inherited_provider_debug_logging", lambda: None)
-    monkeypatch.setattr(module, "build_storage_context", lambda **kwargs: _storage_context("EC2"))
-    monkeypatch.setattr(module, "select_latest_partition_paths_batch", lambda *args, **kwargs: _selected_partition_batch())
     monkeypatch.setattr(
         module,
-        "_run_partition_jobs",
-        lambda **kwargs: [
-            _outcome(day="23", status="no_mapped_output_retained", replay_mode="event_mapping_replay"),
-            _outcome(day="22", status="succeeded", replay_mode="event_mapping_replay"),
-        ],
+        "run_compact_silver",
+        lambda config: _run_result(statuses=("succeeded", "succeeded"), provider_label="AWS/S3", connection_type="EC2").__class__(
+        ),
     )
 
-    runnable = module.MyRunnable("P", {"normalize_silver": True}, {"pulse_primary": {"do_parallel": True, "cores": 2, "batch_size": 25}})
-    result = runnable.run(progress_callback=None)
+    def fake_run_compact(config):
+        return SimpleNamespace(
+            storage_ctx=SimpleNamespace(folder_id="resolved-folder-id", connection_name="resolved-connection", connection_type="EC2"),
+            provider_label="AWS/S3",
+            selected_batch=SimpleNamespace(
+                total_matched_paths=11,
+                filtered_matching_paths=8,
+                skipped_compact_outputs=1,
+                excluded_recent_paths=3,
+                eligible_paths=4,
+                cutoff_date=date(2026, 8, 24),
+                minimum_age_days=3,
+                selected_partitions=[SimpleNamespace(year="2026", month="08", day="23"), SimpleNamespace(year="2026", month="08", day="22")],
+            ),
+            outcomes=[
+                SimpleNamespace(
+                    day_scope="2026/08/23",
+                    replay_mode="event_mapping_replay",
+                    status="succeeded",
+                    files_read=2,
+                    raw_rows=4,
+                    rows_after_drop_duplicates=3,
+                    output_column_count=5,
+                    input_rows=3,
+                    input_columns=5,
+                    rehydrated_rows=10,
+                    rehydrated_columns=47,
+                    mapper_rows=10,
+                    mapper_columns=13,
+                    mapper_groups=2,
+                    plan_count=1,
+                    metrics=(SimpleNamespace(module_name="administration", rows=10, columns=13, dq_ok=True, dq_errors=()),),
+                    written_count=1,
+                    verified_count=1,
+                    deleted_count=2,
+                    retained_count=0,
+                    run_epoch_ms=1786510805000,
+                    message="ok",
+                ),
+                SimpleNamespace(
+                    day_scope="2026/08/22",
+                    replay_mode="event_mapping_replay",
+                    status="succeeded",
+                    files_read=2,
+                    raw_rows=4,
+                    rows_after_drop_duplicates=3,
+                    output_column_count=5,
+                    input_rows=3,
+                    input_columns=5,
+                    rehydrated_rows=10,
+                    rehydrated_columns=47,
+                    mapper_rows=10,
+                    mapper_columns=13,
+                    mapper_groups=2,
+                    plan_count=1,
+                    metrics=(SimpleNamespace(module_name="administration", rows=10, columns=13, dq_ok=True, dq_errors=()),),
+                    written_count=1,
+                    verified_count=1,
+                    deleted_count=2,
+                    retained_count=0,
+                    run_epoch_ms=1786510805001,
+                    message="ok",
+                ),
+            ],
+            execution_mode="joblib_threads",
+        )
+
+    monkeypatch.setattr(module, "run_compact_silver", fake_run_compact)
+    result = module.MyRunnable("P", {"normalize_silver": True}, {}).run(progress_callback=None)
+
+    assert [record for record in result.records if record[0] == "Replay Mode"][0] == [
+        "Replay Mode",
+        "event_mapping_replay",
+        "2026/08/23",
+        "info",
+        "run_epoch_ms=1786510805000; status=succeeded",
+    ]
+    assert [record for record in result.records if record[0] == "Rehydrated DataFrame"][0] == [
+        "Rehydrated DataFrame",
+        "rows=10, columns=47",
+        "2026/08/23",
+        "info",
+        "SILVER extras unpacked",
+    ]
+
+
+def test_run_partial_outcomes_render_without_paths_or_secrets(monkeypatch):
+    module = _load_runnable_module()
+    monkeypatch.setattr(module, "suppress_inherited_provider_debug_logging", lambda: None)
+    monkeypatch.setattr(module, "run_compact_silver", lambda config: _run_result(statuses=("no_mapped_output_retained", "succeeded")))
+
+    result = module.MyRunnable("P", {"normalize_silver": True}, {"pulse_primary": {"do_parallel": True, "cores": 2, "batch_size": 25}}).run(progress_callback=None)
 
     rendered_values = {str(value) for row in result.records for value in row}
     assert "bucket/root/silver/category=event_mapping" not in rendered_values
     assert "source-a.parquet" not in rendered_values
     assert "source-b.parquet" not in rendered_values
+    assert "top-secret" not in rendered_values
+    assert "also-secret" not in rendered_values
     assert result.records[-1] == [
         "Partition Totals",
         "partitions=2",
@@ -280,16 +238,14 @@ def test_parallel_day_failures_remain_isolated_and_aggregate_partial(monkeypatch
     ]
 
 
-def test_all_recent_matches_fail_before_worker_execution(monkeypatch):
+def test_all_recent_matches_fail_from_shared_coordinator(monkeypatch):
     module = _load_runnable_module()
     monkeypatch.setattr(module, "suppress_inherited_provider_debug_logging", lambda: None)
-    monkeypatch.setattr(module, "build_storage_context", lambda **kwargs: _storage_context("EC2"))
     monkeypatch.setattr(
         module,
-        "select_latest_partition_paths_batch",
-        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("All exact-filter matches are excluded by minimum_age_days=3; cutoff_date=2026-08-24")),
+        "run_compact_silver",
+        lambda config: (_ for _ in ()).throw(ValueError("All exact-filter matches are excluded by minimum_age_days=3; cutoff_date=2026-08-24")),
     )
-    monkeypatch.setattr(module, "_run_partition_jobs", lambda **kwargs: (_ for _ in ()).throw(AssertionError("workers must not be called")))
 
     with pytest.raises(ValueError, match="All exact-filter matches are excluded by minimum_age_days=3; cutoff_date=2026-08-24"):
         module._build_result_table(
@@ -305,26 +261,7 @@ def test_all_recent_matches_fail_before_worker_execution(monkeypatch):
 def test_unknown_provider_is_visibly_unsupported(monkeypatch):
     module = _load_runnable_module()
     monkeypatch.setattr(module, "suppress_inherited_provider_debug_logging", lambda: None)
-    monkeypatch.setattr(module, "build_storage_context", lambda **kwargs: _storage_context("LocalFS"))
-    monkeypatch.setattr(module, "select_latest_partition_paths_batch", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("Unsupported managed-folder provider for native discovery: LocalFS")))
-
-    with pytest.raises(RuntimeError, match="Unsupported managed-folder provider"):
-        module._build_result_table(
-            project_key="PROJ",
-            folder_lookup="partitioned_data",
-            normalize_silver_mode=False,
-            do_parallel=False,
-            n_jobs=1,
-            batch_size=25,
-        )
-
-
-def test_runnable_results_do_not_render_paths_or_secret_values(monkeypatch):
-    module = _load_runnable_module()
-    monkeypatch.setattr(module, "suppress_inherited_provider_debug_logging", lambda: None)
-    monkeypatch.setattr(module, "build_storage_context", lambda **kwargs: _storage_context("EC2"))
-    monkeypatch.setattr(module, "select_latest_partition_paths_batch", lambda *args, **kwargs: _selected_partition_batch())
-    monkeypatch.setattr(module, "_run_partition_jobs", lambda **kwargs: [_outcome(day="23"), _outcome(day="22")])
+    monkeypatch.setattr(module, "run_compact_silver", lambda config: _run_result(provider_label=None, connection_type="LocalFS"))
 
     result = module._build_result_table(
         project_key="PROJ",
@@ -335,14 +272,10 @@ def test_runnable_results_do_not_render_paths_or_secret_values(monkeypatch):
         batch_size=25,
     )
 
-    rendered_values = {str(value) for row in result.records for value in row}
-    assert "secret-bucket" not in rendered_values
-    assert "redacted/root" not in rendered_values
-    assert "top-secret" not in rendered_values
-    assert "also-secret" not in rendered_values
-    assert "bucket/root/silver/category=event_mapping" not in rendered_values
-    assert "source-a.parquet" not in rendered_values
-    assert "source-b.parquet" not in rendered_values
-    assert "boto3" not in module.__dict__
-    assert "azure.storage.blob" not in sys.modules
-    assert "google.cloud" not in sys.modules
+    assert result.records[2] == [
+        "Connection Type",
+        "unsupported",
+        "partitioned_data",
+        "unsupported",
+        "raw DSS type: LocalFS",
+    ]

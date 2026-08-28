@@ -9,9 +9,9 @@
     "inputRoles": [],
     "outputRoles": [
         {
-            "name": "compact_silver_layer_output",
-            "label": "Compact Silver Layer Output",
-            "description": "Output folder for the compacted Silver layer",
+            "name": "compact_silver_audit",
+            "label": "Compact SILVER Audit Dataset",
+            "description": "Dataset written once per recipe run with bounded compact SILVER audit records; compacted parquet files remain in the selected managed folder.",
             "arity": "UNARY",
             "required": true,
             "acceptsDataset": true,
@@ -22,7 +22,7 @@
         {
             "name": "warning",
             "label": "⚠️ DO NOT ATTEMPT TO EDIT THIS RECIPE!",
-            "description": "This recipe is self-managed by the Dataiku Pulse Dashboard plugin. Only adjust the below settings as needed.",
+            "description": "This recipe mutates the selected managed-folder input in place only after replacement writes are verified. Use only for the bounded development compact workflow.",
             "type": "SEPARATOR"
         },
         {
@@ -32,10 +32,11 @@
             "type": "SEPARATOR"
         },
         {
-          "name": "my_preset_param",
-          "label": "Select Preset",
-          "type": "PRESET",
-          "parameterSetId": "params-dashboard-instance"
+            "type": "PRESET",
+            "name": "pulse_primary",
+            "label": "Choose PULSE Primary Configuration",
+            "parameterSetId": "params-dashboard-instance",
+            "mandatory": true
         },
         {
             "name": "normalize_silver",

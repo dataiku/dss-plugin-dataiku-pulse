@@ -42,6 +42,14 @@ class Folder:
         raise NotImplementedError("stub Folder cannot upload")
 
 
+class Dataset:
+    def __init__(self, name: str):
+        self.name = name
+
+    def write_with_schema(self, df: Any) -> None:  # pragma: no cover
+        raise NotImplementedError("stub Dataset cannot write")
+
+
 def api_client() -> Any:  # pragma: no cover - tests pass explicit fakes instead
     raise NotImplementedError("stub dataiku has no API client")
 
@@ -62,11 +70,21 @@ def get_recipe_config() -> dict:
     return {}
 
 
+def get_plugin_config() -> dict:
+    return {}
+
+
+def get_input_names_for_role(role: str) -> list[str]:
+    return []
+
+
 def get_output_names_for_role(role: str) -> list[str]:
     return []
 
 
 _customrecipe.get_recipe_config = get_recipe_config
+_customrecipe.get_plugin_config = get_plugin_config
+_customrecipe.get_input_names_for_role = get_input_names_for_role
 _customrecipe.get_output_names_for_role = get_output_names_for_role
 
 
