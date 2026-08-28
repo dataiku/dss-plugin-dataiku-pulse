@@ -209,6 +209,84 @@ def test_recipe_uses_default_partitioned_data_lookup_when_preset_value_missing(m
     assert result["source_folder_lookup"] == "partitioned_data"
 
 
+def test_recipe_container_run_ignores_invalid_preset_worker_settings(monkeypatch, recipe_module):
+    seen = {}
+
+    monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
+    monkeypatch.setattr(
+        recipe_module,
+        "get_plugin_config",
+        lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data", "do_parallel": False, "cores": "invalid", "batch_size": 11}},
+    )
+    monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": True})
+    monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["audit_dataset_name"])
+    monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "container-name")
+
+    container_run_result = _run_result(status="success")
+    container_run_result.worker_resolution = SimpleNamespace(
+        execution_environment="container-name",
+        resolution_source="container_auto",
+        python_visible_cpu_count=8,
+        configured_cores=None,
+        parallel_enabled=True,
+        resolved_n_jobs=7,
+        partition_cap=7,
+    )
+
+    def fake_run_compact(config):
+        seen["config"] = config
+        return container_run_result
+
+    monkeypatch.setattr(recipe_module, "run_compact_silver", fake_run_compact)
+
+    class FakeDataset:
+        def __init__(self, name):
+            seen["dataset_name"] = name
+
+        def write_with_schema(self, df):
+            seen["audit_df"] = df.copy()
+
+    monkeypatch.setattr(recipe_module.dataiku, "Dataset", FakeDataset)
+
+    result = recipe_module.run()
+
+    assert seen["config"].execution_environment == "container-name"
+    assert seen["config"].batch_size == 11
+    assert result["parallel_enabled"] is True
+    assert result["requested_workers"] == 7
+    assert result["partition_cap"] == 7
+    assert set(seen["audit_df"]["worker_resolution_source"]) == {"container_auto"}
+
+
+def test_recipe_batch_size_resolution_remains_unchanged(monkeypatch, recipe_module):
+    monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
+    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"batch_size": 17}})
+    monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": False})
+    monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["audit_dataset_name"])
+    monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "local")
+
+    seen = {}
+
+    def fake_run_compact(config):
+        seen["batch_size"] = config.batch_size
+        return _run_result(status="success")
+
+    monkeypatch.setattr(recipe_module, "run_compact_silver", fake_run_compact)
+
+    class FakeDataset:
+        def __init__(self, name):
+            self.name = name
+
+        def write_with_schema(self, df):
+            seen["audit_df"] = df.copy()
+
+    monkeypatch.setattr(recipe_module.dataiku, "Dataset", FakeDataset)
+
+    recipe_module.run()
+
+    assert seen["batch_size"] == 17
+
+
 def test_recipe_writes_bounded_audit_dataframe_without_paths_or_secrets(monkeypatch, recipe_module):
     seen = {}
 

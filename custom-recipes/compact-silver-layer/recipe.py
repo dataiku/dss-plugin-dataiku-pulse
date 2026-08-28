@@ -42,13 +42,8 @@ def _resolve_single_role_name(*, role_name: str, names: list[str], expected_kind
     return name
 
 
-def _resolve_parallel_settings(param_set: dict[str, Any]) -> tuple[bool, int, int]:
-    do_parallel = bool(param_set.get("do_parallel", True))
-    default_cores = max((os.cpu_count() or 2) - 1, 1)
-    safe_default_cores = min(default_cores, 4)
-    n_jobs = max(1, int(param_set.get("cores", safe_default_cores)))
-    batch_size = int(param_set.get("batch_size", 25))
-    return do_parallel, n_jobs, batch_size
+def _resolve_batch_size(param_set: dict[str, Any]) -> int:
+    return int(param_set.get("batch_size", 25))
 
 
 def _build_audit_dataframe(
@@ -219,8 +214,8 @@ def run():
         names=get_output_names_for_role(OUTPUT_ROLE),
         expected_kind="dataset output",
     )
-    do_parallel, n_jobs, batch_size = _resolve_parallel_settings(param_set)
     execution_environment = get_dss_execution_environment()
+    batch_size = _resolve_batch_size(param_set)
 
     run_result = run_compact_silver(
         CompactRunConfig(
