@@ -379,6 +379,96 @@ def test_recipe_writes_bounded_audit_dataframe_without_paths_or_secrets(monkeypa
     assert set(audit_df["eligible_partition_count"]) == {2}
     assert set(audit_df["processed_partition_count"]) == {2}
     assert set(audit_df["dispatch_batch_size"]) == {2}
+    summary_row = audit_df.loc[audit_df["record_type"] == "run_summary"].iloc[0]
+    outcome_rows = audit_df.loc[audit_df["record_type"] == "partition_outcome"]
+    assert summary_row["selected_days"] == (
+        "category=event_mapping; module=administration; instance_name=mazzei_pulse; date=2026/08/23, "
+        "category=event_mapping; module=administration; instance_name=tam-global; date=2026/08/23"
+    )
+    assert outcome_rows["selected_days"].isna().all()
+
+
+def test_recipe_audit_summary_preview_is_bounded_and_outcomes_do_not_repeat_full_selection_list(monkeypatch, recipe_module):
+    seen = {}
+
+    monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
+    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data", "do_parallel": True, "cores": 2, "batch_size": 25}})
+    monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": True})
+    monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["compact_silver_audit_ds"])
+    monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "container")
+
+    large_run_result = _run_result(status="success")
+    large_run_result.selected_batch = SimpleNamespace(
+        total_matched_paths=25,
+        filtered_matching_paths=20,
+        skipped_compact_outputs=1,
+        excluded_recent_paths=2,
+        eligible_paths=6,
+        cutoff_date=pd.Timestamp("2026-08-24", tz="UTC").date(),
+        selected_partitions=[
+            SimpleNamespace(category="event_mapping", module="administration", instance_name=f"instance-{index}", year="2026", month="08", day=f"{23 - index:02d}", partition_scope=f"category=event_mapping; module=administration; instance_name=instance-{index}; date=2026/08/{23 - index:02d}")
+            for index in range(6)
+        ],
+    )
+    large_run_result.outcomes = [
+        SimpleNamespace(
+            day_scope=f"2026/08/{23 - index:02d}",
+            replay_mode="event_mapping_replay",
+            status="succeeded",
+            files_read=1,
+            raw_rows=1,
+            rows_after_drop_duplicates=1,
+            input_rows=1,
+            input_columns=5,
+            rehydrated_rows=1,
+            rehydrated_columns=47,
+            mapper_rows=1,
+            mapper_columns=13,
+            mapper_groups=1,
+            plan_count=1,
+            written_count=1,
+            verified_count=1,
+            deleted_count=1,
+            retained_count=0,
+            run_epoch_ms=1786510805000 + index,
+            message="ok",
+        )
+        for index in range(6)
+    ]
+    monkeypatch.setattr(recipe_module, "run_compact_silver", lambda config: large_run_result)
+
+    class FakeDataset:
+        def __init__(self, name):
+            self.name = name
+
+        def write_with_schema(self, df):
+            seen["audit_df"] = df.copy()
+
+    monkeypatch.setattr(recipe_module.dataiku, "Dataset", FakeDataset)
+
+    recipe_module.run()
+
+    audit_df = seen["audit_df"]
+    summary_row = audit_df.loc[audit_df["record_type"] == "run_summary"].iloc[0]
+    outcome_rows = audit_df.loc[audit_df["record_type"] == "partition_outcome"]
+    expected_preview = (
+        "category=event_mapping; module=administration; instance_name=instance-0; date=2026/08/23, "
+        "category=event_mapping; module=administration; instance_name=instance-1; date=2026/08/22, "
+        "category=event_mapping; module=administration; instance_name=instance-2; date=2026/08/21, "
+        "category=event_mapping; module=administration; instance_name=instance-3; date=2026/08/20, "
+        "category=event_mapping; module=administration; instance_name=instance-4; date=2026/08/19 ... (+1 more)"
+    )
+    assert summary_row["selected_days"] == expected_preview
+    assert len(str(summary_row["selected_days"]).split(", ")) == 5
+    assert outcome_rows["selected_days"].isna().all()
+    assert set(outcome_rows["selected_partition_scope"]) == {
+        "category=event_mapping; module=administration; instance_name=instance-0; date=2026/08/23",
+        "category=event_mapping; module=administration; instance_name=instance-1; date=2026/08/22",
+        "category=event_mapping; module=administration; instance_name=instance-2; date=2026/08/21",
+        "category=event_mapping; module=administration; instance_name=instance-3; date=2026/08/20",
+        "category=event_mapping; module=administration; instance_name=instance-4; date=2026/08/19",
+        "category=event_mapping; module=administration; instance_name=instance-5; date=2026/08/18",
+    }
 
 
 def test_recipe_audit_records_container_override_capacity(monkeypatch, recipe_module):
@@ -485,4 +575,3 @@ def test_recipe_expands_to_all_administration_instances_while_macro_text_stays_f
     assert '"instance_name": "mazzei_pulse"' not in recipe_text
     assert 'PHASE3_FILTER_SCOPE = "category=event_mapping; module=administration"' in recipe_text
     assert '"instance_name": "mazzei_pulse"' in runnable_text
-

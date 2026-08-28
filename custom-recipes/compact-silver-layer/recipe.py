@@ -24,6 +24,7 @@ PHASE3_FILTERS = {
 }
 PHASE3_FILTER_SCOPE = "category=event_mapping; module=administration"
 OUTPUT_ROLE = "compact_silver_audit"
+SELECTED_SCOPE_PREVIEW_LIMIT = 5
 
 
 def get_dss_execution_environment() -> str:
@@ -45,6 +46,18 @@ def _resolve_batch_size(param_set: dict[str, Any]) -> int:
     return int(param_set.get("batch_size", 25))
 
 
+def _format_selected_partition_preview(selected_partitions: list[Any]) -> str | None:
+    scopes = [str(getattr(item, "partition_scope", "")).strip() for item in selected_partitions]
+    scopes = [scope for scope in scopes if scope]
+    if not scopes:
+        return None
+    preview = scopes[:SELECTED_SCOPE_PREVIEW_LIMIT]
+    if len(scopes) <= SELECTED_SCOPE_PREVIEW_LIMIT:
+        return ", ".join(preview)
+    omitted = len(scopes) - SELECTED_SCOPE_PREVIEW_LIMIT
+    return f"{', '.join(preview)} ... (+{omitted} more)"
+
+
 def _build_audit_dataframe(
     *,
     project_key: str,
@@ -57,7 +70,7 @@ def _build_audit_dataframe(
     storage_ctx = run_result.storage_ctx
     selected_batch = run_result.selected_batch
     worker_resolution = run_result.worker_resolution
-    selected_days = ",".join(item.partition_scope for item in selected_batch.selected_partitions)
+    selected_days = _format_selected_partition_preview(selected_batch.selected_partitions)
 
     rows: list[dict[str, Any]] = [
         {
@@ -139,7 +152,7 @@ def _build_audit_dataframe(
                 "selected_partition_count": len(selected_batch.selected_partitions),
                 "selected_partition_scope": selected_partition.partition_scope,
                 "selected_day": outcome.day_scope,
-                "selected_days": selected_days,
+                "selected_days": None,
                 "replay_mode": outcome.replay_mode,
                 "terminal_status": outcome.status,
                 "files_read": outcome.files_read,
