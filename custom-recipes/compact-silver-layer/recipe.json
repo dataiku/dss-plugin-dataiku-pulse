@@ -14,8 +14,7 @@
             "description": "Dataset written once per recipe run with bounded compact SILVER audit records; compacted parquet files remain in the directly resolved partitioned-data managed folder.",
             "arity": "UNARY",
             "required": true,
-            "acceptsDataset": true,
-            "acceptsManagedFolder": false
+            "acceptsDataset": true
         }
     ],
     "params": [
