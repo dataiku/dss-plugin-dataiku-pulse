@@ -18,7 +18,6 @@ from shared_runtime_logging import suppress_inherited_provider_debug_logging
 
 EVENT_MAPPING_PREFIX = "silver/category=event_mapping/"
 MINIMUM_AGE_DAYS = 3
-SELECTED_PARTITION_COUNT = 2
 PHASE3_FILTERS = {
     "category": "event_mapping",
     "module": "administration",
@@ -59,12 +58,11 @@ def _build_audit_dataframe(
     execution_environment: str,
     run_result,
     normalize_silver_mode: bool,
-    do_parallel: bool,
-    n_jobs: int,
 ) -> pd.DataFrame:
     run_started_at = datetime.now(timezone.utc).isoformat()
     storage_ctx = run_result.storage_ctx
     selected_batch = run_result.selected_batch
+    worker_resolution = run_result.worker_resolution
     selected_days = ",".join(
         f"{item.year}/{item.month}/{item.day}" for item in selected_batch.selected_partitions
     )
@@ -80,10 +78,14 @@ def _build_audit_dataframe(
             "connection_type": storage_ctx.connection_type,
             "connection_name": storage_ctx.connection_name,
             "execution_environment": execution_environment,
+            "worker_resolution_source": worker_resolution.resolution_source,
+            "python_visible_cpu_count": worker_resolution.python_visible_cpu_count,
+            "configured_cores": worker_resolution.configured_cores,
             "filter_scope": PHASE3_FILTER_SCOPE,
             "utc_cutoff_date": selected_batch.cutoff_date.isoformat(),
-            "parallel_enabled": do_parallel,
-            "requested_workers": n_jobs,
+            "parallel_enabled": worker_resolution.parallel_enabled,
+            "requested_workers": worker_resolution.resolved_n_jobs,
+            "partition_cap": worker_resolution.partition_cap,
             "selected_partition_count": len(selected_batch.selected_partitions),
             "selected_day": None,
             "selected_days": selected_days,
@@ -125,10 +127,14 @@ def _build_audit_dataframe(
                 "connection_type": storage_ctx.connection_type,
                 "connection_name": storage_ctx.connection_name,
                 "execution_environment": execution_environment,
+                "worker_resolution_source": worker_resolution.resolution_source,
+                "python_visible_cpu_count": worker_resolution.python_visible_cpu_count,
+                "configured_cores": worker_resolution.configured_cores,
                 "filter_scope": PHASE3_FILTER_SCOPE,
                 "utc_cutoff_date": selected_batch.cutoff_date.isoformat(),
-                "parallel_enabled": do_parallel,
-                "requested_workers": n_jobs,
+                "parallel_enabled": worker_resolution.parallel_enabled,
+                "requested_workers": worker_resolution.resolved_n_jobs,
+                "partition_cap": worker_resolution.partition_cap,
                 "selected_partition_count": len(selected_batch.selected_partitions),
                 "selected_day": outcome.day_scope,
                 "selected_days": selected_days,
@@ -164,10 +170,14 @@ def _build_audit_dataframe(
         "connection_type",
         "connection_name",
         "execution_environment",
+        "worker_resolution_source",
+        "python_visible_cpu_count",
+        "configured_cores",
         "filter_scope",
         "utc_cutoff_date",
         "parallel_enabled",
         "requested_workers",
+        "partition_cap",
         "selected_partition_count",
         "selected_day",
         "selected_days",
@@ -210,6 +220,7 @@ def run():
         expected_kind="dataset output",
     )
     do_parallel, n_jobs, batch_size = _resolve_parallel_settings(param_set)
+    execution_environment = get_dss_execution_environment()
 
     run_result = run_compact_silver(
         CompactRunConfig(
@@ -218,21 +229,18 @@ def run():
             relative_prefix=EVENT_MAPPING_PREFIX,
             partition_filters=PHASE3_FILTERS,
             minimum_age_days=MINIMUM_AGE_DAYS,
-            selected_partition_count=SELECTED_PARTITION_COUNT,
             normalize_silver_mode=normalize_silver_mode,
-            do_parallel=do_parallel,
-            n_jobs=n_jobs,
+            param_set=param_set,
+            execution_environment=execution_environment,
             batch_size=batch_size,
         )
     )
     audit_df = _build_audit_dataframe(
         project_key=project_key,
         folder_lookup=source_folder_lookup,
-        execution_environment=get_dss_execution_environment(),
+        execution_environment=execution_environment,
         run_result=run_result,
         normalize_silver_mode=normalize_silver_mode,
-        do_parallel=do_parallel,
-        n_jobs=n_jobs,
     )
     dataiku.Dataset(audit_dataset_name).write_with_schema(audit_df)
 
@@ -245,9 +253,10 @@ def run():
         "source_folder_lookup": source_folder_lookup,
         "audit_dataset": audit_dataset_name,
         "selected_partition_count": len(run_result.selected_batch.selected_partitions),
-        "execution_environment": get_dss_execution_environment(),
-        "parallel_enabled": do_parallel,
-        "requested_workers": n_jobs,
+        "execution_environment": execution_environment,
+        "parallel_enabled": run_result.worker_resolution.parallel_enabled,
+        "requested_workers": run_result.worker_resolution.resolved_n_jobs,
+        "partition_cap": run_result.worker_resolution.partition_cap,
         "normalize_silver": normalize_silver_mode,
         "connection_type": run_result.storage_ctx.connection_type,
         "connection_name": run_result.storage_ctx.connection_name,

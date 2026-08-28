@@ -19,12 +19,13 @@ def _load_runnable_module():
     return module
 
 
-def _run_result(*, provider_label: str | None = "AWS/S3", connection_type: str = "EC2", statuses: tuple[str, str] = ("succeeded", "succeeded")) -> SimpleNamespace:
+def _run_result(*, provider_label: str | None = "AWS/S3", connection_type: str = "EC2", statuses: tuple[str, ...] = ("succeeded", "succeeded"), worker_resolution: SimpleNamespace | None = None) -> SimpleNamespace:
     storage_ctx = SimpleNamespace(
         folder_id="resolved-folder-id",
         connection_name="resolved-connection",
         connection_type=connection_type,
     )
+    selected_days = ["23", "22"][: len(statuses)]
     selected_batch = SimpleNamespace(
         total_matched_paths=11,
         filtered_matching_paths=8,
@@ -33,11 +34,18 @@ def _run_result(*, provider_label: str | None = "AWS/S3", connection_type: str =
         eligible_paths=4,
         cutoff_date=date(2026, 8, 24),
         minimum_age_days=3,
-        selected_partitions=[
-            SimpleNamespace(year="2026", month="08", day="23"),
-            SimpleNamespace(year="2026", month="08", day="22"),
-        ],
+        selected_partitions=[SimpleNamespace(year="2026", month="08", day=day) for day in selected_days],
     )
+    if worker_resolution is None:
+        worker_resolution = SimpleNamespace(
+            execution_environment="local",
+            resolution_source="local_preset",
+            python_visible_cpu_count=8,
+            configured_cores=2,
+            parallel_enabled=True,
+            resolved_n_jobs=2,
+            partition_cap=2,
+        )
 
     def _outcome(day: str, status: str, replay_mode: str = "generic_compaction") -> SimpleNamespace:
         return SimpleNamespace(
@@ -69,12 +77,13 @@ def _run_result(*, provider_label: str | None = "AWS/S3", connection_type: str =
         storage_ctx=storage_ctx,
         provider_label=provider_label,
         selected_batch=selected_batch,
-        outcomes=[_outcome("23", statuses[0]), _outcome("22", statuses[1])],
-        execution_mode="joblib_threads",
+        outcomes=[_outcome(day, status) for day, status in zip(selected_days, statuses, strict=False)],
+        execution_mode="joblib_threads" if worker_resolution.resolved_n_jobs > 1 and worker_resolution.parallel_enabled else "sequential",
+        worker_resolution=worker_resolution,
     )
 
 
-def test_run_resolves_pulse_primary_and_calls_shared_coordinator(monkeypatch):
+def test_run_resolves_local_environment_and_calls_shared_coordinator(monkeypatch):
     module = _load_runnable_module()
     seen = {"suppressed": 0}
 
@@ -98,121 +107,68 @@ def test_run_resolves_pulse_primary_and_calls_shared_coordinator(monkeypatch):
         "module": "administration",
         "instance_name": "mazzei_pulse",
     }
-    assert seen["config"].selected_partition_count == 2
     assert seen["config"].minimum_age_days == 3
     assert seen["config"].normalize_silver_mode is False
-    assert seen["config"].do_parallel is False
-    assert seen["config"].n_jobs == 3
-    assert seen["config"].batch_size == 25
+    assert seen["config"].param_set == {"do_parallel": False, "cores": 3, "batch_size": 25}
+    assert seen["config"].execution_environment == "local"
     assert result.records[8] == [
+        "Execution Environment",
+        "local",
+        "category=event_mapping; module=administration; instance_name=mazzei_pulse",
+        "info",
+        "worker resolution source: local_preset",
+    ]
+    assert result.records[9] == [
+        "Worker Capacity",
+        "n_jobs=2",
+        "category=event_mapping; module=administration; instance_name=mazzei_pulse",
+        "info",
+        "parallel_enabled=true; partition_cap=2; python_visible_cpu_count=8; configured_cores=2",
+    ]
+    assert result.records[10] == [
         "Selected Partitions",
         "2",
         "category=event_mapping; module=administration; instance_name=mazzei_pulse",
         "info",
-        "newest to oldest: 2026/08/23, 2026/08/22",
-    ]
-    assert result.records[-1] == [
-        "Partition Totals",
-        "partitions=2",
-        "category=event_mapping; module=administration; instance_name=mazzei_pulse",
-        "success",
-        "written=2; verified=2; deleted=4; retained=0",
+        "newest to oldest: 2026/08/23, 2026/08/22; partition_cap=2",
     ]
 
 
-def test_run_uses_event_mapping_mode_when_config_true(monkeypatch):
+def test_run_supports_fewer_selected_days_without_failing(monkeypatch):
     module = _load_runnable_module()
     monkeypatch.setattr(module, "suppress_inherited_provider_debug_logging", lambda: None)
     monkeypatch.setattr(
         module,
         "run_compact_silver",
-        lambda config: _run_result(statuses=("succeeded", "succeeded"), provider_label="AWS/S3", connection_type="EC2").__class__(
+        lambda config: _run_result(
+            statuses=("succeeded",),
+            worker_resolution=SimpleNamespace(
+                execution_environment="container-name",
+                resolution_source="container_auto",
+                python_visible_cpu_count=8,
+                configured_cores=None,
+                parallel_enabled=True,
+                resolved_n_jobs=7,
+                partition_cap=7,
+            ),
         ),
     )
 
-    def fake_run_compact(config):
-        return SimpleNamespace(
-            storage_ctx=SimpleNamespace(folder_id="resolved-folder-id", connection_name="resolved-connection", connection_type="EC2"),
-            provider_label="AWS/S3",
-            selected_batch=SimpleNamespace(
-                total_matched_paths=11,
-                filtered_matching_paths=8,
-                skipped_compact_outputs=1,
-                excluded_recent_paths=3,
-                eligible_paths=4,
-                cutoff_date=date(2026, 8, 24),
-                minimum_age_days=3,
-                selected_partitions=[SimpleNamespace(year="2026", month="08", day="23"), SimpleNamespace(year="2026", month="08", day="22")],
-            ),
-            outcomes=[
-                SimpleNamespace(
-                    day_scope="2026/08/23",
-                    replay_mode="event_mapping_replay",
-                    status="succeeded",
-                    files_read=2,
-                    raw_rows=4,
-                    rows_after_drop_duplicates=3,
-                    output_column_count=5,
-                    input_rows=3,
-                    input_columns=5,
-                    rehydrated_rows=10,
-                    rehydrated_columns=47,
-                    mapper_rows=10,
-                    mapper_columns=13,
-                    mapper_groups=2,
-                    plan_count=1,
-                    metrics=(SimpleNamespace(module_name="administration", rows=10, columns=13, dq_ok=True, dq_errors=()),),
-                    written_count=1,
-                    verified_count=1,
-                    deleted_count=2,
-                    retained_count=0,
-                    run_epoch_ms=1786510805000,
-                    message="ok",
-                ),
-                SimpleNamespace(
-                    day_scope="2026/08/22",
-                    replay_mode="event_mapping_replay",
-                    status="succeeded",
-                    files_read=2,
-                    raw_rows=4,
-                    rows_after_drop_duplicates=3,
-                    output_column_count=5,
-                    input_rows=3,
-                    input_columns=5,
-                    rehydrated_rows=10,
-                    rehydrated_columns=47,
-                    mapper_rows=10,
-                    mapper_columns=13,
-                    mapper_groups=2,
-                    plan_count=1,
-                    metrics=(SimpleNamespace(module_name="administration", rows=10, columns=13, dq_ok=True, dq_errors=()),),
-                    written_count=1,
-                    verified_count=1,
-                    deleted_count=2,
-                    retained_count=0,
-                    run_epoch_ms=1786510805001,
-                    message="ok",
-                ),
-            ],
-            execution_mode="joblib_threads",
-        )
+    result = module.MyRunnable("P", {}, {"pulse_primary": {"do_parallel": False, "cores": 2, "batch_size": 25}}).run(progress_callback=None)
 
-    monkeypatch.setattr(module, "run_compact_silver", fake_run_compact)
-    result = module.MyRunnable("P", {"normalize_silver": True}, {}).run(progress_callback=None)
-
-    assert [record for record in result.records if record[0] == "Replay Mode"][0] == [
-        "Replay Mode",
-        "event_mapping_replay",
-        "2026/08/23",
+    assert result.records[10] == [
+        "Selected Partitions",
+        "1",
+        "category=event_mapping; module=administration; instance_name=mazzei_pulse",
         "info",
-        "run_epoch_ms=1786510805000; status=succeeded",
+        "newest to oldest: 2026/08/23; partition_cap=7",
     ]
-    assert [record for record in result.records if record[0] == "Rehydrated DataFrame"][0] == [
-        "Rehydrated DataFrame",
-        "rows=10, columns=47",
-        "2026/08/23",
-        "info",
-        "SILVER extras unpacked",
+    assert result.records[-1] == [
+        "Partition Totals",
+        "partitions=1",
+        "category=event_mapping; module=administration; instance_name=mazzei_pulse",
+        "success",
+        "written=1; verified=1; deleted=2; retained=0",
     ]
 
 
@@ -252,8 +208,8 @@ def test_all_recent_matches_fail_from_shared_coordinator(monkeypatch):
             project_key="PROJ",
             folder_lookup="partitioned_data",
             normalize_silver_mode=False,
-            do_parallel=False,
-            n_jobs=1,
+            param_set={"do_parallel": False, "cores": 2, "batch_size": 25},
+            execution_environment="local",
             batch_size=25,
         )
 
@@ -267,8 +223,8 @@ def test_unknown_provider_is_visibly_unsupported(monkeypatch):
         project_key="PROJ",
         folder_lookup="partitioned_data",
         normalize_silver_mode=False,
-        do_parallel=False,
-        n_jobs=1,
+        param_set={"do_parallel": False, "cores": 2, "batch_size": 25},
+        execution_environment="local",
         batch_size=25,
     )
 

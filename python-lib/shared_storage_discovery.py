@@ -393,11 +393,6 @@ def select_latest_partition_paths_batch(
     retained_days = sorted(retained_records, reverse=True)
     if not retained_days:
         raise ValueError("No managed-folder paths matched the requested exact partition filters")
-    if len(retained_days) < partition_count:
-        raise ValueError(
-            f"Only {len(retained_days)} eligible managed-folder day partition(s) matched the requested exact filters; required {partition_count}"
-        )
-
     selected_partitions = [
         SelectedPartitionPaths(
             year=retained_parts[retained_day][0],

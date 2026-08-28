@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import time
 from typing import Any
 
@@ -21,7 +20,6 @@ logger = logging.getLogger(__name__)
 
 EVENT_MAPPING_PREFIX = "silver/category=event_mapping/"
 MINIMUM_AGE_DAYS = 3
-SELECTED_PARTITION_COUNT = 2
 PHASE3_FILTERS = {
     "category": "event_mapping",
     "module": "administration",
@@ -130,13 +128,35 @@ def _add_partition_result_rows(rt: ResultTable, outcome: CompactPartitionOutcome
     ])
 
 
+def _add_worker_resolution_rows(rt: ResultTable, worker_resolution) -> None:
+    rt.add_record([
+        "Execution Environment",
+        worker_resolution.execution_environment,
+        PHASE3_FILTER_SCOPE,
+        "info",
+        f"worker resolution source: {worker_resolution.resolution_source}",
+    ])
+    rt.add_record([
+        "Worker Capacity",
+        f"n_jobs={worker_resolution.resolved_n_jobs}",
+        PHASE3_FILTER_SCOPE,
+        "info",
+        (
+            f"parallel_enabled={str(worker_resolution.parallel_enabled).lower()}; "
+            f"partition_cap={worker_resolution.partition_cap}; "
+            f"python_visible_cpu_count={worker_resolution.python_visible_cpu_count}; "
+            f"configured_cores={worker_resolution.configured_cores}"
+        ),
+    ])
+
+
 def _build_result_table(
     *,
     project_key: str,
     folder_lookup: str,
     normalize_silver_mode: bool,
-    do_parallel: bool,
-    n_jobs: int,
+    param_set: dict[str, Any],
+    execution_environment: str,
     batch_size: int,
 ) -> ResultTable:
     logger.info("Compact silver native streaming scan started folder=%s prefix=%s", folder_lookup, EVENT_MAPPING_PREFIX)
@@ -148,10 +168,9 @@ def _build_result_table(
             relative_prefix=EVENT_MAPPING_PREFIX,
             partition_filters=PHASE3_FILTERS,
             minimum_age_days=MINIMUM_AGE_DAYS,
-            selected_partition_count=SELECTED_PARTITION_COUNT,
             normalize_silver_mode=normalize_silver_mode,
-            do_parallel=do_parallel,
-            n_jobs=n_jobs,
+            param_set=param_set,
+            execution_environment=execution_environment,
             batch_size=batch_size,
         )
     )
@@ -161,14 +180,17 @@ def _build_result_table(
     selected_batch = run_result.selected_batch
     provider_label = run_result.provider_label
     selected_labels = _selected_partition_labels(selected_batch.selected_partitions)
+    worker_resolution = run_result.worker_resolution
     logger.info(
-        "Compact silver execution completed scanned=%s filtered=%s excluded_recent=%s eligible=%s selected_partitions=%s mode=%s elapsed=%.1fs",
+        "Compact silver execution completed scanned=%s filtered=%s excluded_recent=%s eligible=%s selected_partitions=%s mode=%s workers=%s partition_cap=%s elapsed=%.1fs",
         selected_batch.total_matched_paths,
         selected_batch.filtered_matching_paths,
         selected_batch.excluded_recent_paths,
         selected_batch.eligible_paths,
         selected_labels,
         run_result.execution_mode,
+        worker_resolution.resolved_n_jobs,
+        worker_resolution.partition_cap,
         elapsed,
     )
 
@@ -217,12 +239,13 @@ def _build_result_table(
         "info",
         "streaming; no full index",
     ])
+    _add_worker_resolution_rows(rt, worker_resolution)
     rt.add_record([
         "Selected Partitions",
         str(len(selected_batch.selected_partitions)),
         PHASE3_FILTER_SCOPE,
         "info",
-        f"newest to oldest: {selected_labels}",
+        f"newest to oldest: {selected_labels}; partition_cap={worker_resolution.partition_cap}",
     ])
     rt.add_record([
         "Skipped Compact Outputs",
@@ -262,11 +285,6 @@ class MyRunnable(Runnable):
         self.config = config or {}
         self.plugin_config = plugin_config or {}
         self.param_set = self.plugin_config.get("pulse_primary", {}) or {}
-
-        self.do_parallel = bool(self.param_set.get("do_parallel", True))
-        default_cores = max((os.cpu_count() or 2) - 1, 1)
-        safe_default_cores = min(default_cores, 4)
-        self.n_jobs = max(1, int(self.param_set.get("cores", safe_default_cores)))
         self.batch_size = int(self.param_set.get("batch_size", 25))
 
     def get_progress_target(self):
@@ -279,7 +297,7 @@ class MyRunnable(Runnable):
             project_key=self.project_key,
             folder_lookup="partitioned_data",
             normalize_silver_mode=normalize_silver_mode,
-            do_parallel=self.do_parallel,
-            n_jobs=self.n_jobs,
+            param_set=self.param_set,
+            execution_environment="local",
             batch_size=self.batch_size,
         )

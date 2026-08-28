@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -28,10 +29,9 @@ class CompactRunConfig:
     relative_prefix: str
     partition_filters: dict[str, str]
     minimum_age_days: int
-    selected_partition_count: int
     normalize_silver_mode: bool
-    do_parallel: bool
-    n_jobs: int
+    param_set: dict[str, Any]
+    execution_environment: str
     batch_size: int
 
 
@@ -42,6 +42,48 @@ class CompactRunResult:
     selected_batch: SelectedPartitionBatch
     outcomes: list[CompactPartitionOutcome]
     execution_mode: str
+    worker_resolution: "WorkerResolution"
+
+
+@dataclass(frozen=True)
+class WorkerResolution:
+    execution_environment: str
+    resolution_source: str
+    python_visible_cpu_count: int | None
+    configured_cores: int | None
+    parallel_enabled: bool
+    resolved_n_jobs: int
+    partition_cap: int
+
+
+def resolve_worker_resolution(*, param_set: dict[str, Any], execution_environment: str) -> WorkerResolution:
+    if execution_environment != "local":
+        visible_cores = os.cpu_count() or 1
+        resolved_n_jobs = max(1, visible_cores - 1)
+        return WorkerResolution(
+            execution_environment=execution_environment,
+            resolution_source="container_auto",
+            python_visible_cpu_count=visible_cores,
+            configured_cores=None,
+            parallel_enabled=True,
+            resolved_n_jobs=resolved_n_jobs,
+            partition_cap=resolved_n_jobs,
+        )
+
+    default_cores = max((os.cpu_count() or 2) - 1, 1)
+    safe_default_cores = min(default_cores, 4)
+    do_parallel = bool(param_set.get("do_parallel", True))
+    configured_cores = max(1, int(param_set.get("cores", safe_default_cores)))
+    resolved_n_jobs = configured_cores if do_parallel else 1
+    return WorkerResolution(
+        execution_environment=execution_environment,
+        resolution_source="local_preset",
+        python_visible_cpu_count=os.cpu_count(),
+        configured_cores=configured_cores,
+        parallel_enabled=do_parallel,
+        resolved_n_jobs=resolved_n_jobs,
+        partition_cap=configured_cores,
+    )
 
 
 def _process_partition_job(
@@ -118,13 +160,17 @@ def run_partition_jobs(
 
 
 def run_compact_silver(config: CompactRunConfig) -> CompactRunResult:
+    worker_resolution = resolve_worker_resolution(
+        param_set=config.param_set,
+        execution_environment=config.execution_environment,
+    )
     storage_ctx = build_storage_context(project_key=config.project_key, folder_lookup=config.folder_lookup)
     selected_batch = select_latest_partition_paths_batch(
         storage_ctx,
         relative_prefix=config.relative_prefix,
         suffix=".parquet",
         partition_filters=config.partition_filters,
-        partition_count=config.selected_partition_count,
+        partition_count=worker_resolution.partition_cap,
         minimum_age_days=config.minimum_age_days,
     )
     if selected_batch.filtered_matching_paths <= 0:
@@ -136,8 +182,8 @@ def run_compact_silver(config: CompactRunConfig) -> CompactRunResult:
         target=target,
         selected_partitions=selected_batch.selected_partitions,
         normalize_silver_mode=config.normalize_silver_mode,
-        do_parallel=config.do_parallel,
-        n_jobs=config.n_jobs,
+        do_parallel=worker_resolution.parallel_enabled,
+        n_jobs=worker_resolution.resolved_n_jobs,
         batch_size=config.batch_size,
     )
     return CompactRunResult(
@@ -146,6 +192,7 @@ def run_compact_silver(config: CompactRunConfig) -> CompactRunResult:
         selected_batch=selected_batch,
         outcomes=outcomes,
         execution_mode=execution_mode,
+        worker_resolution=worker_resolution,
     )
 
 
@@ -153,6 +200,8 @@ __all__ = [
     "CompactRunConfig",
     "CompactRunResult",
     "PROVIDER_LABELS",
+    "WorkerResolution",
+    "resolve_worker_resolution",
     "run_compact_silver",
     "run_partition_jobs",
 ]

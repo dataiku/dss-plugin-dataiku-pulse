@@ -297,6 +297,59 @@ def test_two_day_selector_returns_exact_top_two_eligible_days_newest_first(monke
     ]
 
 
+def test_selector_returns_fewer_available_eligible_days_without_failing(monkeypatch):
+    monkeypatch.setattr(
+        discovery,
+        "iter_managed_folder_paths",
+        lambda *args, **kwargs: iter([
+            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/source-a.parquet",
+            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=24/source-recent.parquet",
+        ]),
+    )
+
+    selected = discovery.select_latest_partition_paths_batch(
+        _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket"),
+        relative_prefix="silver/category=event_mapping/",
+        suffix=".parquet",
+        partition_filters={
+            "category": "event_mapping",
+            "module": "administration",
+            "instance_name": "mazzei_pulse",
+        },
+        partition_count=7,
+        minimum_age_days=3,
+        utc_today=date(2026, 8, 27),
+    )
+
+    assert [(item.year, item.month, item.day) for item in selected.selected_partitions] == [("2026", "08", "23")]
+    assert selected.eligible_paths == 1
+
+
+def test_selector_still_fails_when_zero_eligible_days_exist(monkeypatch):
+    monkeypatch.setattr(
+        discovery,
+        "iter_managed_folder_paths",
+        lambda *args, **kwargs: iter([
+            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=24/source-recent.parquet",
+        ]),
+    )
+
+    with pytest.raises(ValueError, match="All exact-filter matches are excluded by minimum_age_days=3; cutoff_date=2026-08-24"):
+        discovery.select_latest_partition_paths_batch(
+            _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket"),
+            relative_prefix="silver/category=event_mapping/",
+            suffix=".parquet",
+            partition_filters={
+                "category": "event_mapping",
+                "module": "administration",
+                "instance_name": "mazzei_pulse",
+            },
+            partition_count=7,
+            minimum_age_days=3,
+            utc_today=date(2026, 8, 27),
+        )
+
+
 def test_snapshot_api_sorts_and_reports_bounded_progress(monkeypatch):
     seen = []
     paths = [

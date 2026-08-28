@@ -16,6 +16,65 @@ def _selected_partition(day: str) -> SimpleNamespace:
     )
 
 
+def test_local_parallel_resolution_uses_preset_cores(monkeypatch):
+    monkeypatch.setattr(coordinator.os, "cpu_count", lambda: 8)
+
+    resolution = coordinator.resolve_worker_resolution(
+        param_set={"do_parallel": True, "cores": 2},
+        execution_environment="local",
+    )
+
+    assert resolution.resolution_source == "local_preset"
+    assert resolution.parallel_enabled is True
+    assert resolution.configured_cores == 2
+    assert resolution.resolved_n_jobs == 2
+    assert resolution.partition_cap == 2
+    assert resolution.python_visible_cpu_count == 8
+
+
+def test_local_sequential_resolution_retains_partition_cap(monkeypatch):
+    monkeypatch.setattr(coordinator.os, "cpu_count", lambda: 8)
+
+    resolution = coordinator.resolve_worker_resolution(
+        param_set={"do_parallel": False, "cores": 2},
+        execution_environment="local",
+    )
+
+    assert resolution.resolution_source == "local_preset"
+    assert resolution.parallel_enabled is False
+    assert resolution.configured_cores == 2
+    assert resolution.resolved_n_jobs == 1
+    assert resolution.partition_cap == 2
+
+
+def test_container_resolution_overrides_preset_and_uses_visible_cpu_count(monkeypatch):
+    monkeypatch.setattr(coordinator.os, "cpu_count", lambda: 8)
+
+    resolution = coordinator.resolve_worker_resolution(
+        param_set={"do_parallel": False, "cores": 2},
+        execution_environment="container-name",
+    )
+
+    assert resolution.resolution_source == "container_auto"
+    assert resolution.parallel_enabled is True
+    assert resolution.configured_cores is None
+    assert resolution.resolved_n_jobs == 7
+    assert resolution.partition_cap == 7
+    assert resolution.python_visible_cpu_count == 8
+
+
+def test_container_resolution_handles_missing_or_one_cpu(monkeypatch):
+    monkeypatch.setattr(coordinator.os, "cpu_count", lambda: None)
+    resolution = coordinator.resolve_worker_resolution(param_set={}, execution_environment="container-name")
+    assert resolution.resolved_n_jobs == 1
+    assert resolution.partition_cap == 1
+
+    monkeypatch.setattr(coordinator.os, "cpu_count", lambda: 1)
+    resolution = coordinator.resolve_worker_resolution(param_set={}, execution_environment="container-name")
+    assert resolution.resolved_n_jobs == 1
+    assert resolution.partition_cap == 1
+
+
 def test_run_partition_jobs_sequential_and_parallel_paths(monkeypatch):
     selected_partitions = [_selected_partition("23"), _selected_partition("22")]
     seen = {"processed": []}
@@ -75,6 +134,7 @@ def test_run_compact_silver_uses_shared_selection_and_dispatch(monkeypatch):
     seen = {}
 
     monkeypatch.setattr(coordinator, "build_storage_context", lambda **kwargs: storage_ctx)
+    monkeypatch.setattr(coordinator, "resolve_worker_resolution", lambda **kwargs: coordinator.WorkerResolution(execution_environment="local", resolution_source="local_preset", python_visible_cpu_count=8, configured_cores=2, parallel_enabled=True, resolved_n_jobs=2, partition_cap=2))
 
     def fake_selector(*args, **kwargs):
         seen["selector"] = kwargs
@@ -90,15 +150,16 @@ def test_run_compact_silver_uses_shared_selection_and_dispatch(monkeypatch):
             relative_prefix="silver/category=event_mapping/",
             partition_filters={"category": "event_mapping"},
             minimum_age_days=3,
-            selected_partition_count=2,
             normalize_silver_mode=False,
-            do_parallel=False,
-            n_jobs=1,
+            param_set={"do_parallel": True, "cores": 2},
+            execution_environment="local",
             batch_size=25,
         )
     )
 
+    assert seen["selector"]["partition_count"] == 2
     assert result.storage_ctx is storage_ctx
     assert result.selected_batch is selected_batch
     assert result.execution_mode == "sequential"
     assert result.provider_label == "AWS/S3"
+    assert result.worker_resolution.partition_cap == 2

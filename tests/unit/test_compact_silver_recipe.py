@@ -98,6 +98,15 @@ def _run_result(*, status: str = "success") -> SimpleNamespace:
         selected_batch=selected_batch,
         outcomes=outcomes,
         execution_mode="joblib_threads",
+        worker_resolution=SimpleNamespace(
+            execution_environment="local",
+            resolution_source="local_preset",
+            python_visible_cpu_count=8,
+            configured_cores=2,
+            parallel_enabled=True,
+            resolved_n_jobs=2,
+            partition_cap=2,
+        ),
     )
 
 
@@ -113,7 +122,6 @@ def test_recipe_manifest_uses_pulse_primary_and_explicit_flow_roles():
             "arity": "UNARY",
             "required": True,
             "acceptsDataset": True,
-            "acceptsManagedFolder": False,
         }
     ]
     assert {
@@ -158,8 +166,13 @@ def test_recipe_resolves_preset_from_plugin_config_and_mode_from_recipe_config(m
 
     assert seen["config"].folder_lookup == "configured_partitioned_data"
     assert seen["config"].normalize_silver_mode is True
-    assert seen["config"].do_parallel is False
-    assert seen["config"].n_jobs == 3
+    assert seen["config"].param_set == {
+        "pulse_partitioned_data": "configured_partitioned_data",
+        "do_parallel": False,
+        "cores": 3,
+        "batch_size": 11,
+    }
+    assert seen["config"].execution_environment == "local"
     assert seen["config"].batch_size == 11
     assert seen["dataset_name"] == "audit_dataset_name"
     assert result["source_folder_lookup"] == "configured_partitioned_data"
@@ -228,10 +241,14 @@ def test_recipe_writes_bounded_audit_dataframe_without_paths_or_secrets(monkeypa
         "connection_type",
         "connection_name",
         "execution_environment",
+        "worker_resolution_source",
+        "python_visible_cpu_count",
+        "configured_cores",
         "filter_scope",
         "utc_cutoff_date",
         "parallel_enabled",
         "requested_workers",
+        "partition_cap",
         "selected_partition_count",
         "selected_day",
         "selected_days",
@@ -261,6 +278,49 @@ def test_recipe_writes_bounded_audit_dataframe_without_paths_or_secrets(monkeypa
     assert "source-a.parquet" not in rendered
     assert "top-secret" not in rendered
     assert "also-secret" not in rendered
+    assert set(audit_df["worker_resolution_source"]) == {"local_preset"}
+    assert set(audit_df["python_visible_cpu_count"]) == {8}
+    assert set(audit_df["configured_cores"].dropna()) == {2}
+    assert set(audit_df["partition_cap"]) == {2}
+
+
+def test_recipe_audit_records_container_override_capacity(monkeypatch, recipe_module):
+    seen = {}
+
+    monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
+    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data", "do_parallel": False, "cores": 2, "batch_size": 25}})
+    monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": True})
+    monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["compact_silver_audit_ds"])
+    monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "container-name")
+
+    container_run_result = _run_result(status="success")
+    container_run_result.worker_resolution = SimpleNamespace(
+        execution_environment="container-name",
+        resolution_source="container_auto",
+        python_visible_cpu_count=8,
+        configured_cores=None,
+        parallel_enabled=True,
+        resolved_n_jobs=7,
+        partition_cap=7,
+    )
+    monkeypatch.setattr(recipe_module, "run_compact_silver", lambda config: container_run_result)
+
+    class FakeDataset:
+        def __init__(self, name):
+            self.name = name
+
+        def write_with_schema(self, df):
+            seen["audit_df"] = df.copy()
+
+    monkeypatch.setattr(recipe_module.dataiku, "Dataset", FakeDataset)
+
+    result = recipe_module.run()
+
+    assert result["parallel_enabled"] is True
+    assert result["requested_workers"] == 7
+    assert result["partition_cap"] == 7
+    assert set(seen["audit_df"]["worker_resolution_source"]) == {"container_auto"}
+    assert set(seen["audit_df"]["partition_cap"]) == {7}
 
 
 def test_recipe_partial_outcome_writes_audit_then_fails(monkeypatch, recipe_module):
