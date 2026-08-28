@@ -11,7 +11,7 @@
         {
             "name": "compact_silver_audit",
             "label": "Compact SILVER Audit Dataset",
-            "description": "Dataset written once per recipe run with bounded compact SILVER audit records; compacted parquet files remain in the selected managed folder.",
+            "description": "Dataset written once per recipe run with bounded compact SILVER audit records; compacted parquet files remain in the directly resolved partitioned-data managed folder.",
             "arity": "UNARY",
             "required": true,
             "acceptsDataset": true,
@@ -22,7 +22,7 @@
         {
             "name": "warning",
             "label": "⚠️ DO NOT ATTEMPT TO EDIT THIS RECIPE!",
-            "description": "This recipe mutates the selected managed-folder input in place only after replacement writes are verified. Use only for the bounded development compact workflow.",
+            "description": "This recipe mutates the directly resolved partitioned-data managed folder in place only after replacement writes are verified. Use only for the bounded development compact workflow.",
             "type": "SEPARATOR"
         },
         {

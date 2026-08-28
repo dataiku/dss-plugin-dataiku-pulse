@@ -104,35 +104,25 @@ def _run_result(*, status: str = "success") -> SimpleNamespace:
 def test_recipe_manifest_uses_pulse_primary_and_explicit_flow_roles():
     payload = json.loads(RECIPE_JSON_PATH.read_text(encoding="utf-8"))
 
-    assert payload["inputRoles"] == [
-        {
-            "name": "source_partitioned_data",
-            "label": "Source Partitioned Data Folder",
-            "description": "Managed folder selected in the Flow for in-place compact SILVER mutation under the existing write → verify → delete safety contract.",
-            "arity": "UNARY",
-            "required": True,
-            "acceptsDataset": False,
-            "acceptsManagedFolder": True,
-        }
-    ]
+    assert payload["inputRoles"] == []
     assert payload["outputRoles"] == [
         {
             "name": "compact_silver_audit",
             "label": "Compact SILVER Audit Dataset",
-            "description": "Dataset written once per recipe run with bounded compact SILVER audit records; compacted parquet files remain in the selected managed folder.",
+            "description": "Dataset written once per recipe run with bounded compact SILVER audit records; compacted parquet files remain in the directly resolved partitioned-data managed folder.",
             "arity": "UNARY",
             "required": True,
             "acceptsDataset": True,
             "acceptsManagedFolder": False,
         }
     ]
-    assert payload["params"][0] == {
+    assert {
         "type": "PRESET",
         "name": "pulse_primary",
         "label": "Choose PULSE Primary Configuration",
         "parameterSetId": "params-dashboard-instance",
         "mandatory": True,
-    }
+    } in payload["params"]
 
 
 @pytest.fixture()
@@ -144,9 +134,8 @@ def test_recipe_resolves_preset_from_plugin_config_and_mode_from_recipe_config(m
     seen = {}
 
     monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
-    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"do_parallel": False, "cores": 3, "batch_size": 11}})
+    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"pulse_partitioned_data": "configured_partitioned_data", "do_parallel": False, "cores": 3, "batch_size": 11}})
     monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": True})
-    monkeypatch.setattr(recipe_module, "get_input_names_for_role", lambda role: ["partitioned_data_role_name"])
     monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["audit_dataset_name"])
     monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "local")
 
@@ -167,23 +156,52 @@ def test_recipe_resolves_preset_from_plugin_config_and_mode_from_recipe_config(m
 
     result = recipe_module.run()
 
-    assert seen["config"].folder_lookup == "partitioned_data_role_name"
+    assert seen["config"].folder_lookup == "configured_partitioned_data"
     assert seen["config"].normalize_silver_mode is True
     assert seen["config"].do_parallel is False
     assert seen["config"].n_jobs == 3
     assert seen["config"].batch_size == 11
     assert seen["dataset_name"] == "audit_dataset_name"
-    assert result["source_folder_lookup"] == "partitioned_data_role_name"
+    assert result["source_folder_lookup"] == "configured_partitioned_data"
     assert result["audit_dataset"] == "audit_dataset_name"
+
+
+def test_recipe_uses_default_partitioned_data_lookup_when_preset_value_missing(monkeypatch, recipe_module):
+    seen = {}
+
+    monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
+    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"do_parallel": False, "cores": 2, "batch_size": 25}})
+    monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": False})
+    monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["audit_dataset_name"])
+    monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "local")
+
+    class FakeDataset:
+        def __init__(self, name):
+            self.name = name
+
+        def write_with_schema(self, df):
+            seen["audit_df"] = df.copy()
+
+    monkeypatch.setattr(recipe_module.dataiku, "Dataset", FakeDataset)
+
+    def fake_run_compact(config):
+        seen["folder_lookup"] = config.folder_lookup
+        return _run_result(status="success")
+
+    monkeypatch.setattr(recipe_module, "run_compact_silver", fake_run_compact)
+
+    result = recipe_module.run()
+
+    assert seen["folder_lookup"] == "partitioned_data"
+    assert result["source_folder_lookup"] == "partitioned_data"
 
 
 def test_recipe_writes_bounded_audit_dataframe_without_paths_or_secrets(monkeypatch, recipe_module):
     seen = {}
 
     monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
-    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"do_parallel": True, "cores": 2, "batch_size": 25}})
+    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data", "do_parallel": True, "cores": 2, "batch_size": 25}})
     monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": True})
-    monkeypatch.setattr(recipe_module, "get_input_names_for_role", lambda role: ["partitioned_data"])
     monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["compact_silver_audit_ds"])
     monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "container")
     monkeypatch.setattr(recipe_module, "run_compact_silver", lambda config: _run_result(status="success"))
@@ -249,9 +267,8 @@ def test_recipe_partial_outcome_writes_audit_then_fails(monkeypatch, recipe_modu
     seen = {}
 
     monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
-    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"do_parallel": True, "cores": 2, "batch_size": 25}})
+    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data", "do_parallel": True, "cores": 2, "batch_size": 25}})
     monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": True})
-    monkeypatch.setattr(recipe_module, "get_input_names_for_role", lambda role: ["partitioned_data"])
     monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["compact_silver_audit_ds"])
     monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "container")
     monkeypatch.setattr(recipe_module, "run_compact_silver", lambda config: _run_result(status="partial"))
@@ -280,3 +297,10 @@ def test_macro_and_recipe_both_import_shared_coordinator():
     assert "from data_collection.audit_logs_modules.compact_silver_coordinator import CompactRunConfig, run_compact_silver" in recipe_text
     assert "from data_collection.audit_logs_modules.compact_silver_coordinator import (" in runnable_text
     assert "def run_compact_silver(config: CompactRunConfig) -> CompactRunResult:" in coordinator_text
+
+
+def test_recipe_has_no_managed_folder_input_role_lookup():
+    recipe_text = RECIPE_PATH.read_text(encoding="utf-8")
+
+    assert "get_input_names_for_role" not in recipe_text
+    assert "source_folder_lookup = str(param_set.get(\"pulse_partitioned_data\") or \"partitioned_data\")" in recipe_text

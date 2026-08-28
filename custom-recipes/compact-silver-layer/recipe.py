@@ -7,7 +7,6 @@ from typing import Any
 import pandas as pd
 import dataiku
 from dataiku.customrecipe import (
-    get_input_names_for_role,
     get_output_names_for_role,
     get_plugin_config,
     get_recipe_config,
@@ -26,7 +25,6 @@ PHASE3_FILTERS = {
     "instance_name": "mazzei_pulse",
 }
 PHASE3_FILTER_SCOPE = "category=event_mapping; module=administration; instance_name=mazzei_pulse"
-INPUT_ROLE = "source_partitioned_data"
 OUTPUT_ROLE = "compact_silver_audit"
 
 
@@ -205,11 +203,7 @@ def run():
     param_set = plugin_config.get("pulse_primary", {}) or {}
     normalize_silver_mode = bool(recipe_config.get("normalize_silver", False))
 
-    source_folder_lookup = _resolve_single_role_name(
-        role_name=INPUT_ROLE,
-        names=get_input_names_for_role(INPUT_ROLE),
-        expected_kind="managed-folder input",
-    )
+    source_folder_lookup = str(param_set.get("pulse_partitioned_data") or "partitioned_data")
     audit_dataset_name = _resolve_single_role_name(
         role_name=OUTPUT_ROLE,
         names=get_output_names_for_role(OUTPUT_ROLE),
