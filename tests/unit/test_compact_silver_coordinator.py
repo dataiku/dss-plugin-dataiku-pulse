@@ -163,3 +163,109 @@ def test_run_compact_silver_uses_shared_selection_and_dispatch(monkeypatch):
     assert result.execution_mode == "sequential"
     assert result.provider_label == "AWS/S3"
     assert result.worker_resolution.partition_cap == 2
+
+
+def test_run_compact_silver_recipe_mode_uses_all_eligible_selection_and_worker_sized_batches(monkeypatch):
+    selected_batch = SimpleNamespace(filtered_matching_paths=6, selected_partitions=[_selected_partition("23"), _selected_partition("22"), _selected_partition("21")])
+    storage_ctx = SimpleNamespace(connection_type="EC2")
+    seen = {}
+
+    monkeypatch.setattr(coordinator, "build_storage_context", lambda **kwargs: storage_ctx)
+    monkeypatch.setattr(
+        coordinator,
+        "resolve_worker_resolution",
+        lambda **kwargs: coordinator.WorkerResolution(
+            execution_environment="container-name",
+            resolution_source="container_auto",
+            python_visible_cpu_count=8,
+            configured_cores=None,
+            parallel_enabled=True,
+            resolved_n_jobs=7,
+            partition_cap=7,
+        ),
+    )
+    monkeypatch.setattr(
+        coordinator,
+        "select_all_eligible_partition_paths_batch",
+        lambda *args, **kwargs: (seen.__setitem__("selector_kwargs", kwargs), selected_batch)[1],
+    )
+
+    def fake_run_partition_jobs(**kwargs):
+        seen["run_partition_jobs"] = kwargs
+        return "joblib_threads", [SimpleNamespace(status="succeeded") for _ in kwargs["selected_partitions"]]
+
+    monkeypatch.setattr(coordinator, "run_partition_jobs", fake_run_partition_jobs)
+
+    result = coordinator.run_compact_silver(
+        coordinator.CompactRunConfig(
+            project_key="P",
+            folder_lookup="partitioned_data",
+            relative_prefix="silver/category=event_mapping/",
+            partition_filters={"category": "event_mapping"},
+            minimum_age_days=3,
+            normalize_silver_mode=False,
+            param_set={"do_parallel": False, "cores": 2, "batch_size": 25},
+            execution_environment="container-name",
+            batch_size=25,
+            selection_mode="all_eligible_filtered",
+        )
+    )
+
+    assert seen["selector_kwargs"] == {
+        "relative_prefix": "silver/category=event_mapping/",
+        "suffix": ".parquet",
+        "partition_filters": {"category": "event_mapping"},
+        "minimum_age_days": 3,
+    }
+    assert seen["run_partition_jobs"]["batch_size"] == 7
+    assert seen["run_partition_jobs"]["n_jobs"] == 7
+    assert result.selection_mode == "all_eligible_filtered"
+    assert result.dispatch_batch_size == 7
+
+
+def test_run_compact_silver_local_sequential_recipe_mode_uses_partition_cap_for_batches(monkeypatch):
+    selected_batch = SimpleNamespace(filtered_matching_paths=4, selected_partitions=[_selected_partition("23"), _selected_partition("22"), _selected_partition("21")])
+    storage_ctx = SimpleNamespace(connection_type="EC2")
+    seen = {}
+
+    monkeypatch.setattr(coordinator, "build_storage_context", lambda **kwargs: storage_ctx)
+    monkeypatch.setattr(
+        coordinator,
+        "resolve_worker_resolution",
+        lambda **kwargs: coordinator.WorkerResolution(
+            execution_environment="local",
+            resolution_source="local_preset",
+            python_visible_cpu_count=8,
+            configured_cores=2,
+            parallel_enabled=False,
+            resolved_n_jobs=1,
+            partition_cap=2,
+        ),
+    )
+    monkeypatch.setattr(coordinator, "select_all_eligible_partition_paths_batch", lambda *args, **kwargs: selected_batch)
+
+    def fake_run_partition_jobs(**kwargs):
+        seen["run_partition_jobs"] = kwargs
+        return "sequential", [SimpleNamespace(status="succeeded") for _ in kwargs["selected_partitions"]]
+
+    monkeypatch.setattr(coordinator, "run_partition_jobs", fake_run_partition_jobs)
+
+    result = coordinator.run_compact_silver(
+        coordinator.CompactRunConfig(
+            project_key="P",
+            folder_lookup="partitioned_data",
+            relative_prefix="silver/category=event_mapping/",
+            partition_filters={"category": "event_mapping"},
+            minimum_age_days=3,
+            normalize_silver_mode=False,
+            param_set={"do_parallel": False, "cores": 2, "batch_size": 25},
+            execution_environment="local",
+            batch_size=25,
+            selection_mode="all_eligible_filtered",
+        )
+    )
+
+    assert seen["run_partition_jobs"]["do_parallel"] is False
+    assert seen["run_partition_jobs"]["n_jobs"] == 1
+    assert seen["run_partition_jobs"]["batch_size"] == 2
+    assert result.dispatch_batch_size == 2

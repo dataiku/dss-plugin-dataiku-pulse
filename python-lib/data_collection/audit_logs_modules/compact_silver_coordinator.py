@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
+from typing import Literal
 from typing import Any
 
 from joblib import Parallel, delayed
@@ -10,7 +11,12 @@ from joblib import Parallel, delayed
 from data_collection.audit_logs_modules.event_mapping_replay import CompactPartitionOutcome, process_compact_selected_partition
 from data_collection.helper import DSSFolderTarget, chunked
 from shared_duckdb.context import build_storage_context
-from shared_storage_discovery import SelectedPartitionBatch, SelectedPartitionPaths, select_latest_partition_paths_batch
+from shared_storage_discovery import (
+    SelectedPartitionBatch,
+    SelectedPartitionPaths,
+    select_all_eligible_partition_paths_batch,
+    select_latest_partition_paths_batch,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +39,7 @@ class CompactRunConfig:
     param_set: dict[str, Any]
     execution_environment: str
     batch_size: int
+    selection_mode: Literal["latest_up_to_capacity", "all_eligible_filtered"] = "latest_up_to_capacity"
 
 
 @dataclass(frozen=True)
@@ -43,6 +50,8 @@ class CompactRunResult:
     outcomes: list[CompactPartitionOutcome]
     execution_mode: str
     worker_resolution: "WorkerResolution"
+    dispatch_batch_size: int
+    selection_mode: str
 
 
 @dataclass(frozen=True)
@@ -165,14 +174,25 @@ def run_compact_silver(config: CompactRunConfig) -> CompactRunResult:
         execution_environment=config.execution_environment,
     )
     storage_ctx = build_storage_context(project_key=config.project_key, folder_lookup=config.folder_lookup)
-    selected_batch = select_latest_partition_paths_batch(
-        storage_ctx,
-        relative_prefix=config.relative_prefix,
-        suffix=".parquet",
-        partition_filters=config.partition_filters,
-        partition_count=worker_resolution.partition_cap,
-        minimum_age_days=config.minimum_age_days,
-    )
+    if config.selection_mode == "all_eligible_filtered":
+        selected_batch = select_all_eligible_partition_paths_batch(
+            storage_ctx,
+            relative_prefix=config.relative_prefix,
+            suffix=".parquet",
+            partition_filters=config.partition_filters,
+            minimum_age_days=config.minimum_age_days,
+        )
+        dispatch_batch_size = worker_resolution.partition_cap
+    else:
+        selected_batch = select_latest_partition_paths_batch(
+            storage_ctx,
+            relative_prefix=config.relative_prefix,
+            suffix=".parquet",
+            partition_filters=config.partition_filters,
+            partition_count=worker_resolution.partition_cap,
+            minimum_age_days=config.minimum_age_days,
+        )
+        dispatch_batch_size = config.batch_size
     if selected_batch.filtered_matching_paths <= 0:
         raise ValueError("No SILVER parquet files matched the requested exact compact filter scope")
 
@@ -184,7 +204,7 @@ def run_compact_silver(config: CompactRunConfig) -> CompactRunResult:
         normalize_silver_mode=config.normalize_silver_mode,
         do_parallel=worker_resolution.parallel_enabled,
         n_jobs=worker_resolution.resolved_n_jobs,
-        batch_size=config.batch_size,
+        batch_size=dispatch_batch_size,
     )
     return CompactRunResult(
         storage_ctx=storage_ctx,
@@ -193,6 +213,8 @@ def run_compact_silver(config: CompactRunConfig) -> CompactRunResult:
         outcomes=outcomes,
         execution_mode=execution_mode,
         worker_resolution=worker_resolution,
+        dispatch_batch_size=dispatch_batch_size,
+        selection_mode=config.selection_mode,
     )
 
 

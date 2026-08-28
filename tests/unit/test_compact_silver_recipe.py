@@ -98,6 +98,8 @@ def _run_result(*, status: str = "success") -> SimpleNamespace:
         selected_batch=selected_batch,
         outcomes=outcomes,
         execution_mode="joblib_threads",
+        selection_mode="all_eligible_filtered",
+        dispatch_batch_size=2,
         worker_resolution=SimpleNamespace(
             execution_environment="local",
             resolution_source="local_preset",
@@ -174,6 +176,7 @@ def test_recipe_resolves_preset_from_plugin_config_and_mode_from_recipe_config(m
     }
     assert seen["config"].execution_environment == "local"
     assert seen["config"].batch_size == 11
+    assert seen["config"].selection_mode == "all_eligible_filtered"
     assert seen["dataset_name"] == "audit_dataset_name"
     assert result["source_folder_lookup"] == "configured_partitioned_data"
     assert result["audit_dataset"] == "audit_dataset_name"
@@ -252,6 +255,7 @@ def test_recipe_container_run_ignores_invalid_preset_worker_settings(monkeypatch
 
     assert seen["config"].execution_environment == "container-name"
     assert seen["config"].batch_size == 11
+    assert seen["config"].selection_mode == "all_eligible_filtered"
     assert result["parallel_enabled"] is True
     assert result["requested_workers"] == 7
     assert result["partition_cap"] == 7
@@ -327,6 +331,10 @@ def test_recipe_writes_bounded_audit_dataframe_without_paths_or_secrets(monkeypa
         "parallel_enabled",
         "requested_workers",
         "partition_cap",
+        "selection_mode",
+        "eligible_partition_count",
+        "processed_partition_count",
+        "dispatch_batch_size",
         "selected_partition_count",
         "selected_day",
         "selected_days",
@@ -360,6 +368,10 @@ def test_recipe_writes_bounded_audit_dataframe_without_paths_or_secrets(monkeypa
     assert set(audit_df["python_visible_cpu_count"]) == {8}
     assert set(audit_df["configured_cores"].dropna()) == {2}
     assert set(audit_df["partition_cap"]) == {2}
+    assert set(audit_df["selection_mode"]) == {"all_eligible_filtered"}
+    assert set(audit_df["eligible_partition_count"]) == {2}
+    assert set(audit_df["processed_partition_count"]) == {2}
+    assert set(audit_df["dispatch_batch_size"]) == {2}
 
 
 def test_recipe_audit_records_container_override_capacity(monkeypatch, recipe_module):
@@ -381,6 +393,7 @@ def test_recipe_audit_records_container_override_capacity(monkeypatch, recipe_mo
         resolved_n_jobs=7,
         partition_cap=7,
     )
+    container_run_result.dispatch_batch_size = 7
     monkeypatch.setattr(recipe_module, "run_compact_silver", lambda config: container_run_result)
 
     class FakeDataset:
@@ -397,8 +410,20 @@ def test_recipe_audit_records_container_override_capacity(monkeypatch, recipe_mo
     assert result["parallel_enabled"] is True
     assert result["requested_workers"] == 7
     assert result["partition_cap"] == 7
+    assert result["selection_mode"] == "all_eligible_filtered"
+    assert result["eligible_partition_count"] == 2
+    assert result["processed_partition_count"] == 2
+    assert result["dispatch_batch_size"] == 7
     assert set(seen["audit_df"]["worker_resolution_source"]) == {"container_auto"}
     assert set(seen["audit_df"]["partition_cap"]) == {7}
+
+
+def test_macro_remains_capacity_limited_default_mode():
+    coordinator_text = COORDINATOR_PATH.read_text(encoding="utf-8")
+    runnable_text = RUNNABLE_PATH.read_text(encoding="utf-8")
+
+    assert 'selection_mode: Literal["latest_up_to_capacity", "all_eligible_filtered"] = "latest_up_to_capacity"' in coordinator_text
+    assert 'selection_mode="all_eligible_filtered"' not in runnable_text
 
 
 def test_recipe_partial_outcome_writes_audit_then_fails(monkeypatch, recipe_module):

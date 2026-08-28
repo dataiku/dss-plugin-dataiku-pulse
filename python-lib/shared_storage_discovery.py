@@ -98,6 +98,55 @@ class SelectedPartitionBatch:
     selected_partitions: list[SelectedPartitionPaths]
 
 
+def _raise_selection_failure(*, filtered_matching_paths: int, eligible_paths: int, minimum_age_days: int, cutoff_date: date) -> None:
+    if filtered_matching_paths > 0 and eligible_paths <= 0:
+        raise ValueError(
+            f"All exact-filter matches are excluded by minimum_age_days={minimum_age_days}; cutoff_date={cutoff_date.isoformat()}"
+        )
+    raise ValueError("No managed-folder paths matched the requested exact partition filters")
+
+
+def _selection_batch_from_records(
+    *,
+    retained_records: dict[tuple[int, int, int], list[SelectedPathRecord]],
+    retained_parts: dict[tuple[int, int, int], tuple[str, str, str]],
+    total_matched_paths: int,
+    filtered_matching_paths: int,
+    skipped_compact_outputs: int,
+    excluded_recent_paths: int,
+    eligible_paths: int,
+    cutoff_date: date,
+    minimum_age_days: int,
+) -> SelectedPartitionBatch:
+    retained_days = sorted(retained_records, reverse=True)
+    if not retained_days:
+        _raise_selection_failure(
+            filtered_matching_paths=filtered_matching_paths,
+            eligible_paths=eligible_paths,
+            minimum_age_days=minimum_age_days,
+            cutoff_date=cutoff_date,
+        )
+    selected_partitions = [
+        SelectedPartitionPaths(
+            year=retained_parts[retained_day][0],
+            month=retained_parts[retained_day][1],
+            day=retained_parts[retained_day][2],
+            selected_records=sorted(retained_records[retained_day], key=lambda item: item.relative_path),
+        )
+        for retained_day in retained_days
+    ]
+    return SelectedPartitionBatch(
+        total_matched_paths=total_matched_paths,
+        filtered_matching_paths=filtered_matching_paths,
+        skipped_compact_outputs=skipped_compact_outputs,
+        excluded_recent_paths=excluded_recent_paths,
+        eligible_paths=eligible_paths,
+        cutoff_date=cutoff_date,
+        minimum_age_days=minimum_age_days,
+        selected_partitions=selected_partitions,
+    )
+
+
 def _normalize_relative_prefix(relative_prefix: str) -> str:
     prefix = str(relative_prefix or "").strip().strip("/")
     if not prefix:
@@ -385,24 +434,9 @@ def select_latest_partition_paths_batch(
             retained_records[candidate_day] = [record]
             retained_parts[candidate_day] = candidate_parts
 
-    if filtered_matching_paths > 0 and eligible_paths <= 0:
-        raise ValueError(
-            f"All exact-filter matches are excluded by minimum_age_days={minimum_age_days}; cutoff_date={cutoff_date.isoformat()}"
-        )
-
-    retained_days = sorted(retained_records, reverse=True)
-    if not retained_days:
-        raise ValueError("No managed-folder paths matched the requested exact partition filters")
-    selected_partitions = [
-        SelectedPartitionPaths(
-            year=retained_parts[retained_day][0],
-            month=retained_parts[retained_day][1],
-            day=retained_parts[retained_day][2],
-            selected_records=sorted(retained_records[retained_day], key=lambda item: item.relative_path),
-        )
-        for retained_day in retained_days
-    ]
-    return SelectedPartitionBatch(
+    return _selection_batch_from_records(
+        retained_records=retained_records,
+        retained_parts=retained_parts,
         total_matched_paths=total_matched_paths,
         filtered_matching_paths=filtered_matching_paths,
         skipped_compact_outputs=skipped_compact_outputs,
@@ -410,7 +444,63 @@ def select_latest_partition_paths_batch(
         eligible_paths=eligible_paths,
         cutoff_date=cutoff_date,
         minimum_age_days=minimum_age_days,
-        selected_partitions=selected_partitions,
+    )
+
+
+def select_all_eligible_partition_paths_batch(
+    storage_ctx: StorageContextLike,
+    *,
+    relative_prefix: str,
+    suffix: str | None = None,
+    partition_filters: dict[str, str],
+    minimum_age_days: int = 0,
+    utc_today: date | None = None,
+) -> SelectedPartitionBatch:
+    if minimum_age_days < 0:
+        raise ValueError(f"minimum_age_days must be non-negative, got {minimum_age_days}")
+
+    today_utc = utc_today or datetime.now(timezone.utc).date()
+    cutoff_date = today_utc - timedelta(days=minimum_age_days)
+    retained_records: dict[tuple[int, int, int], list[SelectedPathRecord]] = {}
+    retained_parts: dict[tuple[int, int, int], tuple[str, str, str]] = {}
+    total_matched_paths = 0
+    filtered_matching_paths = 0
+    skipped_compact_outputs = 0
+    excluded_recent_paths = 0
+    eligible_paths = 0
+
+    for relative_path in iter_managed_folder_paths(storage_ctx, relative_prefix=relative_prefix, suffix=suffix):
+        total_matched_paths += 1
+        record = _selected_path_record(storage_ctx, relative_path)
+        if any(getattr(record, column_name) != expected_value for column_name, expected_value in partition_filters.items()):
+            continue
+
+        if _is_compact_output(record.base_name):
+            skipped_compact_outputs += 1
+            continue
+
+        filtered_matching_paths += 1
+        partition_day = _partition_date(year=record.year, month=record.month, day=record.day)
+        if partition_day >= cutoff_date:
+            excluded_recent_paths += 1
+            continue
+
+        eligible_paths += 1
+        candidate_day = _day_key(year=record.year, month=record.month, day=record.day)
+        candidate_parts = (record.year, record.month, record.day)
+        retained_parts[candidate_day] = candidate_parts
+        retained_records.setdefault(candidate_day, []).append(record)
+
+    return _selection_batch_from_records(
+        retained_records=retained_records,
+        retained_parts=retained_parts,
+        total_matched_paths=total_matched_paths,
+        filtered_matching_paths=filtered_matching_paths,
+        skipped_compact_outputs=skipped_compact_outputs,
+        excluded_recent_paths=excluded_recent_paths,
+        eligible_paths=eligible_paths,
+        cutoff_date=cutoff_date,
+        minimum_age_days=minimum_age_days,
     )
 
 
@@ -476,6 +566,7 @@ __all__ = [
     "count_managed_folder_paths",
     "filter_path_index",
     "iter_managed_folder_paths",
+    "select_all_eligible_partition_paths_batch",
     "select_latest_partition_paths",
     "select_latest_partition_paths_batch",
     "select_latest_partition_day",
