@@ -42,12 +42,33 @@ class Folder:
         raise NotImplementedError("stub Folder cannot upload")
 
 
+class _DatasetWriter:
+    def __init__(self) -> None:
+        self.frames: list[Any] = []
+        self.closed = False
+
+    def write_dataframe(self, df: Any) -> None:  # pragma: no cover
+        self.frames.append(df)
+
+    def close(self) -> None:  # pragma: no cover
+        self.closed = True
+
+
 class Dataset:
     def __init__(self, name: str):
         self.name = name
+        self.schema_df = None
+        self.written_df = None
+        self.writer = _DatasetWriter()
+
+    def write_schema_from_dataframe(self, df: Any, drop_and_create: bool = False, **kwargs: Any) -> None:  # pragma: no cover
+        self.schema_df = df
 
     def write_with_schema(self, df: Any) -> None:  # pragma: no cover
-        raise NotImplementedError("stub Dataset cannot write")
+        self.written_df = df
+
+    def get_writer(self) -> _DatasetWriter:  # pragma: no cover
+        return self.writer
 
 
 def api_client() -> Any:  # pragma: no cover - tests pass explicit fakes instead

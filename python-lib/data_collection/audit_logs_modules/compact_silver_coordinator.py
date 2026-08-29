@@ -3,11 +3,11 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from typing import Literal
-from typing import Any
+from typing import Any, Callable, Literal
 
 from joblib import Parallel, delayed
 
+from data_collection.audit_logs_modules.compact_silver_queue import CompactSilverQueue, QueueSummary
 from data_collection.audit_logs_modules.event_mapping_replay import CompactPartitionOutcome, process_compact_selected_partition
 from data_collection.helper import DSSFolderTarget, chunked
 from shared_duckdb.context import build_storage_context
@@ -19,7 +19,6 @@ from shared_storage_discovery import (
 )
 
 logger = logging.getLogger(__name__)
-
 
 PROVIDER_LABELS: dict[str, str] = {
     "EC2": "AWS/S3",
@@ -52,6 +51,18 @@ class CompactRunResult:
     worker_resolution: "WorkerResolution"
     dispatch_batch_size: int
     selection_mode: str
+
+
+@dataclass(frozen=True)
+class CompactStreamRunResult:
+    storage_ctx: Any
+    provider_label: str | None
+    selected_batch: SelectedPartitionBatch
+    execution_mode: str
+    worker_resolution: "WorkerResolution"
+    dispatch_batch_size: int
+    selection_mode: str
+    queue_summary: QueueSummary
 
 
 @dataclass(frozen=True)
@@ -110,6 +121,7 @@ def _process_partition_job(
             normalize_silver_mode=normalize_silver_mode,
         )
     except Exception as exc:
+        logger.exception("Compact SILVER partition worker failed for %s", selected_partition.partition_scope)
         return CompactPartitionOutcome(
             year=selected_partition.year,
             month=selected_partition.month,
@@ -168,6 +180,85 @@ def run_partition_jobs(
     return execution_mode, outcomes
 
 
+def _selected_batch_from_queue_summary(summary: QueueSummary) -> SelectedPartitionBatch:
+    return SelectedPartitionBatch(
+        total_matched_paths=summary.total_matched_paths,
+        filtered_matching_paths=summary.filtered_matching_paths,
+        skipped_compact_outputs=summary.skipped_compact_outputs,
+        excluded_recent_paths=summary.excluded_recent_paths,
+        eligible_paths=summary.eligible_paths,
+        cutoff_date=summary.cutoff_date,
+        minimum_age_days=summary.minimum_age_days,
+        selected_partitions=[],
+    )
+
+
+def _queue_status_for_outcome(outcome: CompactPartitionOutcome) -> str:
+    if outcome.status == "succeeded":
+        return "succeeded"
+    if outcome.retained_count > 0:
+        return "retained"
+    return "failed"
+
+
+def run_compact_silver_streaming(
+    config: CompactRunConfig,
+    *,
+    on_outcomes: Callable[[CompactStreamRunResult, list[SelectedPartitionPaths], list[CompactPartitionOutcome]], None],
+) -> CompactStreamRunResult:
+    worker_resolution = resolve_worker_resolution(
+        param_set=config.param_set,
+        execution_environment=config.execution_environment,
+    )
+    storage_ctx = build_storage_context(project_key=config.project_key, folder_lookup=config.folder_lookup)
+    if config.selection_mode != "all_eligible_filtered":
+        raise ValueError(f"Streaming compact execution does not support selection_mode={config.selection_mode!r}")
+
+    queue = CompactSilverQueue.create()
+    try:
+        queue_summary = queue.populate_from_discovery(
+            storage_ctx=storage_ctx,
+            relative_prefix=config.relative_prefix,
+            suffix=".parquet",
+            partition_filters=config.partition_filters,
+            minimum_age_days=config.minimum_age_days,
+        )
+        dispatch_batch_size = worker_resolution.resolved_n_jobs
+        target = DSSFolderTarget(project_key=config.project_key, folder_lookup=config.folder_lookup)
+        execution_mode = "joblib_threads" if worker_resolution.parallel_enabled and worker_resolution.resolved_n_jobs > 1 else "sequential"
+        stream_result = CompactStreamRunResult(
+            storage_ctx=storage_ctx,
+            provider_label=PROVIDER_LABELS.get(storage_ctx.connection_type),
+            selected_batch=_selected_batch_from_queue_summary(queue_summary),
+            execution_mode=execution_mode,
+            worker_resolution=worker_resolution,
+            dispatch_batch_size=dispatch_batch_size,
+            selection_mode=config.selection_mode,
+            queue_summary=queue_summary,
+        )
+
+        while True:
+            queue_batch = queue.next_partition_batch(batch_size=dispatch_batch_size)
+            if not queue_batch.selected_partitions:
+                break
+            _batch_execution_mode, outcomes = run_partition_jobs(
+                storage_ctx=storage_ctx,
+                target=target,
+                selected_partitions=queue_batch.selected_partitions,
+                normalize_silver_mode=config.normalize_silver_mode,
+                do_parallel=worker_resolution.parallel_enabled,
+                n_jobs=worker_resolution.resolved_n_jobs,
+                batch_size=dispatch_batch_size,
+            )
+            for partition, outcome in zip(queue_batch.selected_partitions, outcomes, strict=False):
+                queue.mark_partition_status(partition=partition, status=_queue_status_for_outcome(outcome))
+            on_outcomes(stream_result, queue_batch.selected_partitions, outcomes)
+
+        return stream_result
+    finally:
+        queue.close()
+
+
 def run_compact_silver(config: CompactRunConfig) -> CompactRunResult:
     worker_resolution = resolve_worker_resolution(
         param_set=config.param_set,
@@ -221,9 +312,11 @@ def run_compact_silver(config: CompactRunConfig) -> CompactRunResult:
 __all__ = [
     "CompactRunConfig",
     "CompactRunResult",
+    "CompactStreamRunResult",
     "PROVIDER_LABELS",
     "WorkerResolution",
     "resolve_worker_resolution",
     "run_compact_silver",
+    "run_compact_silver_streaming",
     "run_partition_jobs",
 ]

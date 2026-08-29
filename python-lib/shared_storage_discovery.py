@@ -265,8 +265,16 @@ def _selected_path_record(storage_ctx: StorageContextLike, relative_path: str) -
     )
 
 
+def selected_path_record_from_relative_path(storage_ctx: StorageContextLike, relative_path: str) -> SelectedPathRecord:
+    return _selected_path_record(storage_ctx, relative_path)
+
+
 def _is_compact_output(base_name: str) -> bool:
     return str(base_name).startswith(COMPACT_OUTPUT_PREFIX) and str(base_name).endswith(".parquet")
+
+
+def is_compact_output_record(record: SelectedPathRecord) -> bool:
+    return _is_compact_output(record.base_name)
 
 
 def _day_key(*, year: str, month: str, day: str) -> tuple[int, int, int]:
@@ -295,6 +303,10 @@ def _partition_date(*, year: str, month: str, day: str) -> date:
         raise ValueError(
             f"Unexpected managed-folder path format: invalid UTC calendar date year={year!r} month={month!r} day={day!r}"
         ) from exc
+
+
+def partition_date_from_record(record: SelectedPathRecord) -> date:
+    return _partition_date(year=record.year, month=record.month, day=record.day)
 
 
 def _iter_provider_object_keys(storage_ctx: StorageContextLike, *, physical_prefix: str) -> Iterator[str]:
@@ -589,6 +601,9 @@ __all__ = [
     "count_managed_folder_paths",
     "filter_path_index",
     "iter_managed_folder_paths",
+    "is_compact_output_record",
+    "partition_date_from_record",
+    "selected_path_record_from_relative_path",
     "select_all_eligible_partition_paths_batch",
     "select_latest_partition_paths",
     "select_latest_partition_paths_batch",
