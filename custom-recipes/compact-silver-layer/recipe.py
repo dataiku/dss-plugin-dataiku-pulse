@@ -20,9 +20,8 @@ EVENT_MAPPING_PREFIX = "silver/category=event_mapping/"
 MINIMUM_AGE_DAYS = 1
 PHASE3_FILTERS = {
     "category": "event_mapping",
-    "module": "administration",
 }
-PHASE3_FILTER_SCOPE = "category=event_mapping; module=administration"
+PHASE3_FILTER_SCOPE = "category=event_mapping"
 OUTPUT_ROLE = "compact_silver_audit"
 SELECTED_SCOPE_PREVIEW_LIMIT = 5
 

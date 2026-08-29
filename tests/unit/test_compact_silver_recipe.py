@@ -44,7 +44,7 @@ def _run_result(*, status: str = "success") -> SimpleNamespace:
         excluded_recent_paths=3,
         eligible_paths=4,
         cutoff_date=pd.Timestamp("2026-08-24", tz="UTC").date(),
-        selected_partitions=[SimpleNamespace(category="event_mapping", module="administration", instance_name="mazzei_pulse", year="2026", month="08", day="23", partition_scope="category=event_mapping; module=administration; instance_name=mazzei_pulse; date=2026/08/23"), SimpleNamespace(category="event_mapping", module="administration", instance_name="tam-global", year="2026", month="08", day="23", partition_scope="category=event_mapping; module=administration; instance_name=tam-global; date=2026/08/23")],
+        selected_partitions=[SimpleNamespace(category="event_mapping", module="administration", instance_name="mazzei_pulse", year="2026", month="08", day="23", partition_scope="category=event_mapping; module=administration; instance_name=mazzei_pulse; date=2026/08/23"), SimpleNamespace(category="event_mapping", module="containers", instance_name="tam-global", year="2026", month="08", day="23", partition_scope="category=event_mapping; module=containers; instance_name=tam-global; date=2026/08/23")],
     )
     outcomes = [
         SimpleNamespace(
@@ -174,7 +174,7 @@ def test_recipe_resolves_preset_from_plugin_config_and_mode_from_recipe_config(m
         "cores": 3,
         "batch_size": 11,
     }
-    assert seen["config"].partition_filters == {"category": "event_mapping", "module": "administration"}
+    assert seen["config"].partition_filters == {"category": "event_mapping"}
     assert seen["config"].execution_environment == "local"
     assert seen["config"].batch_size == 11
     assert seen["config"].selection_mode == "all_eligible_filtered"
@@ -373,9 +373,9 @@ def test_recipe_writes_bounded_audit_dataframe_without_paths_or_secrets(monkeypa
     assert set(audit_df["selection_mode"]) == {"all_eligible_filtered"}
     assert set(audit_df["selected_partition_scope"].dropna()) == {
         "category=event_mapping; module=administration; instance_name=mazzei_pulse; date=2026/08/23",
-        "category=event_mapping; module=administration; instance_name=tam-global; date=2026/08/23",
+        "category=event_mapping; module=containers; instance_name=tam-global; date=2026/08/23",
     }
-    assert set(audit_df["filter_scope"]) == {"category=event_mapping; module=administration"}
+    assert set(audit_df["filter_scope"]) == {"category=event_mapping"}
     assert set(audit_df["eligible_partition_count"]) == {2}
     assert set(audit_df["processed_partition_count"]) == {2}
     assert set(audit_df["dispatch_batch_size"]) == {2}
@@ -383,7 +383,7 @@ def test_recipe_writes_bounded_audit_dataframe_without_paths_or_secrets(monkeypa
     outcome_rows = audit_df.loc[audit_df["record_type"] == "partition_outcome"]
     assert summary_row["selected_days"] == (
         "category=event_mapping; module=administration; instance_name=mazzei_pulse; date=2026/08/23, "
-        "category=event_mapping; module=administration; instance_name=tam-global; date=2026/08/23"
+        "category=event_mapping; module=containers; instance_name=tam-global; date=2026/08/23"
     )
     assert outcome_rows["selected_days"].isna().all()
 
@@ -406,7 +406,7 @@ def test_recipe_audit_summary_preview_is_bounded_and_outcomes_do_not_repeat_full
         eligible_paths=6,
         cutoff_date=pd.Timestamp("2026-08-24", tz="UTC").date(),
         selected_partitions=[
-            SimpleNamespace(category="event_mapping", module="administration", instance_name=f"instance-{index}", year="2026", month="08", day=f"{23 - index:02d}", partition_scope=f"category=event_mapping; module=administration; instance_name=instance-{index}; date=2026/08/{23 - index:02d}")
+            SimpleNamespace(category="event_mapping", module=f"module-{index}", instance_name=f"instance-{index}", year="2026", month="08", day=f"{23 - index:02d}", partition_scope=f"category=event_mapping; module=module-{index}; instance_name=instance-{index}; date=2026/08/{23 - index:02d}")
             for index in range(6)
         ],
     )
@@ -452,22 +452,22 @@ def test_recipe_audit_summary_preview_is_bounded_and_outcomes_do_not_repeat_full
     summary_row = audit_df.loc[audit_df["record_type"] == "run_summary"].iloc[0]
     outcome_rows = audit_df.loc[audit_df["record_type"] == "partition_outcome"]
     expected_preview = (
-        "category=event_mapping; module=administration; instance_name=instance-0; date=2026/08/23, "
-        "category=event_mapping; module=administration; instance_name=instance-1; date=2026/08/22, "
-        "category=event_mapping; module=administration; instance_name=instance-2; date=2026/08/21, "
-        "category=event_mapping; module=administration; instance_name=instance-3; date=2026/08/20, "
-        "category=event_mapping; module=administration; instance_name=instance-4; date=2026/08/19 ... (+1 more)"
+        "category=event_mapping; module=module-0; instance_name=instance-0; date=2026/08/23, "
+        "category=event_mapping; module=module-1; instance_name=instance-1; date=2026/08/22, "
+        "category=event_mapping; module=module-2; instance_name=instance-2; date=2026/08/21, "
+        "category=event_mapping; module=module-3; instance_name=instance-3; date=2026/08/20, "
+        "category=event_mapping; module=module-4; instance_name=instance-4; date=2026/08/19 ... (+1 more)"
     )
     assert summary_row["selected_days"] == expected_preview
     assert len(str(summary_row["selected_days"]).split(", ")) == 5
     assert outcome_rows["selected_days"].isna().all()
     assert set(outcome_rows["selected_partition_scope"]) == {
-        "category=event_mapping; module=administration; instance_name=instance-0; date=2026/08/23",
-        "category=event_mapping; module=administration; instance_name=instance-1; date=2026/08/22",
-        "category=event_mapping; module=administration; instance_name=instance-2; date=2026/08/21",
-        "category=event_mapping; module=administration; instance_name=instance-3; date=2026/08/20",
-        "category=event_mapping; module=administration; instance_name=instance-4; date=2026/08/19",
-        "category=event_mapping; module=administration; instance_name=instance-5; date=2026/08/18",
+        "category=event_mapping; module=module-0; instance_name=instance-0; date=2026/08/23",
+        "category=event_mapping; module=module-1; instance_name=instance-1; date=2026/08/22",
+        "category=event_mapping; module=module-2; instance_name=instance-2; date=2026/08/21",
+        "category=event_mapping; module=module-3; instance_name=instance-3; date=2026/08/20",
+        "category=event_mapping; module=module-4; instance_name=instance-4; date=2026/08/19",
+        "category=event_mapping; module=module-5; instance_name=instance-5; date=2026/08/18",
     }
 
 
@@ -566,12 +566,12 @@ def test_recipe_has_no_managed_folder_input_role_lookup():
     assert "source_folder_lookup = str(param_set.get(\"pulse_partitioned_data\") or \"partitioned_data\")" in recipe_text
 
 
-def test_recipe_expands_to_all_administration_instances_while_macro_text_stays_fixed():
+def test_recipe_expands_to_all_event_mapping_modules_while_macro_text_stays_fixed():
     recipe_text = RECIPE_PATH.read_text(encoding="utf-8")
     runnable_text = RUNNABLE_PATH.read_text(encoding="utf-8")
 
     assert '"category": "event_mapping"' in recipe_text
-    assert '"module": "administration"' in recipe_text
+    assert '"module": "administration"' not in recipe_text
     assert '"instance_name": "mazzei_pulse"' not in recipe_text
-    assert 'PHASE3_FILTER_SCOPE = "category=event_mapping; module=administration"' in recipe_text
+    assert 'PHASE3_FILTER_SCOPE = "category=event_mapping"' in recipe_text
     assert '"instance_name": "mazzei_pulse"' in runnable_text

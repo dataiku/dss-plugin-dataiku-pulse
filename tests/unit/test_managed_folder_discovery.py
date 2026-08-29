@@ -354,6 +354,34 @@ def test_same_day_different_instances_become_distinct_selected_partitions(monkey
     assert all({(record.category, record.module, record.instance_name, record.year, record.month, record.day) for record in item.selected_records} == {(item.category, item.module, item.instance_name, item.year, item.month, item.day)} for item in selected.selected_partitions)
 
 
+def test_same_day_same_instance_different_modules_become_distinct_selected_partitions(monkeypatch):
+    monkeypatch.setattr(
+        discovery,
+        "iter_managed_folder_paths",
+        lambda *args, **kwargs: iter([
+            "/silver/category=event_mapping/module=containers/instance_name=alpha/year=2026/month=08/day=23/source-b.parquet",
+            "/silver/category=event_mapping/module=administration/instance_name=alpha/year=2026/month=08/day=23/source-a.parquet",
+        ]),
+    )
+
+    selected = discovery.select_all_eligible_partition_paths_batch(
+        _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket"),
+        relative_prefix="silver/category=event_mapping/",
+        suffix=".parquet",
+        partition_filters={
+            "category": "event_mapping",
+        },
+        minimum_age_days=3,
+        utc_today=date(2026, 8, 27),
+    )
+
+    assert [item.partition_scope for item in selected.selected_partitions] == [
+        "category=event_mapping; module=containers; instance_name=alpha; date=2026/08/23",
+        "category=event_mapping; module=administration; instance_name=alpha; date=2026/08/23",
+    ]
+    assert all({(record.category, record.module, record.instance_name, record.year, record.month, record.day) for record in item.selected_records} == {(item.category, item.module, item.instance_name, item.year, item.month, item.day)} for item in selected.selected_partitions)
+
+
 def test_all_eligible_selector_returns_every_eligible_day_newest_first(monkeypatch):
     monkeypatch.setattr(
         discovery,
