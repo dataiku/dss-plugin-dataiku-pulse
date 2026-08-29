@@ -447,3 +447,73 @@ def test_run_compact_silver_streaming_marks_retained_failures_without_retry(monk
 
     assert seen["status_updates"] == ["retained"]
     assert seen["closed"] is True
+
+
+def test_run_compact_silver_streaming_fails_clearly_on_partition_outcome_length_mismatch(monkeypatch):
+    storage_ctx = SimpleNamespace(connection_type="EC2", folder_id="folder")
+    seen = {"closed": False}
+
+    class FakeQueue:
+        def populate_from_discovery(self, **kwargs):
+            return SimpleNamespace(
+                total_matched_paths=2,
+                filtered_matching_paths=2,
+                skipped_compact_outputs=0,
+                excluded_recent_paths=0,
+                eligible_paths=2,
+                eligible_partition_count=2,
+                cutoff_date=date(2026, 8, 24),
+                minimum_age_days=3,
+            )
+
+        def next_partition_batch(self, *, batch_size):
+            if seen.get("served"):
+                return SimpleNamespace(selected_partitions=[])
+            seen["served"] = True
+            return SimpleNamespace(selected_partitions=[_selected_partition("23"), _selected_partition("22")])
+
+        def mark_partition_status(self, *, partition, status):
+            raise AssertionError("status update must not occur after length mismatch")
+
+        def close(self):
+            seen["closed"] = True
+
+    monkeypatch.setattr(coordinator, "build_storage_context", lambda **kwargs: storage_ctx)
+    monkeypatch.setattr(coordinator.CompactSilverQueue, "create", classmethod(lambda cls: FakeQueue()))
+    monkeypatch.setattr(
+        coordinator,
+        "resolve_worker_resolution",
+        lambda **kwargs: coordinator.WorkerResolution(
+            execution_environment="local",
+            resolution_source="local_preset",
+            python_visible_cpu_count=8,
+            configured_cores=2,
+            parallel_enabled=False,
+            resolved_n_jobs=1,
+            partition_cap=2,
+        ),
+    )
+    monkeypatch.setattr(
+        coordinator,
+        "run_partition_jobs",
+        lambda **kwargs: ("sequential", [SimpleNamespace(status="succeeded", retained_count=0, day_scope="2026/08/23")]),
+    )
+
+    with pytest.raises(ValueError, match="mismatched partition/outcome counts: partitions=2 outcomes=1"):
+        coordinator.run_compact_silver_streaming(
+            coordinator.CompactRunConfig(
+                project_key="P",
+                folder_lookup="partitioned_data",
+                relative_prefix="silver/category=event_mapping/",
+                partition_filters={"category": "event_mapping"},
+                minimum_age_days=3,
+                normalize_silver_mode=False,
+                param_set={},
+                execution_environment="local",
+                batch_size=25,
+                selection_mode="all_eligible_filtered",
+            ),
+            on_outcomes=lambda *_args: None,
+        )
+
+    assert seen["closed"] is True

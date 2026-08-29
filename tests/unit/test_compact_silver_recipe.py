@@ -311,6 +311,70 @@ def test_recipe_builds_bounded_streamed_audit_batches(monkeypatch, recipe_module
     assert seen["writer_closed"] is True
 
 
+def test_recipe_pairs_same_day_different_module_instance_partitions_by_batch_order(monkeypatch, recipe_module):
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
+    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data", "batch_size": 25}})
+    monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": True})
+    monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["compact_silver_audit_ds"])
+    monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "container-name")
+    monkeypatch.setattr(recipe_module.dataiku, "Dataset", _make_streaming_dataset(seen))
+
+    def fake_run_compact(config, *, on_outcomes):
+        stream_result = _stream_result()
+        on_outcomes(
+            stream_result,
+            [
+                _selected_partition(module="administration", instance_name="alpha", day="23"),
+                _selected_partition(module="containers", instance_name="beta", day="23"),
+            ],
+            [
+                _outcome(day="23", message="first"),
+                _outcome(day="23", message="second", run_epoch_ms=1786510805001),
+            ],
+        )
+        return stream_result
+
+    monkeypatch.setattr(recipe_module, "run_compact_silver_streaming", fake_run_compact)
+
+    recipe_module.run()
+
+    outcome_df = seen["batches"][0]
+    assert list(outcome_df["selected_partition_scope"]) == [
+        "category=event_mapping; module=administration; instance_name=alpha; date=2026/08/23",
+        "category=event_mapping; module=containers; instance_name=beta; date=2026/08/23",
+    ]
+    assert list(outcome_df["message"]) == ["first", "second"]
+
+
+def test_recipe_partition_outcome_pairing_length_mismatch_fails_clearly(monkeypatch, recipe_module):
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
+    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data", "batch_size": 25}})
+    monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": True})
+    monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["compact_silver_audit_ds"])
+    monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "container-name")
+    monkeypatch.setattr(recipe_module.dataiku, "Dataset", _make_streaming_dataset(seen))
+
+    def fake_run_compact(config, *, on_outcomes):
+        stream_result = _stream_result()
+        on_outcomes(
+            stream_result,
+            [_selected_partition(module="administration", instance_name="alpha", day="23")],
+            [_outcome(day="23"), _outcome(day="22", run_epoch_ms=1786510805001)],
+        )
+        return stream_result
+
+    monkeypatch.setattr(recipe_module, "run_compact_silver_streaming", fake_run_compact)
+
+    with pytest.raises(ValueError, match="mismatched selected partition/outcome counts: partitions=1 outcomes=2"):
+        recipe_module.run()
+
+    assert seen["writer_closed"] is True
+
+
 def test_recipe_summary_preview_is_bounded_and_outcome_rows_do_not_repeat_full_selection_list(monkeypatch, recipe_module):
     seen: dict[str, object] = {}
 
@@ -432,6 +496,52 @@ def test_recipe_partial_outcome_writes_audit_then_fails(monkeypatch, recipe_modu
 
     audit_df = pd.concat(seen["batches"], ignore_index=True)
     assert list(audit_df["terminal_status"]) == ["no_mapped_output_retained", "succeeded", "partial"]
+
+
+def test_recipe_many_failures_keeps_bounded_scope_samples_and_closes_writer_before_raise(monkeypatch, recipe_module):
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
+    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data", "batch_size": 25}})
+    monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": True})
+    monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["compact_silver_audit_ds"])
+    monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "container")
+    monkeypatch.setattr(recipe_module.dataiku, "Dataset", _make_streaming_dataset(seen))
+
+    partitions = [
+        _selected_partition(module=f"module-{index}", instance_name=f"instance-{index}", day=f"{23 - index:02d}")
+        for index in range(7)
+    ]
+    outcomes = [
+        _outcome(day=f"{23 - index:02d}", status="no_mapped_output_retained", message=f"fail-{index}", run_epoch_ms=1786510805000 + index)
+        for index in range(7)
+    ]
+
+    def fake_run_compact(config, *, on_outcomes):
+        stream_result = _stream_result()
+        stream_result.queue_summary.eligible_partition_count = 7
+        on_outcomes(stream_result, partitions[:4], outcomes[:4])
+        on_outcomes(stream_result, partitions[4:], outcomes[4:])
+        return stream_result
+
+    monkeypatch.setattr(recipe_module, "run_compact_silver_streaming", fake_run_compact)
+
+    with pytest.raises(RuntimeError, match=r"failed_count=7; samples=.*\.\.\. \(\+2 more\)") as exc_info:
+        recipe_module.run()
+
+    audit_df = pd.concat(seen["batches"], ignore_index=True)
+    outcome_df = audit_df.loc[audit_df["record_type"] == "partition_outcome"].reset_index(drop=True)
+    summary_df = audit_df.loc[audit_df["record_type"] == "run_summary"].reset_index(drop=True)
+    assert len(outcome_df) == 7
+    assert len(summary_df) == 1
+    assert summary_df.iloc[0]["terminal_status"] == "partial"
+    assert seen["writer_closed"] is True
+    expected_samples = [partition.partition_scope for partition in partitions[:5]]
+    message = str(exc_info.value)
+    for sample in expected_samples:
+        assert sample in message
+    assert partitions[5].partition_scope not in message
+    assert partitions[6].partition_scope not in message
 
 
 def test_macro_and_recipe_both_import_shared_coordinator():

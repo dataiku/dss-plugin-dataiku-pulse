@@ -21,6 +21,7 @@ PHASE3_FILTERS = {
 PHASE3_FILTER_SCOPE = "category=event_mapping"
 OUTPUT_ROLE = "compact_silver_audit"
 SELECTED_SCOPE_PREVIEW_LIMIT = 5
+FAILED_SCOPE_SAMPLE_LIMIT = 5
 AUDIT_COLUMNS = [
     "run_ts_utc",
     "run_id",
@@ -147,10 +148,11 @@ def _build_partition_outcome_rows(
     selected_partitions: list[Any],
     outcomes: list[CompactPartitionOutcome],
 ) -> list[dict[str, Any]]:
-    partition_by_day = {
-        (str(partition.year), str(partition.month), str(partition.day)): partition
-        for partition in selected_partitions
-    }
+    if len(outcomes) != len(selected_partitions):
+        raise ValueError(
+            "Compact SILVER recipe received mismatched selected partition/outcome counts: "
+            f"partitions={len(selected_partitions)} outcomes={len(outcomes)}"
+        )
     base = _new_audit_row_base(
         project_key=project_key,
         folder_lookup=folder_lookup,
@@ -164,8 +166,7 @@ def _build_partition_outcome_rows(
         dispatch_batch_size=stream_result.dispatch_batch_size,
     )
     rows: list[dict[str, Any]] = []
-    for outcome in outcomes:
-        partition = partition_by_day[(str(outcome.year), str(outcome.month), str(outcome.day))]
+    for partition, outcome in zip(selected_partitions, outcomes, strict=True):
         rows.append(
             {
                 **base,
@@ -298,6 +299,16 @@ def _write_audit_batch(writer: Any, rows: list[dict[str, Any]]) -> None:
     raise TypeError("Dataset writer does not support streamed compact audit output")
 
 
+def _format_failed_partition_scope_samples(samples: list[str], *, failed_count: int) -> str:
+    if failed_count <= 0 or not samples:
+        return ""
+    omitted = max(failed_count - len(samples), 0)
+    sample_text = ", ".join(samples)
+    if omitted <= 0:
+        return sample_text
+    return f"{sample_text} ... (+{omitted} more)"
+
+
 def _stream_audit_batch(
     *,
     writer: Any,
@@ -310,19 +321,25 @@ def _stream_audit_batch(
     outcomes: list[CompactPartitionOutcome],
     preview_partitions: list[Any],
     aggregate_counts: dict[str, int],
-    failed_days: list[str],
+    failed_partition_scopes: list[str],
 ) -> None:
     if len(preview_partitions) < SELECTED_SCOPE_PREVIEW_LIMIT:
         preview_partitions.extend(selected_partitions[: max(0, SELECTED_SCOPE_PREVIEW_LIMIT - len(preview_partitions))])
+    if len(outcomes) != len(selected_partitions):
+        raise ValueError(
+            "Compact SILVER recipe received mismatched selected partition/outcome counts: "
+            f"partitions={len(selected_partitions)} outcomes={len(outcomes)}"
+        )
     aggregate_counts["processed_partition_count"] += len(outcomes)
-    for outcome in outcomes:
+    for partition, outcome in zip(selected_partitions, outcomes, strict=True):
         aggregate_counts["written_count"] += outcome.written_count
         aggregate_counts["verified_count"] += outcome.verified_count
         aggregate_counts["deleted_count"] += outcome.deleted_count
         aggregate_counts["retained_count"] += outcome.retained_count
         if outcome.status != "succeeded":
             aggregate_counts["failed_outcomes"] += 1
-            failed_days.append(outcome.day_scope)
+            if len(failed_partition_scopes) < FAILED_SCOPE_SAMPLE_LIMIT:
+                failed_partition_scopes.append(str(partition.partition_scope))
     _write_audit_batch(
         writer,
         _build_partition_outcome_rows(
@@ -367,7 +384,7 @@ def run():
         "retained_count": 0,
         "failed_outcomes": 0,
     }
-    failed_days: list[str] = []
+    failed_partition_scopes: list[str] = []
 
     try:
         stream_result = run_compact_silver_streaming(
@@ -394,7 +411,7 @@ def run():
                 outcomes=outcomes,
                 preview_partitions=preview_partitions,
                 aggregate_counts=aggregate_counts,
-                failed_days=failed_days,
+                failed_partition_scopes=failed_partition_scopes,
             ),
         )
         _write_audit_batch(
@@ -417,8 +434,16 @@ def run():
         if hasattr(writer, "close"):
             writer.close()
 
-    if failed_days:
-        raise RuntimeError(f"Compact SILVER recipe completed with non-success partition outcomes: {', '.join(failed_days)}")
+    if aggregate_counts["failed_outcomes"] > 0:
+        sample_text = _format_failed_partition_scope_samples(
+            failed_partition_scopes,
+            failed_count=aggregate_counts["failed_outcomes"],
+        )
+        raise RuntimeError(
+            "Compact SILVER recipe completed with non-success partition outcomes: "
+            f"failed_count={aggregate_counts['failed_outcomes']}"
+            + (f"; samples={sample_text}" if sample_text else "")
+        )
 
     return {
         "project_key": project_key,

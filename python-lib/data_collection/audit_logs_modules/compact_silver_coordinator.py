@@ -250,7 +250,12 @@ def run_compact_silver_streaming(
                 n_jobs=worker_resolution.resolved_n_jobs,
                 batch_size=dispatch_batch_size,
             )
-            for partition, outcome in zip(queue_batch.selected_partitions, outcomes, strict=False):
+            if len(outcomes) != len(queue_batch.selected_partitions):
+                raise ValueError(
+                    "Compact SILVER streaming batch returned mismatched partition/outcome counts: "
+                    f"partitions={len(queue_batch.selected_partitions)} outcomes={len(outcomes)}"
+                )
+            for partition, outcome in zip(queue_batch.selected_partitions, outcomes, strict=True):
                 queue.mark_partition_status(partition=partition, status=_queue_status_for_outcome(outcome))
             on_outcomes(stream_result, queue_batch.selected_partitions, outcomes)
 
