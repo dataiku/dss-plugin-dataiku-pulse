@@ -29,27 +29,38 @@ def test_importing_discovery_does_not_import_shared_duckdb_runtime():
 def test_s3_paginated_prefix_listing_translates_to_relative_paths(monkeypatch):
     seen = {}
 
-    class Paginator:
-        def paginate(self, **kwargs):
-            seen.update(kwargs)
-            yield {
-                "Contents": [
-                    {"Key": "root/silver/category=event_mapping/module=a/file1.parquet"},
-                    {"Key": "root/silver/category=event_mapping/module=a/file2.txt"},
-                ]
-            }
-            yield {
-                "Contents": [
-                    {"Key": "root/silver/category=event_mapping/module=a/instance_name=x/year=2026/month=08/day=24/file3.parquet"},
-                    {"Key": "otherroot/silver/category=event_mapping/module=a/file4.parquet"},
-                    {"Key": "root/silver/category=event_mapping/module=a/subdir/"},
-                ]
-            }
-
     class Client:
-        def get_paginator(self, name):
-            assert name == "list_objects_v2"
-            return Paginator()
+        def __init__(self):
+            self.calls = 0
+
+        def list_objects_v2(self, **kwargs):
+            seen.update(kwargs)
+            self.calls += 1
+            if self.calls == 1:
+                return {
+                    "Contents": [
+                        {
+                            "Key": "root/silver/category=event_mapping/module=a/file1.parquet"
+                        },
+                        {
+                            "Key": "root/silver/category=event_mapping/module=a/file2.txt"
+                        },
+                    ],
+                    "IsTruncated": True,
+                    "NextContinuationToken": "token-1",
+                }
+            return {
+                "Contents": [
+                    {
+                        "Key": "root/silver/category=event_mapping/module=a/instance_name=x/year=2026/month=08/day=24/file3.parquet"
+                    },
+                    {
+                        "Key": "otherroot/silver/category=event_mapping/module=a/file4.parquet"
+                    },
+                    {"Key": "root/silver/category=event_mapping/module=a/subdir/"},
+                ],
+                "IsTruncated": False,
+            }
 
     monkeypatch.setattr(discovery_s3.boto3, "client", lambda *args, **kwargs: Client())
     monkeypatch.setattr(
@@ -62,11 +73,27 @@ def test_s3_paginated_prefix_listing_translates_to_relative_paths(monkeypatch):
             "region_name": "us-east-1",
         },
     )
-    ctx = _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket", cached_connection_info={}, connection_name="c", connection_handle=object(), project_handle=object())
+    ctx = _Ctx(
+        connection_type="EC2",
+        folder_root="root",
+        bucket_or_container="bucket",
+        cached_connection_info={},
+        connection_name="c",
+        connection_handle=object(),
+        project_handle=object(),
+    )
 
-    paths = list(discovery.iter_managed_folder_paths(ctx, relative_prefix="/silver/category=event_mapping//", suffix=".parquet"))
+    paths = list(
+        discovery.iter_managed_folder_paths(
+            ctx, relative_prefix="/silver/category=event_mapping//", suffix=".parquet"
+        )
+    )
 
-    assert seen == {"Bucket": "bucket", "Prefix": "root/silver/category=event_mapping/"}
+    assert seen == {
+        "Bucket": "bucket",
+        "Prefix": "root/silver/category=event_mapping/",
+        "ContinuationToken": "token-1",
+    }
     assert paths == [
         "/silver/category=event_mapping/module=a/file1.parquet",
         "/silver/category=event_mapping/module=a/instance_name=x/year=2026/month=08/day=24/file3.parquet",
@@ -83,19 +110,39 @@ def test_azure_credential_selection_and_prefix_listing(monkeypatch):
     class ContainerClient:
         def list_blobs(self, name_starts_with=None):
             seen["prefix"] = name_starts_with
-            return [Blob("root/silver/category=event_mapping/module=a/file1.parquet"), Blob("root/silver/category=event_mapping/module=a/subdir/")]
+            return [
+                Blob("root/silver/category=event_mapping/module=a/file1.parquet"),
+                Blob("root/silver/category=event_mapping/module=a/subdir/"),
+            ]
 
     class ServiceClient:
         def get_container_client(self, container):
             seen["container"] = container
             return ContainerClient()
 
-    monkeypatch.setattr(discovery_azure, "_build_azure_blob_service_client", lambda ctx: ServiceClient())
-    ctx = _Ctx(connection_type="Azure", folder_root="root", bucket_or_container="container", cached_connection_info={}, connection_name="c", connection_handle=object(), project_handle=object())
+    monkeypatch.setattr(
+        discovery_azure, "_build_azure_blob_service_client", lambda ctx: ServiceClient()
+    )
+    ctx = _Ctx(
+        connection_type="Azure",
+        folder_root="root",
+        bucket_or_container="container",
+        cached_connection_info={},
+        connection_name="c",
+        connection_handle=object(),
+        project_handle=object(),
+    )
 
-    paths = list(discovery.iter_managed_folder_paths(ctx, relative_prefix="silver/category=event_mapping", suffix=".parquet"))
+    paths = list(
+        discovery.iter_managed_folder_paths(
+            ctx, relative_prefix="silver/category=event_mapping", suffix=".parquet"
+        )
+    )
 
-    assert seen == {"container": "container", "prefix": "root/silver/category=event_mapping/"}
+    assert seen == {
+        "container": "container",
+        "prefix": "root/silver/category=event_mapping/",
+    }
     assert paths == ["/silver/category=event_mapping/module=a/file1.parquet"]
 
 
@@ -117,12 +164,36 @@ def test_gcs_environment_requests_default_credentials_and_never_anonymous(monkey
             return [Blob("root/silver/category=event_mapping/module=a/file1.parquet")]
 
     fake_credentials = object()
-    monkeypatch.setattr(discovery_gcs, "connection_info", lambda ctx, allow_cached=True: {"params": {"credentialsMode": "ENVIRONMENT"}})
-    monkeypatch.setitem(sys.modules, "google.auth", SimpleNamespace(default=lambda: (fake_credentials, "proj")))
-    monkeypatch.setitem(sys.modules, "google.cloud", SimpleNamespace(storage=SimpleNamespace(Client=Client)))
+    monkeypatch.setattr(
+        discovery_gcs,
+        "connection_info",
+        lambda ctx, allow_cached=True: {"params": {"credentialsMode": "ENVIRONMENT"}},
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "google.auth",
+        SimpleNamespace(default=lambda: (fake_credentials, "proj")),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "google.cloud",
+        SimpleNamespace(storage=SimpleNamespace(Client=Client)),
+    )
 
-    ctx = _Ctx(connection_type="GCS", folder_root="root", bucket_or_container="bucket", cached_connection_info={}, connection_name="c", connection_handle=object(), project_handle=SimpleNamespace(get_variables=lambda: {}))
-    paths = list(discovery.iter_managed_folder_paths(ctx, relative_prefix="silver/category=event_mapping", suffix=".parquet"))
+    ctx = _Ctx(
+        connection_type="GCS",
+        folder_root="root",
+        bucket_or_container="bucket",
+        cached_connection_info={},
+        connection_name="c",
+        connection_handle=object(),
+        project_handle=SimpleNamespace(get_variables=lambda: {}),
+    )
+    paths = list(
+        discovery.iter_managed_folder_paths(
+            ctx, relative_prefix="silver/category=event_mapping", suffix=".parquet"
+        )
+    )
 
     assert seen == {
         "project": "proj",
@@ -134,16 +205,42 @@ def test_gcs_environment_requests_default_credentials_and_never_anonymous(monkey
 
 
 def test_gcs_environment_missing_default_credentials_fails_clearly(monkeypatch):
-    monkeypatch.setattr(discovery_gcs, "connection_info", lambda ctx, allow_cached=True: {"params": {"credentialsMode": "ENVIRONMENT"}})
+    monkeypatch.setattr(
+        discovery_gcs,
+        "connection_info",
+        lambda ctx, allow_cached=True: {"params": {"credentialsMode": "ENVIRONMENT"}},
+    )
 
     class MissingCreds(Exception):
         pass
 
-    monkeypatch.setitem(sys.modules, "google.auth", SimpleNamespace(default=lambda: (_ for _ in ()).throw(MissingCreds("no creds"))))
-    monkeypatch.setitem(sys.modules, "google.cloud", SimpleNamespace(storage=SimpleNamespace(Client=object)))
-    ctx = _Ctx(connection_type="GCS", folder_root="root", bucket_or_container="bucket", cached_connection_info={}, connection_name="c", connection_handle=object(), project_handle=SimpleNamespace(get_variables=lambda: {}))
+    monkeypatch.setitem(
+        sys.modules,
+        "google.auth",
+        SimpleNamespace(
+            default=lambda: (_ for _ in ()).throw(MissingCreds("no creds"))
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "google.cloud",
+        SimpleNamespace(storage=SimpleNamespace(Client=object)),
+    )
+    ctx = _Ctx(
+        connection_type="GCS",
+        folder_root="root",
+        bucket_or_container="bucket",
+        cached_connection_info={},
+        connection_name="c",
+        connection_handle=object(),
+        project_handle=SimpleNamespace(get_variables=lambda: {}),
+    )
     with pytest.raises(MissingCreds):
-        list(discovery.iter_managed_folder_paths(ctx, relative_prefix="silver/category=event_mapping", suffix=".parquet"))
+        list(
+            discovery.iter_managed_folder_paths(
+                ctx, relative_prefix="silver/category=event_mapping", suffix=".parquet"
+            )
+        )
 
 
 def test_gcs_hmac_uses_decrypted_established_hmac_and_is_recursive(monkeypatch):
@@ -158,18 +255,48 @@ def test_gcs_hmac_uses_decrypted_established_hmac_and_is_recursive(monkeypatch):
             seen["path"] = path
             seen["detail"] = detail
             return {
-                "a": {"name": "bucket/root/silver/category=event_mapping/module=a/file1.parquet"},
-                "b": {"name": "bucket/root/silver/category=event_mapping/module=a/instance_name=x/year=2026/month=08/day=24/file2.parquet"},
-                "c": {"name": "bucket/root/silver/category=event_mapping/module=a/instance_name=x/year=2026/month=08/day=24/file3.json"},
-                "d": {"name": "bucket/root/silver/category=event_mapping/module=a/subdir/"},
+                "a": {
+                    "name": "bucket/root/silver/category=event_mapping/module=a/file1.parquet"
+                },
+                "b": {
+                    "name": "bucket/root/silver/category=event_mapping/module=a/instance_name=x/year=2026/month=08/day=24/file2.parquet"
+                },
+                "c": {
+                    "name": "bucket/root/silver/category=event_mapping/module=a/instance_name=x/year=2026/month=08/day=24/file3.json"
+                },
+                "d": {
+                    "name": "bucket/root/silver/category=event_mapping/module=a/subdir/"
+                },
             }
 
-    monkeypatch.setattr(discovery_gcs, "connection_info", lambda ctx, allow_cached=True: {"params": {"credentialsMode": "HMAC"}})
-    monkeypatch.setattr(discovery_gcs, "resolve_gcs_hmac_credentials", lambda ctx: ("AKIAHMAC", "SECRET-HMAC"))
-    monkeypatch.setitem(sys.modules, "gcsfs", SimpleNamespace(GCSFileSystem=GCSFSClient))
-    ctx = _Ctx(connection_type="GCS", folder_root="root", bucket_or_container="bucket", cached_connection_info={}, connection_name="c", connection_handle=object(), project_handle=SimpleNamespace(get_variables=lambda: {}))
+    monkeypatch.setattr(
+        discovery_gcs,
+        "connection_info",
+        lambda ctx, allow_cached=True: {"params": {"credentialsMode": "HMAC"}},
+    )
+    monkeypatch.setattr(
+        discovery_gcs,
+        "resolve_gcs_hmac_credentials",
+        lambda ctx: ("AKIAHMAC", "SECRET-HMAC"),
+    )
+    monkeypatch.setitem(
+        sys.modules, "gcsfs", SimpleNamespace(GCSFileSystem=GCSFSClient)
+    )
+    ctx = _Ctx(
+        connection_type="GCS",
+        folder_root="root",
+        bucket_or_container="bucket",
+        cached_connection_info={},
+        connection_name="c",
+        connection_handle=object(),
+        project_handle=SimpleNamespace(get_variables=lambda: {}),
+    )
 
-    paths = list(discovery.iter_managed_folder_paths(ctx, relative_prefix="silver/category=event_mapping", suffix=".parquet"))
+    paths = list(
+        discovery.iter_managed_folder_paths(
+            ctx, relative_prefix="silver/category=event_mapping", suffix=".parquet"
+        )
+    )
 
     assert seen == {
         "access": "AKIAHMAC",
@@ -185,12 +312,38 @@ def test_gcs_hmac_uses_decrypted_established_hmac_and_is_recursive(monkeypatch):
 
 def test_unsupported_provider_and_modes_fail_clearly(monkeypatch):
     with pytest.raises(RuntimeError, match="Unsupported managed-folder provider"):
-        list(discovery.iter_managed_folder_paths(_Ctx(connection_type="LocalFS"), relative_prefix="silver/category=event_mapping", suffix=".parquet"))
+        list(
+            discovery.iter_managed_folder_paths(
+                _Ctx(connection_type="LocalFS"),
+                relative_prefix="silver/category=event_mapping",
+                suffix=".parquet",
+            )
+        )
 
-    ctx = _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket", cached_connection_info={}, connection_name="c", connection_handle=object(), project_handle=object())
-    monkeypatch.setattr(discovery_s3, "resolve_aws_access", lambda ctx: (_ for _ in ()).throw(RuntimeError("Unsupported AWS credentials mode for managed-folder discovery: UNKNOWN")))
+    ctx = _Ctx(
+        connection_type="EC2",
+        folder_root="root",
+        bucket_or_container="bucket",
+        cached_connection_info={},
+        connection_name="c",
+        connection_handle=object(),
+        project_handle=object(),
+    )
+    monkeypatch.setattr(
+        discovery_s3,
+        "resolve_aws_access",
+        lambda ctx: (_ for _ in ()).throw(
+            RuntimeError(
+                "Unsupported AWS credentials mode for managed-folder discovery: UNKNOWN"
+            )
+        ),
+    )
     with pytest.raises(RuntimeError, match="Unsupported AWS credentials mode"):
-        list(discovery.iter_managed_folder_paths(ctx, relative_prefix="silver/category=event_mapping", suffix=".parquet"))
+        list(
+            discovery.iter_managed_folder_paths(
+                ctx, relative_prefix="silver/category=event_mapping", suffix=".parquet"
+            )
+        )
 
 
 def test_discovery_does_not_call_broad_dss_listing(monkeypatch):
@@ -201,13 +354,14 @@ def test_discovery_does_not_call_broad_dss_listing(monkeypatch):
         def list_contents(self, *args, **kwargs):
             raise AssertionError("broad listing should not be used")
 
-    class Paginator:
-        def paginate(self, **kwargs):
-            yield {"Contents": [{"Key": "root/silver/category=event_mapping/module=a/file1.parquet"}]}
-
     class Client:
-        def get_paginator(self, name):
-            return Paginator()
+        def list_objects_v2(self, **kwargs):
+            return {
+                "Contents": [
+                    {"Key": "root/silver/category=event_mapping/module=a/file1.parquet"}
+                ],
+                "IsTruncated": False,
+            }
 
     monkeypatch.setattr(discovery_s3.boto3, "client", lambda *args, **kwargs: Client())
     monkeypatch.setattr(
@@ -220,9 +374,22 @@ def test_discovery_does_not_call_broad_dss_listing(monkeypatch):
             "region_name": "us-east-1",
         },
     )
-    ctx = _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket", cached_connection_info={}, connection_name="c", connection_handle=object(), project_handle=object(), folder_handle=Folder())
+    ctx = _Ctx(
+        connection_type="EC2",
+        folder_root="root",
+        bucket_or_container="bucket",
+        cached_connection_info={},
+        connection_name="c",
+        connection_handle=object(),
+        project_handle=object(),
+        folder_handle=Folder(),
+    )
 
-    paths = list(discovery.iter_managed_folder_paths(ctx, relative_prefix="silver/category=event_mapping", suffix=".parquet"))
+    paths = list(
+        discovery.iter_managed_folder_paths(
+            ctx, relative_prefix="silver/category=event_mapping", suffix=".parquet"
+        )
+    )
     assert paths == ["/silver/category=event_mapping/module=a/file1.parquet"]
 
 
@@ -252,16 +419,18 @@ def test_two_day_selector_returns_exact_top_two_eligible_days_newest_first(monke
     monkeypatch.setattr(
         discovery,
         "iter_managed_folder_paths",
-        lambda *args, **kwargs: iter([
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=22/source-b.parquet",
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=24/source-recent.parquet",
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=21/source-a.parquet",
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/compact_silver-1786510805000-0001.parquet",
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=20/source-a.parquet",
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/source-a.parquet",
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=22/source-a.parquet",
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/source-b.parquet",
-        ]),
+        lambda *args, **kwargs: iter(
+            [
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=22/source-b.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=24/source-recent.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=21/source-a.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/compact_silver-1786510805000-0001.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=20/source-a.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/source-a.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=22/source-a.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/source-b.parquet",
+            ]
+        ),
     )
 
     selected = discovery.select_latest_partition_paths_batch(
@@ -283,7 +452,9 @@ def test_two_day_selector_returns_exact_top_two_eligible_days_newest_first(monke
     assert selected.skipped_compact_outputs == 1
     assert selected.excluded_recent_paths == 1
     assert selected.eligible_paths == 6
-    assert [(item.year, item.month, item.day) for item in selected.selected_partitions] == [
+    assert [
+        (item.year, item.month, item.day) for item in selected.selected_partitions
+    ] == [
         ("2026", "08", "23"),
         ("2026", "08", "22"),
     ]
@@ -301,10 +472,12 @@ def test_selector_returns_fewer_available_eligible_days_without_failing(monkeypa
     monkeypatch.setattr(
         discovery,
         "iter_managed_folder_paths",
-        lambda *args, **kwargs: iter([
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/source-a.parquet",
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=24/source-recent.parquet",
-        ]),
+        lambda *args, **kwargs: iter(
+            [
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/source-a.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=24/source-recent.parquet",
+            ]
+        ),
     )
 
     selected = discovery.select_latest_partition_paths_batch(
@@ -321,7 +494,9 @@ def test_selector_returns_fewer_available_eligible_days_without_failing(monkeypa
         utc_today=date(2026, 8, 27),
     )
 
-    assert [(item.year, item.month, item.day) for item in selected.selected_partitions] == [("2026", "08", "23")]
+    assert [
+        (item.year, item.month, item.day) for item in selected.selected_partitions
+    ] == [("2026", "08", "23")]
     assert selected.eligible_paths == 1
 
 
@@ -329,10 +504,12 @@ def test_same_day_different_instances_become_distinct_selected_partitions(monkey
     monkeypatch.setattr(
         discovery,
         "iter_managed_folder_paths",
-        lambda *args, **kwargs: iter([
-            "/silver/category=event_mapping/module=administration/instance_name=beta/year=2026/month=08/day=23/source-b.parquet",
-            "/silver/category=event_mapping/module=administration/instance_name=alpha/year=2026/month=08/day=23/source-a.parquet",
-        ]),
+        lambda *args, **kwargs: iter(
+            [
+                "/silver/category=event_mapping/module=administration/instance_name=beta/year=2026/month=08/day=23/source-b.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=alpha/year=2026/month=08/day=23/source-a.parquet",
+            ]
+        ),
     )
 
     selected = discovery.select_all_eligible_partition_paths_batch(
@@ -351,17 +528,44 @@ def test_same_day_different_instances_become_distinct_selected_partitions(monkey
         "category=event_mapping; module=administration; instance_name=beta; date=2026/08/23",
         "category=event_mapping; module=administration; instance_name=alpha; date=2026/08/23",
     ]
-    assert all({(record.category, record.module, record.instance_name, record.year, record.month, record.day) for record in item.selected_records} == {(item.category, item.module, item.instance_name, item.year, item.month, item.day)} for item in selected.selected_partitions)
+    assert all(
+        {
+            (
+                record.category,
+                record.module,
+                record.instance_name,
+                record.year,
+                record.month,
+                record.day,
+            )
+            for record in item.selected_records
+        }
+        == {
+            (
+                item.category,
+                item.module,
+                item.instance_name,
+                item.year,
+                item.month,
+                item.day,
+            )
+        }
+        for item in selected.selected_partitions
+    )
 
 
-def test_same_day_same_instance_different_modules_become_distinct_selected_partitions(monkeypatch):
+def test_same_day_same_instance_different_modules_become_distinct_selected_partitions(
+    monkeypatch,
+):
     monkeypatch.setattr(
         discovery,
         "iter_managed_folder_paths",
-        lambda *args, **kwargs: iter([
-            "/silver/category=event_mapping/module=containers/instance_name=alpha/year=2026/month=08/day=23/source-b.parquet",
-            "/silver/category=event_mapping/module=administration/instance_name=alpha/year=2026/month=08/day=23/source-a.parquet",
-        ]),
+        lambda *args, **kwargs: iter(
+            [
+                "/silver/category=event_mapping/module=containers/instance_name=alpha/year=2026/month=08/day=23/source-b.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=alpha/year=2026/month=08/day=23/source-a.parquet",
+            ]
+        ),
     )
 
     selected = discovery.select_all_eligible_partition_paths_batch(
@@ -379,22 +583,47 @@ def test_same_day_same_instance_different_modules_become_distinct_selected_parti
         "category=event_mapping; module=containers; instance_name=alpha; date=2026/08/23",
         "category=event_mapping; module=administration; instance_name=alpha; date=2026/08/23",
     ]
-    assert all({(record.category, record.module, record.instance_name, record.year, record.month, record.day) for record in item.selected_records} == {(item.category, item.module, item.instance_name, item.year, item.month, item.day)} for item in selected.selected_partitions)
+    assert all(
+        {
+            (
+                record.category,
+                record.module,
+                record.instance_name,
+                record.year,
+                record.month,
+                record.day,
+            )
+            for record in item.selected_records
+        }
+        == {
+            (
+                item.category,
+                item.module,
+                item.instance_name,
+                item.year,
+                item.month,
+                item.day,
+            )
+        }
+        for item in selected.selected_partitions
+    )
 
 
 def test_all_eligible_selector_returns_every_eligible_day_newest_first(monkeypatch):
     monkeypatch.setattr(
         discovery,
         "iter_managed_folder_paths",
-        lambda *args, **kwargs: iter([
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=22/source-b.parquet",
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=24/source-recent.parquet",
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=21/source-a.parquet",
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/compact_silver-1786510805000-0001.parquet",
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=20/source-a.parquet",
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/source-a.parquet",
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/source-b.parquet",
-        ]),
+        lambda *args, **kwargs: iter(
+            [
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=22/source-b.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=24/source-recent.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=21/source-a.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/compact_silver-1786510805000-0001.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=20/source-a.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/source-a.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/source-b.parquet",
+            ]
+        ),
     )
 
     selected = discovery.select_all_eligible_partition_paths_batch(
@@ -410,7 +639,9 @@ def test_all_eligible_selector_returns_every_eligible_day_newest_first(monkeypat
         utc_today=date(2026, 8, 27),
     )
 
-    assert [(item.year, item.month, item.day) for item in selected.selected_partitions] == [
+    assert [
+        (item.year, item.month, item.day) for item in selected.selected_partitions
+    ] == [
         ("2026", "08", "23"),
         ("2026", "08", "22"),
         ("2026", "08", "21"),
@@ -433,14 +664,21 @@ def test_selector_still_fails_when_zero_eligible_days_exist(monkeypatch):
     monkeypatch.setattr(
         discovery,
         "iter_managed_folder_paths",
-        lambda *args, **kwargs: iter([
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=24/source-recent.parquet",
-        ]),
+        lambda *args, **kwargs: iter(
+            [
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=24/source-recent.parquet",
+            ]
+        ),
     )
 
-    with pytest.raises(ValueError, match="All exact-filter matches are excluded by minimum_age_days=3; cutoff_date=2026-08-24"):
+    with pytest.raises(
+        ValueError,
+        match="All exact-filter matches are excluded by minimum_age_days=3; cutoff_date=2026-08-24",
+    ):
         discovery.select_latest_partition_paths_batch(
-            _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket"),
+            _Ctx(
+                connection_type="EC2", folder_root="root", bucket_or_container="bucket"
+            ),
             relative_prefix="silver/category=event_mapping/",
             suffix=".parquet",
             partition_filters={
@@ -462,7 +700,9 @@ def test_snapshot_api_sorts_and_reports_bounded_progress(monkeypatch):
         "/silver/category=event_mapping/module=c/file-3.parquet",
     ]
 
-    monkeypatch.setattr(discovery, "iter_managed_folder_paths", lambda *args, **kwargs: iter(paths))
+    monkeypatch.setattr(
+        discovery, "iter_managed_folder_paths", lambda *args, **kwargs: iter(paths)
+    )
 
     snapshot = discovery.collect_managed_folder_snapshot(
         _Ctx(connection_type="EC2"),
@@ -477,37 +717,53 @@ def test_snapshot_api_sorts_and_reports_bounded_progress(monkeypatch):
 
 
 def test_build_managed_folder_path_index_returns_exact_clean_schema(monkeypatch):
-    ctx = _Ctx(connection_type="EC2", folder_root="mazzzei-designer/dataiku/DATAIKU_PULSE_DASHBOARD/TggdpIiE", bucket_or_container="mazzei-dss-bucket")
+    ctx = _Ctx(
+        connection_type="EC2",
+        folder_root="mazzzei-designer/dataiku/DATAIKU_PULSE_DASHBOARD/TggdpIiE",
+        bucket_or_container="mazzei-dss-bucket",
+    )
     path = "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=04/day=24/audit_logs-history-1780699259547-2.parquet"
-    monkeypatch.setattr(discovery, "iter_managed_folder_paths", lambda *args, **kwargs: iter([path]))
+    monkeypatch.setattr(
+        discovery, "iter_managed_folder_paths", lambda *args, **kwargs: iter([path])
+    )
 
-    df = discovery.build_managed_folder_path_index(ctx, relative_prefix="silver/category=event_mapping/", suffix=".parquet")
+    df = discovery.build_managed_folder_path_index(
+        ctx, relative_prefix="silver/category=event_mapping/", suffix=".parquet"
+    )
 
     assert list(df.columns) == discovery.PATH_INDEX_COLUMNS
-    assert df.to_dict(orient="records") == [{
-        "full_path": "mazzei-dss-bucket/mazzzei-designer/dataiku/DATAIKU_PULSE_DASHBOARD/TggdpIiE/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=04/day=24/audit_logs-history-1780699259547-2.parquet",
-        "header_path": "mazzei-dss-bucket/mazzzei-designer/dataiku/DATAIKU_PULSE_DASHBOARD/TggdpIiE",
-        "layer": "silver",
-        "category": "event_mapping",
-        "module": "administration",
-        "instance_name": "mazzei_pulse",
-        "year": "2026",
-        "month": "04",
-        "day": "24",
-        "base_name": "audit_logs-history-1780699259547-2.parquet",
-    }]
+    assert df.to_dict(orient="records") == [
+        {
+            "full_path": "mazzei-dss-bucket/mazzzei-designer/dataiku/DATAIKU_PULSE_DASHBOARD/TggdpIiE/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=04/day=24/audit_logs-history-1780699259547-2.parquet",
+            "header_path": "mazzei-dss-bucket/mazzzei-designer/dataiku/DATAIKU_PULSE_DASHBOARD/TggdpIiE",
+            "layer": "silver",
+            "category": "event_mapping",
+            "module": "administration",
+            "instance_name": "mazzei_pulse",
+            "year": "2026",
+            "month": "04",
+            "day": "24",
+            "base_name": "audit_logs-history-1780699259547-2.parquet",
+        }
+    ]
 
 
 def test_build_managed_folder_path_index_rejects_malformed_paths(monkeypatch):
     monkeypatch.setattr(
         discovery,
         "iter_managed_folder_paths",
-        lambda *args, **kwargs: iter(["/silver/category=event_mapping/module=administration/bad-segment/year=2026/month=04/day=24/file.parquet"]),
+        lambda *args, **kwargs: iter(
+            [
+                "/silver/category=event_mapping/module=administration/bad-segment/year=2026/month=04/day=24/file.parquet"
+            ]
+        ),
     )
 
     with pytest.raises(ValueError, match="Unexpected managed-folder path format"):
         discovery.build_managed_folder_path_index(
-            _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket"),
+            _Ctx(
+                connection_type="EC2", folder_root="root", bucket_or_container="bucket"
+            ),
             relative_prefix="silver/category=event_mapping/",
             suffix=".parquet",
         )
@@ -516,9 +772,42 @@ def test_build_managed_folder_path_index_rejects_malformed_paths(monkeypatch):
 def test_filter_and_latest_day_selection_are_exact_and_numeric():
     df = pd.DataFrame(
         [
-            {"full_path": "p1", "header_path": "h", "layer": "silver", "category": "event_mapping", "module": "administration", "instance_name": "mazzei_pulse", "year": "2026", "month": "04", "day": "09", "base_name": "a.parquet"},
-            {"full_path": "p2", "header_path": "h", "layer": "silver", "category": "event_mapping", "module": "administration", "instance_name": "mazzei_pulse", "year": "2026", "month": "04", "day": "24", "base_name": "b.parquet"},
-            {"full_path": "p3", "header_path": "h", "layer": "silver", "category": "event_mapping", "module": "administration", "instance_name": "other_instance", "year": "2027", "month": "12", "day": "31", "base_name": "c.parquet"},
+            {
+                "full_path": "p1",
+                "header_path": "h",
+                "layer": "silver",
+                "category": "event_mapping",
+                "module": "administration",
+                "instance_name": "mazzei_pulse",
+                "year": "2026",
+                "month": "04",
+                "day": "09",
+                "base_name": "a.parquet",
+            },
+            {
+                "full_path": "p2",
+                "header_path": "h",
+                "layer": "silver",
+                "category": "event_mapping",
+                "module": "administration",
+                "instance_name": "mazzei_pulse",
+                "year": "2026",
+                "month": "04",
+                "day": "24",
+                "base_name": "b.parquet",
+            },
+            {
+                "full_path": "p3",
+                "header_path": "h",
+                "layer": "silver",
+                "category": "event_mapping",
+                "module": "administration",
+                "instance_name": "other_instance",
+                "year": "2027",
+                "month": "12",
+                "day": "31",
+                "base_name": "c.parquet",
+            },
         ],
         columns=discovery.PATH_INDEX_COLUMNS,
     )
@@ -535,7 +824,9 @@ def test_filter_and_latest_day_selection_are_exact_and_numeric():
     assert selected == ("2026", "04", "24")
 
 
-def test_streaming_selector_applies_three_day_utc_guard_and_keeps_latest_eligible(monkeypatch):
+def test_streaming_selector_applies_three_day_utc_guard_and_keeps_latest_eligible(
+    monkeypatch,
+):
     ctx = _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket")
     paths = [
         "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=24/recent-24.parquet",
@@ -547,7 +838,9 @@ def test_streaming_selector_applies_three_day_utc_guard_and_keeps_latest_eligibl
         "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=25/recent-25.parquet",
         "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/eligible-23-a.parquet",
     ]
-    monkeypatch.setattr(discovery, "iter_managed_folder_paths", lambda *args, **kwargs: iter(paths))
+    monkeypatch.setattr(
+        discovery, "iter_managed_folder_paths", lambda *args, **kwargs: iter(paths)
+    )
 
     selected = discovery.select_latest_partition_paths(
         ctx,
@@ -589,10 +882,12 @@ def test_streaming_selector_default_clock_uses_utc_today(monkeypatch):
     monkeypatch.setattr(
         discovery,
         "iter_managed_folder_paths",
-        lambda *args, **kwargs: iter([
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/eligible-23.parquet",
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=24/recent-24.parquet",
-        ]),
+        lambda *args, **kwargs: iter(
+            [
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=23/eligible-23.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=24/recent-24.parquet",
+            ]
+        ),
     )
 
     selected = discovery.select_latest_partition_paths(
@@ -616,15 +911,22 @@ def test_streaming_selector_all_recent_matches_fail_before_read(monkeypatch):
     monkeypatch.setattr(
         discovery,
         "iter_managed_folder_paths",
-        lambda *args, **kwargs: iter([
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=24/recent-24.parquet",
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=27/recent-27.parquet",
-        ]),
+        lambda *args, **kwargs: iter(
+            [
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=24/recent-24.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=08/day=27/recent-27.parquet",
+            ]
+        ),
     )
 
-    with pytest.raises(ValueError, match="All exact-filter matches are excluded by minimum_age_days=3; cutoff_date=2026-08-24"):
+    with pytest.raises(
+        ValueError,
+        match="All exact-filter matches are excluded by minimum_age_days=3; cutoff_date=2026-08-24",
+    ):
         discovery.select_latest_partition_paths(
-            _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket"),
+            _Ctx(
+                connection_type="EC2", folder_root="root", bucket_or_container="bucket"
+            ),
             relative_prefix="silver/category=event_mapping/",
             suffix=".parquet",
             partition_filters={
@@ -641,14 +943,18 @@ def test_streaming_selector_invalid_date_components_fail_clearly(monkeypatch):
     monkeypatch.setattr(
         discovery,
         "iter_managed_folder_paths",
-        lambda *args, **kwargs: iter([
-            "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=13/day=40/bad-date.parquet",
-        ]),
+        lambda *args, **kwargs: iter(
+            [
+                "/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=13/day=40/bad-date.parquet",
+            ]
+        ),
     )
 
     with pytest.raises(ValueError, match="invalid UTC calendar date"):
         discovery.select_latest_partition_paths(
-            _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket"),
+            _Ctx(
+                connection_type="EC2", folder_root="root", bucket_or_container="bucket"
+            ),
             relative_prefix="silver/category=event_mapping/",
             suffix=".parquet",
             partition_filters={
@@ -659,3 +965,216 @@ def test_streaming_selector_invalid_date_components_fail_clearly(monkeypatch):
             minimum_age_days=3,
             utc_today=date(2026, 8, 27),
         )
+
+
+def test_immediate_module_prefix_discovery_is_direct_deterministic_and_delimited(
+    monkeypatch,
+):
+    seen = {}
+
+    def fake_child_prefixes(ctx, *, physical_prefix):
+        seen["physical_prefix"] = physical_prefix
+        yield "root/silver/category=event_mapping/module=containers/"
+        yield "root/silver/category=event_mapping/module=administration/"
+
+    monkeypatch.setattr(discovery, "_iter_provider_child_prefixes", fake_child_prefixes)
+    ctx = _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket")
+
+    prefixes = list(
+        discovery.iter_managed_folder_child_prefixes(
+            ctx,
+            relative_prefix="silver/category=event_mapping/",
+            expected_partition_key="module",
+        )
+    )
+
+    assert seen == {"physical_prefix": "root/silver/category=event_mapping/"}
+    assert prefixes == [
+        "silver/category=event_mapping/module=administration/",
+        "silver/category=event_mapping/module=containers/",
+    ]
+
+
+def test_immediate_module_prefix_discovery_rejects_malformed_children(monkeypatch):
+    monkeypatch.setattr(
+        discovery,
+        "_iter_provider_child_prefixes",
+        lambda *args, **kwargs: iter(
+            ["root/silver/category=event_mapping/instance_name=bad/"]
+        ),
+    )
+    ctx = _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket")
+
+    with pytest.raises(ValueError, match="expected direct module"):
+        list(
+            discovery.iter_managed_folder_child_prefixes(
+                ctx,
+                relative_prefix="silver/category=event_mapping/",
+                expected_partition_key="module",
+            )
+        )
+
+
+def test_provider_child_prefix_adapters_use_native_delimiters(monkeypatch):
+    seen = {}
+
+    class S3Paginator:
+        def paginate(self, **kwargs):
+            seen["s3"] = kwargs
+            yield {
+                "CommonPrefixes": [
+                    {"Prefix": "root/silver/category=event_mapping/module=a/"}
+                ]
+            }
+
+    class S3Client:
+        def get_paginator(self, name):
+            assert name == "list_objects_v2"
+            return S3Paginator()
+
+    monkeypatch.setattr(discovery_s3, "_build_s3_client", lambda ctx: S3Client())
+    assert list(
+        discovery_s3.iter_s3_child_prefixes(
+            _Ctx(bucket_or_container="bucket"), physical_prefix="root/silver/"
+        )
+    ) == ["root/silver/category=event_mapping/module=a/"]
+    assert seen["s3"] == {
+        "Bucket": "bucket",
+        "Prefix": "root/silver/",
+        "Delimiter": "/",
+    }
+
+    class AzureItem:
+        name = "root/silver/category=event_mapping/module=a/"
+
+    class AzureContainer:
+        def walk_blobs(self, **kwargs):
+            seen["azure"] = kwargs
+            return [AzureItem()]
+
+    class AzureClient:
+        def get_container_client(self, container):
+            seen["azure_container"] = container
+            return AzureContainer()
+
+    monkeypatch.setattr(
+        discovery_azure, "_build_azure_blob_service_client", lambda ctx: AzureClient()
+    )
+    assert list(
+        discovery_azure.iter_azure_child_prefixes(
+            _Ctx(bucket_or_container="container"), physical_prefix="root/silver/"
+        )
+    ) == ["root/silver/category=event_mapping/module=a/"]
+    assert seen["azure"] == {"name_starts_with": "root/silver/", "delimiter": "/"}
+
+    class GcsIterator:
+        prefixes = {"root/silver/category=event_mapping/module=a/"}
+
+        def __iter__(self):
+            return iter([])
+
+    class GcsClient:
+        def list_blobs(self, bucket, **kwargs):
+            seen["gcs_bucket"] = bucket
+            seen["gcs"] = kwargs
+            return GcsIterator()
+
+    monkeypatch.setattr(
+        discovery_gcs,
+        "_build_gcs_client",
+        lambda ctx: ("google-cloud-storage", GcsClient()),
+    )
+    assert list(
+        discovery_gcs.iter_gcs_child_prefixes(
+            _Ctx(bucket_or_container="bucket"), physical_prefix="root/silver/"
+        )
+    ) == ["root/silver/category=event_mapping/module=a/"]
+    assert seen["gcs"] == {"prefix": "root/silver/", "delimiter": "/"}
+
+
+def test_s3_expired_token_refreshes_and_resumes_without_duplicates(monkeypatch):
+    from botocore.exceptions import ClientError
+
+    calls = []
+
+    class Client:
+        def __init__(self, name):
+            self.name = name
+
+        def list_objects_v2(self, **kwargs):
+            calls.append((self.name, kwargs.copy()))
+            if len(calls) == 1:
+                return {
+                    "Contents": [
+                        {
+                            "Key": "root/silver/category=event_mapping/module=a/one.parquet"
+                        }
+                    ],
+                    "IsTruncated": True,
+                    "NextContinuationToken": "token-1",
+                }
+            if len(calls) == 2:
+                raise ClientError({"Error": {"Code": "ExpiredToken"}}, "ListObjectsV2")
+            return {
+                "Contents": [
+                    {"Key": "root/silver/category=event_mapping/module=a/two.parquet"}
+                ],
+                "IsTruncated": False,
+            }
+
+    clients = iter([Client("first"), Client("second")])
+    monkeypatch.setattr(discovery_s3, "_build_s3_client", lambda ctx: next(clients))
+
+    keys = list(
+        discovery_s3.iter_s3_object_keys(
+            _Ctx(bucket_or_container="bucket"), physical_prefix="root/silver/"
+        )
+    )
+
+    assert keys == [
+        "root/silver/category=event_mapping/module=a/one.parquet",
+        "root/silver/category=event_mapping/module=a/two.parquet",
+    ]
+    assert calls == [
+        ("first", {"Bucket": "bucket", "Prefix": "root/silver/"}),
+        (
+            "first",
+            {
+                "Bucket": "bucket",
+                "Prefix": "root/silver/",
+                "ContinuationToken": "token-1",
+            },
+        ),
+        (
+            "second",
+            {
+                "Bucket": "bucket",
+                "Prefix": "root/silver/",
+                "ContinuationToken": "token-1",
+            },
+        ),
+    ]
+
+
+def test_s3_expired_token_exhaustion_fails_without_restart(monkeypatch):
+    from botocore.exceptions import ClientError
+
+    calls = []
+
+    class Client:
+        def list_objects_v2(self, **kwargs):
+            calls.append(kwargs.copy())
+            raise ClientError({"Error": {"Code": "ExpiredToken"}}, "ListObjectsV2")
+
+    monkeypatch.setattr(discovery_s3, "_build_s3_client", lambda ctx: Client())
+
+    with pytest.raises(
+        RuntimeError, match="failed after refreshing expired credentials"
+    ):
+        list(
+            discovery_s3.iter_s3_object_keys(
+                _Ctx(bucket_or_container="bucket"), physical_prefix="root/silver/"
+            )
+        )
+
+    assert calls == [{"Bucket": "bucket", "Prefix": "root/silver/"}] * 4

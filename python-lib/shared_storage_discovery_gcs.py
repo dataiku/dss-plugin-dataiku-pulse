@@ -34,7 +34,9 @@ def _build_gcs_hmac_client(ctx: StorageContextLike):
 
     resolved = resolve_gcs_hmac_credentials(ctx)
     if not resolved:
-        raise RuntimeError("Unsupported GCS credential mode for managed-folder discovery: missing_hmac")
+        raise RuntimeError(
+            "Unsupported GCS credential mode for managed-folder discovery: missing_hmac"
+        )
     access_key, hmac_secret = resolved
     return gcsfs.GCSFileSystem(access=access_key, secret=hmac_secret)
 
@@ -53,7 +55,9 @@ def _build_gcs_client(ctx: StorageContextLike):
     )
 
 
-def iter_gcs_object_names(ctx: StorageContextLike, *, physical_prefix: str) -> Iterator[str]:
+def iter_gcs_object_names(
+    ctx: StorageContextLike, *, physical_prefix: str
+) -> Iterator[str]:
     backend, client = _build_gcs_client(ctx)
     bucket = ctx.bucket_or_container
     if backend == "gcsfs":
@@ -70,4 +74,28 @@ def iter_gcs_object_names(ctx: StorageContextLike, *, physical_prefix: str) -> I
             yield name
 
 
-__all__ = ["iter_gcs_object_names"]
+def iter_gcs_child_prefixes(
+    ctx: StorageContextLike, *, physical_prefix: str
+) -> Iterator[str]:
+    backend, client = _build_gcs_client(ctx)
+    bucket = ctx.bucket_or_container
+    if backend == "gcsfs":
+        for name in client.ls(f"{bucket}/{physical_prefix}", detail=False):
+            key = (
+                str(name or "").split("/", 1)[1]
+                if "/" in str(name or "")
+                else str(name or "")
+            )
+            if key:
+                yield key.rstrip("/") + "/"
+        return
+
+    iterator = client.list_blobs(bucket, prefix=physical_prefix, delimiter="/")
+    for _blob in iterator:
+        pass
+    for prefix in getattr(iterator, "prefixes", set()) or set():
+        if prefix:
+            yield str(prefix)
+
+
+__all__ = ["iter_gcs_child_prefixes", "iter_gcs_object_names"]

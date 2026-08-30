@@ -53,7 +53,10 @@ def test_queue_populates_incrementally_and_preserves_path_alignment(monkeypatch)
         batch = queue.next_partition_batch(batch_size=1)
         assert len(batch.selected_partitions) == 1
         partition = batch.selected_partitions[0]
-        assert partition.partition_scope == "category=event_mapping; module=administration; instance_name=alpha; date=2026/08/23"
+        assert (
+            partition.partition_scope
+            == "category=event_mapping; module=administration; instance_name=alpha; date=2026/08/23"
+        )
         assert partition.relative_paths == [
             "/silver/category=event_mapping/module=administration/instance_name=alpha/year=2026/month=08/day=23/source-a.parquet",
             "/silver/category=event_mapping/module=administration/instance_name=alpha/year=2026/month=08/day=23/source-b.parquet",
@@ -66,17 +69,21 @@ def test_queue_populates_incrementally_and_preserves_path_alignment(monkeypatch)
         queue.close()
 
 
-def test_queue_returns_worker_sized_distinct_partitions_newest_first_with_stable_ties(monkeypatch):
+def test_queue_returns_worker_sized_distinct_partitions_newest_first_with_stable_ties(
+    monkeypatch,
+):
     import data_collection.audit_logs_modules.compact_silver_queue as queue_module
 
     monkeypatch.setattr(
         queue_module,
         "iter_managed_folder_paths",
-        lambda *args, **kwargs: iter([
-            "/silver/category=event_mapping/module=containers/instance_name=beta/year=2026/month=08/day=23/source-b.parquet",
-            "/silver/category=event_mapping/module=administration/instance_name=alpha/year=2026/month=08/day=23/source-a.parquet",
-            "/silver/category=event_mapping/module=administration/instance_name=gamma/year=2026/month=08/day=22/source-c.parquet",
-        ]),
+        lambda *args, **kwargs: iter(
+            [
+                "/silver/category=event_mapping/module=containers/instance_name=beta/year=2026/month=08/day=23/source-b.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=alpha/year=2026/month=08/day=23/source-a.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=gamma/year=2026/month=08/day=22/source-c.parquet",
+            ]
+        ),
     )
     ctx = _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket")
 
@@ -91,7 +98,9 @@ def test_queue_returns_worker_sized_distinct_partitions_newest_first_with_stable
             utc_today=date(2026, 8, 27),
         )
         batch = queue.next_partition_batch(batch_size=2)
-        assert [partition.partition_scope for partition in batch.selected_partitions] == [
+        assert [
+            partition.partition_scope for partition in batch.selected_partitions
+        ] == [
             "category=event_mapping; module=administration; instance_name=alpha; date=2026/08/23",
             "category=event_mapping; module=containers; instance_name=beta; date=2026/08/23",
         ]
@@ -105,3 +114,88 @@ def test_queue_close_removes_temp_directory():
     assert temp_dir.exists() is True
     queue.close()
     assert temp_dir.exists() is False
+
+
+def test_queue_stores_module_manifest_and_releases_module_paths(monkeypatch):
+    import data_collection.audit_logs_modules.compact_silver_queue as queue_module
+
+    monkeypatch.setattr(
+        queue_module,
+        "iter_managed_folder_paths",
+        lambda *args, **kwargs: iter(
+            [
+                "/silver/category=event_mapping/module=administration/instance_name=alpha/year=2026/month=08/day=23/a.parquet",
+                "/silver/category=event_mapping/module=containers/instance_name=beta/year=2026/month=08/day=23/b.parquet",
+            ]
+        ),
+    )
+    queue = CompactSilverQueue.create()
+    try:
+        manifest = queue.replace_module_manifest(
+            module_prefixes=[
+                "silver/category=event_mapping/module=containers/",
+                "silver/category=event_mapping/module=administration/",
+            ]
+        )
+        assert [entry.module for entry in manifest] == ["administration", "containers"]
+        queue.mark_module_status(module="administration", status="listing")
+        assert [entry.status for entry in queue.iter_module_manifest()][0] == "listing"
+
+        queue.populate_from_discovery(
+            storage_ctx=_Ctx(
+                connection_type="EC2", folder_root="root", bucket_or_container="bucket"
+            ),
+            relative_prefix="silver/category=event_mapping/module=administration/",
+            suffix=".parquet",
+            partition_filters={"category": "event_mapping", "module": "administration"},
+            minimum_age_days=3,
+            utc_today=date(2026, 8, 27),
+            raise_on_empty=False,
+        )
+        assert queue.queued_path_count() == 1
+        assert queue.queued_path_count(module="administration") == 1
+        queue.release_module_paths(module="administration")
+        assert queue.queued_path_count(module="administration") == 0
+    finally:
+        queue.close()
+
+
+def test_queue_keeps_same_date_cross_module_and_instance_partitions_independent(
+    monkeypatch,
+):
+    import data_collection.audit_logs_modules.compact_silver_queue as queue_module
+
+    monkeypatch.setattr(
+        queue_module,
+        "iter_managed_folder_paths",
+        lambda *args, **kwargs: iter(
+            [
+                "/silver/category=event_mapping/module=administration/instance_name=alpha/year=2026/month=08/day=23/a.parquet",
+                "/silver/category=event_mapping/module=administration/instance_name=beta/year=2026/month=08/day=23/b.parquet",
+                "/silver/category=event_mapping/module=containers/instance_name=alpha/year=2026/month=08/day=23/c.parquet",
+            ]
+        ),
+    )
+    queue = CompactSilverQueue.create()
+    try:
+        summary = queue.populate_from_discovery(
+            storage_ctx=_Ctx(
+                connection_type="EC2", folder_root="root", bucket_or_container="bucket"
+            ),
+            relative_prefix="silver/category=event_mapping/",
+            suffix=".parquet",
+            partition_filters={"category": "event_mapping"},
+            minimum_age_days=3,
+            utc_today=date(2026, 8, 27),
+        )
+        batch = queue.next_partition_batch(batch_size=10)
+        assert summary.eligible_partition_count == 3
+        assert [
+            partition.partition_scope for partition in batch.selected_partitions
+        ] == [
+            "category=event_mapping; module=administration; instance_name=alpha; date=2026/08/23",
+            "category=event_mapping; module=administration; instance_name=beta; date=2026/08/23",
+            "category=event_mapping; module=containers; instance_name=alpha; date=2026/08/23",
+        ]
+    finally:
+        queue.close()

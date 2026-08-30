@@ -3,18 +3,18 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
-from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
-
 RECIPE_PATH = Path("custom-recipes/compact-silver-layer/recipe.py")
 RECIPE_JSON_PATH = Path("custom-recipes/compact-silver-layer/recipe.json")
 RUNNABLE_PATH = Path("python-runnables/compact-silver-layer/runnable.py")
-COORDINATOR_PATH = Path("python-lib/data_collection/audit_logs_modules/compact_silver_coordinator.py")
+COORDINATOR_PATH = Path(
+    "python-lib/data_collection/audit_logs_modules/compact_silver_coordinator.py"
+)
 
 
 def _load_module(name: str, path: Path):
@@ -72,7 +72,9 @@ def _stream_result() -> SimpleNamespace:
     )
 
 
-def _selected_partition(*, module: str, instance_name: str, day: str) -> SimpleNamespace:
+def _selected_partition(
+    *, module: str, instance_name: str, day: str
+) -> SimpleNamespace:
     return SimpleNamespace(
         category="event_mapping",
         module=module,
@@ -87,7 +89,13 @@ def _selected_partition(*, module: str, instance_name: str, day: str) -> SimpleN
     )
 
 
-def _outcome(*, day: str, status: str = "succeeded", message: str = "ok", run_epoch_ms: int = 1786510805000) -> SimpleNamespace:
+def _outcome(
+    *,
+    day: str,
+    status: str = "succeeded",
+    message: str = "ok",
+    run_epoch_ms: int = 1786510805000,
+) -> SimpleNamespace:
     success = status == "succeeded"
     return SimpleNamespace(
         year="2026",
@@ -161,13 +169,32 @@ def test_recipe_manifest_uses_pulse_primary_and_explicit_flow_roles():
     } in payload["params"]
 
 
-def test_recipe_resolves_preset_from_plugin_config_and_mode_from_recipe_config(monkeypatch, recipe_module):
+def test_recipe_resolves_preset_from_plugin_config_and_mode_from_recipe_config(
+    monkeypatch, recipe_module
+):
     seen: dict[str, object] = {}
 
-    monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
-    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"pulse_partitioned_data": "configured_partitioned_data", "do_parallel": False, "cores": 3, "batch_size": 11}})
-    monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": True})
-    monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["audit_dataset_name"])
+    monkeypatch.setattr(
+        recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT"
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_plugin_config",
+        lambda: {
+            "pulse_primary": {
+                "pulse_partitioned_data": "configured_partitioned_data",
+                "do_parallel": False,
+                "cores": 3,
+                "batch_size": 11,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_recipe_config", lambda: {"normalize_silver": True}
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_output_names_for_role", lambda role: ["audit_dataset_name"]
+    )
     monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "local")
     monkeypatch.setattr(recipe_module.dataiku, "Dataset", _make_streaming_dataset(seen))
 
@@ -177,8 +204,12 @@ def test_recipe_resolves_preset_from_plugin_config_and_mode_from_recipe_config(m
         on_outcomes(
             stream_result,
             [
-                _selected_partition(module="administration", instance_name="mazzei_pulse", day="23"),
-                _selected_partition(module="containers", instance_name="tam-global", day="22"),
+                _selected_partition(
+                    module="administration", instance_name="mazzei_pulse", day="23"
+                ),
+                _selected_partition(
+                    module="containers", instance_name="tam-global", day="22"
+                ),
             ],
             [_outcome(day="23"), _outcome(day="22", run_epoch_ms=1786510805001)],
         )
@@ -205,20 +236,40 @@ def test_recipe_resolves_preset_from_plugin_config_and_mode_from_recipe_config(m
     assert result["audit_dataset"] == "audit_dataset_name"
 
 
-def test_recipe_uses_default_partitioned_data_lookup_when_preset_value_missing(monkeypatch, recipe_module):
+def test_recipe_uses_default_partitioned_data_lookup_when_preset_value_missing(
+    monkeypatch, recipe_module
+):
     seen: dict[str, object] = {}
 
-    monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
-    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"do_parallel": False, "cores": 2, "batch_size": 25}})
-    monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": False})
-    monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["audit_dataset_name"])
+    monkeypatch.setattr(
+        recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT"
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_plugin_config",
+        lambda: {"pulse_primary": {"do_parallel": False, "cores": 2, "batch_size": 25}},
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_recipe_config", lambda: {"normalize_silver": False}
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_output_names_for_role", lambda role: ["audit_dataset_name"]
+    )
     monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "local")
     monkeypatch.setattr(recipe_module.dataiku, "Dataset", _make_streaming_dataset(seen))
 
     def fake_run_compact(config, *, on_outcomes):
         seen["folder_lookup"] = config.folder_lookup
         stream_result = _stream_result()
-        on_outcomes(stream_result, [_selected_partition(module="administration", instance_name="mazzei_pulse", day="23")], [_outcome(day="23")])
+        on_outcomes(
+            stream_result,
+            [
+                _selected_partition(
+                    module="administration", instance_name="mazzei_pulse", day="23"
+                )
+            ],
+            [_outcome(day="23")],
+        )
         return stream_result
 
     monkeypatch.setattr(recipe_module, "run_compact_silver_streaming", fake_run_compact)
@@ -229,14 +280,37 @@ def test_recipe_uses_default_partitioned_data_lookup_when_preset_value_missing(m
     assert result["source_folder_lookup"] == "partitioned_data"
 
 
-def test_recipe_container_run_ignores_invalid_preset_worker_settings(monkeypatch, recipe_module):
+def test_recipe_container_run_ignores_invalid_preset_worker_settings(
+    monkeypatch, recipe_module
+):
     seen: dict[str, object] = {}
 
-    monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
-    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data", "do_parallel": False, "cores": "invalid", "batch_size": 25}})
-    monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": True})
-    monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["compact_silver_audit_ds"])
-    monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "container-name")
+    monkeypatch.setattr(
+        recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT"
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_plugin_config",
+        lambda: {
+            "pulse_primary": {
+                "pulse_partitioned_data": "partitioned_data",
+                "do_parallel": False,
+                "cores": "invalid",
+                "batch_size": 25,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_recipe_config", lambda: {"normalize_silver": True}
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_output_names_for_role",
+        lambda role: ["compact_silver_audit_ds"],
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_dss_execution_environment", lambda: "container-name"
+    )
     monkeypatch.setattr(recipe_module.dataiku, "Dataset", _make_streaming_dataset(seen))
 
     def fake_run_compact(config, *, on_outcomes):
@@ -252,7 +326,15 @@ def test_recipe_container_run_ignores_invalid_preset_worker_settings(monkeypatch
             partition_cap=7,
         )
         stream_result.dispatch_batch_size = 7
-        on_outcomes(stream_result, [_selected_partition(module="administration", instance_name="mazzei_pulse", day="23")], [_outcome(day="23")])
+        on_outcomes(
+            stream_result,
+            [
+                _selected_partition(
+                    module="administration", instance_name="mazzei_pulse", day="23"
+                )
+            ],
+            [_outcome(day="23")],
+        )
         return stream_result
 
     monkeypatch.setattr(recipe_module, "run_compact_silver_streaming", fake_run_compact)
@@ -269,11 +351,30 @@ def test_recipe_container_run_ignores_invalid_preset_worker_settings(monkeypatch
 def test_recipe_builds_bounded_streamed_audit_batches(monkeypatch, recipe_module):
     seen: dict[str, object] = {}
 
-    monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
-    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data", "batch_size": 25}})
-    monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": True})
-    monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["compact_silver_audit_ds"])
-    monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "container-name")
+    monkeypatch.setattr(
+        recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT"
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_plugin_config",
+        lambda: {
+            "pulse_primary": {
+                "pulse_partitioned_data": "partitioned_data",
+                "batch_size": 25,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_recipe_config", lambda: {"normalize_silver": True}
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_output_names_for_role",
+        lambda role: ["compact_silver_audit_ds"],
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_dss_execution_environment", lambda: "container-name"
+    )
     monkeypatch.setattr(recipe_module.dataiku, "Dataset", _make_streaming_dataset(seen))
 
     def fake_run_compact(config, *, on_outcomes):
@@ -281,8 +382,12 @@ def test_recipe_builds_bounded_streamed_audit_batches(monkeypatch, recipe_module
         on_outcomes(
             stream_result,
             [
-                _selected_partition(module="administration", instance_name="alpha", day="23"),
-                _selected_partition(module="containers", instance_name="beta", day="22"),
+                _selected_partition(
+                    module="administration", instance_name="alpha", day="23"
+                ),
+                _selected_partition(
+                    module="containers", instance_name="beta", day="22"
+                ),
             ],
             [_outcome(day="23"), _outcome(day="22", run_epoch_ms=1786510805001)],
         )
@@ -311,14 +416,35 @@ def test_recipe_builds_bounded_streamed_audit_batches(monkeypatch, recipe_module
     assert seen["writer_closed"] is True
 
 
-def test_recipe_pairs_same_day_different_module_instance_partitions_by_batch_order(monkeypatch, recipe_module):
+def test_recipe_pairs_same_day_different_module_instance_partitions_by_batch_order(
+    monkeypatch, recipe_module
+):
     seen: dict[str, object] = {}
 
-    monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
-    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data", "batch_size": 25}})
-    monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": True})
-    monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["compact_silver_audit_ds"])
-    monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "container-name")
+    monkeypatch.setattr(
+        recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT"
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_plugin_config",
+        lambda: {
+            "pulse_primary": {
+                "pulse_partitioned_data": "partitioned_data",
+                "batch_size": 25,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_recipe_config", lambda: {"normalize_silver": True}
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_output_names_for_role",
+        lambda role: ["compact_silver_audit_ds"],
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_dss_execution_environment", lambda: "container-name"
+    )
     monkeypatch.setattr(recipe_module.dataiku, "Dataset", _make_streaming_dataset(seen))
 
     def fake_run_compact(config, *, on_outcomes):
@@ -326,8 +452,12 @@ def test_recipe_pairs_same_day_different_module_instance_partitions_by_batch_ord
         on_outcomes(
             stream_result,
             [
-                _selected_partition(module="administration", instance_name="alpha", day="23"),
-                _selected_partition(module="containers", instance_name="beta", day="23"),
+                _selected_partition(
+                    module="administration", instance_name="alpha", day="23"
+                ),
+                _selected_partition(
+                    module="containers", instance_name="beta", day="23"
+                ),
             ],
             [
                 _outcome(day="23", message="first"),
@@ -348,48 +478,104 @@ def test_recipe_pairs_same_day_different_module_instance_partitions_by_batch_ord
     assert list(outcome_df["message"]) == ["first", "second"]
 
 
-def test_recipe_partition_outcome_pairing_length_mismatch_fails_clearly(monkeypatch, recipe_module):
+def test_recipe_partition_outcome_pairing_length_mismatch_fails_clearly(
+    monkeypatch, recipe_module
+):
     seen: dict[str, object] = {}
 
-    monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
-    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data", "batch_size": 25}})
-    monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": True})
-    monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["compact_silver_audit_ds"])
-    monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "container-name")
+    monkeypatch.setattr(
+        recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT"
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_plugin_config",
+        lambda: {
+            "pulse_primary": {
+                "pulse_partitioned_data": "partitioned_data",
+                "batch_size": 25,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_recipe_config", lambda: {"normalize_silver": True}
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_output_names_for_role",
+        lambda role: ["compact_silver_audit_ds"],
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_dss_execution_environment", lambda: "container-name"
+    )
     monkeypatch.setattr(recipe_module.dataiku, "Dataset", _make_streaming_dataset(seen))
 
     def fake_run_compact(config, *, on_outcomes):
         stream_result = _stream_result()
         on_outcomes(
             stream_result,
-            [_selected_partition(module="administration", instance_name="alpha", day="23")],
+            [
+                _selected_partition(
+                    module="administration", instance_name="alpha", day="23"
+                )
+            ],
             [_outcome(day="23"), _outcome(day="22", run_epoch_ms=1786510805001)],
         )
         return stream_result
 
     monkeypatch.setattr(recipe_module, "run_compact_silver_streaming", fake_run_compact)
 
-    with pytest.raises(ValueError, match="mismatched selected partition/outcome counts: partitions=1 outcomes=2"):
+    with pytest.raises(
+        ValueError,
+        match="mismatched selected partition/outcome counts: partitions=1 outcomes=2",
+    ):
         recipe_module.run()
 
     assert seen["writer_closed"] is True
 
 
-def test_recipe_summary_preview_is_bounded_and_outcome_rows_do_not_repeat_full_selection_list(monkeypatch, recipe_module):
+def test_recipe_summary_preview_is_bounded_and_outcome_rows_do_not_repeat_full_selection_list(
+    monkeypatch, recipe_module
+):
     seen: dict[str, object] = {}
 
-    monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
-    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data", "batch_size": 25}})
-    monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": True})
-    monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["compact_silver_audit_ds"])
-    monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "container-name")
+    monkeypatch.setattr(
+        recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT"
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_plugin_config",
+        lambda: {
+            "pulse_primary": {
+                "pulse_partitioned_data": "partitioned_data",
+                "batch_size": 25,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_recipe_config", lambda: {"normalize_silver": True}
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_output_names_for_role",
+        lambda role: ["compact_silver_audit_ds"],
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_dss_execution_environment", lambda: "container-name"
+    )
     monkeypatch.setattr(recipe_module.dataiku, "Dataset", _make_streaming_dataset(seen))
 
     partitions = [
-        _selected_partition(module=f"module-{index}", instance_name=f"instance-{index}", day=f"{23 - index:02d}")
+        _selected_partition(
+            module=f"module-{index}",
+            instance_name=f"instance-{index}",
+            day=f"{23 - index:02d}",
+        )
         for index in range(6)
     ]
-    outcomes = [_outcome(day=f"{23 - index:02d}", run_epoch_ms=1786510805000 + index) for index in range(6)]
+    outcomes = [
+        _outcome(day=f"{23 - index:02d}", run_epoch_ms=1786510805000 + index)
+        for index in range(6)
+    ]
 
     def fake_run_compact(config, *, on_outcomes):
         stream_result = _stream_result()
@@ -412,17 +598,40 @@ def test_recipe_summary_preview_is_bounded_and_outcome_rows_do_not_repeat_full_s
     )
     assert summary_row["selected_days"] == expected_preview
     assert outcome_df["selected_days"].isna().all()
-    assert set(outcome_df["selected_partition_scope"]) == {partition.partition_scope for partition in partitions}
+    assert set(outcome_df["selected_partition_scope"]) == {
+        partition.partition_scope for partition in partitions
+    }
 
 
 def test_recipe_audit_records_container_override_capacity(monkeypatch, recipe_module):
     seen: dict[str, object] = {}
 
-    monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
-    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data", "do_parallel": False, "cores": 2, "batch_size": 25}})
-    monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": True})
-    monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["compact_silver_audit_ds"])
-    monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "container-name")
+    monkeypatch.setattr(
+        recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT"
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_plugin_config",
+        lambda: {
+            "pulse_primary": {
+                "pulse_partitioned_data": "partitioned_data",
+                "do_parallel": False,
+                "cores": 2,
+                "batch_size": 25,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_recipe_config", lambda: {"normalize_silver": True}
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_output_names_for_role",
+        lambda role: ["compact_silver_audit_ds"],
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_dss_execution_environment", lambda: "container-name"
+    )
     monkeypatch.setattr(recipe_module.dataiku, "Dataset", _make_streaming_dataset(seen))
 
     def fake_run_compact(config, *, on_outcomes):
@@ -437,7 +646,15 @@ def test_recipe_audit_records_container_override_capacity(monkeypatch, recipe_mo
             partition_cap=7,
         )
         stream_result.dispatch_batch_size = 7
-        on_outcomes(stream_result, [_selected_partition(module="administration", instance_name="alpha", day="23")], [_outcome(day="23")])
+        on_outcomes(
+            stream_result,
+            [
+                _selected_partition(
+                    module="administration", instance_name="alpha", day="23"
+                )
+            ],
+            [_outcome(day="23")],
+        )
         return stream_result
 
     monkeypatch.setattr(recipe_module, "run_compact_silver_streaming", fake_run_compact)
@@ -457,21 +674,47 @@ def test_recipe_audit_records_container_override_capacity(monkeypatch, recipe_mo
 
 
 def test_macro_remains_capacity_limited_default_mode():
-    coordinator_text = COORDINATOR_PATH.read_text(encoding="utf-8")
+    coordinator_module = _load_module(
+        "compact_silver_coordinator_test_module", COORDINATOR_PATH
+    )
     runnable_text = RUNNABLE_PATH.read_text(encoding="utf-8")
 
-    assert 'selection_mode: Literal["latest_up_to_capacity", "all_eligible_filtered"] = "latest_up_to_capacity"' in coordinator_text
+    assert (
+        coordinator_module.CompactRunConfig.__dataclass_fields__[
+            "selection_mode"
+        ].default
+        == "latest_up_to_capacity"
+    )
     assert 'selection_mode="all_eligible_filtered"' not in runnable_text
 
 
 def test_recipe_partial_outcome_writes_audit_then_fails(monkeypatch, recipe_module):
     seen: dict[str, object] = {}
 
-    monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
-    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data", "batch_size": 25}})
-    monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": True})
-    monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["compact_silver_audit_ds"])
-    monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "container")
+    monkeypatch.setattr(
+        recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT"
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_plugin_config",
+        lambda: {
+            "pulse_primary": {
+                "pulse_partitioned_data": "partitioned_data",
+                "batch_size": 25,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_recipe_config", lambda: {"normalize_silver": True}
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_output_names_for_role",
+        lambda role: ["compact_silver_audit_ds"],
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_dss_execution_environment", lambda: "container"
+    )
     monkeypatch.setattr(recipe_module.dataiku, "Dataset", _make_streaming_dataset(seen))
 
     def fake_run_compact(config, *, on_outcomes):
@@ -479,11 +722,19 @@ def test_recipe_partial_outcome_writes_audit_then_fails(monkeypatch, recipe_modu
         on_outcomes(
             stream_result,
             [
-                _selected_partition(module="administration", instance_name="alpha", day="23"),
-                _selected_partition(module="containers", instance_name="beta", day="22"),
+                _selected_partition(
+                    module="administration", instance_name="alpha", day="23"
+                ),
+                _selected_partition(
+                    module="containers", instance_name="beta", day="22"
+                ),
             ],
             [
-                _outcome(day="23", status="no_mapped_output_retained", message="current mapper produced no output"),
+                _outcome(
+                    day="23",
+                    status="no_mapped_output_retained",
+                    message="current mapper produced no output",
+                ),
                 _outcome(day="22"),
             ],
         )
@@ -495,25 +746,59 @@ def test_recipe_partial_outcome_writes_audit_then_fails(monkeypatch, recipe_modu
         recipe_module.run()
 
     audit_df = pd.concat(seen["batches"], ignore_index=True)
-    assert list(audit_df["terminal_status"]) == ["no_mapped_output_retained", "succeeded", "partial"]
+    assert list(audit_df["terminal_status"]) == [
+        "no_mapped_output_retained",
+        "succeeded",
+        "partial",
+    ]
 
 
-def test_recipe_many_failures_keeps_bounded_scope_samples_and_closes_writer_before_raise(monkeypatch, recipe_module):
+def test_recipe_many_failures_keeps_bounded_scope_samples_and_closes_writer_before_raise(
+    monkeypatch, recipe_module
+):
     seen: dict[str, object] = {}
 
-    monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
-    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data", "batch_size": 25}})
-    monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": True})
-    monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["compact_silver_audit_ds"])
-    monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "container")
+    monkeypatch.setattr(
+        recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT"
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_plugin_config",
+        lambda: {
+            "pulse_primary": {
+                "pulse_partitioned_data": "partitioned_data",
+                "batch_size": 25,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_recipe_config", lambda: {"normalize_silver": True}
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_output_names_for_role",
+        lambda role: ["compact_silver_audit_ds"],
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_dss_execution_environment", lambda: "container"
+    )
     monkeypatch.setattr(recipe_module.dataiku, "Dataset", _make_streaming_dataset(seen))
 
     partitions = [
-        _selected_partition(module=f"module-{index}", instance_name=f"instance-{index}", day=f"{23 - index:02d}")
+        _selected_partition(
+            module=f"module-{index}",
+            instance_name=f"instance-{index}",
+            day=f"{23 - index:02d}",
+        )
         for index in range(7)
     ]
     outcomes = [
-        _outcome(day=f"{23 - index:02d}", status="no_mapped_output_retained", message=f"fail-{index}", run_epoch_ms=1786510805000 + index)
+        _outcome(
+            day=f"{23 - index:02d}",
+            status="no_mapped_output_retained",
+            message=f"fail-{index}",
+            run_epoch_ms=1786510805000 + index,
+        )
         for index in range(7)
     ]
 
@@ -526,12 +811,18 @@ def test_recipe_many_failures_keeps_bounded_scope_samples_and_closes_writer_befo
 
     monkeypatch.setattr(recipe_module, "run_compact_silver_streaming", fake_run_compact)
 
-    with pytest.raises(RuntimeError, match=r"failed_count=7; samples=.*\.\.\. \(\+2 more\)") as exc_info:
+    with pytest.raises(
+        RuntimeError, match=r"failed_count=7; samples=.*\.\.\. \(\+2 more\)"
+    ) as exc_info:
         recipe_module.run()
 
     audit_df = pd.concat(seen["batches"], ignore_index=True)
-    outcome_df = audit_df.loc[audit_df["record_type"] == "partition_outcome"].reset_index(drop=True)
-    summary_df = audit_df.loc[audit_df["record_type"] == "run_summary"].reset_index(drop=True)
+    outcome_df = audit_df.loc[
+        audit_df["record_type"] == "partition_outcome"
+    ].reset_index(drop=True)
+    summary_df = audit_df.loc[audit_df["record_type"] == "run_summary"].reset_index(
+        drop=True
+    )
     assert len(outcome_df) == 7
     assert len(summary_df) == 1
     assert summary_df.iloc[0]["terminal_status"] == "partial"
@@ -549,6 +840,15 @@ def test_macro_and_recipe_both_import_shared_coordinator():
     runnable_text = RUNNABLE_PATH.read_text(encoding="utf-8")
     coordinator_text = COORDINATOR_PATH.read_text(encoding="utf-8")
 
-    assert "from data_collection.audit_logs_modules.compact_silver_coordinator import CompactRunConfig, CompactStreamRunResult, run_compact_silver_streaming" in recipe_text
-    assert "from data_collection.audit_logs_modules.compact_silver_coordinator import (" in runnable_text
-    assert "def run_compact_silver(config: CompactRunConfig) -> CompactRunResult:" in coordinator_text
+    assert (
+        "from data_collection.audit_logs_modules.compact_silver_coordinator import CompactRunConfig, CompactStreamRunResult, run_compact_silver_streaming"
+        in recipe_text
+    )
+    assert (
+        "from data_collection.audit_logs_modules.compact_silver_coordinator import ("
+        in runnable_text
+    )
+    assert (
+        "def run_compact_silver(config: CompactRunConfig) -> CompactRunResult:"
+        in coordinator_text
+    )

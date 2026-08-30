@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from pathlib import PurePosixPath
 from typing import Any, Callable, Iterator, Protocol
 
 import pandas as pd
@@ -108,18 +109,30 @@ class SelectedPartitionBatch:
     selected_partitions: list[SelectedPartitionPaths]
 
 
-def _raise_selection_failure(*, filtered_matching_paths: int, eligible_paths: int, minimum_age_days: int, cutoff_date: date) -> None:
+def _raise_selection_failure(
+    *,
+    filtered_matching_paths: int,
+    eligible_paths: int,
+    minimum_age_days: int,
+    cutoff_date: date,
+) -> None:
     if filtered_matching_paths > 0 and eligible_paths <= 0:
         raise ValueError(
             f"All exact-filter matches are excluded by minimum_age_days={minimum_age_days}; cutoff_date={cutoff_date.isoformat()}"
         )
-    raise ValueError("No managed-folder paths matched the requested exact partition filters")
+    raise ValueError(
+        "No managed-folder paths matched the requested exact partition filters"
+    )
 
 
 def _selection_batch_from_records(
     *,
-    retained_records: dict[tuple[int, int, int, str, str, str], list[SelectedPathRecord]],
-    retained_parts: dict[tuple[int, int, int, str, str, str], tuple[str, str, str, str, str, str]],
+    retained_records: dict[
+        tuple[int, int, int, str, str, str], list[SelectedPathRecord]
+    ],
+    retained_parts: dict[
+        tuple[int, int, int, str, str, str], tuple[str, str, str, str, str, str]
+    ],
     total_matched_paths: int,
     filtered_matching_paths: int,
     skipped_compact_outputs: int,
@@ -144,7 +157,9 @@ def _selection_batch_from_records(
             year=retained_parts[retained_day][3],
             month=retained_parts[retained_day][4],
             day=retained_parts[retained_day][5],
-            selected_records=sorted(retained_records[retained_day], key=lambda item: item.relative_path),
+            selected_records=sorted(
+                retained_records[retained_day], key=lambda item: item.relative_path
+            ),
         )
         for retained_day in retained_days
     ]
@@ -183,7 +198,7 @@ def _relative_from_physical_key(*, folder_root: str, object_key: str) -> str | N
     key = str(object_key or "")
     if root and not key.startswith(root):
         return None
-    rel = key[len(root):] if root else key
+    rel = key[len(root) :] if root else key
     rel = rel.lstrip("/")
     if not rel:
         return None
@@ -199,39 +214,57 @@ def _matches_suffix(path: str, suffix: str | None) -> bool:
 def _header_path(storage_ctx: StorageContextLike) -> str:
     bucket_or_container = str(storage_ctx.bucket_or_container or "").strip().strip("/")
     if not bucket_or_container:
-        raise ValueError("Managed-folder discovery context is missing bucket/container for native path indexing")
+        raise ValueError(
+            "Managed-folder discovery context is missing bucket/container for native path indexing"
+        )
     root = str(storage_ctx.folder_root or "").strip().strip("/")
     if not root:
         return bucket_or_container
     return f"{bucket_or_container}/{root}"
 
 
-def _parse_partition_segment(segment: str, *, expected_key: str, source_path: str) -> str:
+def _parse_partition_segment(
+    segment: str, *, expected_key: str, source_path: str
+) -> str:
     key, separator, value = str(segment).partition("=")
     if separator != "=" or key != expected_key or not value:
-        raise ValueError(f"Unexpected managed-folder path format for {source_path!r}: expected {expected_key}=...")
+        raise ValueError(
+            f"Unexpected managed-folder path format for {source_path!r}: expected {expected_key}=..."
+        )
     return value
 
 
-def _path_index_row(storage_ctx: StorageContextLike, relative_path: str) -> dict[str, str]:
+def _path_index_row(
+    storage_ctx: StorageContextLike, relative_path: str
+) -> dict[str, str]:
     path = str(relative_path or "").strip()
     parts = path.lstrip("/").split("/")
     if len(parts) != 8:
-        raise ValueError(f"Unexpected managed-folder path format for {path!r}: expected 8 path segments")
+        raise ValueError(
+            f"Unexpected managed-folder path format for {path!r}: expected 8 path segments"
+        )
 
     layer = parts[0]
     if layer != "silver":
-        raise ValueError(f"Unexpected managed-folder path format for {path!r}: expected silver layer")
+        raise ValueError(
+            f"Unexpected managed-folder path format for {path!r}: expected silver layer"
+        )
 
-    category = _parse_partition_segment(parts[1], expected_key="category", source_path=path)
+    category = _parse_partition_segment(
+        parts[1], expected_key="category", source_path=path
+    )
     module = _parse_partition_segment(parts[2], expected_key="module", source_path=path)
-    instance_name = _parse_partition_segment(parts[3], expected_key="instance_name", source_path=path)
+    instance_name = _parse_partition_segment(
+        parts[3], expected_key="instance_name", source_path=path
+    )
     year = _parse_partition_segment(parts[4], expected_key="year", source_path=path)
     month = _parse_partition_segment(parts[5], expected_key="month", source_path=path)
     day = _parse_partition_segment(parts[6], expected_key="day", source_path=path)
     base_name = parts[7]
     if not base_name:
-        raise ValueError(f"Unexpected managed-folder path format for {path!r}: missing base file name")
+        raise ValueError(
+            f"Unexpected managed-folder path format for {path!r}: missing base file name"
+        )
 
     header_path = _header_path(storage_ctx)
     full_path = f"{header_path}/{path.lstrip('/')}"
@@ -249,7 +282,9 @@ def _path_index_row(storage_ctx: StorageContextLike, relative_path: str) -> dict
     }
 
 
-def _selected_path_record(storage_ctx: StorageContextLike, relative_path: str) -> SelectedPathRecord:
+def _selected_path_record(
+    storage_ctx: StorageContextLike, relative_path: str
+) -> SelectedPathRecord:
     row = _path_index_row(storage_ctx, relative_path)
     return SelectedPathRecord(
         relative_path=str(relative_path),
@@ -265,12 +300,16 @@ def _selected_path_record(storage_ctx: StorageContextLike, relative_path: str) -
     )
 
 
-def selected_path_record_from_relative_path(storage_ctx: StorageContextLike, relative_path: str) -> SelectedPathRecord:
+def selected_path_record_from_relative_path(
+    storage_ctx: StorageContextLike, relative_path: str
+) -> SelectedPathRecord:
     return _selected_path_record(storage_ctx, relative_path)
 
 
 def _is_compact_output(base_name: str) -> bool:
-    return str(base_name).startswith(COMPACT_OUTPUT_PREFIX) and str(base_name).endswith(".parquet")
+    return str(base_name).startswith(COMPACT_OUTPUT_PREFIX) and str(base_name).endswith(
+        ".parquet"
+    )
 
 
 def is_compact_output_record(record: SelectedPathRecord) -> bool:
@@ -286,14 +325,20 @@ def _day_key(*, year: str, month: str, day: str) -> tuple[int, int, int]:
         ) from exc
 
 
-
 def _partition_key(record: SelectedPathRecord) -> tuple[int, int, int, str, str, str]:
     year, month, day = _day_key(year=record.year, month=record.month, day=record.day)
     return year, month, day, record.category, record.module, record.instance_name
 
 
 def _partition_parts(record: SelectedPathRecord) -> tuple[str, str, str, str, str, str]:
-    return record.category, record.module, record.instance_name, record.year, record.month, record.day
+    return (
+        record.category,
+        record.module,
+        record.instance_name,
+        record.year,
+        record.month,
+        record.day,
+    )
 
 
 def _partition_date(*, year: str, month: str, day: str) -> date:
@@ -309,7 +354,9 @@ def partition_date_from_record(record: SelectedPathRecord) -> date:
     return _partition_date(year=record.year, month=record.month, day=record.day)
 
 
-def _iter_provider_object_keys(storage_ctx: StorageContextLike, *, physical_prefix: str) -> Iterator[str]:
+def _iter_provider_object_keys(
+    storage_ctx: StorageContextLike, *, physical_prefix: str
+) -> Iterator[str]:
     connection_type = storage_ctx.connection_type
     if connection_type == "EC2":
         from shared_storage_discovery_s3 import iter_s3_object_keys
@@ -326,7 +373,91 @@ def _iter_provider_object_keys(storage_ctx: StorageContextLike, *, physical_pref
 
         yield from iter_gcs_object_names(storage_ctx, physical_prefix=physical_prefix)
         return
-    raise RuntimeError(f"Unsupported managed-folder provider for native discovery: {connection_type}")
+    raise RuntimeError(
+        f"Unsupported managed-folder provider for native discovery: {connection_type}"
+    )
+
+
+def _iter_provider_child_prefixes(
+    storage_ctx: StorageContextLike, *, physical_prefix: str
+) -> Iterator[str]:
+    connection_type = storage_ctx.connection_type
+    if connection_type == "EC2":
+        from shared_storage_discovery_s3 import iter_s3_child_prefixes
+
+        yield from iter_s3_child_prefixes(storage_ctx, physical_prefix=physical_prefix)
+        return
+    if connection_type == "Azure":
+        from shared_storage_discovery_azure import iter_azure_child_prefixes
+
+        yield from iter_azure_child_prefixes(
+            storage_ctx, physical_prefix=physical_prefix
+        )
+        return
+    if connection_type == "GCS":
+        from shared_storage_discovery_gcs import iter_gcs_child_prefixes
+
+        yield from iter_gcs_child_prefixes(storage_ctx, physical_prefix=physical_prefix)
+        return
+    raise RuntimeError(
+        f"Unsupported managed-folder provider for native child-prefix discovery: {connection_type}"
+    )
+
+
+def _validate_direct_child_prefix(
+    *, parent_relative_prefix: str, child_relative_prefix: str, expected_key: str
+) -> str:
+    parent = _normalize_relative_prefix(parent_relative_prefix)
+    child = _normalize_relative_prefix(child_relative_prefix)
+    if not parent or not child.startswith(parent):
+        raise ValueError(
+            "Unexpected managed-folder child prefix outside requested parent prefix"
+        )
+
+    suffix = child[len(parent) :]
+    if not suffix or "/" in suffix.strip("/"):
+        raise ValueError(
+            "Unexpected managed-folder child prefix depth below requested parent prefix"
+        )
+    segment = suffix.strip("/")
+    key, separator, value = segment.partition("=")
+    if separator != "=" or key != expected_key or not value:
+        raise ValueError(
+            f"Unexpected managed-folder child prefix: expected direct {expected_key}=... child"
+        )
+    return child
+
+
+def iter_managed_folder_child_prefixes(
+    storage_ctx: StorageContextLike,
+    *,
+    relative_prefix: str,
+    expected_partition_key: str,
+) -> Iterator[str]:
+    if storage_ctx.connection_type not in {"EC2", "Azure", "GCS"}:
+        raise RuntimeError(
+            f"Unsupported managed-folder provider for native discovery: {storage_ctx.connection_type}"
+        )
+    physical_prefix = _physical_prefix(
+        folder_root=storage_ctx.folder_root, relative_prefix=relative_prefix
+    )
+    children: set[str] = set()
+    for physical_child_prefix in _iter_provider_child_prefixes(
+        storage_ctx, physical_prefix=physical_prefix
+    ):
+        rel = _relative_from_physical_key(
+            folder_root=storage_ctx.folder_root, object_key=physical_child_prefix
+        )
+        if rel is None:
+            continue
+        children.add(
+            _validate_direct_child_prefix(
+                parent_relative_prefix=relative_prefix,
+                child_relative_prefix=rel,
+                expected_key=expected_partition_key,
+            )
+        )
+    yield from sorted(children, key=lambda item: PurePosixPath(item).as_posix())
 
 
 def iter_managed_folder_paths(
@@ -336,10 +467,18 @@ def iter_managed_folder_paths(
     suffix: str | None = None,
 ) -> Iterator[str]:
     if storage_ctx.connection_type not in {"EC2", "Azure", "GCS"}:
-        raise RuntimeError(f"Unsupported managed-folder provider for native discovery: {storage_ctx.connection_type}")
-    physical_prefix = _physical_prefix(folder_root=storage_ctx.folder_root, relative_prefix=relative_prefix)
-    for object_key in _iter_provider_object_keys(storage_ctx, physical_prefix=physical_prefix):
-        rel = _relative_from_physical_key(folder_root=storage_ctx.folder_root, object_key=object_key)
+        raise RuntimeError(
+            f"Unsupported managed-folder provider for native discovery: {storage_ctx.connection_type}"
+        )
+    physical_prefix = _physical_prefix(
+        folder_root=storage_ctx.folder_root, relative_prefix=relative_prefix
+    )
+    for object_key in _iter_provider_object_keys(
+        storage_ctx, physical_prefix=physical_prefix
+    ):
+        rel = _relative_from_physical_key(
+            folder_root=storage_ctx.folder_root, object_key=object_key
+        )
         if rel is None or rel.endswith("/") or not _matches_suffix(rel, suffix):
             continue
         yield rel
@@ -351,7 +490,12 @@ def count_managed_folder_paths(
     relative_prefix: str,
     suffix: str | None = None,
 ) -> int:
-    return sum(1 for _ in iter_managed_folder_paths(storage_ctx, relative_prefix=relative_prefix, suffix=suffix))
+    return sum(
+        1
+        for _ in iter_managed_folder_paths(
+            storage_ctx, relative_prefix=relative_prefix, suffix=suffix
+        )
+    )
 
 
 def collect_managed_folder_snapshot(
@@ -363,7 +507,9 @@ def collect_managed_folder_snapshot(
     progress_callback: Callable[[int], None] | None = None,
 ) -> list[str]:
     source_paths: list[str] = []
-    for path in iter_managed_folder_paths(storage_ctx, relative_prefix=relative_prefix, suffix=suffix):
+    for path in iter_managed_folder_paths(
+        storage_ctx, relative_prefix=relative_prefix, suffix=suffix
+    ):
         source_paths.append(path)
         if (
             progress_callback is not None
@@ -384,14 +530,20 @@ def build_managed_folder_path_index(
 ) -> pd.DataFrame:
     rows = [
         _path_index_row(storage_ctx, path)
-        for path in iter_managed_folder_paths(storage_ctx, relative_prefix=relative_prefix, suffix=suffix)
+        for path in iter_managed_folder_paths(
+            storage_ctx, relative_prefix=relative_prefix, suffix=suffix
+        )
     ]
     return pd.DataFrame(rows, columns=PATH_INDEX_COLUMNS)
 
 
-def _selected_partition_batch_to_day_paths(batch: SelectedPartitionBatch) -> SelectedDayPaths:
+def _selected_partition_batch_to_day_paths(
+    batch: SelectedPartitionBatch,
+) -> SelectedDayPaths:
     if not batch.selected_partitions:
-        raise ValueError("No managed-folder paths matched the requested exact partition filters")
+        raise ValueError(
+            "No managed-folder paths matched the requested exact partition filters"
+        )
     selected = batch.selected_partitions[0]
     return SelectedDayPaths(
         total_matched_paths=batch.total_matched_paths,
@@ -421,22 +573,33 @@ def select_latest_partition_paths_batch(
     if partition_count <= 0:
         raise ValueError(f"partition_count must be positive, got {partition_count}")
     if minimum_age_days < 0:
-        raise ValueError(f"minimum_age_days must be non-negative, got {minimum_age_days}")
+        raise ValueError(
+            f"minimum_age_days must be non-negative, got {minimum_age_days}"
+        )
 
     today_utc = utc_today or datetime.now(timezone.utc).date()
     cutoff_date = today_utc - timedelta(days=minimum_age_days)
-    retained_records: dict[tuple[int, int, int, str, str, str], list[SelectedPathRecord]] = {}
-    retained_parts: dict[tuple[int, int, int, str, str, str], tuple[str, str, str, str, str, str]] = {}
+    retained_records: dict[
+        tuple[int, int, int, str, str, str], list[SelectedPathRecord]
+    ] = {}
+    retained_parts: dict[
+        tuple[int, int, int, str, str, str], tuple[str, str, str, str, str, str]
+    ] = {}
     total_matched_paths = 0
     filtered_matching_paths = 0
     skipped_compact_outputs = 0
     excluded_recent_paths = 0
     eligible_paths = 0
 
-    for relative_path in iter_managed_folder_paths(storage_ctx, relative_prefix=relative_prefix, suffix=suffix):
+    for relative_path in iter_managed_folder_paths(
+        storage_ctx, relative_prefix=relative_prefix, suffix=suffix
+    ):
         total_matched_paths += 1
         record = _selected_path_record(storage_ctx, relative_path)
-        if any(getattr(record, column_name) != expected_value for column_name, expected_value in partition_filters.items()):
+        if any(
+            getattr(record, column_name) != expected_value
+            for column_name, expected_value in partition_filters.items()
+        ):
             continue
 
         if _is_compact_output(record.base_name):
@@ -444,7 +607,9 @@ def select_latest_partition_paths_batch(
             continue
 
         filtered_matching_paths += 1
-        partition_day = _partition_date(year=record.year, month=record.month, day=record.day)
+        partition_day = _partition_date(
+            year=record.year, month=record.month, day=record.day
+        )
         if partition_day >= cutoff_date:
             excluded_recent_paths += 1
             continue
@@ -492,22 +657,33 @@ def select_all_eligible_partition_paths_batch(
     utc_today: date | None = None,
 ) -> SelectedPartitionBatch:
     if minimum_age_days < 0:
-        raise ValueError(f"minimum_age_days must be non-negative, got {minimum_age_days}")
+        raise ValueError(
+            f"minimum_age_days must be non-negative, got {minimum_age_days}"
+        )
 
     today_utc = utc_today or datetime.now(timezone.utc).date()
     cutoff_date = today_utc - timedelta(days=minimum_age_days)
-    retained_records: dict[tuple[int, int, int, str, str, str], list[SelectedPathRecord]] = {}
-    retained_parts: dict[tuple[int, int, int, str, str, str], tuple[str, str, str, str, str, str]] = {}
+    retained_records: dict[
+        tuple[int, int, int, str, str, str], list[SelectedPathRecord]
+    ] = {}
+    retained_parts: dict[
+        tuple[int, int, int, str, str, str], tuple[str, str, str, str, str, str]
+    ] = {}
     total_matched_paths = 0
     filtered_matching_paths = 0
     skipped_compact_outputs = 0
     excluded_recent_paths = 0
     eligible_paths = 0
 
-    for relative_path in iter_managed_folder_paths(storage_ctx, relative_prefix=relative_prefix, suffix=suffix):
+    for relative_path in iter_managed_folder_paths(
+        storage_ctx, relative_prefix=relative_prefix, suffix=suffix
+    ):
         total_matched_paths += 1
         record = _selected_path_record(storage_ctx, relative_path)
-        if any(getattr(record, column_name) != expected_value for column_name, expected_value in partition_filters.items()):
+        if any(
+            getattr(record, column_name) != expected_value
+            for column_name, expected_value in partition_filters.items()
+        ):
             continue
 
         if _is_compact_output(record.base_name):
@@ -515,7 +691,9 @@ def select_all_eligible_partition_paths_batch(
             continue
 
         filtered_matching_paths += 1
-        partition_day = _partition_date(year=record.year, month=record.month, day=record.day)
+        partition_day = _partition_date(
+            year=record.year, month=record.month, day=record.day
+        )
         if partition_day >= cutoff_date:
             excluded_recent_paths += 1
             continue
@@ -573,7 +751,9 @@ def select_latest_partition_day(df: pd.DataFrame) -> tuple[str, str, str]:
     required_columns = {"year", "month", "day"}
     missing_columns = required_columns.difference(df.columns)
     if missing_columns:
-        raise ValueError(f"Path-index DataFrame is missing required day columns: {sorted(missing_columns)}")
+        raise ValueError(
+            f"Path-index DataFrame is missing required day columns: {sorted(missing_columns)}"
+        )
     if df.empty:
         raise ValueError("Path-index DataFrame is empty; cannot select a day")
 
@@ -581,10 +761,14 @@ def select_latest_partition_day(df: pd.DataFrame) -> tuple[str, str, str]:
     for column_name in ["year", "month", "day"]:
         numeric_values = pd.to_numeric(unique_days[column_name], errors="coerce")
         if numeric_values.isna().any():
-            raise ValueError(f"Path-index DataFrame contains non-numeric {column_name} values; cannot select a day")
+            raise ValueError(
+                f"Path-index DataFrame contains non-numeric {column_name} values; cannot select a day"
+            )
         unique_days[f"_{column_name}"] = numeric_values.astype(int)
 
-    unique_days = unique_days.sort_values(by=["_year", "_month", "_day"], ascending=False, kind="stable")
+    unique_days = unique_days.sort_values(
+        by=["_year", "_month", "_day"], ascending=False, kind="stable"
+    )
     selected = unique_days.iloc[0]
     return str(selected["year"]), str(selected["month"]), str(selected["day"])
 
@@ -600,6 +784,7 @@ __all__ = [
     "collect_managed_folder_snapshot",
     "count_managed_folder_paths",
     "filter_path_index",
+    "iter_managed_folder_child_prefixes",
     "iter_managed_folder_paths",
     "is_compact_output_record",
     "partition_date_from_record",

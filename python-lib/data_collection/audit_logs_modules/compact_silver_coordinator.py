@@ -2,18 +2,27 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Callable, Literal
 
 from joblib import Parallel, delayed
 
-from data_collection.audit_logs_modules.compact_silver_queue import CompactSilverQueue, QueueSummary
-from data_collection.audit_logs_modules.event_mapping_replay import CompactPartitionOutcome, process_compact_selected_partition
+from data_collection.audit_logs_modules.compact_silver_queue import (
+    CompactSilverQueue,
+    QueueSummary,
+)
+from data_collection.audit_logs_modules.event_mapping_replay import (
+    CompactPartitionOutcome,
+    process_compact_selected_partition,
+)
 from data_collection.helper import DSSFolderTarget, chunked
 from shared_duckdb.context import build_storage_context
 from shared_storage_discovery import (
     SelectedPartitionBatch,
     SelectedPartitionPaths,
+    iter_managed_folder_child_prefixes,
     select_all_eligible_partition_paths_batch,
     select_latest_partition_paths_batch,
 )
@@ -38,7 +47,9 @@ class CompactRunConfig:
     param_set: dict[str, Any]
     execution_environment: str
     batch_size: int
-    selection_mode: Literal["latest_up_to_capacity", "all_eligible_filtered"] = "latest_up_to_capacity"
+    selection_mode: Literal["latest_up_to_capacity", "all_eligible_filtered"] = (
+        "latest_up_to_capacity"
+    )
 
 
 @dataclass(frozen=True)
@@ -76,7 +87,9 @@ class WorkerResolution:
     partition_cap: int
 
 
-def resolve_worker_resolution(*, param_set: dict[str, Any], execution_environment: str) -> WorkerResolution:
+def resolve_worker_resolution(
+    *, param_set: dict[str, Any], execution_environment: str
+) -> WorkerResolution:
     if execution_environment != "local":
         visible_cores = os.cpu_count() or 1
         resolved_n_jobs = max(1, visible_cores - 1)
@@ -121,12 +134,19 @@ def _process_partition_job(
             normalize_silver_mode=normalize_silver_mode,
         )
     except Exception as exc:
-        logger.exception("Compact SILVER partition worker failed for %s", selected_partition.partition_scope)
+        logger.exception(
+            "Compact SILVER partition worker failed for %s",
+            selected_partition.partition_scope,
+        )
         return CompactPartitionOutcome(
             year=selected_partition.year,
             month=selected_partition.month,
             day=selected_partition.day,
-            replay_mode="event_mapping_replay" if normalize_silver_mode else "generic_compaction",
+            replay_mode=(
+                "event_mapping_replay"
+                if normalize_silver_mode
+                else "generic_compaction"
+            ),
             status="failed",
             message=repr(exc),
             run_epoch_ms=0,
@@ -193,6 +213,29 @@ def _selected_batch_from_queue_summary(summary: QueueSummary) -> SelectedPartiti
     )
 
 
+def _add_queue_summaries(left: QueueSummary, right: QueueSummary) -> QueueSummary:
+    if (
+        left.cutoff_date != right.cutoff_date
+        or left.minimum_age_days != right.minimum_age_days
+    ):
+        raise ValueError(
+            "Cannot aggregate Compact SILVER queue summaries with different age cutoffs"
+        )
+    return QueueSummary(
+        total_matched_paths=left.total_matched_paths + right.total_matched_paths,
+        filtered_matching_paths=left.filtered_matching_paths
+        + right.filtered_matching_paths,
+        skipped_compact_outputs=left.skipped_compact_outputs
+        + right.skipped_compact_outputs,
+        excluded_recent_paths=left.excluded_recent_paths + right.excluded_recent_paths,
+        eligible_paths=left.eligible_paths + right.eligible_paths,
+        eligible_partition_count=left.eligible_partition_count
+        + right.eligible_partition_count,
+        cutoff_date=left.cutoff_date,
+        minimum_age_days=left.minimum_age_days,
+    )
+
+
 def _queue_status_for_outcome(outcome: CompactPartitionOutcome) -> str:
     if outcome.status == "succeeded":
         return "succeeded"
@@ -204,60 +247,211 @@ def _queue_status_for_outcome(outcome: CompactPartitionOutcome) -> str:
 def run_compact_silver_streaming(
     config: CompactRunConfig,
     *,
-    on_outcomes: Callable[[CompactStreamRunResult, list[SelectedPartitionPaths], list[CompactPartitionOutcome]], None],
+    on_outcomes: Callable[
+        [
+            CompactStreamRunResult,
+            list[SelectedPartitionPaths],
+            list[CompactPartitionOutcome],
+        ],
+        None,
+    ],
 ) -> CompactStreamRunResult:
     worker_resolution = resolve_worker_resolution(
         param_set=config.param_set,
         execution_environment=config.execution_environment,
     )
-    storage_ctx = build_storage_context(project_key=config.project_key, folder_lookup=config.folder_lookup)
+    storage_ctx = build_storage_context(
+        project_key=config.project_key, folder_lookup=config.folder_lookup
+    )
     if config.selection_mode != "all_eligible_filtered":
-        raise ValueError(f"Streaming compact execution does not support selection_mode={config.selection_mode!r}")
+        raise ValueError(
+            f"Streaming compact execution does not support selection_mode={config.selection_mode!r}"
+        )
 
     queue = CompactSilverQueue.create()
     try:
-        queue_summary = queue.populate_from_discovery(
-            storage_ctx=storage_ctx,
-            relative_prefix=config.relative_prefix,
-            suffix=".parquet",
-            partition_filters=config.partition_filters,
+        logger.info("Compact SILVER module discovery started")
+        module_prefixes = list(
+            iter_managed_folder_child_prefixes(
+                build_storage_context(
+                    project_key=config.project_key, folder_lookup=config.folder_lookup
+                ),
+                relative_prefix=config.relative_prefix,
+                expected_partition_key="module",
+            )
+        )
+        module_manifest = queue.replace_module_manifest(module_prefixes=module_prefixes)
+        logger.info(
+            "Compact SILVER module discovery completed module_count=%s",
+            len(module_manifest),
+        )
+        if not module_manifest:
+            raise ValueError(
+                "No module prefixes matched the requested Compact SILVER category scope"
+            )
+
+        dispatch_batch_size = worker_resolution.resolved_n_jobs
+        target = DSSFolderTarget(
+            project_key=config.project_key, folder_lookup=config.folder_lookup
+        )
+        execution_mode = (
+            "joblib_threads"
+            if worker_resolution.parallel_enabled
+            and worker_resolution.resolved_n_jobs > 1
+            else "sequential"
+        )
+        queue_summary: QueueSummary | None = None
+        utc_today = datetime.now(timezone.utc).date()
+        initial_summary = QueueSummary(
+            total_matched_paths=0,
+            filtered_matching_paths=0,
+            skipped_compact_outputs=0,
+            excluded_recent_paths=0,
+            eligible_paths=0,
+            eligible_partition_count=0,
+            cutoff_date=utc_today,
             minimum_age_days=config.minimum_age_days,
         )
-        dispatch_batch_size = worker_resolution.resolved_n_jobs
-        target = DSSFolderTarget(project_key=config.project_key, folder_lookup=config.folder_lookup)
-        execution_mode = "joblib_threads" if worker_resolution.parallel_enabled and worker_resolution.resolved_n_jobs > 1 else "sequential"
         stream_result = CompactStreamRunResult(
             storage_ctx=storage_ctx,
             provider_label=PROVIDER_LABELS.get(storage_ctx.connection_type),
-            selected_batch=_selected_batch_from_queue_summary(queue_summary),
+            selected_batch=_selected_batch_from_queue_summary(initial_summary),
             execution_mode=execution_mode,
             worker_resolution=worker_resolution,
             dispatch_batch_size=dispatch_batch_size,
             selection_mode=config.selection_mode,
-            queue_summary=queue_summary,
+            queue_summary=initial_summary,
         )
 
-        while True:
-            queue_batch = queue.next_partition_batch(batch_size=dispatch_batch_size)
-            if not queue_batch.selected_partitions:
-                break
-            _batch_execution_mode, outcomes = run_partition_jobs(
-                storage_ctx=storage_ctx,
-                target=target,
-                selected_partitions=queue_batch.selected_partitions,
-                normalize_silver_mode=config.normalize_silver_mode,
-                do_parallel=worker_resolution.parallel_enabled,
-                n_jobs=worker_resolution.resolved_n_jobs,
-                batch_size=dispatch_batch_size,
+        category_succeeded = 0
+        category_retained = 0
+        category_failed = 0
+        for module_entry in module_manifest:
+            queue.mark_module_status(module=module_entry.module, status="listing")
+            module_storage_ctx = build_storage_context(
+                project_key=config.project_key, folder_lookup=config.folder_lookup
             )
-            if len(outcomes) != len(queue_batch.selected_partitions):
-                raise ValueError(
-                    "Compact SILVER streaming batch returned mismatched partition/outcome counts: "
-                    f"partitions={len(queue_batch.selected_partitions)} outcomes={len(outcomes)}"
+            listing_started = time.monotonic()
+            logger.info(
+                "Compact SILVER module listing started module=%s", module_entry.module
+            )
+            module_summary = queue.populate_from_discovery(
+                storage_ctx=module_storage_ctx,
+                relative_prefix=module_entry.relative_prefix,
+                suffix=".parquet",
+                partition_filters={
+                    **config.partition_filters,
+                    "module": module_entry.module,
+                },
+                minimum_age_days=config.minimum_age_days,
+                utc_today=utc_today,
+                raise_on_empty=False,
+            )
+            queue_summary = (
+                module_summary
+                if queue_summary is None
+                else _add_queue_summaries(queue_summary, module_summary)
+            )
+            stream_result = CompactStreamRunResult(
+                storage_ctx=storage_ctx,
+                provider_label=PROVIDER_LABELS.get(storage_ctx.connection_type),
+                selected_batch=_selected_batch_from_queue_summary(queue_summary),
+                execution_mode=execution_mode,
+                worker_resolution=worker_resolution,
+                dispatch_batch_size=dispatch_batch_size,
+                selection_mode=config.selection_mode,
+                queue_summary=queue_summary,
+            )
+            logger.info(
+                "Compact SILVER module listing completed module=%s elapsed_seconds=%.3f eligible_paths=%s eligible_partitions=%s",
+                module_entry.module,
+                time.monotonic() - listing_started,
+                module_summary.eligible_paths,
+                module_summary.eligible_partition_count,
+            )
+            if module_summary.eligible_paths <= 0:
+                queue.mark_module_status(module=module_entry.module, status="succeeded")
+                queue.release_module_paths(module=module_entry.module)
+                continue
+
+            module_succeeded = 0
+            module_retained = 0
+            module_failed = 0
+            queue.mark_module_status(module=module_entry.module, status="processing")
+            while True:
+                queue_batch = queue.next_partition_batch(batch_size=dispatch_batch_size)
+                if not queue_batch.selected_partitions:
+                    break
+                _batch_execution_mode, outcomes = run_partition_jobs(
+                    storage_ctx=module_storage_ctx,
+                    target=target,
+                    selected_partitions=queue_batch.selected_partitions,
+                    normalize_silver_mode=config.normalize_silver_mode,
+                    do_parallel=worker_resolution.parallel_enabled,
+                    n_jobs=worker_resolution.resolved_n_jobs,
+                    batch_size=dispatch_batch_size,
                 )
-            for partition, outcome in zip(queue_batch.selected_partitions, outcomes, strict=True):
-                queue.mark_partition_status(partition=partition, status=_queue_status_for_outcome(outcome))
-            on_outcomes(stream_result, queue_batch.selected_partitions, outcomes)
+                if len(outcomes) != len(queue_batch.selected_partitions):
+                    raise ValueError(
+                        "Compact SILVER streaming batch returned mismatched partition/outcome counts: "
+                        f"partitions={len(queue_batch.selected_partitions)} outcomes={len(outcomes)}"
+                    )
+                for partition, outcome in zip(
+                    queue_batch.selected_partitions, outcomes, strict=True
+                ):
+                    status = _queue_status_for_outcome(outcome)
+                    queue.mark_partition_status(partition=partition, status=status)
+                    if status == "succeeded":
+                        module_succeeded += 1
+                    elif status == "retained":
+                        module_retained += 1
+                    else:
+                        module_failed += 1
+                on_outcomes(stream_result, queue_batch.selected_partitions, outcomes)
+
+            category_succeeded += module_succeeded
+            category_retained += module_retained
+            category_failed += module_failed
+            terminal_status = (
+                "failed"
+                if module_failed
+                else "retained" if module_retained else "succeeded"
+            )
+            queue.mark_module_status(module=module_entry.module, status=terminal_status)
+            logger.info(
+                "Compact SILVER module processing completed module=%s succeeded=%s retained=%s failed=%s",
+                module_entry.module,
+                module_succeeded,
+                module_retained,
+                module_failed,
+            )
+            queue.release_module_paths(module=module_entry.module)
+
+        if queue_summary is None:
+            raise ValueError(
+                "No managed-folder paths matched the requested exact partition filters"
+            )
+        if (
+            queue_summary.filtered_matching_paths > 0
+            and queue_summary.eligible_paths <= 0
+        ):
+            raise ValueError(
+                "All exact-filter matches are excluded by "
+                f"minimum_age_days={config.minimum_age_days}; cutoff_date={queue_summary.cutoff_date.isoformat()}"
+            )
+        if queue_summary.eligible_paths <= 0:
+            raise ValueError(
+                "No managed-folder paths matched the requested exact partition filters"
+            )
+        logger.info(
+            "Compact SILVER category summary modules=%s eligible_paths=%s eligible_partitions=%s succeeded=%s retained=%s failed=%s",
+            len(module_manifest),
+            queue_summary.eligible_paths,
+            queue_summary.eligible_partition_count,
+            category_succeeded,
+            category_retained,
+            category_failed,
+        )
 
         return stream_result
     finally:
@@ -269,7 +463,9 @@ def run_compact_silver(config: CompactRunConfig) -> CompactRunResult:
         param_set=config.param_set,
         execution_environment=config.execution_environment,
     )
-    storage_ctx = build_storage_context(project_key=config.project_key, folder_lookup=config.folder_lookup)
+    storage_ctx = build_storage_context(
+        project_key=config.project_key, folder_lookup=config.folder_lookup
+    )
     if config.selection_mode == "all_eligible_filtered":
         selected_batch = select_all_eligible_partition_paths_batch(
             storage_ctx,
@@ -290,9 +486,13 @@ def run_compact_silver(config: CompactRunConfig) -> CompactRunResult:
         )
         dispatch_batch_size = config.batch_size
     if selected_batch.filtered_matching_paths <= 0:
-        raise ValueError("No SILVER parquet files matched the requested exact compact filter scope")
+        raise ValueError(
+            "No SILVER parquet files matched the requested exact compact filter scope"
+        )
 
-    target = DSSFolderTarget(project_key=config.project_key, folder_lookup=config.folder_lookup)
+    target = DSSFolderTarget(
+        project_key=config.project_key, folder_lookup=config.folder_lookup
+    )
     execution_mode, outcomes = run_partition_jobs(
         storage_ctx=storage_ctx,
         target=target,

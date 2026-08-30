@@ -22,7 +22,9 @@ def _build_azure_blob_service_client(ctx: StorageContextLike):
     account_name = params.get("storageAccount")
     if auth_type == "SHARED_KEY":
         account_url = f"https://{account_name}.blob.core.windows.net"
-        return BlobServiceClient(account_url=account_url, credential=params["accessKey"])
+        return BlobServiceClient(
+            account_url=account_url, credential=params["accessKey"]
+        )
     if auth_type == "OAUTH2_APP":
         credential = ClientSecretCredential(
             tenant_id=params["tenantId"],
@@ -31,16 +33,35 @@ def _build_azure_blob_service_client(ctx: StorageContextLike):
         )
         account_url = f"https://{account_name}.blob.core.windows.net"
         return BlobServiceClient(account_url=account_url, credential=credential)
-    raise RuntimeError(f"Unsupported Azure authentication type for managed-folder discovery: {auth_type}")
+    raise RuntimeError(
+        f"Unsupported Azure authentication type for managed-folder discovery: {auth_type}"
+    )
 
 
-def iter_azure_blob_names(ctx: StorageContextLike, *, physical_prefix: str) -> Iterator[str]:
+def iter_azure_blob_names(
+    ctx: StorageContextLike, *, physical_prefix: str
+) -> Iterator[str]:
     client = _build_azure_blob_service_client(ctx)
     container = ctx.bucket_or_container
-    for blob in client.get_container_client(container).list_blobs(name_starts_with=physical_prefix):
+    for blob in client.get_container_client(container).list_blobs(
+        name_starts_with=physical_prefix
+    ):
         name = str(getattr(blob, "name", "") or "")
         if name:
             yield name
 
 
-__all__ = ["iter_azure_blob_names"]
+def iter_azure_child_prefixes(
+    ctx: StorageContextLike, *, physical_prefix: str
+) -> Iterator[str]:
+    client = _build_azure_blob_service_client(ctx)
+    container = ctx.bucket_or_container
+    for item in client.get_container_client(container).walk_blobs(
+        name_starts_with=physical_prefix, delimiter="/"
+    ):
+        name = str(getattr(item, "name", "") or "")
+        if name:
+            yield name
+
+
+__all__ = ["iter_azure_blob_names", "iter_azure_child_prefixes"]
