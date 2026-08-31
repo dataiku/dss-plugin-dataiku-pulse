@@ -1,6 +1,10 @@
-import dataiku
+from __future__ import annotations
 
+import logging
 from pathlib import Path
+
+import dataiku
+from dataiku.customrecipe import get_recipe_config
 
 from data_collection.helper import ensure_managed_folder
 from data_collection.pulse_duckdb.context import build_storage_context
@@ -32,8 +36,58 @@ from data_collection.pulse_duckdb.table_inventory import list_table_names
 from data_collection.pulse_duckdb.user_activity import build_fact_formal_mau_daily, build_fact_user_activity_daily, build_fact_user_activity_project_daily, collect_user_activity_quality_report
 from data_collection.pulse_duckdb.license_utilization import build_fact_license_utilization_daily, collect_license_utilization_quality_report
 from data_collection.pulse_duckdb.views import create_silver_view
+from shared_duckdb.create_conn import effective_memory_limit_bytes
 from data_finalize import resolve_gold_folder_lookup
-from dataiku.customrecipe import get_recipe_config
+
+
+logger = logging.getLogger(__name__)
+
+CREATE_GOLD_DUCKDB_MEMORY_PERCENTAGE = 0.40
+CREATE_GOLD_DUCKDB_THREADS = 2
+
+
+def _format_gib(memory_bytes: int) -> str | None:
+    if memory_bytes <= 0:
+        return None
+    return f"{memory_bytes / (1024**3):.2f} GiB"
+
+
+def _duckdb_memory_limit_setting(memory_bytes: int) -> str:
+    return f"{memory_bytes}B"
+
+
+def _apply_create_gold_duckdb_session_limits(conn) -> None:
+    effective_memory_bytes, memory_source = effective_memory_limit_bytes()
+    if effective_memory_bytes <= 0:
+        conn.execute(f"SET threads = {CREATE_GOLD_DUCKDB_THREADS}")
+        applied_memory_limit = conn.execute("SELECT current_setting('memory_limit')").fetchone()[0]
+        applied_threads = conn.execute("SELECT current_setting('threads')").fetchone()[0]
+        logger.warning(
+            "Create GOLD DuckDB session memory cap not applied: effective_memory=%s memory_source=%s applied_memory_limit=%s threads=%s",
+            _format_gib(effective_memory_bytes),
+            memory_source,
+            applied_memory_limit,
+            applied_threads,
+        )
+        return
+
+    memory_limit_bytes = max(1, int(effective_memory_bytes * CREATE_GOLD_DUCKDB_MEMORY_PERCENTAGE))
+    memory_limit_setting = _duckdb_memory_limit_setting(memory_limit_bytes)
+    conn.execute(f"SET memory_limit = '{memory_limit_setting}'")
+    conn.execute(f"SET threads = {CREATE_GOLD_DUCKDB_THREADS}")
+
+    applied_memory_limit = conn.execute("SELECT current_setting('memory_limit')").fetchone()[0]
+    applied_threads = conn.execute("SELECT current_setting('threads')").fetchone()[0]
+    logger.info(
+        "Create GOLD DuckDB session limits applied: effective_memory=%s memory_source=%s duckdb_percentage=%s duckdb_memory_limit=%s duckdb_memory_limit_setting=%s applied_memory_limit=%s threads=%s",
+        _format_gib(effective_memory_bytes),
+        memory_source,
+        int(CREATE_GOLD_DUCKDB_MEMORY_PERCENTAGE * 100),
+        _format_gib(memory_limit_bytes),
+        memory_limit_setting,
+        applied_memory_limit,
+        applied_threads,
+    )
 
 
 def run():
@@ -57,6 +111,7 @@ def run():
         reset=True,
         db_path=resolve_unique_db_path(project_key=project_key, purpose="recipe_gold_builder"),
     )
+    _apply_create_gold_duckdb_session_limits(setup.conn)
     configure_storage(setup.conn, ctx=gold_ctx)
 
     import data_collection.pulse_duckdb.gold_builder as gold_builder_module
