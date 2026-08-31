@@ -74,6 +74,7 @@ class CompactStreamRunResult:
     dispatch_batch_size: int
     selection_mode: str
     queue_summary: QueueSummary
+    queue_memory_limit_setting: str | None = None
 
 
 @dataclass(frozen=True)
@@ -85,6 +86,7 @@ class WorkerResolution:
     parallel_enabled: bool
     resolved_n_jobs: int
     partition_cap: int
+    uncapped_auto_worker_count: int | None = None
 
 
 def resolve_worker_resolution(
@@ -92,15 +94,17 @@ def resolve_worker_resolution(
 ) -> WorkerResolution:
     if execution_environment != "local":
         visible_cores = os.cpu_count() or 1
-        resolved_n_jobs = max(1, visible_cores - 1)
+        uncapped_auto_worker_count = max(1, visible_cores - 1)
+        resolved_n_jobs = 1
         return WorkerResolution(
             execution_environment=execution_environment,
-            resolution_source="container_auto",
+            resolution_source="container_auto_capped",
             python_visible_cpu_count=visible_cores,
             configured_cores=None,
             parallel_enabled=True,
             resolved_n_jobs=resolved_n_jobs,
             partition_cap=resolved_n_jobs,
+            uncapped_auto_worker_count=uncapped_auto_worker_count,
         )
 
     default_cores = max((os.cpu_count() or 2) - 1, 1)
@@ -116,7 +120,32 @@ def resolve_worker_resolution(
         parallel_enabled=do_parallel,
         resolved_n_jobs=resolved_n_jobs,
         partition_cap=configured_cores,
+        uncapped_auto_worker_count=None,
     )
+
+
+def _process_rss_mb() -> int | None:
+    try:
+        with open("/proc/self/status", encoding="utf-8") as status_file:
+            for line in status_file:
+                if not line.startswith("VmRSS:"):
+                    continue
+                parts = line.split()
+                if len(parts) < 2:
+                    return None
+                rss_kb = int(parts[1])
+                if rss_kb < 0:
+                    return None
+                return rss_kb // 1024
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def _selected_partitions_source_file_count(
+    selected_partitions: list[SelectedPartitionPaths],
+) -> int:
+    return sum(len(partition.relative_paths) for partition in selected_partitions)
 
 
 def _process_partition_job(
@@ -244,6 +273,13 @@ def _queue_status_for_outcome(outcome: CompactPartitionOutcome) -> str:
     return "failed"
 
 
+def _filter_module_manifest_for_config(module_manifest: list[Any], *, config: CompactRunConfig) -> list[Any]:
+    module_filter = str(config.partition_filters.get("module") or "").strip()
+    if not module_filter:
+        return module_manifest
+    return [entry for entry in module_manifest if entry.module == module_filter]
+
+
 def run_compact_silver_streaming(
     config: CompactRunConfig,
     *,
@@ -281,6 +317,9 @@ def run_compact_silver_streaming(
             )
         )
         module_manifest = queue.replace_module_manifest(module_prefixes=module_prefixes)
+        module_manifest = _filter_module_manifest_for_config(
+            module_manifest, config=config
+        )
         logger.info(
             "Compact SILVER module discovery completed module_count=%s",
             len(module_manifest),
@@ -321,6 +360,7 @@ def run_compact_silver_streaming(
             dispatch_batch_size=dispatch_batch_size,
             selection_mode=config.selection_mode,
             queue_summary=initial_summary,
+            queue_memory_limit_setting=queue.runtime.memory_limit_setting,
         )
 
         category_succeeded = 0
@@ -361,6 +401,7 @@ def run_compact_silver_streaming(
                 dispatch_batch_size=dispatch_batch_size,
                 selection_mode=config.selection_mode,
                 queue_summary=queue_summary,
+                queue_memory_limit_setting=queue.runtime.memory_limit_setting,
             )
             logger.info(
                 "Compact SILVER module listing completed module=%s elapsed_seconds=%.3f eligible_paths=%s eligible_partitions=%s",
@@ -377,11 +418,32 @@ def run_compact_silver_streaming(
             module_succeeded = 0
             module_retained = 0
             module_failed = 0
+            module_batch_sequence = 0
             queue.mark_module_status(module=module_entry.module, status="processing")
             while True:
                 queue_batch = queue.next_partition_batch(batch_size=dispatch_batch_size)
                 if not queue_batch.selected_partitions:
                     break
+                module_batch_sequence += 1
+                batch_started = time.monotonic()
+                batch_partition_count = len(queue_batch.selected_partitions)
+                batch_source_file_count = _selected_partitions_source_file_count(
+                    queue_batch.selected_partitions
+                )
+                module_completed_before = (
+                    module_succeeded + module_retained + module_failed
+                )
+                logger.info(
+                    "Compact SILVER batch started module=%s batch_sequence=%s partition_count=%s module_partitions_completed=%s module_partitions_remaining=%s source_file_count=%s elapsed_seconds=%.3f rss_mb=%s",
+                    module_entry.module,
+                    module_batch_sequence,
+                    batch_partition_count,
+                    module_completed_before,
+                    queue.remaining_pending_partition_count(),
+                    batch_source_file_count,
+                    0.0,
+                    _process_rss_mb(),
+                )
                 _batch_execution_mode, outcomes = run_partition_jobs(
                     storage_ctx=module_storage_ctx,
                     target=target,
@@ -407,6 +469,20 @@ def run_compact_silver_streaming(
                         module_retained += 1
                     else:
                         module_failed += 1
+                module_completed_after = (
+                    module_succeeded + module_retained + module_failed
+                )
+                logger.info(
+                    "Compact SILVER batch completed module=%s batch_sequence=%s partition_count=%s module_partitions_completed=%s module_partitions_remaining=%s source_file_count=%s elapsed_seconds=%.3f rss_mb=%s",
+                    module_entry.module,
+                    module_batch_sequence,
+                    batch_partition_count,
+                    module_completed_after,
+                    queue.remaining_pending_partition_count(),
+                    batch_source_file_count,
+                    time.monotonic() - batch_started,
+                    _process_rss_mb(),
+                )
                 on_outcomes(stream_result, queue_batch.selected_partitions, outcomes)
 
             category_succeeded += module_succeeded

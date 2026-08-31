@@ -19,6 +19,34 @@ PHASE3_FILTERS = {
     "category": "event_mapping",
 }
 PHASE3_FILTER_SCOPE = "category=event_mapping"
+MODULE_FILTER_CHOICES = {
+    "all",
+    "administration",
+    "apis",
+    "application_designer",
+    "automation",
+    "charts_dashboard",
+    "coding",
+    "containers",
+    "dataset",
+    "deployer",
+    "flow",
+    "folders",
+    "genai_llm",
+    "misc_recipes",
+    "mlops",
+    "other",
+    "plugins",
+    "projects",
+    "reading_listing",
+    "scenarios",
+    "statistic_analytics",
+    "unclassified",
+    "user_maintenance",
+    "visual_recipes",
+    "webapps",
+    "wiki_artical_discussions",
+}
 OUTPUT_ROLE = "compact_silver_audit"
 SELECTED_SCOPE_PREVIEW_LIMIT = 5
 FAILED_SCOPE_SAMPLE_LIMIT = 5
@@ -89,6 +117,30 @@ def _resolve_batch_size(param_set: dict[str, Any]) -> int:
     return int(param_set.get("batch_size", 25))
 
 
+def _resolve_module_filter(recipe_config: dict[str, Any]) -> str:
+    module_filter = str(recipe_config.get("module_filter") or "all").strip()
+    if not module_filter:
+        module_filter = "all"
+    if module_filter not in MODULE_FILTER_CHOICES:
+        allowed_values = ", ".join(sorted(MODULE_FILTER_CHOICES))
+        raise ValueError(
+            f"Invalid compact SILVER module_filter={module_filter!r}; expected one of: {allowed_values}"
+        )
+    return module_filter
+
+
+def _partition_filters_for_module_filter(module_filter: str) -> dict[str, str]:
+    if module_filter == "all":
+        return dict(PHASE3_FILTERS)
+    return {**PHASE3_FILTERS, "module": module_filter}
+
+
+def _filter_scope_for_module_filter(module_filter: str) -> str:
+    if module_filter == "all":
+        return PHASE3_FILTER_SCOPE
+    return f"{PHASE3_FILTER_SCOPE}; module={module_filter}"
+
+
 def _format_selected_partition_preview(selected_partitions: list[Any], *, total_selected_count: int | None = None) -> str | None:
     scopes = [str(getattr(item, "partition_scope", "")).strip() for item in selected_partitions]
     scopes = [scope for scope in scopes if scope]
@@ -145,6 +197,7 @@ def _build_partition_outcome_rows(
     folder_lookup: str,
     execution_environment: str,
     stream_result: CompactStreamRunResult,
+    filter_scope: str,
     selected_partitions: list[Any],
     outcomes: list[CompactPartitionOutcome],
 ) -> list[dict[str, Any]]:
@@ -159,7 +212,7 @@ def _build_partition_outcome_rows(
         execution_environment=execution_environment,
         storage_ctx=stream_result.storage_ctx,
         worker_resolution=stream_result.worker_resolution,
-        filter_scope=PHASE3_FILTER_SCOPE,
+        filter_scope=filter_scope,
         queue_summary=stream_result.queue_summary,
         selection_mode=stream_result.selection_mode,
         processed_partition_count=0,
@@ -207,6 +260,7 @@ def _build_summary_row(
     folder_lookup: str,
     execution_environment: str,
     stream_result: CompactStreamRunResult,
+    filter_scope: str,
     normalize_silver_mode: bool,
     processed_partition_count: int,
     aggregate_counts: dict[str, int],
@@ -218,7 +272,7 @@ def _build_summary_row(
         execution_environment=execution_environment,
         storage_ctx=stream_result.storage_ctx,
         worker_resolution=stream_result.worker_resolution,
-        filter_scope=PHASE3_FILTER_SCOPE,
+        filter_scope=filter_scope,
         queue_summary=stream_result.queue_summary,
         selection_mode=stream_result.selection_mode,
         processed_partition_count=processed_partition_count,
@@ -259,7 +313,8 @@ def _build_summary_row(
         "message": (
             f"mode={stream_result.execution_mode}; scanned={stream_result.queue_summary.total_matched_paths}; "
             f"filtered={stream_result.queue_summary.filtered_matching_paths}; eligible={stream_result.queue_summary.eligible_paths}; "
-            f"eligible_partitions={stream_result.queue_summary.eligible_partition_count}; skipped_compact_outputs={stream_result.queue_summary.skipped_compact_outputs}"
+            f"eligible_partitions={stream_result.queue_summary.eligible_partition_count}; skipped_compact_outputs={stream_result.queue_summary.skipped_compact_outputs}; "
+            f"queue_memory_limit={stream_result.queue_memory_limit_setting or 'unset'}; requested_workers={stream_result.worker_resolution.resolved_n_jobs}"
         ),
     }
 
@@ -317,6 +372,7 @@ def _stream_audit_batch(
     folder_lookup: str,
     execution_environment: str,
     stream_result: CompactStreamRunResult,
+    filter_scope: str,
     selected_partitions: list[Any],
     outcomes: list[CompactPartitionOutcome],
     preview_partitions: list[Any],
@@ -348,6 +404,7 @@ def _stream_audit_batch(
             folder_lookup=folder_lookup,
             execution_environment=execution_environment,
             stream_result=stream_result,
+            filter_scope=filter_scope,
             selected_partitions=selected_partitions,
             outcomes=outcomes,
         ),
@@ -362,6 +419,9 @@ def run():
     recipe_config = get_recipe_config() or {}
     param_set = plugin_config.get("pulse_primary", {}) or {}
     normalize_silver_mode = bool(recipe_config.get("normalize_silver", False))
+    module_filter = _resolve_module_filter(recipe_config)
+    partition_filters = _partition_filters_for_module_filter(module_filter)
+    filter_scope = _filter_scope_for_module_filter(module_filter)
 
     source_folder_lookup = str(param_set.get("pulse_partitioned_data") or "partitioned_data")
     audit_dataset_name = _resolve_single_role_name(
@@ -392,7 +452,7 @@ def run():
                 project_key=project_key,
                 folder_lookup=source_folder_lookup,
                 relative_prefix=EVENT_MAPPING_PREFIX,
-                partition_filters=PHASE3_FILTERS,
+                partition_filters=partition_filters,
                 minimum_age_days=MINIMUM_AGE_DAYS,
                 normalize_silver_mode=normalize_silver_mode,
                 param_set=param_set,
@@ -407,6 +467,7 @@ def run():
                 folder_lookup=source_folder_lookup,
                 execution_environment=execution_environment,
                 stream_result=stream_result,
+                filter_scope=filter_scope,
                 selected_partitions=selected_partitions,
                 outcomes=outcomes,
                 preview_partitions=preview_partitions,
@@ -423,6 +484,7 @@ def run():
                     folder_lookup=source_folder_lookup,
                     execution_environment=execution_environment,
                     stream_result=stream_result,
+                    filter_scope=filter_scope,
                     normalize_silver_mode=normalize_silver_mode,
                     processed_partition_count=aggregate_counts["processed_partition_count"],
                     aggregate_counts=aggregate_counts,
@@ -457,6 +519,7 @@ def run():
         "requested_workers": stream_result.worker_resolution.resolved_n_jobs,
         "partition_cap": stream_result.worker_resolution.partition_cap,
         "dispatch_batch_size": stream_result.dispatch_batch_size,
+        "queue_memory_limit": stream_result.queue_memory_limit_setting,
         "normalize_silver": normalize_silver_mode,
         "connection_type": stream_result.storage_ctx.connection_type,
         "connection_name": stream_result.storage_ctx.connection_name,

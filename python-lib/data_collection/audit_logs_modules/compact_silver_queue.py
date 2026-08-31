@@ -11,7 +11,6 @@ from typing import Any
 import duckdb
 
 from shared_duckdb.create_conn import (
-    _duckdb_memory_limit_bytes,
     _duckdb_memory_limit_setting,
     _effective_memory_limit_bytes,
 )
@@ -25,6 +24,9 @@ from shared_storage_discovery import (
 )
 
 logger = logging.getLogger(__name__)
+
+COMPACT_QUEUE_MEMORY_PERCENTAGE = 0.20
+COMPACT_QUEUE_MEMORY_MAX_BYTES = 4 * 1024**3
 
 QUEUE_STATUSES = {"pending", "succeeded", "failed", "retained"}
 MODULE_STATUSES = {
@@ -45,6 +47,13 @@ class QueueRuntime:
     disk_used_bytes: int
     disk_free_bytes: int
     memory_limit_setting: str | None
+
+
+def _compact_queue_memory_limit_bytes(effective_memory_bytes: int) -> int:
+    if effective_memory_bytes <= 0:
+        return 0
+    percentage_limit = int(effective_memory_bytes * COMPACT_QUEUE_MEMORY_PERCENTAGE)
+    return max(1, min(COMPACT_QUEUE_MEMORY_MAX_BYTES, percentage_limit))
 
 
 @dataclass(frozen=True)
@@ -86,7 +95,7 @@ class CompactSilverQueue:
 
         db_path = temp_dir / "compact_silver_queue.duckdb"
         effective_memory_bytes, _memory_source = _effective_memory_limit_bytes()
-        memory_limit_bytes = _duckdb_memory_limit_bytes(effective_memory_bytes)
+        memory_limit_bytes = _compact_queue_memory_limit_bytes(effective_memory_bytes)
         memory_limit_setting = _duckdb_memory_limit_setting(memory_limit_bytes)
         config = {
             "temp_directory": str(temp_dir),

@@ -42,6 +42,40 @@
             "label": "Replay Normalizer and Silver checks",
             "type": "BOOLEAN",
             "defaultValue": true
+        },
+        {
+            "type": "SELECT",
+            "name": "module_filter",
+            "label": "Filter on a module",
+            "selectChoices": [
+                { "value": "all", "label": "All Modules" },
+                { "value": "administration", "label": "Administration" },
+                { "value": "apis", "label": "Apis" },
+                { "value": "application_designer", "label": "Application Designer" },
+                { "value": "automation", "label": "Automation" },
+                { "value": "charts_dashboard", "label": "Charts Dashboard" },
+                { "value": "coding", "label": "Coding" },
+                { "value": "containers", "label": "Containers" },
+                { "value": "dataset", "label": "Dataset" },
+                { "value": "deployer", "label": "Deployer" },
+                { "value": "flow", "label": "Flow" },
+                { "value": "folders", "label": "Folders" },
+                { "value": "genai_llm", "label": "GenAI LLM" },
+                { "value": "misc_recipes", "label": "Misc Recipes" },
+                { "value": "mlops", "label": "MLOps" },
+                { "value": "other", "label": "Other" },
+                { "value": "plugins", "label": "Plugins" },
+                { "value": "projects", "label": "Projects" },
+                { "value": "reading_listing", "label": "Reading Listing" },
+                { "value": "scenarios", "label": "Scenarios" },
+                { "value": "statistic_analytics", "label": "Statistic Analytics" },
+                { "value": "unclassified", "label": "Unclassified" },
+                { "value": "user_maintenance", "label": "User Maintenance" },
+                { "value": "visual_recipes", "label": "Visual Recipes" },
+                { "value": "webapps", "label": "Webapps" },
+                { "value": "wiki_artical_discussions", "label": "Wiki Artical Discussions" }
+            ],
+            "defaultValue": "all"
         }
     ],
     "resourceKeys": []

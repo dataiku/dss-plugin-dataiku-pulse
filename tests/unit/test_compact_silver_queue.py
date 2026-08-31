@@ -3,7 +3,25 @@ from __future__ import annotations
 from datetime import date
 from types import SimpleNamespace
 
-from data_collection.audit_logs_modules.compact_silver_queue import CompactSilverQueue
+from data_collection.audit_logs_modules.compact_silver_queue import (
+    CompactSilverQueue,
+    _compact_queue_memory_limit_bytes,
+)
+from shared_duckdb.create_conn import DUCKDB_MEMORY_PERCENTAGE, _duckdb_memory_limit_bytes
+
+
+def test_compact_queue_memory_limit_caps_28_gib_container():
+    effective = 28 * 1024**3
+
+    assert _compact_queue_memory_limit_bytes(effective) == 4 * 1024**3
+    assert DUCKDB_MEMORY_PERCENTAGE == 0.80
+    assert _duckdb_memory_limit_bytes(effective) == int(effective * 0.80)
+
+
+def test_compact_queue_memory_limit_uses_twenty_percent_for_smaller_container():
+    effective = 10 * 1024**3
+
+    assert _compact_queue_memory_limit_bytes(effective) == 2 * 1024**3
 
 
 class _Ctx(SimpleNamespace):

@@ -60,6 +60,7 @@ def _stream_result() -> SimpleNamespace:
             cutoff_date=pd.Timestamp("2026-08-24", tz="UTC").date(),
             minimum_age_days=1,
         ),
+        queue_memory_limit_setting="4096MiB",
         worker_resolution=SimpleNamespace(
             execution_environment="local",
             resolution_source="local_preset",
@@ -167,6 +168,142 @@ def test_recipe_manifest_uses_pulse_primary_and_explicit_flow_roles():
         "parameterSetId": "params-dashboard-instance",
         "mandatory": True,
     } in payload["params"]
+    assert {
+        "type": "SELECT",
+        "name": "module_filter",
+        "label": "Filter on a module",
+        "selectChoices": [
+            {"value": "all", "label": "All Modules"},
+            {"value": "administration", "label": "Administration"},
+            {"value": "apis", "label": "Apis"},
+            {"value": "application_designer", "label": "Application Designer"},
+            {"value": "automation", "label": "Automation"},
+            {"value": "charts_dashboard", "label": "Charts Dashboard"},
+            {"value": "coding", "label": "Coding"},
+            {"value": "containers", "label": "Containers"},
+            {"value": "dataset", "label": "Dataset"},
+            {"value": "deployer", "label": "Deployer"},
+            {"value": "flow", "label": "Flow"},
+            {"value": "folders", "label": "Folders"},
+            {"value": "genai_llm", "label": "GenAI LLM"},
+            {"value": "misc_recipes", "label": "Misc Recipes"},
+            {"value": "mlops", "label": "MLOps"},
+            {"value": "other", "label": "Other"},
+            {"value": "plugins", "label": "Plugins"},
+            {"value": "projects", "label": "Projects"},
+            {"value": "reading_listing", "label": "Reading Listing"},
+            {"value": "scenarios", "label": "Scenarios"},
+            {"value": "statistic_analytics", "label": "Statistic Analytics"},
+            {"value": "unclassified", "label": "Unclassified"},
+            {"value": "user_maintenance", "label": "User Maintenance"},
+            {"value": "visual_recipes", "label": "Visual Recipes"},
+            {"value": "webapps", "label": "Webapps"},
+            {"value": "wiki_artical_discussions", "label": "Wiki Artical Discussions"},
+        ],
+        "defaultValue": "all",
+    } in payload["params"]
+
+
+@pytest.mark.parametrize(
+    ("recipe_config", "expected_filters", "expected_scope"),
+    [
+        ({}, {"category": "event_mapping"}, "category=event_mapping"),
+        (
+            {"module_filter": ""},
+            {"category": "event_mapping"},
+            "category=event_mapping",
+        ),
+        (
+            {"module_filter": "all"},
+            {"category": "event_mapping"},
+            "category=event_mapping",
+        ),
+        (
+            {"module_filter": "folders"},
+            {"category": "event_mapping", "module": "folders"},
+            "category=event_mapping; module=folders",
+        ),
+    ],
+)
+def test_recipe_module_filter_resolves_effective_filters_and_audit_scope(
+    monkeypatch, recipe_module, recipe_config, expected_filters, expected_scope
+):
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT"
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_plugin_config",
+        lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data"}},
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_recipe_config",
+        lambda: {"normalize_silver": True, **recipe_config},
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_output_names_for_role",
+        lambda role: ["compact_silver_audit_ds"],
+    )
+    monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "local")
+    monkeypatch.setattr(recipe_module.dataiku, "Dataset", _make_streaming_dataset(seen))
+
+    def fake_run_compact(config, *, on_outcomes):
+        seen["config"] = config
+        stream_result = _stream_result()
+        on_outcomes(
+            stream_result,
+            [_selected_partition(module="folders", instance_name="alpha", day="23")],
+            [_outcome(day="23")],
+        )
+        return stream_result
+
+    monkeypatch.setattr(recipe_module, "run_compact_silver_streaming", fake_run_compact)
+
+    recipe_module.run()
+
+    assert seen["config"].partition_filters == expected_filters
+    audit_df = pd.concat(seen["batches"], ignore_index=True)
+    assert set(audit_df["filter_scope"]) == {expected_scope}
+
+
+def test_recipe_invalid_module_filter_fails_before_discovery_or_audit_mutation(
+    monkeypatch, recipe_module
+):
+    monkeypatch.setattr(
+        recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT"
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_plugin_config",
+        lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data"}},
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_recipe_config",
+        lambda: {"normalize_silver": True, "module_filter": "Folders"},
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_output_names_for_role",
+        lambda role: pytest.fail("output role resolution must not run"),
+    )
+    monkeypatch.setattr(
+        recipe_module.dataiku,
+        "Dataset",
+        lambda name: pytest.fail("audit dataset must not open"),
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "run_compact_silver_streaming",
+        lambda *args, **kwargs: pytest.fail("source discovery must not run"),
+    )
+
+    with pytest.raises(ValueError, match="Invalid compact SILVER module_filter='Folders'"):
+        recipe_module.run()
 
 
 def test_recipe_resolves_preset_from_plugin_config_and_mode_from_recipe_config(
@@ -318,14 +455,14 @@ def test_recipe_container_run_ignores_invalid_preset_worker_settings(
         stream_result = _stream_result()
         stream_result.worker_resolution = SimpleNamespace(
             execution_environment="container-name",
-            resolution_source="container_auto",
+            resolution_source="container_auto_capped",
             python_visible_cpu_count=8,
             configured_cores=None,
             parallel_enabled=True,
-            resolved_n_jobs=7,
-            partition_cap=7,
+            resolved_n_jobs=1,
+            partition_cap=1,
         )
-        stream_result.dispatch_batch_size = 7
+        stream_result.dispatch_batch_size = 1
         on_outcomes(
             stream_result,
             [
@@ -343,9 +480,9 @@ def test_recipe_container_run_ignores_invalid_preset_worker_settings(
 
     assert seen["config"].batch_size == 25
     assert result["parallel_enabled"] is True
-    assert result["requested_workers"] == 7
-    assert result["partition_cap"] == 7
-    assert result["dispatch_batch_size"] == 7
+    assert result["requested_workers"] == 1
+    assert result["partition_cap"] == 1
+    assert result["dispatch_batch_size"] == 1
 
 
 def test_recipe_builds_bounded_streamed_audit_batches(monkeypatch, recipe_module):
@@ -638,14 +775,14 @@ def test_recipe_audit_records_container_override_capacity(monkeypatch, recipe_mo
         stream_result = _stream_result()
         stream_result.worker_resolution = SimpleNamespace(
             execution_environment="container-name",
-            resolution_source="container_auto",
+            resolution_source="container_auto_capped",
             python_visible_cpu_count=8,
             configured_cores=None,
             parallel_enabled=True,
-            resolved_n_jobs=7,
-            partition_cap=7,
+            resolved_n_jobs=1,
+            partition_cap=1,
         )
-        stream_result.dispatch_batch_size = 7
+        stream_result.dispatch_batch_size = 1
         on_outcomes(
             stream_result,
             [
@@ -663,14 +800,14 @@ def test_recipe_audit_records_container_override_capacity(monkeypatch, recipe_mo
 
     audit_df = pd.concat(seen["batches"], ignore_index=True)
     assert result["parallel_enabled"] is True
-    assert result["requested_workers"] == 7
-    assert result["partition_cap"] == 7
+    assert result["requested_workers"] == 1
+    assert result["partition_cap"] == 1
     assert result["selection_mode"] == "all_eligible_filtered"
     assert result["eligible_partition_count"] == 2
     assert result["processed_partition_count"] == 1
-    assert result["dispatch_batch_size"] == 7
-    assert set(audit_df["worker_resolution_source"]) == {"container_auto"}
-    assert set(audit_df["partition_cap"]) == {7}
+    assert result["dispatch_batch_size"] == 1
+    assert set(audit_df["worker_resolution_source"]) == {"container_auto_capped"}
+    assert set(audit_df["partition_cap"]) == {1}
 
 
 def test_macro_remains_capacity_limited_default_mode():

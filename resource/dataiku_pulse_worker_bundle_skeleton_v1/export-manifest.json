@@ -1,0 +1,265 @@
+{
+  "exportUserInfo": {
+    "exportedOn": "2026-07-02T19:41:17.232+0000",
+    "exportedBy": "stephen.mazzei"
+  },
+  "exportedWithOptions": {
+    "exportUploads": false,
+    "exportManagedFS": false,
+    "exportAnalysisModels": false,
+    "exportSavedModels": false,
+    "exportManagedFolders": false,
+    "exportModelEvaluationStores": false,
+    "exportProjectResources": false,
+    "exportLabelingTasks": false,
+    "exportAllInputDatasets": false,
+    "exportAllDatasets": false,
+    "exportAllInputManagedFolders": false,
+    "exportGitRepository": false,
+    "exportInsightsData": false,
+    "useManualPluginsInfo": false,
+    "exportSavedModelsRequiredVersions": false,
+    "exportNotebooksWithOutputs": true,
+    "exportForNewBranch": false,
+    "exportKnowledgeBanks": false,
+    "exportEditableDatasets": true,
+    "exportPromptStudioHistories": false,
+    "exportNotebooks": true,
+    "exportDatasetResources": false,
+    "exportAgentReviews": false,
+    "includedDatasetsData": [],
+    "includedSavedModels": [],
+    "includedModelEvaluationStores": [],
+    "includedManagedFolders": [],
+    "includedCodeStudios": [],
+    "includedKnowledgeBanks": [],
+    "includedLabelingTasks": [],
+    "includedPromptStudiosHistories": [],
+    "shareAllInputDatasets": false,
+    "exportForeignObjectsReferences": true
+  },
+  "actualContent": {
+    "configContent": {
+      "datasets": 0,
+      "recipes": 0,
+      "savedModels": 0,
+      "modelEvaluationStores": 0,
+      "genAiEvaluationStores": 0,
+      "managedFolders": 0,
+      "scenarios": 0,
+      "analysis": 0,
+      "jupyterNotebooks": 0,
+      "sqlNotebooks": 0,
+      "insights": 0,
+      "dashboards": 0,
+      "labelingTasks": 0,
+      "agentReviews": 0,
+      "knowledgeBanks": 0,
+      "promptStudios": 0,
+      "mlSavedModels": 0,
+      "llmSavedModels": 0,
+      "llmRagModels": 0,
+      "llmFineTunedModels": 0,
+      "agents": 0
+    },
+    "includedDatasets": [],
+    "includedSavedModels": [],
+    "includedManagedFolders": [],
+    "includedModelEvaluationStores": [],
+    "includedCodeStudios": [],
+    "includedKnowledgeBanks": [],
+    "includedLabelingTasks": [],
+    "includedPromptStudiosHistories": [],
+    "allAnalysisData": false,
+    "insightsData": false
+  },
+  "bundleId": "dataiku_pulse_worker_bundle_skeleton_v1",
+  "originalProjectKey": "DATAIKU_PULSE_WORKER",
+  "manifestVersion": 3,
+  "generatedWithDSSVersion": "14.4.2",
+  "generatedWithDSSConfVersion": "14420",
+  "foreignObjects": [],
+  "exportedWithPlugins": [
+    {
+      "pluginId": "geoadmin",
+      "version": "2.3.1"
+    },
+    {
+      "pluginId": "code-env-admin",
+      "version": "1.0.0"
+    },
+    {
+      "pluginId": "code-env-utility",
+      "version": "0.0.1"
+    },
+    {
+      "pluginId": "local-r-dev-setup",
+      "version": "1.0.0"
+    },
+    {
+      "pluginId": "default-samples",
+      "version": "1.0.0"
+    },
+    {
+      "pluginId": "athena-unload",
+      "version": "0.0.4"
+    },
+    {
+      "pluginId": "uipath-orchestrator",
+      "version": "1.0.1"
+    },
+    {
+      "pluginId": "code-studio-blocks",
+      "version": "1.0.0"
+    },
+    {
+      "pluginId": "geocoder",
+      "version": "1.3.1"
+    },
+    {
+      "pluginId": "microsoft-power-bi-v2",
+      "version": "2.0.4"
+    },
+    {
+      "pluginId": "salesforce",
+      "version": "2.1.0"
+    },
+    {
+      "pluginId": "traces-explorer",
+      "version": "1.2.1"
+    },
+    {
+      "pluginId": "api-connect",
+      "version": "1.2.6"
+    },
+    {
+      "pluginId": "googlesheets",
+      "version": "1.2.1"
+    },
+    {
+      "pluginId": "project-macro-converted",
+      "version": "1.0"
+    },
+    {
+      "pluginId": "asdf",
+      "version": "0.0.1"
+    },
+    {
+      "pluginId": "document-question-answering",
+      "version": "2.2.0"
+    },
+    {
+      "pluginId": "airtable",
+      "version": "0.1.4"
+    },
+    {
+      "pluginId": "xav-test-deleteme",
+      "version": "0.0.1"
+    },
+    {
+      "pluginId": "colorbrewer-palettes",
+      "version": "0.0.1"
+    },
+    {
+      "pluginId": "eks-clusters",
+      "version": "1.5.0"
+    },
+    {
+      "pluginId": "googledrive",
+      "version": "1.1.4"
+    },
+    {
+      "pluginId": "agent-hub",
+      "version": "1.1.3"
+    },
+    {
+      "pluginId": "tableau-hyper-export",
+      "version": "0.2.1"
+    },
+    {
+      "pluginId": "builtin-macros",
+      "version": "1.0.0"
+    },
+    {
+      "pluginId": "azureopenai-apim-custom-llm",
+      "version": "1.2.0"
+    },
+    {
+      "pluginId": "agents-on-slack",
+      "version": "0.2.0"
+    },
+    {
+      "pluginId": "project-creation-macro",
+      "version": "1.0"
+    },
+    {
+      "pluginId": "k8s-metrics-utils",
+      "version": "1.0.0"
+    },
+    {
+      "pluginId": "aks-clusters",
+      "version": "3.0.1"
+    },
+    {
+      "pluginId": "project-standards",
+      "version": "0.0.1"
+    },
+    {
+      "pluginId": "office-365",
+      "version": "0.0.1"
+    },
+    {
+      "pluginId": "splunk",
+      "version": "1.1.0"
+    },
+    {
+      "pluginId": "admin-reporting",
+      "version": "0.0.1"
+    },
+    {
+      "pluginId": "onedrive",
+      "version": "1.1.0"
+    },
+    {
+      "pluginId": "tesseract-ocr",
+      "version": "2.1.1"
+    }
+  ],
+  "exportedWithCodeStudioTemplates": [
+    {
+      "templateId": "New_Template",
+      "templateLabel": "New_Template"
+    },
+    {
+      "templateId": "cloud-custodian",
+      "templateLabel": "cloud-custodian"
+    },
+    {
+      "templateId": "dennis_vs_code",
+      "templateLabel": "dennis_vs_code"
+    },
+    {
+      "templateId": "enassar-rstudio-template",
+      "templateLabel": "rstudio-template"
+    },
+    {
+      "templateId": "flask",
+      "templateLabel": "flask"
+    },
+    {
+      "templateId": "shiny-dash",
+      "templateLabel": "shiny-dash"
+    }
+  ],
+  "requiredCodeStudioTemplates": [],
+  "requiredConnections": {},
+  "allowedMissingConnections": [],
+  "usedCodeEnvRefs": [],
+  "allowedMissingCodeEnvs": [],
+  "usedContainerExecConfs": [],
+  "hasPartitionedDataset": false,
+  "designNodeInstallId": "68Bw2R2QaToZTRBTZG7UPwF8",
+  "designNodeId": "feoperations",
+  "designNodeUrl": "https://feoperations.fe-aws.dkucloud-dev.com",
+  "projectStandardsSkipped": false
+}
