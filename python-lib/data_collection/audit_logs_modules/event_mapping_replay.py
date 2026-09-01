@@ -16,9 +16,11 @@ from typing import Any
 import duckdb
 import pandas as pd
 
+from data_collection.audit_logs_modules.compact_silver_queue import _compact_queue_memory_limit_bytes
 from data_collection.audit_logs_modules import event_mapping
 from data_collection.data_normalizer import DQResult, check_silver_dq, normalize_silver
 from data_collection.helper import DSSFolderTarget, get_managed_folder_handle, upload_parquet
+from shared_duckdb.create_conn import _duckdb_memory_limit_setting, _effective_memory_limit_bytes
 from shared_storage_discovery import SelectedPartitionPaths, SelectedPathRecord
 from shared_storage_parquet_s3 import COMPACT_SILVER_S3_READ_BATCH_SIZE, read_s3_parquet_file_batch
 
@@ -31,6 +33,7 @@ _REPLAY_SAVE_EPOCH_LOCK = threading.Lock()
 _LAST_COMPACT_SAVE_EPOCH_MS = 0
 _COMPACT_SAVE_EPOCH_LOCK = threading.Lock()
 COMPACT_SILVER_OUTPUT_ROW_CHUNK_SIZE = 100_000
+REPLACEMENT_EVIDENCE_SAMPLE_SIZE = 5
 _STAGE_ORDER_COLUMN = "__compact_row_order"
 
 
@@ -216,8 +219,8 @@ def cleanup_written_replacements(*, folder: Any, paths: list[str]) -> tuple[tupl
             delete_managed_folder_file(folder, path)
             cleaned_paths.append(path)
         except Exception as exc:
-            logger.exception("Failed cleaning replay replacement index=%s", replacement_index)
-            cleanup_errors.append(f"replacement_index={replacement_index}: {exc!r}")
+            logger.exception("Failed cleaning replay replacement %s", path)
+            cleanup_errors.append(f"{path}: {exc!r}")
     return tuple(cleaned_paths), cleanup_errors
 
 
@@ -230,9 +233,17 @@ def format_partial_write_message(
     parts = [base_message]
     if written_paths:
         parts.append(f"written_count={len(written_paths)}")
+        parts.append(_format_replacement_path_sample(label="written_sample", paths=written_paths))
     if cleanup_paths:
         parts.append(f"cleanup_count={len(cleanup_paths)}")
+        parts.append(_format_replacement_path_sample(label="cleanup_sample", paths=cleanup_paths))
     return "; ".join(parts)
+
+
+def _format_replacement_path_sample(*, label: str, paths: tuple[str, ...]) -> str:
+    sample = tuple(paths[:REPLACEMENT_EVIDENCE_SAMPLE_SIZE])
+    omitted_count = max(0, len(paths) - len(sample))
+    return f"{label}=[{', '.join(sample)}]; {label}_omitted_count={omitted_count}"
 
 
 def discover_event_mapping_paths(folder: Any) -> list[str]:
@@ -484,6 +495,26 @@ def _duckdb_columns(con: duckdb.DuckDBPyConnection, table_name: str) -> list[str
     return [str(row[1]) for row in con.execute(f"PRAGMA table_info({quoted_table})").fetchall()]
 
 
+def _compact_stage_duckdb_config(*, spill_dir: Path) -> dict[str, str]:
+    spill_dir.mkdir(parents=True, exist_ok=True)
+    effective_memory_bytes, memory_source = _effective_memory_limit_bytes()
+    memory_limit_bytes = _compact_queue_memory_limit_bytes(effective_memory_bytes)
+    memory_limit_setting = _duckdb_memory_limit_setting(memory_limit_bytes)
+    config = {
+        "temp_directory": str(spill_dir),
+        "preserve_insertion_order": "false",
+    }
+    if memory_limit_setting:
+        config["memory_limit"] = memory_limit_setting
+    else:
+        logger.warning(
+            "Compact SILVER stage DuckDB effective memory unavailable; using DuckDB default memory limit memory_source=%s spill_directory=%s",
+            memory_source,
+            spill_dir,
+        )
+    return config
+
+
 def _process_rss_mb() -> int | None:
     try:
         with open("/proc/self/status", encoding="utf-8") as status_file:
@@ -512,16 +543,20 @@ def _stage_compact_s3_partition(
 ) -> CompactStageResult:
     total_files = len(selected_partition.selected_records)
     started = time.monotonic()
+    spill_dir = database_path.parent / "duckdb-spill"
+    duckdb_config = _compact_stage_duckdb_config(spill_dir=spill_dir)
     logger.info(
-        "Compact SILVER partition staging started partition=%s source_file_count=%s s3_read_batch_size=%s elapsed_seconds=%.3f rss_mb=%s",
+        "Compact SILVER partition staging started partition=%s source_file_count=%s s3_read_batch_size=%s stage_memory_limit=%s spill_directory=%s elapsed_seconds=%.3f rss_mb=%s",
         selected_partition.partition_scope,
         total_files,
         s3_read_batch_size,
+        duckdb_config.get("memory_limit"),
+        duckdb_config["temp_directory"],
         0.0,
         _process_rss_mb(),
     )
 
-    con = duckdb.connect(str(database_path))
+    con = duckdb.connect(str(database_path), config=duckdb_config)
     raw_created = False
     raw_rows = 0
     files_read = 0
@@ -1259,7 +1294,11 @@ def apply_compact_replacement_plans(
                 verified_paths=tuple(verified_paths),
                 cleanup_paths=cleaned_paths,
                 retained_source_paths=tuple(source_relative_paths),
-                message=f"Verification failed: {exc!r}; cleanup failed: {'; '.join(cleanup_errors)}",
+                message=format_partial_write_message(
+                    base_message=f"Verification failed: {exc!r}; cleanup failed for {len(cleanup_errors)} replacement(s)",
+                    written_paths=upload_result.written_paths,
+                    cleanup_paths=cleaned_paths,
+                ),
             )
         return CompactApplyResult(
             status="verification_failed_cleaned",
@@ -1414,7 +1453,7 @@ def upload_event_mapping_replacements(*, target: DSSFolderTarget, folder: Any, p
                 written_paths=tuple(written_paths),
                 cleanup_paths=cleaned_paths,
                 message=format_partial_write_message(
-                    base_message=f"Upload failed: {exc!r}; cleanup failed: {'; '.join(cleanup_errors)}",
+                    base_message=f"Upload failed: {exc!r}; cleanup failed for {len(cleanup_errors)} replacement(s)",
                     written_paths=tuple(written_paths),
                     cleanup_paths=cleaned_paths,
                 ),

@@ -834,3 +834,136 @@ def test_staged_processing_verification_failure_cleans_outputs_and_retains_sourc
     assert result.apply_result.status == "verification_failed_cleaned"
     assert result.apply_result.retained_source_paths == tuple(partition.relative_paths)
     assert [event[0] for event in events] == ["upload", "upload", "delete", "delete"]
+
+
+def test_compact_stage_duckdb_config_caps_28_gib_memory_and_uses_partition_spill(monkeypatch, tmp_path):
+    monkeypatch.setattr(replay, "_effective_memory_limit_bytes", lambda: (28 * 1024**3, "cgroup_v2"))
+    spill_dir = tmp_path / "partition" / "duckdb-spill"
+
+    config = replay._compact_stage_duckdb_config(spill_dir=spill_dir)
+
+    assert config["memory_limit"] == "4096MiB"
+    assert config["temp_directory"] == str(spill_dir)
+    assert str(spill_dir).startswith(str(tmp_path / "partition"))
+    assert spill_dir.is_dir()
+    assert config["preserve_insertion_order"] == "false"
+
+
+def test_compact_stage_duckdb_config_unknown_memory_leaves_limit_unset(monkeypatch, tmp_path, caplog):
+    monkeypatch.setattr(replay, "_effective_memory_limit_bytes", lambda: (0, "unknown"))
+    caplog.set_level("WARNING", logger=replay.__name__)
+
+    config = replay._compact_stage_duckdb_config(spill_dir=tmp_path / "duckdb-spill")
+
+    assert "memory_limit" not in config
+    assert "effective memory unavailable" in caplog.text
+
+
+def test_stage_duckdb_config_is_applied_before_staging_sql(monkeypatch, tmp_path):
+    partition = _partition_with_count(1)
+    events = []
+    expected_spill_dir = tmp_path / "duckdb-spill"
+
+    class FakeConnection:
+        def __init__(self):
+            self.tables = {"raw_stage"}
+
+        def execute(self, sql, params=None):
+            events.append(("execute", str(sql).strip().split()[0]))
+            if "PRAGMA table_info" in str(sql):
+                return SimpleNamespace(fetchall=lambda: [(0, replay._STAGE_ORDER_COLUMN), (1, "a")])
+            if "SELECT COUNT(*) FROM dedup_stage" in str(sql):
+                return SimpleNamespace(fetchone=lambda: [1])
+            return SimpleNamespace(fetchall=lambda: [], fetchone=lambda: [1])
+
+        def register(self, name, df):
+            events.append(("register", name))
+
+        def unregister(self, name):
+            events.append(("unregister", name))
+
+        def close(self):
+            events.append(("close", ""))
+
+    def fake_connect(path, config=None):
+        events.append(("connect", path, dict(config or {})))
+        return FakeConnection()
+
+    monkeypatch.setattr(replay, "duckdb", SimpleNamespace(connect=fake_connect, DuckDBPyConnection=object))
+    monkeypatch.setattr(replay, "_effective_memory_limit_bytes", lambda: (28 * 1024**3, "cgroup_v2"))
+    monkeypatch.setattr(replay, "read_s3_parquet_file_batch", lambda storage_ctx, *, full_paths: pd.DataFrame([{"a": 1}]))
+
+    replay._stage_compact_s3_partition(
+        storage_ctx=SimpleNamespace(connection_type="EC2"),
+        storage_ctx_factory=None,
+        selected_partition=partition,
+        database_path=tmp_path / "partition.duckdb",
+        s3_read_batch_size=5_000,
+    )
+
+    assert events[0] == (
+        "connect",
+        str(tmp_path / "partition.duckdb"),
+        {
+            "temp_directory": str(expected_spill_dir),
+            "preserve_insertion_order": "false",
+            "memory_limit": "4096MiB",
+        },
+    )
+    assert events[1][0] in {"register", "execute"}
+
+
+def test_partial_write_message_includes_bounded_replacement_samples_and_omission_count():
+    paths = tuple(f"/silver/category=event_mapping/module=folders/instance_name=alpha/year=2026/month=06/day=12/compact_silver-1-{index:04d}.parquet" for index in range(1, 8))
+
+    message = replay.format_partial_write_message(
+        base_message="Upload failed",
+        written_paths=paths,
+        cleanup_paths=paths[:6],
+    )
+
+    assert "written_count=7" in message
+    assert "cleanup_count=6" in message
+    for path in paths[:5]:
+        assert path in message
+    assert paths[5] not in message
+    assert paths[6] not in message
+    assert "written_sample_omitted_count=2" in message
+    assert "cleanup_sample_omitted_count=1" in message
+
+
+def test_upload_cleanup_failure_message_uses_bounded_replacement_evidence(monkeypatch):
+    paths = [
+        f"/silver/category=event_mapping/module=folders/instance_name=alpha/year=2026/month=06/day=12/compact_silver-1-{index:04d}.parquet"
+        for index in range(1, 8)
+    ]
+    plans = [
+        replay.ReplayWritePlan(
+            output_path=Path(path),
+            silver_df=pd.DataFrame([{"instance_name": "alpha", "run_ts": "2026-06-12T00:00:00Z"}]),
+            dq=replay.DQResult(ok=True, errors=[]),
+            module_name="folders",
+            event_date=date(2026, 6, 12),
+        )
+        for path in paths
+    ]
+
+    def fake_upload(**kwargs):
+        if str(kwargs["output_path"]) == paths[-1]:
+            raise RuntimeError("upload failed")
+        return True
+
+    monkeypatch.setattr(replay, "upload_parquet", fake_upload)
+    monkeypatch.setattr(replay, "cleanup_written_replacements", lambda *, folder, paths: ((), [f"{path}: cleanup failed" for path in paths]))
+
+    result = replay.upload_event_mapping_replacements(target=object(), folder=object(), plans=plans)
+
+    assert result.status == "upload_failed_cleanup_failed"
+    assert "written_count=6" in result.message
+    assert "cleanup_count" not in result.message
+    for path in paths[:5]:
+        assert path in result.message
+    assert paths[5] not in result.message
+    assert paths[6] not in result.message
+    assert "written_sample_omitted_count=1" in result.message
+    assert "cleanup failed for 6 replacement(s)" in result.message
