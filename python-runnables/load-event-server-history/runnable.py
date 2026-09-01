@@ -388,7 +388,6 @@ def _cleanup_history_processor_output(df: pd.DataFrame) -> pd.DataFrame:
         "mdc",
         "servertimestamp",
         "origaddress",
-        "date",
     }
     out = out.drop(columns=[column for column in out.columns if str(column).lower() in raw_drop_columns], errors="ignore")
 

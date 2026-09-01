@@ -318,6 +318,17 @@ def ensure_managed_folder(
     )
 
 
+def get_managed_folder_handle(*, target: DSSFolderTarget) -> Any:
+    """Return the existing resolved managed-folder handle for a target.
+
+    This reuses the same cached local/remote resolution used by uploads so
+    callers can safely perform non-upload operations against the identical
+    configured target.
+    """
+
+    return _get_or_create_folder(target)
+
+
 def upload_bytes(
     *,
     target: DSSFolderTarget,

@@ -142,14 +142,6 @@ def _prefilter_processor_input(*, proc_name: str, chunk: pd.DataFrame) -> pd.Dat
     if chunk is None or not isinstance(chunk, pd.DataFrame) or chunk.shape[0] == 0:
         return pd.DataFrame()
 
-    if proc_name == "event_mapping":
-        if "message_msgType" in chunk.columns:
-            filtered = chunk[chunk["message_msgType"].notna()].copy()
-            if filtered.shape[0] == 0:
-                return filtered
-            chunk = filtered
-        return chunk
-
     if proc_name == "users":
         filtered = chunk
         if "message_authSource" in filtered.columns:

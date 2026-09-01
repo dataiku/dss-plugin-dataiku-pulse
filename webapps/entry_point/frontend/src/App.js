@@ -5260,14 +5260,30 @@ function LicensePerformanceSection({
   userLicenseGroupProfilesAll,
   userLicenseGroupProfilesInstance,
 }) {
-  const formatLicenseUsage = (enabledUsers, maxLicenses) => {
+  const formatEntitlementCount = (value) => Number(value ?? 0).toLocaleString();
+  const formatUtilization = (enabledUsers, maxLicenses) => {
     const used = Number(enabledUsers ?? 0);
     const max = Number(maxLicenses);
     if (!Number.isFinite(max) || max <= 0) {
-      return used.toLocaleString();
+      return '—';
     }
-    return `${used.toLocaleString()} / ${max.toLocaleString()}`;
+    return `${((used / max) * 100).toFixed(1)}%`;
   };
+  const flattenEntitlementRows = (groups) => (groups || []).flatMap((group) => (
+    (group.profiles || []).map((profile) => {
+      const enabledUsers = Number(profile.enabled_users ?? 0);
+      const entitled = Number(profile.max_licenses);
+      const hasEntitlement = Number.isFinite(entitled) && entitled > 0;
+      return {
+        licenseGroup: group.license_group || 'Other Licenses',
+        profile: profile.profile || 'UNKNOWN',
+        enabledUsers,
+        entitled: hasEntitlement ? entitled : null,
+        available: hasEntitlement ? (entitled - enabledUsers) : null,
+        utilization: hasEntitlement ? formatUtilization(enabledUsers, entitled) : '—',
+      };
+    })
+  ));
 
   const selectedLicenseStatusSummary = selectedInstance ? licenseStatusSummaryInstance : null;
   const hasSelectedLicenseStatus = Boolean(
@@ -5358,24 +5374,38 @@ function LicensePerformanceSection({
     },
   ];
 
-  const renderLicenseProfileGroups = (groups, emptyLabel) => {
-    if (!groups?.length) {
+  const renderEntitlementTable = (groups, emptyLabel) => {
+    const rows = flattenEntitlementRows(groups);
+    if (!rows.length) {
       return <div className="PulseMuted">{emptyLabel}</div>;
     }
 
     return (
-      <div className="PulseVizGrid">
-        {groups.map((group) => (
-          <BarList
-            key={group.license_group || 'Other Licenses'}
-            title={`${group.license_group || 'Other Licenses'} — ${group.definition || 'Entitlement category'}`}
-            rows={(group.profiles || []).map((profile) => ({
-              label: `${profile.profile || 'UNKNOWN'}${Number(profile.max_licenses || 0) > 0 ? ` (${formatLicenseUsage(profile.enabled_users, profile.max_licenses)})` : ''}`,
-              value: Number(profile.enabled_users ?? 0),
-            }))}
-            maxRows={12}
-          />
-        ))}
+      <div className="PulseTableWrap">
+        <table className="PulseTable">
+          <thead>
+            <tr>
+              <th>License Group</th>
+              <th>Profile</th>
+              <th>Enabled Users</th>
+              <th>Entitled</th>
+              <th>Available</th>
+              <th>Utilization</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={`${row.licenseGroup}:${row.profile}`}>
+                <td>{row.licenseGroup}</td>
+                <td>{row.profile}</td>
+                <td>{formatEntitlementCount(row.enabledUsers)}</td>
+                <td>{row.entitled == null ? '—' : formatEntitlementCount(row.entitled)}</td>
+                <td>{row.available == null ? '—' : formatEntitlementCount(row.available)}</td>
+                <td>{row.utilization}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     );
   };
@@ -5444,7 +5474,7 @@ function LicensePerformanceSection({
         <div className="PulseMuted" style={{ marginBottom: 10 }}>
           License groups below reflect configured entitlement mappings rather than observed activity.
         </div>
-        {renderLicenseProfileGroups(userLicenseGroupProfilesAll, 'No entitlement categories are available for the current all-instance view.')}
+        {renderEntitlementTable(userLicenseGroupProfilesAll, 'No entitlement categories are available for the current all-instance view.')}
         <div style={{ marginTop: 22 }}>
           <h3 style={{ marginBottom: 8 }}>Select an Instance</h3>
           <div className="PulseMuted" style={{ marginBottom: 10 }}>
@@ -5460,7 +5490,7 @@ function LicensePerformanceSection({
             ))}
           </div>
           {selectedInstance
-            ? renderLicenseProfileGroups(
+            ? renderEntitlementTable(
                 userLicenseGroupProfilesInstance,
                 `No entitlement groups found for ${selectedInstance}.`
               )
