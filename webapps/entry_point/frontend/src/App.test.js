@@ -1,6 +1,76 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
-import App, { buildPageRegistry, checkPageCapability, checkPagePermission, validatePageRegistry } from './App';
+import App, {
+  LicensePerformanceSection,
+  buildLicenseUtilizationTrendSeries,
+  buildPageRegistry,
+  checkPageCapability,
+  checkPagePermission,
+  validatePageRegistry,
+} from './App';
+
+describe('License utilization fact UI', () => {
+  const emptyLicenseStatus = { fields: {}, addonServices: [], features: [], instanceCount: 0 };
+
+  test('groups historical trend rows by separate instance and profile series', () => {
+    const series = buildLicenseUtilizationTrendSeries([
+      { snapshot_date: '2024-01-02', instance_name: 'inst-a', license_profile: 'DESIGNER', assigned_count: 5, utilization_pct: 50 },
+      { snapshot_date: '2024-01-01', instance_name: 'inst-a', license_profile: 'DESIGNER', assigned_count: 4, utilization_pct: 40 },
+      { snapshot_date: '2024-01-02', instance_name: 'inst-b', license_profile: 'DESIGNER', assigned_count: 12, utilization_pct: 60 },
+    ]);
+
+    expect(series).toHaveLength(2);
+    expect(series.map((item) => item.label)).toEqual(['inst-a / DESIGNER', 'inst-b / DESIGNER']);
+    expect(series[0].points.map((point) => point.snapshotDate)).toEqual(['2024-01-01', '2024-01-02']);
+  });
+
+  test('shows explicit unavailable state when the fact is missing', () => {
+    render(
+      <LicensePerformanceSection
+        selectedInstance=""
+        licenseUtilization={{
+          available: false,
+          unavailableReason: 'fact_license_utilization_daily is unavailable. Rebuild GOLD tables with the license utilization fact before using License Performance capacity metrics.',
+          latestRows: [],
+          historyRows: [],
+          meta: { latestSnapshotDates: [], seriesCount: 0 },
+        }}
+        licenseStatusSummaryAll={emptyLicenseStatus}
+        licenseStatusSummaryInstance={null}
+      />
+    );
+
+    expect(screen.getAllByText(/Rebuild GOLD tables/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Trend unavailable until fact_license_utilization_daily is present/)).toBeInTheDocument();
+  });
+
+  test('labels all-instance fact rows as separate instance series', () => {
+    render(
+      <LicensePerformanceSection
+        selectedInstance=""
+        licenseUtilization={{
+          available: true,
+          latestRows: [
+            { snapshot_date: '2024-01-02', instance_name: 'inst-a', license_group: 'Creator Licenses', license_profile: 'DESIGNER', entitled_count: 10, assigned_count: 5, available_count: 5, utilization_pct: 50 },
+            { snapshot_date: '2024-01-03', instance_name: 'inst-b', license_group: 'Creator Licenses', license_profile: 'DESIGNER', entitled_count: 20, assigned_count: 12, available_count: 8, utilization_pct: 60 },
+          ],
+          historyRows: [
+            { snapshot_date: '2024-01-02', instance_name: 'inst-a', license_group: 'Creator Licenses', license_profile: 'DESIGNER', assigned_count: 5, utilization_pct: 50 },
+            { snapshot_date: '2024-01-03', instance_name: 'inst-b', license_group: 'Creator Licenses', license_profile: 'DESIGNER', assigned_count: 12, utilization_pct: 60 },
+          ],
+          meta: { latestSnapshotDates: ['2024-01-02', '2024-01-03'], historyStartDate: '2024-01-02', historyEndDate: '2024-01-03', seriesCount: 2 },
+        }}
+        licenseStatusSummaryAll={emptyLicenseStatus}
+        licenseStatusSummaryInstance={null}
+      />
+    );
+
+    expect(screen.getByText(/All-instance mode preserves separate instance rows/)).toBeInTheDocument();
+    expect(screen.getByText(/capacities are not summed across instances/)).toBeInTheDocument();
+    expect(screen.getByText('inst-a / DESIGNER')).toBeInTheDocument();
+    expect(screen.getByText('inst-b / DESIGNER')).toBeInTheDocument();
+  });
+});
 
 function buildSharedPulseItems(pages, permissions, activeWorkspace) {
   return pages

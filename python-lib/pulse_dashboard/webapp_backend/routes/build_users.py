@@ -7,6 +7,7 @@ from typing import Any, cast
 from flask import Blueprint, request
 
 from pulse_dashboard.webapp_backend.services.users import (
+    RequestValidationError,
     _addon_service_label,
     _license_profile_normalize_sql,
     _license_status_display_value,
@@ -863,6 +864,190 @@ def register_routes(bp: Blueprint) -> None:
 
         except Exception as e:
             logger.exception("users kpis failed")
+            return _err(str(e), status=500)
+
+    @bp.route("/api/build/users/license-utilization")
+    def build_users_license_utilization():
+        """Fact-backed license utilization reporting for the License Performance page."""
+
+        try:
+            _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+            _ensure_ready_if_enabled()
+
+            instance_name = _parse_instance_name(request.args.get("instance_name"))
+            license_filter = _parse_license_filter(request.args.get("licenseFilter"))
+            history_days = int(_parse_int_arg("days", default=180, minimum=1, maximum=3660) or 180)
+
+            if not _duckdb_relation_exists(_query_df, "fact_license_utilization_daily"):
+                return _ok(
+                    {
+                        "available": False,
+                        "unavailableReason": "fact_license_utilization_daily is unavailable. Rebuild GOLD tables with the license utilization fact before using License Performance capacity metrics.",
+                        "instanceName": instance_name,
+                        "licenseFilter": license_filter,
+                        "latestRows": [],
+                        "historyRows": [],
+                        "meta": {
+                            "source": "fact_license_utilization_daily",
+                            "grain": ["snapshot_date", "instance_name", "license_profile"],
+                            "historyDays": history_days,
+                            "preservesSeparateInstances": not bool(instance_name),
+                            "scopeLabel": instance_name or "separate DSS instances",
+                            "latestSnapshotDates": [],
+                            "historyStartDate": None,
+                            "historyEndDate": None,
+                            "rowCount": 0,
+                            "seriesCount": 0,
+                        },
+                    }
+                )
+
+            instance_sql = ""
+            params: list[Any] = []
+            if instance_name:
+                instance_sql = " AND instance_name = ?"
+                params.append(instance_name)
+
+            license_filter_sql_template, license_filter_params = _resolve_license_filter_clause(license_filter)
+            license_filter_sql = _format_license_filter_clause(license_filter_sql_template, profile_expr="license_profile")
+            params.extend(license_filter_params)
+
+            base_where_sql = f"WHERE 1=1{instance_sql}{license_filter_sql}"
+            license_group_case_sql = _license_group_case_sql("license_profile")
+            fact_license_group_case_sql = _license_group_case_sql("f.license_profile")
+            fact_where_parts = ["b.max_snapshot_date IS NOT NULL"]
+            fact_where_parts.append("f.snapshot_date >= b.max_snapshot_date - (?::INTEGER) * INTERVAL 1 DAY")
+            history_filter_params: list[Any] = [history_days]
+            fact_history_where_sql = "\n  AND ".join(fact_where_parts)
+
+            latest_df = _query_df(
+                (
+                    "WITH ranked AS (\n"
+                    "  SELECT\n"
+                    "    snapshot_date,\n"
+                    "    instance_name,\n"
+                    "    license_profile,\n"
+                    f"    {license_group_case_sql} AS license_group,\n"
+                    "    entitled_count,\n"
+                    "    assigned_count,\n"
+                    "    available_count,\n"
+                    "    utilization_pct,\n"
+                    "    run_ts,\n"
+                    "    ROW_NUMBER() OVER (\n"
+                    "      PARTITION BY instance_name, license_profile\n"
+                    "      ORDER BY snapshot_date DESC, run_ts DESC\n"
+                    "    ) AS rn\n"
+                    "  FROM fact_license_utilization_daily\n"
+                    f"  {base_where_sql}\n"
+                    ")\n"
+                    "SELECT\n"
+                    "  snapshot_date,\n"
+                    "  instance_name,\n"
+                    "  license_group,\n"
+                    "  license_profile,\n"
+                    "  entitled_count,\n"
+                    "  assigned_count,\n"
+                    "  available_count,\n"
+                    "  utilization_pct,\n"
+                    "  run_ts\n"
+                    "FROM ranked\n"
+                    "WHERE rn = 1\n"
+                    "ORDER BY instance_name, license_group, license_profile;"
+                ),
+                params,
+            )
+
+            history_df = _query_df(
+                (
+                    "WITH bounds AS (\n"
+                    "  SELECT\n"
+                    "    instance_name,\n"
+                    "    license_profile,\n"
+                    "    max(snapshot_date) AS max_snapshot_date\n"
+                    "  FROM fact_license_utilization_daily\n"
+                    f"  {base_where_sql}\n"
+                    "  GROUP BY instance_name, license_profile\n"
+                    ")\n"
+                    "SELECT\n"
+                    "  f.snapshot_date,\n"
+                    "  f.instance_name,\n"
+                    f"  {fact_license_group_case_sql} AS license_group,\n"
+                    "  f.license_profile,\n"
+                    "  f.entitled_count,\n"
+                    "  f.assigned_count,\n"
+                    "  f.available_count,\n"
+                    "  f.utilization_pct,\n"
+                    "  f.run_ts\n"
+                    "FROM fact_license_utilization_daily f\n"
+                    "INNER JOIN bounds b\n"
+                    "  ON f.instance_name IS NOT DISTINCT FROM b.instance_name\n"
+                    " AND f.license_profile IS NOT DISTINCT FROM b.license_profile\n"
+                    f"WHERE {fact_history_where_sql}\n"
+                    "ORDER BY f.instance_name, f.license_profile, f.snapshot_date;"
+                ),
+                [*params, *history_filter_params],
+            )
+
+            coverage_df = _query_df(
+                (
+                    "WITH bounds AS (\n"
+                    "  SELECT\n"
+                    "    instance_name,\n"
+                    "    license_profile,\n"
+                    "    max(snapshot_date) AS max_snapshot_date\n"
+                    "  FROM fact_license_utilization_daily\n"
+                    f"  {base_where_sql}\n"
+                    "  GROUP BY instance_name, license_profile\n"
+                    ")\n"
+                    "SELECT\n"
+                    "  min(f.snapshot_date) AS history_start_date,\n"
+                    "  max(f.snapshot_date) AS history_end_date,\n"
+                    "  count(*) AS row_count,\n"
+                    "  count(DISTINCT f.instance_name || '|' || coalesce(f.license_profile, 'UNKNOWN')) AS series_count\n"
+                    "FROM fact_license_utilization_daily f\n"
+                    "INNER JOIN bounds b\n"
+                    "  ON f.instance_name IS NOT DISTINCT FROM b.instance_name\n"
+                    " AND f.license_profile IS NOT DISTINCT FROM b.license_profile\n"
+                    f"WHERE {fact_history_where_sql};"
+                ),
+                [*params, *history_filter_params],
+            )
+            coverage = _df_records(coverage_df)[0] if not coverage_df.empty else {}
+            latest_rows = _df_records(latest_df)
+            latest_snapshot_dates = sorted(
+                {
+                    str(row.get("snapshot_date") or "")[:10]
+                    for row in latest_rows
+                    if row.get("snapshot_date")
+                }
+            )
+
+            return _ok(
+                {
+                    "available": True,
+                    "instanceName": instance_name,
+                    "licenseFilter": license_filter,
+                    "latestRows": latest_rows,
+                    "historyRows": _df_records(history_df),
+                    "meta": {
+                        "source": "fact_license_utilization_daily",
+                        "grain": ["snapshot_date", "instance_name", "license_profile"],
+                        "historyDays": history_days,
+                        "preservesSeparateInstances": not bool(instance_name),
+                        "scopeLabel": instance_name or "separate DSS instances",
+                        "latestSnapshotDates": latest_snapshot_dates,
+                        "historyStartDate": coverage.get("history_start_date"),
+                        "historyEndDate": coverage.get("history_end_date"),
+                        "rowCount": int(coverage.get("row_count") or 0),
+                        "seriesCount": int(coverage.get("series_count") or 0),
+                    },
+                }
+            )
+
+        except RequestValidationError as exc:
+            return _err(str(exc), status=400)
+        except Exception as e:
+            logger.exception("users license utilization failed")
             return _err(str(e), status=500)
 
     @bp.route("/api/build/users/<login>")
