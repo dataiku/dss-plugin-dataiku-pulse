@@ -4,20 +4,23 @@ import io
 import json
 import logging
 import re
+import tempfile
 import threading
 import time
-from dataclasses import dataclass
+from collections.abc import Iterator
+from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+import duckdb
 import pandas as pd
 
 from data_collection.audit_logs_modules import event_mapping
 from data_collection.data_normalizer import DQResult, check_silver_dq, normalize_silver
 from data_collection.helper import DSSFolderTarget, get_managed_folder_handle, upload_parquet
 from shared_storage_discovery import SelectedPartitionPaths, SelectedPathRecord
-from shared_storage_parquet_s3 import read_s3_parquet_files
+from shared_storage_parquet_s3 import COMPACT_SILVER_S3_READ_BATCH_SIZE, read_s3_parquet_file_batch
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +30,8 @@ _LAST_REPLAY_SAVE_EPOCH_MS = 0
 _REPLAY_SAVE_EPOCH_LOCK = threading.Lock()
 _LAST_COMPACT_SAVE_EPOCH_MS = 0
 _COMPACT_SAVE_EPOCH_LOCK = threading.Lock()
+COMPACT_SILVER_OUTPUT_ROW_CHUNK_SIZE = 100_000
+_STAGE_ORDER_COLUMN = "__compact_row_order"
 
 
 @dataclass(frozen=True)
@@ -103,6 +108,22 @@ class CompactApplyResult:
     retained_source_paths: tuple[str, ...] = ()
     dq_errors: tuple[str, ...] = ()
     message: str = ""
+
+
+@dataclass(frozen=True)
+class CompactStageResult:
+    database_path: Path
+    files_read: int
+    raw_rows: int
+    rows_after_drop_duplicates: int
+    output_column_count: int
+
+
+@dataclass(frozen=True)
+class CompactProcessingResult:
+    plan_summary: CompactPlanSummary
+    apply_result: CompactApplyResult
+    plan_count: int
 
 
 @dataclass(frozen=True)
@@ -190,13 +211,13 @@ def delete_managed_folder_file(folder: Any, path: str) -> None:
 def cleanup_written_replacements(*, folder: Any, paths: list[str]) -> tuple[tuple[str, ...], list[str]]:
     cleaned_paths: list[str] = []
     cleanup_errors: list[str] = []
-    for path in paths:
+    for replacement_index, path in enumerate(paths, start=1):
         try:
             delete_managed_folder_file(folder, path)
             cleaned_paths.append(path)
         except Exception as exc:
-            logger.exception("Failed cleaning replay replacement %s", path)
-            cleanup_errors.append(f"{path}: {exc!r}")
+            logger.exception("Failed cleaning replay replacement index=%s", replacement_index)
+            cleanup_errors.append(f"replacement_index={replacement_index}: {exc!r}")
     return tuple(cleaned_paths), cleanup_errors
 
 
@@ -208,9 +229,9 @@ def format_partial_write_message(
 ) -> str:
     parts = [base_message]
     if written_paths:
-        parts.append(f"written_paths=[{', '.join(written_paths)}]")
+        parts.append(f"written_count={len(written_paths)}")
     if cleanup_paths:
-        parts.append(f"cleanup_paths=[{', '.join(cleanup_paths)}]")
+        parts.append(f"cleanup_count={len(cleanup_paths)}")
     return "; ".join(parts)
 
 
@@ -454,6 +475,605 @@ def _validate_output_paths_do_not_overlap_sources(*, plans: list[ReplayWritePlan
             raise ReplaySkipError(f"Replacement output path overlaps selected source path: {plan.output_path}")
 
 
+def _quote_duckdb_identifier(identifier: str) -> str:
+    return '"' + identifier.replace('"', '""') + '"'
+
+
+def _duckdb_columns(con: duckdb.DuckDBPyConnection, table_name: str) -> list[str]:
+    quoted_table = _quote_duckdb_identifier(table_name)
+    return [str(row[1]) for row in con.execute(f"PRAGMA table_info({quoted_table})").fetchall()]
+
+
+def _process_rss_mb() -> int | None:
+    try:
+        with open("/proc/self/status", encoding="utf-8") as status_file:
+            for line in status_file:
+                if not line.startswith("VmRSS:"):
+                    continue
+                parts = line.split()
+                if len(parts) < 2:
+                    return None
+                rss_kb = int(parts[1])
+                if rss_kb < 0:
+                    return None
+                return rss_kb // 1024
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def _stage_compact_s3_partition(
+    *,
+    storage_ctx: Any,
+    storage_ctx_factory: Any | None,
+    selected_partition: SelectedPartitionPaths,
+    database_path: Path,
+    s3_read_batch_size: int,
+) -> CompactStageResult:
+    total_files = len(selected_partition.selected_records)
+    started = time.monotonic()
+    logger.info(
+        "Compact SILVER partition staging started partition=%s source_file_count=%s s3_read_batch_size=%s elapsed_seconds=%.3f rss_mb=%s",
+        selected_partition.partition_scope,
+        total_files,
+        s3_read_batch_size,
+        0.0,
+        _process_rss_mb(),
+    )
+
+    con = duckdb.connect(str(database_path))
+    raw_created = False
+    raw_rows = 0
+    files_read = 0
+    row_order_start = 0
+    try:
+        total_batches = (total_files + s3_read_batch_size - 1) // s3_read_batch_size
+        for batch_number, record_batch in enumerate(
+            _iter_record_batches(selected_partition.selected_records, batch_size=s3_read_batch_size),
+            start=1,
+        ):
+            batch_started = time.monotonic()
+            batch_storage_ctx = storage_ctx_factory() if storage_ctx_factory is not None else storage_ctx
+            batch_full_paths = [record.full_path for record in record_batch]
+            batch_df = read_s3_parquet_file_batch(batch_storage_ctx, full_paths=batch_full_paths)
+            batch_df = batch_df.copy()
+            batch_df[_STAGE_ORDER_COLUMN] = range(row_order_start, row_order_start + len(batch_df))
+            row_order_start += len(batch_df)
+            _append_dataframe_to_table(con, table_name="raw_stage", df=batch_df)
+            raw_created = True
+
+            batch_file_count = len(record_batch)
+            raw_rows += int(len(batch_df))
+            files_read += batch_file_count
+            logger.info(
+                "Compact SILVER S3 read batch completed partition=%s batch_number=%s total_batches=%s batch_file_count=%s cumulative_files=%s cumulative_rows=%s elapsed_seconds=%.3f rss_mb=%s",
+                selected_partition.partition_scope,
+                batch_number,
+                total_batches,
+                batch_file_count,
+                files_read,
+                raw_rows,
+                time.monotonic() - batch_started,
+                _process_rss_mb(),
+            )
+            del batch_df
+
+        if not raw_created:
+            raise ReplaySkipError("Selected parquet payload is empty")
+
+        raw_columns = [column for column in _duckdb_columns(con, "raw_stage") if column != _STAGE_ORDER_COLUMN]
+        if not raw_columns:
+            raise ReplaySkipError("Selected parquet payload has no columns")
+        source_column_sql = ", ".join(_quote_duckdb_identifier(column) for column in raw_columns)
+        con.execute(
+            f"""
+            CREATE TABLE dedup_stage AS
+            SELECT MIN({_quote_duckdb_identifier(_STAGE_ORDER_COLUMN)}) AS {_quote_duckdb_identifier(_STAGE_ORDER_COLUMN)}, {source_column_sql}
+            FROM raw_stage
+            GROUP BY {source_column_sql}
+            ORDER BY {_quote_duckdb_identifier(_STAGE_ORDER_COLUMN)}
+            """.strip()
+        )
+        rows_after_drop_duplicates = int(con.execute("SELECT COUNT(*) FROM dedup_stage").fetchone()[0])
+        logger.info(
+            "Compact SILVER partition staging completed partition=%s source_file_count=%s raw_rows=%s rows_after_drop_duplicates=%s elapsed_seconds=%.3f rss_mb=%s",
+            selected_partition.partition_scope,
+            total_files,
+            raw_rows,
+            rows_after_drop_duplicates,
+            time.monotonic() - started,
+            _process_rss_mb(),
+        )
+        return CompactStageResult(
+            database_path=database_path,
+            files_read=files_read,
+            raw_rows=raw_rows,
+            rows_after_drop_duplicates=rows_after_drop_duplicates,
+            output_column_count=len(raw_columns),
+        )
+    finally:
+        con.close()
+
+
+def _iter_table_chunks(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    table_name: str,
+    chunk_size: int,
+    exclude_columns: set[str] | None = None,
+) -> Iterator[pd.DataFrame]:
+    if chunk_size <= 0:
+        raise ValueError(f"Compact SILVER output chunk size must be positive, got {chunk_size}")
+    exclude_columns = exclude_columns or set()
+    output_columns = [column for column in _duckdb_columns(con, table_name) if column not in exclude_columns]
+    if not output_columns:
+        return
+    output_sql = ", ".join(_quote_duckdb_identifier(column) for column in output_columns)
+    quoted_table = _quote_duckdb_identifier(table_name)
+    offset = 0
+    while True:
+        chunk_df = con.execute(
+            f"""
+            SELECT {output_sql}
+            FROM {quoted_table}
+            ORDER BY {_quote_duckdb_identifier(_STAGE_ORDER_COLUMN)}
+            LIMIT ? OFFSET ?
+            """.strip(),
+            [chunk_size, offset],
+        ).fetchdf()
+        if chunk_df.empty:
+            break
+        yield chunk_df
+        offset += len(chunk_df)
+
+
+def _iter_record_batches(records: list[SelectedPathRecord], *, batch_size: int) -> Iterator[list[SelectedPathRecord]]:
+    if batch_size <= 0:
+        raise ValueError(f"S3 parquet read batch size must be positive, got {batch_size}")
+    for start in range(0, len(records), batch_size):
+        yield records[start : start + batch_size]
+
+
+def _compact_replay_run_ts(con: duckdb.DuckDBPyConnection, *, fallback_date: date) -> str:
+    if "run_ts" not in _duckdb_columns(con, "dedup_stage"):
+        return f"{fallback_date.isoformat()}T00:00:00Z"
+    row = con.execute(
+        f"""
+        SELECT run_ts
+        FROM dedup_stage
+        WHERE run_ts IS NOT NULL
+        ORDER BY {_quote_duckdb_identifier(_STAGE_ORDER_COLUMN)}
+        LIMIT 1
+        """.strip()
+    ).fetchone()
+    if row is None:
+        return f"{fallback_date.isoformat()}T00:00:00Z"
+    return str(row[0])
+
+
+def _append_dataframe_to_table(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    table_name: str,
+    df: pd.DataFrame,
+) -> None:
+    con.register("compact_stage_batch", df)
+    try:
+        quoted_table = _quote_duckdb_identifier(table_name)
+        if table_name in {row[0] for row in con.execute("SHOW TABLES").fetchall()}:
+            existing_columns = set(_duckdb_columns(con, table_name))
+            for column in df.columns:
+                if column not in existing_columns:
+                    column_type = con.execute(
+                        "SELECT typeof(?)",
+                        [df[column].dropna().iloc[0] if df[column].dropna().shape[0] else None],
+                    ).fetchone()[0]
+                    if column_type == "NULL":
+                        column_type = "VARCHAR"
+                    con.execute(f"ALTER TABLE {quoted_table} ADD COLUMN {_quote_duckdb_identifier(column)} {column_type}")
+            con.execute(f"INSERT INTO {quoted_table} BY NAME SELECT * FROM compact_stage_batch")
+        else:
+            con.execute(f"CREATE TABLE {quoted_table} AS SELECT * FROM compact_stage_batch")
+    finally:
+        con.unregister("compact_stage_batch")
+
+
+def _stage_normalized_event_mapping_chunks(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    selected_records: list[SelectedPathRecord],
+    selected_event_date: date,
+    instance_name: str,
+    run_epoch_ms: int,
+    output_chunk_size: int,
+) -> tuple[dict[str, str], CompactPlanSummary]:
+    replay_run_ts = _compact_replay_run_ts(con, fallback_date=selected_event_date)
+    module_tables: dict[str, str] = {}
+    module_rows: dict[str, int] = {}
+    module_columns: dict[str, int] = {}
+    rehydrated_rows = 0
+    rehydrated_columns: int | None = None
+    mapper_rows = 0
+    mapper_columns: int | None = None
+    silver_row_order = 0
+
+    for chunk_df in _iter_table_chunks(
+        con,
+        table_name="dedup_stage",
+        chunk_size=output_chunk_size,
+        exclude_columns={_STAGE_ORDER_COLUMN},
+    ):
+        rehydrated = rehydrate_event_mapping_source(chunk_df)
+        rehydrated_rows += int(rehydrated.shape[0])
+        rehydrated_columns = int(rehydrated.shape[1]) if rehydrated_columns is None else rehydrated_columns
+        mapped_df = event_mapping.main(rehydrated)
+        if mapped_df is None or not isinstance(mapped_df, pd.DataFrame):
+            raise ReplaySkipError("event_mapping.main() did not return a dataframe")
+        mapper_columns = int(mapped_df.shape[1]) if mapper_columns is None else mapper_columns
+        if mapped_df.shape[0] == 0:
+            continue
+        if "dataiku_category" not in mapped_df.columns:
+            raise ReplaySkipError("Mapped dataframe is missing dataiku_category")
+        mapper_rows += int(mapped_df.shape[0])
+        for mapped_module_name in sorted(str(value) for value in mapped_df["dataiku_category"].dropna().unique().tolist()):
+            group_df = mapped_df.loc[mapped_df["dataiku_category"] == mapped_module_name].copy()
+            silver_df = normalize_silver(
+                df=group_df,
+                instance_name=instance_name,
+                run_ts=replay_run_ts,
+                **resolve_event_mapping_normalize_args(module_name=mapped_module_name),
+            )
+            if silver_df.empty:
+                continue
+            silver_df = silver_df.copy()
+            silver_df[_STAGE_ORDER_COLUMN] = range(silver_row_order, silver_row_order + len(silver_df))
+            silver_row_order += len(silver_df)
+            table_name = module_tables.setdefault(mapped_module_name, f"silver_stage_{len(module_tables) + 1}")
+            _append_dataframe_to_table(con, table_name=table_name, df=silver_df)
+            module_rows[mapped_module_name] = module_rows.get(mapped_module_name, 0) + int(silver_df.shape[0])
+            module_columns[mapped_module_name] = max(module_columns.get(mapped_module_name, 0), int(silver_df.shape[1] - 1))
+            del silver_df
+        del chunk_df
+
+    if not module_tables:
+        return {}, CompactPlanSummary(
+            mode="event_mapping_replay",
+            run_epoch_ms=run_epoch_ms,
+            input_rows=int(con.execute("SELECT COUNT(*) FROM dedup_stage").fetchone()[0]),
+            input_columns=len([column for column in _duckdb_columns(con, "dedup_stage") if column != _STAGE_ORDER_COLUMN]),
+            rehydrated_rows=rehydrated_rows,
+            rehydrated_columns=rehydrated_columns or 0,
+            mapper_rows=mapper_rows,
+            mapper_columns=mapper_columns or 0,
+            mapper_groups=0,
+            metrics=(),
+        )
+
+    metrics = tuple(
+        CompactPlanMetric(
+            module_name=module_name,
+            rows=module_rows[module_name],
+            columns=module_columns[module_name],
+            dq_ok=True,
+            dq_errors=(),
+        )
+        for module_name in sorted(module_tables)
+    )
+    return module_tables, CompactPlanSummary(
+        mode="event_mapping_replay",
+        run_epoch_ms=run_epoch_ms,
+        input_rows=int(con.execute("SELECT COUNT(*) FROM dedup_stage").fetchone()[0]),
+        input_columns=len([column for column in _duckdb_columns(con, "dedup_stage") if column != _STAGE_ORDER_COLUMN]),
+        rehydrated_rows=rehydrated_rows,
+        rehydrated_columns=rehydrated_columns or 0,
+        mapper_rows=mapper_rows,
+        mapper_columns=mapper_columns or 0,
+        mapper_groups=len(module_tables),
+        metrics=metrics,
+    )
+
+
+def _table_event_date(con: duckdb.DuckDBPyConnection, *, table_name: str, fallback_date: date) -> date:
+    if "timestamp" not in _duckdb_columns(con, table_name):
+        return fallback_date
+    quoted_table = _quote_duckdb_identifier(table_name)
+    value = con.execute(f"SELECT MAX(timestamp) FROM {quoted_table}").fetchone()[0]
+    event_ts = pd.to_datetime(value, utc=True, errors="coerce")
+    if pd.isna(event_ts):
+        return fallback_date
+    return event_ts.date()
+
+
+def _chunked_plan_iterator(
+    *,
+    con: duckdb.DuckDBPyConnection,
+    selected_records: list[SelectedPathRecord],
+    normalize_silver_mode: bool,
+    run_epoch_ms: int,
+    output_chunk_size: int,
+) -> tuple[Iterator[ReplayWritePlan], CompactPlanSummary]:
+    selected_event_date = _selected_event_date(selected_records)
+    category, module_name, instance_name, event_year, event_month, event_day = _selected_partition_identity(selected_records)
+    if (f"{selected_event_date.year:04d}", f"{selected_event_date.month:02d}", f"{selected_event_date.day:02d}") != (event_year, event_month, event_day):
+        raise ReplaySkipError("Selected source records contain inconsistent logical partition dates")
+
+    if not normalize_silver_mode:
+        total_rows = int(con.execute("SELECT COUNT(*) FROM dedup_stage").fetchone()[0])
+        input_columns = len([column for column in _duckdb_columns(con, "dedup_stage") if column != _STAGE_ORDER_COLUMN])
+        chunk_count = int((total_rows + output_chunk_size - 1) // output_chunk_size)
+
+        def iter_generic_plans() -> Iterator[ReplayWritePlan]:
+            for sequence_offset, silver_df in enumerate(
+                _iter_table_chunks(
+                    con,
+                    table_name="dedup_stage",
+                    chunk_size=output_chunk_size,
+                    exclude_columns={_STAGE_ORDER_COLUMN},
+                ),
+                start=1,
+            ):
+                yield ReplayWritePlan(
+                    output_path=build_compact_output_path(
+                        category=category,
+                        module_name=module_name,
+                        instance_name=instance_name,
+                        event_date=selected_event_date,
+                        run_epoch_ms=run_epoch_ms,
+                        sequence_number=sequence_offset,
+                    ),
+                    silver_df=silver_df,
+                    dq=check_silver_dq(silver_df),
+                    module_name=module_name,
+                    event_date=selected_event_date,
+                )
+
+        return iter_generic_plans(), CompactPlanSummary(
+            mode="generic_compaction",
+            run_epoch_ms=run_epoch_ms,
+            input_rows=total_rows,
+            input_columns=input_columns,
+            metrics=(
+                CompactPlanMetric(
+                    module_name=module_name,
+                    rows=total_rows,
+                    columns=input_columns,
+                    dq_ok=True,
+                    dq_errors=(),
+                ),
+            ) if chunk_count else (),
+        )
+
+    module_tables, plan_summary = _stage_normalized_event_mapping_chunks(
+        con,
+        selected_records=selected_records,
+        selected_event_date=selected_event_date,
+        instance_name=instance_name,
+        run_epoch_ms=run_epoch_ms,
+        output_chunk_size=output_chunk_size,
+    )
+
+    def iter_replay_plans() -> Iterator[ReplayWritePlan]:
+        sequence_number = 1
+        for mapped_module_name in sorted(module_tables):
+            table_name = module_tables[mapped_module_name]
+            event_date = _table_event_date(con, table_name=table_name, fallback_date=selected_event_date)
+            for silver_df in _iter_table_chunks(
+                con,
+                table_name=table_name,
+                chunk_size=output_chunk_size,
+                exclude_columns={_STAGE_ORDER_COLUMN},
+            ):
+                yield ReplayWritePlan(
+                    output_path=build_compact_output_path(
+                        category="event_mapping",
+                        module_name=mapped_module_name,
+                        instance_name=instance_name,
+                        event_date=event_date,
+                        run_epoch_ms=run_epoch_ms,
+                        sequence_number=sequence_number,
+                    ),
+                    silver_df=silver_df,
+                    dq=check_silver_dq(silver_df),
+                    module_name=mapped_module_name,
+                    event_date=event_date,
+                )
+                sequence_number += 1
+
+    return iter_replay_plans(), plan_summary
+
+
+def apply_compact_replacement_plan_iterator(
+    *,
+    target: DSSFolderTarget,
+    folder: Any,
+    source_relative_paths: list[str],
+    plans: Iterator[ReplayWritePlan],
+) -> tuple[CompactApplyResult, int, tuple[CompactPlanMetric, ...]]:
+    written_paths: list[str] = []
+    plan_count = 0
+    dq_errors: list[str] = []
+    metric_rows: dict[str, int] = {}
+    metric_columns: dict[str, int] = {}
+    metric_dq_ok: dict[str, bool] = {}
+    metric_dq_errors: dict[str, list[str]] = {}
+    try:
+        for plan in plans:
+            plan_count += 1
+            metric_rows[plan.module_name] = metric_rows.get(plan.module_name, 0) + int(plan.silver_df.shape[0])
+            metric_columns[plan.module_name] = max(metric_columns.get(plan.module_name, 0), int(plan.silver_df.shape[1]))
+            metric_dq_ok[plan.module_name] = metric_dq_ok.get(plan.module_name, True) and bool(plan.dq.ok)
+            if not plan.dq.ok:
+                plan_errors = [str(error) for error in plan.dq.errors]
+                dq_errors.extend(plan_errors)
+                metric_dq_errors.setdefault(plan.module_name, []).extend(plan_errors)
+                continue
+            upload_parquet(
+                target=target,
+                output_path=Path(str(plan.output_path)),
+                output_base_dir=Path("/"),
+                df=plan.silver_df,
+                compression="snappy",
+            )
+            written_paths.append(str(plan.output_path))
+            logger.info(
+                "Compact SILVER replacement uploaded output_sequence=%s written_count=%s rows=%s elapsed_seconds=%.3f rss_mb=%s",
+                plan_count,
+                len(written_paths),
+                int(plan.silver_df.shape[0]),
+                0.0,
+                _process_rss_mb(),
+            )
+    except Exception as exc:
+        cleaned_paths, cleanup_errors = cleanup_written_replacements(folder=folder, paths=written_paths)
+        if cleanup_errors:
+            return CompactApplyResult(
+                status="upload_failed_cleanup_failed",
+                written_paths=tuple(written_paths),
+                cleanup_paths=cleaned_paths,
+                retained_source_paths=tuple(source_relative_paths),
+                message=format_partial_write_message(
+                    base_message=f"Upload failed: {exc!r}; cleanup failed for {len(cleanup_errors)} replacement(s)",
+                    written_paths=tuple(written_paths),
+                    cleanup_paths=cleaned_paths,
+                ),
+            ), plan_count, _compact_plan_metrics(metric_rows, metric_columns, metric_dq_ok, metric_dq_errors)
+        return CompactApplyResult(
+            status="upload_failed_cleaned",
+            written_paths=tuple(written_paths),
+            cleanup_paths=cleaned_paths,
+            retained_source_paths=tuple(source_relative_paths),
+            message=format_partial_write_message(
+                base_message=f"Upload failed: {exc!r}; cleaned {len(cleaned_paths)} replacement(s)",
+                written_paths=tuple(written_paths),
+                cleanup_paths=cleaned_paths,
+            ),
+        ), plan_count, _compact_plan_metrics(metric_rows, metric_columns, metric_dq_ok, metric_dq_errors)
+
+    if dq_errors:
+        cleaned_paths, cleanup_errors = cleanup_written_replacements(folder=folder, paths=written_paths)
+        status = "dq_failed_cleanup_failed" if cleanup_errors else "dq_failed_cleaned"
+        return CompactApplyResult(
+            status=status,
+            written_paths=tuple(written_paths),
+            cleanup_paths=cleaned_paths,
+            retained_source_paths=tuple(source_relative_paths),
+            dq_errors=tuple(dq_errors),
+            message=", ".join(dq_errors) if not cleanup_errors else f"{', '.join(dq_errors)}; cleanup failed for {len(cleanup_errors)} replacement(s)",
+        ), plan_count, _compact_plan_metrics(metric_rows, metric_columns, metric_dq_ok, metric_dq_errors)
+
+    if not written_paths:
+        return CompactApplyResult(
+            status="no_mapped_output_retained",
+            retained_source_paths=tuple(source_relative_paths),
+            message=(
+                "Current event-mapping replay produced no replacement output; "
+                f"written=0, verified=0, deleted=0, retained={len(source_relative_paths)}"
+            ),
+        ), plan_count
+
+    verified_paths: list[str] = []
+    try:
+        for written_path in written_paths:
+            verify_managed_folder_file(folder, written_path)
+            verified_paths.append(written_path)
+    except Exception as exc:
+        cleaned_paths, cleanup_errors = cleanup_written_replacements(folder=folder, paths=written_paths)
+        if cleanup_errors:
+            return CompactApplyResult(
+                status="verification_failed_cleanup_failed",
+                written_paths=tuple(written_paths),
+                verified_paths=tuple(verified_paths),
+                cleanup_paths=cleaned_paths,
+                retained_source_paths=tuple(source_relative_paths),
+                message=f"Verification failed: {exc!r}; cleanup failed for {len(cleanup_errors)} replacement(s)",
+            ), plan_count, _compact_plan_metrics(metric_rows, metric_columns, metric_dq_ok, metric_dq_errors)
+        return CompactApplyResult(
+            status="verification_failed_cleaned",
+            written_paths=tuple(written_paths),
+            verified_paths=tuple(verified_paths),
+            cleanup_paths=cleaned_paths,
+            retained_source_paths=tuple(source_relative_paths),
+            message=f"Verification failed: {exc!r}; cleaned {len(cleaned_paths)} replacement(s)",
+        ), plan_count, _compact_plan_metrics(metric_rows, metric_columns, metric_dq_ok, metric_dq_errors)
+
+    deleted_paths: list[str] = []
+    for index, source_path in enumerate(source_relative_paths):
+        try:
+            delete_managed_folder_file(folder, source_path)
+            deleted_paths.append(source_path)
+        except Exception as exc:
+            return CompactApplyResult(
+                status="delete_failed",
+                written_paths=tuple(written_paths),
+                verified_paths=tuple(verified_paths),
+                deleted_source_paths=tuple(deleted_paths),
+                retained_source_paths=tuple(source_relative_paths[index:]),
+                message=f"Delete failed after verified writes: {exc!r}",
+            ), plan_count, _compact_plan_metrics(metric_rows, metric_columns, metric_dq_ok, metric_dq_errors)
+
+    return CompactApplyResult(
+        status="succeeded",
+        written_paths=tuple(written_paths),
+        verified_paths=tuple(verified_paths),
+        deleted_source_paths=tuple(deleted_paths),
+        retained_source_paths=(),
+        message=f"Verified {len(verified_paths)} replacement file(s) and deleted {len(deleted_paths)} source file(s)",
+    ), plan_count, _compact_plan_metrics(metric_rows, metric_columns, metric_dq_ok, metric_dq_errors)
+
+
+def _compact_plan_metrics(
+    metric_rows: dict[str, int],
+    metric_columns: dict[str, int],
+    metric_dq_ok: dict[str, bool],
+    metric_dq_errors: dict[str, list[str]],
+) -> tuple[CompactPlanMetric, ...]:
+    return tuple(
+        CompactPlanMetric(
+            module_name=module_name,
+            rows=metric_rows[module_name],
+            columns=metric_columns[module_name],
+            dq_ok=metric_dq_ok.get(module_name, True),
+            dq_errors=tuple(metric_dq_errors.get(module_name, [])),
+        )
+        for module_name in sorted(metric_rows)
+    )
+
+
+def process_staged_compact_partition(
+    *,
+    target: DSSFolderTarget,
+    selected_records: list[SelectedPathRecord],
+    source_relative_paths: list[str],
+    database_path: Path,
+    normalize_silver_mode: bool,
+    run_epoch_ms: int,
+    output_chunk_size: int = COMPACT_SILVER_OUTPUT_ROW_CHUNK_SIZE,
+) -> CompactProcessingResult:
+    con = duckdb.connect(str(database_path))
+    try:
+        plans, plan_summary = _chunked_plan_iterator(
+            con=con,
+            selected_records=selected_records,
+            normalize_silver_mode=normalize_silver_mode,
+            run_epoch_ms=run_epoch_ms,
+            output_chunk_size=output_chunk_size,
+        )
+        folder = get_managed_folder_handle(target=target)
+        apply_result, plan_count, metrics = apply_compact_replacement_plan_iterator(
+            target=target,
+            folder=folder,
+            source_relative_paths=source_relative_paths,
+            plans=plans,
+        )
+        return CompactProcessingResult(
+            plan_summary=replace(plan_summary, metrics=metrics),
+            apply_result=apply_result,
+            plan_count=plan_count,
+        )
+    finally:
+        con.close()
+
+
 def plan_compact_selected_day(
     *,
     selected_records: list[SelectedPathRecord],
@@ -678,51 +1298,57 @@ def apply_compact_replacement_plans(
 def process_compact_selected_partition(
     *,
     storage_ctx: Any,
+    storage_ctx_factory: Any | None = None,
     target: DSSFolderTarget,
     selected_partition: SelectedPartitionPaths,
     normalize_silver_mode: bool,
+    s3_read_batch_size: int = COMPACT_SILVER_S3_READ_BATCH_SIZE,
+    output_chunk_size: int = COMPACT_SILVER_OUTPUT_ROW_CHUNK_SIZE,
 ) -> CompactPartitionOutcome:
     replay_mode = "event_mapping_replay" if normalize_silver_mode else "generic_compaction"
-    selected_day_data = read_s3_parquet_files(storage_ctx, full_paths=selected_partition.full_paths)
     run_epoch_ms = next_compact_save_epoch_ms()
-    plans, plan_summary = plan_compact_selected_day(
-        selected_records=selected_partition.selected_records,
-        selected_df=selected_day_data,
-        normalize_silver_mode=normalize_silver_mode,
-        run_epoch_ms=run_epoch_ms,
-    )
-    folder = get_managed_folder_handle(target=target)
-    apply_result = apply_compact_replacement_plans(
-        target=target,
-        folder=folder,
-        source_relative_paths=selected_partition.relative_paths,
-        plans=plans,
-    )
+    with tempfile.TemporaryDirectory(prefix="compact-silver-") as stage_dir:
+        stage_result = _stage_compact_s3_partition(
+            storage_ctx=storage_ctx,
+            storage_ctx_factory=storage_ctx_factory,
+            selected_partition=selected_partition,
+            database_path=Path(stage_dir) / "partition.duckdb",
+            s3_read_batch_size=s3_read_batch_size,
+        )
+        processing_result = process_staged_compact_partition(
+            target=target,
+            selected_records=selected_partition.selected_records,
+            source_relative_paths=selected_partition.relative_paths,
+            database_path=stage_result.database_path,
+            normalize_silver_mode=normalize_silver_mode,
+            run_epoch_ms=run_epoch_ms,
+            output_chunk_size=output_chunk_size,
+        )
     return CompactPartitionOutcome(
         year=selected_partition.year,
         month=selected_partition.month,
         day=selected_partition.day,
         replay_mode=replay_mode,
-        status=apply_result.status,
-        message=apply_result.message,
+        status=processing_result.apply_result.status,
+        message=processing_result.apply_result.message,
         run_epoch_ms=run_epoch_ms,
-        files_read=int(selected_day_data.attrs.get("files_read", len(selected_partition.full_paths))),
-        raw_rows=int(selected_day_data.attrs.get("raw_rows", len(selected_day_data))),
-        rows_after_drop_duplicates=int(selected_day_data.attrs.get("rows_after_drop_duplicates", len(selected_day_data))),
-        output_column_count=int(selected_day_data.attrs.get("output_column_count", len(selected_day_data.columns))),
-        input_rows=int(len(selected_day_data)),
-        input_columns=int(len(selected_day_data.columns)),
-        plan_count=len(plans),
-        rehydrated_rows=plan_summary.rehydrated_rows,
-        rehydrated_columns=plan_summary.rehydrated_columns,
-        mapper_rows=plan_summary.mapper_rows,
-        mapper_columns=plan_summary.mapper_columns,
-        mapper_groups=plan_summary.mapper_groups,
-        metrics=plan_summary.metrics,
-        written_count=len(apply_result.written_paths),
-        verified_count=len(apply_result.verified_paths),
-        deleted_count=len(apply_result.deleted_source_paths),
-        retained_count=len(apply_result.retained_source_paths),
+        files_read=stage_result.files_read,
+        raw_rows=stage_result.raw_rows,
+        rows_after_drop_duplicates=stage_result.rows_after_drop_duplicates,
+        output_column_count=stage_result.output_column_count,
+        input_rows=processing_result.plan_summary.input_rows,
+        input_columns=processing_result.plan_summary.input_columns,
+        plan_count=processing_result.plan_count,
+        rehydrated_rows=processing_result.plan_summary.rehydrated_rows,
+        rehydrated_columns=processing_result.plan_summary.rehydrated_columns,
+        mapper_rows=processing_result.plan_summary.mapper_rows,
+        mapper_columns=processing_result.plan_summary.mapper_columns,
+        mapper_groups=processing_result.plan_summary.mapper_groups,
+        metrics=processing_result.plan_summary.metrics,
+        written_count=len(processing_result.apply_result.written_paths),
+        verified_count=len(processing_result.apply_result.verified_paths),
+        deleted_count=len(processing_result.apply_result.deleted_source_paths),
+        retained_count=len(processing_result.apply_result.retained_source_paths),
     )
 
 

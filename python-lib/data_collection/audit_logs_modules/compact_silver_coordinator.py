@@ -151,6 +151,7 @@ def _selected_partitions_source_file_count(
 def _process_partition_job(
     *,
     storage_ctx: Any,
+    storage_ctx_factory: Callable[[], Any] | None,
     target: DSSFolderTarget,
     selected_partition: SelectedPartitionPaths,
     normalize_silver_mode: bool,
@@ -158,6 +159,7 @@ def _process_partition_job(
     try:
         return process_compact_selected_partition(
             storage_ctx=storage_ctx,
+            storage_ctx_factory=storage_ctx_factory,
             target=target,
             selected_partition=selected_partition,
             normalize_silver_mode=normalize_silver_mode,
@@ -193,6 +195,7 @@ def _process_partition_job(
 def run_partition_jobs(
     *,
     storage_ctx: Any,
+    storage_ctx_factory: Callable[[], Any] | None = None,
     target: DSSFolderTarget,
     selected_partitions: list[SelectedPartitionPaths],
     normalize_silver_mode: bool,
@@ -209,6 +212,7 @@ def run_partition_jobs(
             batch_outcomes = [
                 _process_partition_job(
                     storage_ctx=storage_ctx,
+                    storage_ctx_factory=storage_ctx_factory,
                     target=target,
                     selected_partition=selected_partition,
                     normalize_silver_mode=normalize_silver_mode,
@@ -219,6 +223,7 @@ def run_partition_jobs(
             batch_outcomes = Parallel(n_jobs=worker_count, prefer="threads")(
                 delayed(_process_partition_job)(
                     storage_ctx=storage_ctx,
+                    storage_ctx_factory=storage_ctx_factory,
                     target=target,
                     selected_partition=selected_partition,
                     normalize_silver_mode=normalize_silver_mode,
@@ -446,6 +451,10 @@ def run_compact_silver_streaming(
                 )
                 _batch_execution_mode, outcomes = run_partition_jobs(
                     storage_ctx=module_storage_ctx,
+                    storage_ctx_factory=lambda: build_storage_context(
+                        project_key=config.project_key,
+                        folder_lookup=config.folder_lookup,
+                    ),
                     target=target,
                     selected_partitions=queue_batch.selected_partitions,
                     normalize_silver_mode=config.normalize_silver_mode,
@@ -571,6 +580,10 @@ def run_compact_silver(config: CompactRunConfig) -> CompactRunResult:
     )
     execution_mode, outcomes = run_partition_jobs(
         storage_ctx=storage_ctx,
+        storage_ctx_factory=lambda: build_storage_context(
+            project_key=config.project_key,
+            folder_lookup=config.folder_lookup,
+        ),
         target=target,
         selected_partitions=selected_batch.selected_partitions,
         normalize_silver_mode=config.normalize_silver_mode,
