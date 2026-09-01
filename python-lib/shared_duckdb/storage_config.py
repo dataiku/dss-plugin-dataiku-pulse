@@ -11,6 +11,8 @@ from pathlib import Path
 from .context import StorageContext
 from .extensions import duckdb_version, ensure_provider_extensions
 from . import yaml_loader
+from shared_storage_credentials import connection_info as _connection_info
+from shared_storage_credentials import decrypt_string, derive_key_from_password, resolve_gcs_hmac_credentials
 
 
 logger = logging.getLogger(__name__)
@@ -18,31 +20,6 @@ logger = logging.getLogger(__name__)
 
 def _load_queries() -> dict:
     return yaml_loader.load_yaml(Path(__file__).with_name("blob_credentials.yaml"))
-
-
-def _connection_info(ctx: StorageContext, *, allow_cached: bool = False) -> dict:
-    try:
-        info = ctx.connection_handle.get_info()
-    except Exception:
-        cached_info = ctx.cached_connection_info if isinstance(ctx.cached_connection_info, dict) else {}
-        if allow_cached and cached_info:
-            params = cached_info.get("params") or {}
-            credential_mode = params.get("credentialsMode") or params.get("authType") or "unknown"
-            logger.warning(
-                "Falling back to cached DSS connection info for connection=%s credential_mode=%s after get_info() failure",
-                ctx.connection_name,
-                credential_mode,
-                exc_info=True,
-            )
-            return cached_info
-        raise
-
-    if isinstance(info, dict):
-        ctx.cached_connection_info.clear()
-        ctx.cached_connection_info.update(info)
-        return info
-
-    return {}
 
 
 def aws_credentials(ctx: StorageContext) -> str:
@@ -107,33 +84,11 @@ def configure_gcs_filesystem(conn) -> None:
     conn.register_filesystem(filesystem("gcs"))
 
 
-def derive_key_from_password(password: str, salt: bytes) -> bytes:
-    from cryptography.hazmat.primitives import hashes
-    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-
-    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=390000)
-    return base64.urlsafe_b64encode(kdf.derive(password.encode()))
-
-
-def decrypt_string(ciphertext: bytes, password: str, salt: bytes) -> str:
-    from cryptography.fernet import Fernet
-
-    return Fernet(derive_key_from_password(password, salt)).decrypt(ciphertext).decode()
-
-
 def gcp_credentials(ctx: StorageContext):
-    variables = ctx.project_handle.get_variables()
-    gcs_hmac = (variables.get("local") or {}).get("gcs_hmac")
-    if not gcs_hmac:
+    resolved = resolve_gcs_hmac_credentials(ctx)
+    if not resolved:
         return None, None
-
-    try:
-        salt = base64.b64decode(gcs_hmac["salt"])
-        ciphertext = base64.b64decode(gcs_hmac["ciphertext"])
-        access_key = gcs_hmac["access_key"]
-        hmac_secret = decrypt_string(ciphertext, password="DF2!&sEkm)f4}i99,e&9bS:Wj", salt=salt)
-    except Exception:
-        return None, None
+    access_key, hmac_secret = resolved
 
     queries = _load_queries()
     return yaml_loader.render_query(

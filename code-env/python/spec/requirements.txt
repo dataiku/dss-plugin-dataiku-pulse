@@ -27,12 +27,14 @@ tabulate==0.10.0
 lxml==6.1.1
 orjson==3.11.9
 pyyaml==6.0.3
-sqlparse==0.5.5
+sqlparse==0.6.0
 tomli==2.4.1
 
 # =========================
 # Cloud
 # =========================
+azure-identity==1.24.0
+azure-storage-blob==12.27.0
 boto3==1.43.12
 gcsfs==2026.5.0
 google-cloud-storage==3.10.1

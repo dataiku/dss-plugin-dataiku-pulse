@@ -1,0 +1,82 @@
+{
+    "meta": {
+        "label": "Compact Silver Layer",
+        "description": "Compact the Silver layer. Reduces the number of parquet files, option filters and replay options (BETA). *Currently only does category=event_mapping",
+        "icon": "fas fa-sync-alt",
+        "iconColor": "blue"
+    },
+    "kind": "PYTHON",
+    "inputRoles": [],
+    "outputRoles": [
+        {
+            "name": "compact_silver_audit",
+            "label": "Compact SILVER Audit Dataset",
+            "description": "Dataset written once per recipe run with bounded compact SILVER audit records; compacted parquet files remain in the directly resolved partitioned-data managed folder.",
+            "arity": "UNARY",
+            "required": true,
+            "acceptsDataset": true
+        }
+    ],
+    "params": [
+        {
+            "name": "warning",
+            "label": "⚠️ DO NOT ATTEMPT TO EDIT THIS RECIPE!",
+            "description": "This recipe mutates the directly resolved partitioned-data managed folder in place only after replacement writes are verified. Use only for the bounded development compact workflow.",
+            "type": "SEPARATOR"
+        },
+        {
+            "name": "customer_separator",
+            "label": "",
+            "description": "<hr color='#000000' size='3' noshade><h3>Custom Configurations</h3>",
+            "type": "SEPARATOR"
+        },
+        {
+            "type": "PRESET",
+            "name": "pulse_primary",
+            "label": "Choose PULSE Primary Configuration",
+            "parameterSetId": "params-dashboard-instance",
+            "mandatory": true
+        },
+        {
+            "name": "normalize_silver",
+            "label": "Replay Normalizer and Silver checks",
+            "type": "BOOLEAN",
+            "defaultValue": true
+        },
+        {
+            "type": "SELECT",
+            "name": "module_filter",
+            "label": "Filter on a module",
+            "selectChoices": [
+                { "value": "all", "label": "All Modules" },
+                { "value": "administration", "label": "Administration" },
+                { "value": "apis", "label": "Apis" },
+                { "value": "application_designer", "label": "Application Designer" },
+                { "value": "automation", "label": "Automation" },
+                { "value": "charts_dashboard", "label": "Charts Dashboard" },
+                { "value": "coding", "label": "Coding" },
+                { "value": "containers", "label": "Containers" },
+                { "value": "dataset", "label": "Dataset" },
+                { "value": "deployer", "label": "Deployer" },
+                { "value": "flow", "label": "Flow" },
+                { "value": "folders", "label": "Folders" },
+                { "value": "genai_llm", "label": "GenAI LLM" },
+                { "value": "misc_recipes", "label": "Misc Recipes" },
+                { "value": "mlops", "label": "MLOps" },
+                { "value": "other", "label": "Other" },
+                { "value": "plugins", "label": "Plugins" },
+                { "value": "projects", "label": "Projects" },
+                { "value": "reading_listing", "label": "Reading Listing" },
+                { "value": "scenarios", "label": "Scenarios" },
+                { "value": "statistic_analytics", "label": "Statistic Analytics" },
+                { "value": "unclassified", "label": "Unclassified" },
+                { "value": "user_maintenance", "label": "User Maintenance" },
+                { "value": "visual_recipes", "label": "Visual Recipes" },
+                { "value": "webapps", "label": "Webapps" },
+                { "value": "wiki_artical_discussions", "label": "Wiki Artical Discussions" }
+            ],
+            "defaultValue": "all"
+        }
+    ],
+    "resourceKeys": []
+}

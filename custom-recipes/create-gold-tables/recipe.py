@@ -1,6 +1,10 @@
-import dataiku
+from __future__ import annotations
 
+import logging
 from pathlib import Path
+
+import dataiku
+from dataiku.customrecipe import get_recipe_config
 
 from data_collection.helper import ensure_managed_folder
 from data_collection.pulse_duckdb.context import build_storage_context
@@ -30,9 +34,60 @@ from data_collection.pulse_duckdb.table_groups import group_gold_tables_by_prefi
 from shared_duckdb.pathing import resolve_unique_db_path
 from data_collection.pulse_duckdb.table_inventory import list_table_names
 from data_collection.pulse_duckdb.user_activity import build_fact_formal_mau_daily, build_fact_user_activity_daily, build_fact_user_activity_project_daily, collect_user_activity_quality_report
+from data_collection.pulse_duckdb.license_utilization import build_fact_license_utilization_daily, collect_license_utilization_quality_report
 from data_collection.pulse_duckdb.views import create_silver_view
+from shared_duckdb.create_conn import effective_memory_limit_bytes
 from data_finalize import resolve_gold_folder_lookup
-from dataiku.customrecipe import get_recipe_config
+
+
+logger = logging.getLogger(__name__)
+
+CREATE_GOLD_DUCKDB_MEMORY_PERCENTAGE = 0.40
+CREATE_GOLD_DUCKDB_THREADS = 2
+
+
+def _format_gib(memory_bytes: int) -> str | None:
+    if memory_bytes <= 0:
+        return None
+    return f"{memory_bytes / (1024**3):.2f} GiB"
+
+
+def _duckdb_memory_limit_setting(memory_bytes: int) -> str:
+    return f"{memory_bytes}B"
+
+
+def _apply_create_gold_duckdb_session_limits(conn) -> None:
+    effective_memory_bytes, memory_source = effective_memory_limit_bytes()
+    if effective_memory_bytes <= 0:
+        conn.execute(f"SET threads = {CREATE_GOLD_DUCKDB_THREADS}")
+        applied_memory_limit = conn.execute("SELECT current_setting('memory_limit')").fetchone()[0]
+        applied_threads = conn.execute("SELECT current_setting('threads')").fetchone()[0]
+        logger.warning(
+            "Create GOLD DuckDB session memory cap not applied: effective_memory=%s memory_source=%s applied_memory_limit=%s threads=%s",
+            _format_gib(effective_memory_bytes),
+            memory_source,
+            applied_memory_limit,
+            applied_threads,
+        )
+        return
+
+    memory_limit_bytes = max(1, int(effective_memory_bytes * CREATE_GOLD_DUCKDB_MEMORY_PERCENTAGE))
+    memory_limit_setting = _duckdb_memory_limit_setting(memory_limit_bytes)
+    conn.execute(f"SET memory_limit = '{memory_limit_setting}'")
+    conn.execute(f"SET threads = {CREATE_GOLD_DUCKDB_THREADS}")
+
+    applied_memory_limit = conn.execute("SELECT current_setting('memory_limit')").fetchone()[0]
+    applied_threads = conn.execute("SELECT current_setting('threads')").fetchone()[0]
+    logger.info(
+        "Create GOLD DuckDB session limits applied: effective_memory=%s memory_source=%s duckdb_percentage=%s duckdb_memory_limit=%s duckdb_memory_limit_setting=%s applied_memory_limit=%s threads=%s",
+        _format_gib(effective_memory_bytes),
+        memory_source,
+        int(CREATE_GOLD_DUCKDB_MEMORY_PERCENTAGE * 100),
+        _format_gib(memory_limit_bytes),
+        memory_limit_setting,
+        applied_memory_limit,
+        applied_threads,
+    )
 
 
 def run():
@@ -41,8 +96,6 @@ def run():
 
     recipe_config = get_recipe_config() or {}
     unload_behavior = recipe_config.get("unload_behavior", "duckdb")
-    build_dev_activity = bool(recipe_config.get("build_dev_activity", True))
-    build_object_activity = bool(recipe_config.get("build_object_activity", True))
     manifest_enabled = bool(recipe_config.get("incremental_enabled", True))
     lookback_days = int(recipe_config.get("lookback_days", 3) or 3)
 
@@ -58,6 +111,7 @@ def run():
         reset=True,
         db_path=resolve_unique_db_path(project_key=project_key, purpose="recipe_gold_builder"),
     )
+    _apply_create_gold_duckdb_session_limits(setup.conn)
     configure_storage(setup.conn, ctx=gold_ctx)
 
     import data_collection.pulse_duckdb.gold_builder as gold_builder_module
@@ -106,14 +160,13 @@ def run():
             built_dimensions.append(build_dim_addon_feature_flags(setup.conn))
 
     built_dev_activity = []
-    if build_dev_activity:
-        with log_timed_phase(setup.conn, label="build_dim_category_to_capability"):
-            built_dev_activity.append(build_dim_category_to_capability(setup.conn, base_dir=base_dir))
-        with log_timed_phase(setup.conn, label="build_dim_dev_activity_event_classification"):
-            built_dev_activity.append(build_dim_dev_activity_event_classification(setup.conn, base_dir=base_dir))
-        dev_activity_name = build_fact_dev_activity_events(setup.conn, ctx=silver_ctx, base_dir=base_dir)
-        if dev_activity_name:
-            built_dev_activity.append(dev_activity_name)
+    with log_timed_phase(setup.conn, label="build_dim_category_to_capability"):
+        built_dev_activity.append(build_dim_category_to_capability(setup.conn, base_dir=base_dir))
+    with log_timed_phase(setup.conn, label="build_dim_dev_activity_event_classification"):
+        built_dev_activity.append(build_dim_dev_activity_event_classification(setup.conn, base_dir=base_dir))
+    dev_activity_name = build_fact_dev_activity_events(setup.conn, ctx=silver_ctx, base_dir=base_dir)
+    if dev_activity_name:
+        built_dev_activity.append(dev_activity_name)
 
     built_user_activity = [
         name
@@ -121,17 +174,18 @@ def run():
             build_fact_user_activity_daily(setup.conn, ctx=silver_ctx),
             build_fact_user_activity_project_daily(setup.conn, ctx=silver_ctx),
             build_fact_formal_mau_daily(setup.conn, ctx=silver_ctx),
+            build_fact_license_utilization_daily(setup.conn, ctx=silver_ctx),
         ]
         if name
     ]
 
     user_activity_quality = collect_user_activity_quality_report(setup.conn)
+    license_utilization_quality = collect_license_utilization_quality_report(setup.conn)
 
     built_object_activity = []
-    if build_object_activity:
-        object_activity_name = build_fact_object_activity_events(setup.conn, ctx=silver_ctx, base_dir=base_dir)
-        if object_activity_name:
-            built_object_activity.append(object_activity_name)
+    object_activity_name = build_fact_object_activity_events(setup.conn, ctx=silver_ctx, base_dir=base_dir)
+    if object_activity_name:
+        built_object_activity.append(object_activity_name)
 
     built_products_registry = build_base_dataiku_products_registry(setup.conn, base_dir=base_dir)
 
@@ -169,7 +223,7 @@ def run():
                 view_name=f"v_event_mapping__{module_name}",
             )
 
-        if build_dev_activity and dev_modules:
+        if dev_modules:
             max_ts = (
                 setup.conn.execute(
                     "SELECT CAST(MAX(run_timestamp) AS VARCHAR) FROM fact_dev_activity_events;"
@@ -179,7 +233,7 @@ def run():
             )
             set_manifest_watermark(manifest, "fact_dev_activity_events", max_ts)
 
-        if build_object_activity and object_modules:
+        if object_modules:
             max_ts = (
                 setup.conn.execute(
                     "SELECT CAST(MAX(run_timestamp) AS VARCHAR) FROM fact_object_activity_events;"
@@ -209,8 +263,6 @@ def run():
         "connection_type": silver_ctx.connection_type,
         "connection_name": silver_ctx.connection_name,
         "unload_behavior": unload_behavior,
-        "build_dev_activity": build_dev_activity,
-        "build_object_activity": build_object_activity,
         "manifest_enabled": manifest_enabled,
         "lookback_days": lookback_days,
         "duckdb_connection_ready": setup.conn is not None,
@@ -220,6 +272,7 @@ def run():
         "built_dev_activity": built_dev_activity,
         "built_user_activity": built_user_activity,
         "user_activity_quality": user_activity_quality,
+        "license_utilization_quality": license_utilization_quality,
         "built_object_activity": built_object_activity,
         "built_products_registry": built_products_registry,
         "current_tables": current_tables,

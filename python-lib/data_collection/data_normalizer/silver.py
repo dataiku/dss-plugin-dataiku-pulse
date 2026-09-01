@@ -90,43 +90,24 @@ def normalize_silver(
         # (Casting rules are applied after flattening.)
         return out
 
+    resolved_flatten_base = flatten_base
+    resolved_flatten_variant = flatten_variant
+    if todo_section == "audit" and category == "event_mapping":
+        if resolved_flatten_base is None:
+            resolved_flatten_base = ("audit_dataiku_usage", "audit_metadata")
+        if resolved_flatten_variant is None:
+            resolved_flatten_variant = module
+
     cfg = load_flatten_config(
         category=category,
         module=module,
         todo_section=todo_section,
-        base=flatten_base,
-        variant=flatten_variant,
+        base=resolved_flatten_base,
+        variant=resolved_flatten_variant,
     )
-    if cfg is None or not cfg.required_columns:
-        # No flattening config, but still apply casting + string stripping.
-        datetime_cols = load_casting_columns(name="datetime").columns
-        numeric_cols = load_casting_columns(name="numeric").columns
-        boolean_cols = load_casting_columns(name="boolean").columns
-        upper_str_cols = load_casting_columns(name="upper_str").columns
-
-        # Remove duplicate column names to avoid pandas datetime assembly errors.
-        if out.columns.duplicated().any():
-            out = out.loc[:, ~out.columns.duplicated()]
-
-        out = cast_datetime_columns(out, ["run_ts"])
-        out = cast_datetime_columns(out, [c for c in datetime_cols if c in out.columns])
-        out = cast_numeric_columns(out, [c for c in numeric_cols if c in out.columns])
-        out = cast_boolean_columns(out, [c for c in boolean_cols if c in out.columns])
-        out = cast_string_columns(out, [c for c in upper_str_cols if c in out.columns], uppercase=True)
-
-        already_cast = (
-            set(datetime_cols)
-            | set(numeric_cols)
-            | set(boolean_cols)
-            | set(upper_str_cols)
-            | {"run_ts"}
-        )
-        remaining = [c for c in out.columns if c not in already_cast]
-        out = cast_string_columns(out, remaining)
-
-        return out
-
-    required = [c for c in cfg.required_columns if c not in {"instance_name", "run_ts"}]
+    required = []
+    if cfg is not None and cfg.required_columns:
+        required = [c for c in cfg.required_columns if c not in {"instance_name", "run_ts"}]
     required_with_globals = ["instance_name", "run_ts"] + required
 
     out = _ensure_required_columns(out, required_with_globals)

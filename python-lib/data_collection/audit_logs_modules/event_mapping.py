@@ -111,6 +111,23 @@ def main(df: pd.DataFrame) -> pd.DataFrame:
 
     out = df.copy()
 
+    if "topic" in out.columns:
+        out = out[out["topic"] == "generic"].copy()
+        if out.shape[0] == 0:
+            return out
+
+    if "message_msgType" not in out.columns:
+        return pd.DataFrame()
+
+    msgtype = out["message_msgType"]
+    msgtype_mask = msgtype.notna()
+    if msgtype.dtype == "object":
+        msgtype_str = msgtype.astype("string")
+        msgtype_mask = msgtype_mask & msgtype_str.fillna("").str.strip().ne("")
+    out = out[msgtype_mask].copy()
+    if out.shape[0] == 0:
+        return out
+
     merged = pd.merge(
         out,
         mapping_df,

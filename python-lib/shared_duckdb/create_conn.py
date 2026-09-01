@@ -112,6 +112,12 @@ def _effective_memory_limit_bytes() -> tuple[int, str]:
     return 0, "unknown"
 
 
+def effective_memory_limit_bytes() -> tuple[int, str]:
+    """Return the process effective memory limit and source without changing defaults."""
+
+    return _effective_memory_limit_bytes()
+
+
 def _duckdb_memory_limit_bytes(effective_memory_bytes: int) -> int:
     if effective_memory_bytes <= 0:
         return 0
