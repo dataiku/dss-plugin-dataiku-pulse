@@ -383,3 +383,143 @@ def test_event_mapping_failure_between_successes_keeps_cursor_unchanged(monkeypa
     summary = next(record for record in result.records if record[0] == "__summary__")
     assert "event_mapping_write_failures=1" in summary[4]
     assert summary[4].endswith("cursor_to=")
+
+
+def test_memory_diagnostics_log_required_stages_and_high_water(monkeypatch, tmp_path, caplog):
+    runnable_module = _load_runnable_module()
+    audit_dir = tmp_path / "audit"
+    _write_audit_log(
+        audit_dir,
+        [
+            {
+                "timestamp": "2026-09-02T10:00:00Z",
+                "topic": "generic",
+                "message_msgType": "WEBAPP_VIEW",
+            }
+        ],
+    )
+    _target, updates = _install_common_fakes(monkeypatch, runnable_module, audit_dir, chunk_size=1)
+    rss_values = iter([10, 20, 30, 40, 50, 60, 70, 80])
+    memory_by_stage = {
+        "json_chunk_yielded": 100,
+        "timestamp_delta_filtered": 200,
+        "generic_prepared": 300,
+        "processor_input": 400,
+        "processor_output": 500,
+        "silver_upload_before": 900,
+        "silver_upload_after": 700,
+        "processor_silver_groups_done": 600,
+    }
+
+    processor = SimpleNamespace(
+        main=lambda df: pd.DataFrame(
+            [
+                {
+                    "dataiku_category": "webapps",
+                    "timestamp": df.iloc[0]["timestamp"],
+                }
+            ]
+        )
+    )
+    monkeypatch.setattr(runnable_module, "_load_processor_names", lambda: ["event_mapping"])
+    monkeypatch.setattr(runnable_module, "_load_processors", lambda names: ({"event_mapping": processor}, {}))
+    monkeypatch.setattr(runnable_module, "check_silver_dq", lambda df: _ok_dq(runnable_module))
+    monkeypatch.setattr(runnable_module, "upload_parquet", lambda **kwargs: None)
+    monkeypatch.setattr(runnable_module, "_process_rss_mb", lambda: next(rss_values))
+    monkeypatch.setattr(
+        runnable_module,
+        "_dataframe_deep_memory_bytes",
+        lambda df: memory_by_stage[getattr(runnable_module, "_active_test_stage")],
+    )
+
+    original_log_memory_stage = runnable_module._log_memory_stage
+
+    def log_memory_stage_with_stage_memory(**kwargs):
+        monkeypatch.setattr(runnable_module, "_active_test_stage", kwargs["stage"], raising=False)
+        return original_log_memory_stage(**kwargs)
+
+    monkeypatch.setattr(runnable_module, "_log_memory_stage", log_memory_stage_with_stage_memory)
+
+    with caplog.at_level("INFO"):
+        result = runnable_module.MyRunnable(project_key="P", config={}, plugin_config={}).run(progress_callback=None)
+
+    stage_lines = [message for message in caplog.messages if message.startswith("Audit memory stage")]
+    assert len(stage_lines) == 8
+    for stage in memory_by_stage:
+        assert any(f"stage={stage}" in message for message in stage_lines)
+    assert all("chunk_idx=1" in message for message in stage_lines)
+    assert all("file_name=audit.log" in message for message in stage_lines)
+    assert all("input_rows=1" in message for message in stage_lines)
+    assert any(
+        "stage=silver_upload_before" in message
+        and "processor=event_mapping" in message
+        and "module=webapps" in message
+        and "normalized_rows=1" in message
+        for message in stage_lines
+    )
+    assert any(message.startswith("Audit memory high water max_rss_mb=80") for message in caplog.messages)
+    summary = next(record for record in result.records if record[0] == "__summary__")
+    assert "memory_max_rss_mb=80" in summary[4]
+    assert "memory_max_rss_stage=processor_silver_groups_done" in summary[4]
+    assert "memory_max_df_bytes=900" in summary[4]
+    assert "memory_max_df_stage=silver_upload_before" in summary[4]
+    assert "memory_max_df_processor=event_mapping" in summary[4]
+    assert "memory_max_df_module=webapps" in summary[4]
+    assert updates == ["2026-09-02T10:00:00+00:00"]
+
+
+def test_memory_measurement_failures_are_non_fatal(monkeypatch, tmp_path, caplog):
+    runnable_module = _load_runnable_module()
+    audit_dir = tmp_path / "audit"
+    _write_audit_log(
+        audit_dir,
+        [
+            {
+                "timestamp": "2026-09-02T10:00:00Z",
+                "topic": "generic",
+                "message_msgType": "WEBAPP_VIEW",
+            }
+        ],
+    )
+    _target, updates = _install_common_fakes(monkeypatch, runnable_module, audit_dir, chunk_size=1)
+    uploads = []
+
+    processor = SimpleNamespace(
+        main=lambda df: pd.DataFrame(
+            [
+                {
+                    "dataiku_category": "webapps",
+                    "timestamp": df.iloc[0]["timestamp"],
+                }
+            ]
+        )
+    )
+    monkeypatch.setattr(runnable_module, "_load_processor_names", lambda: ["event_mapping"])
+    monkeypatch.setattr(runnable_module, "_load_processors", lambda names: ({"event_mapping": processor}, {}))
+    monkeypatch.setattr(runnable_module, "check_silver_dq", lambda df: _ok_dq(runnable_module))
+    monkeypatch.setattr(runnable_module, "upload_parquet", lambda **kwargs: uploads.append(kwargs))
+    monkeypatch.setattr(
+        runnable_module,
+        "_process_rss_mb",
+        lambda: (_ for _ in ()).throw(RuntimeError("rss unavailable")),
+    )
+    monkeypatch.setattr(
+        runnable_module,
+        "_dataframe_deep_memory_bytes",
+        lambda df: (_ for _ in ()).throw(RuntimeError("df memory unavailable")),
+    )
+
+    with caplog.at_level("INFO"):
+        result = runnable_module.MyRunnable(project_key="P", config={}, plugin_config={}).run(progress_callback=None)
+
+    assert len(uploads) == 1
+    assert updates == ["2026-09-02T10:00:00+00:00"]
+    assert any(
+        message.startswith("Audit memory stage")
+        and "rss_mb=None" in message
+        and "df_memory_bytes=None" in message
+        for message in caplog.messages
+    )
+    summary = next(record for record in result.records if record[0] == "__summary__")
+    assert "memory_max_rss_mb=;" in summary[4]
+    assert "memory_max_df_bytes=;" in summary[4]
