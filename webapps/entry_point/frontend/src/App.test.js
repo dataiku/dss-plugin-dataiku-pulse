@@ -97,7 +97,7 @@ describe('License utilization fact UI', () => {
     );
 
     expect(screen.getByText('Profile Summary')).toBeInTheDocument();
-    const profileHeader = screen.getByText('Profile').closest('th');
+    const profileHeader = screen.getAllByText('Profile')[0].closest('th');
     expect(profileHeader).toBeInTheDocument();
     expect(screen.getByText('17')).toBeInTheDocument();
     expect(screen.getByText('-7 (over capacity)')).toBeInTheDocument();
@@ -105,12 +105,46 @@ describe('License utilization fact UI', () => {
     expect(screen.getByText(/inst-b · 12 users/)).toBeInTheDocument();
   });
 
-  test('renders all historical series without first-eight truncation', () => {
+  test('profile-oriented history groups one profile with expandable instance series', () => {
+    const historyRows = [
+      { snapshot_date: '2024-01-02', instance_name: 'inst-a', license_group: 'Creator Licenses', license_profile: 'A_I_ACCESS_USERS', assigned_count: 5, utilization_pct: 50 },
+      { snapshot_date: '2024-01-03', instance_name: 'inst-b', license_group: 'Creator Licenses', license_profile: 'A_I_ACCESS_USERS', assigned_count: 12, utilization_pct: 60 },
+    ];
+
+    render(
+      <LicensePerformanceSection
+        selectedInstance=""
+        currentLicenseUtilization={{ profileRows: [], instanceRows: [] }}
+        licenseUtilization={{
+          available: true,
+          historyRows,
+          meta: { latestSnapshotDates: ['2024-01-02', '2024-01-03'], historyStartDate: '2024-01-02', historyEndDate: '2024-01-03', seriesCount: 2 },
+        }}
+        {...sectionDefaults}
+      />
+    );
+
+    expect(screen.getByText('A_I_ACCESS_USERS')).toBeInTheDocument();
+    expect(screen.getByText('2 separate instance/profile series')).toBeInTheDocument();
+    expect(screen.getByText('Not combined across instances')).toBeInTheDocument();
+    expect(screen.queryByText('inst-a / A_I_ACCESS_USERS')).not.toBeInTheDocument();
+    expect(screen.queryByText('5')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Show instance trends/ }));
+
+    expect(screen.getByText('inst-a / A_I_ACCESS_USERS')).toBeInTheDocument();
+    expect(screen.getByText('inst-b / A_I_ACCESS_USERS')).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
+    expect(screen.getByText('12')).toBeInTheDocument();
+    expect(screen.getByLabelText('inst-a / A_I_ACCESS_USERS utilization trend')).toBeInTheDocument();
+  });
+
+  test('profile-oriented history renders all profile groups without first-eight truncation', () => {
     const historyRows = Array.from({ length: 9 }, (_, index) => ({
       snapshot_date: '2024-01-02',
-      instance_name: `inst-${index + 1}`,
+      instance_name: 'inst-a',
       license_group: 'Creator Licenses',
-      license_profile: 'DESIGNER',
+      license_profile: `PROFILE_${index + 1}`,
       assigned_count: index + 1,
       utilization_pct: 10 + index,
     }));
@@ -128,8 +162,8 @@ describe('License utilization fact UI', () => {
       />
     );
 
-    expect(screen.getByText('inst-1 / DESIGNER')).toBeInTheDocument();
-    expect(screen.getByText('inst-9 / DESIGNER')).toBeInTheDocument();
+    expect(screen.getByText('PROFILE_1')).toBeInTheDocument();
+    expect(screen.getByText('PROFILE_9')).toBeInTheDocument();
     expect(screen.queryByText(/Showing the first/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Historical profile focus/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Historical instance focus/)).not.toBeInTheDocument();
@@ -165,7 +199,7 @@ describe('License utilization fact UI', () => {
     expect(screen.getByText('inst-21')).toBeInTheDocument();
   });
 
-  test('sorts current summaries and history by the selected presentation tab', () => {
+  test('sorts current summaries and profile history groups by profile', () => {
     render(
       <LicensePerformanceSection
         selectedInstance=""
@@ -191,8 +225,35 @@ describe('License utilization fact UI', () => {
       />
     );
 
-    expect(screen.getByText('A_PROFILE').compareDocumentPosition(screen.getByText('Z_PROFILE')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByText('inst-b / A_PROFILE').compareDocumentPosition(screen.getByText('inst-a / Z_PROFILE')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const profileCells = screen.getAllByText(/^[AZ]_PROFILE$/);
+    expect(profileCells[0]).toHaveTextContent('A_PROFILE');
+    expect(profileCells[1]).toHaveTextContent('Z_PROFILE');
+    expect(profileCells[2]).toHaveTextContent('A_PROFILE');
+    expect(profileCells[3]).toHaveTextContent('Z_PROFILE');
+  });
+
+  test('instance-oriented history remains ungrouped and ordered by instance then profile', () => {
+    render(
+      <LicensePerformanceSection
+        selectedInstance=""
+        currentLicenseUtilization={{ profileRows: [], instanceRows: [] }}
+        historyMode="instance"
+        setHistoryMode={jest.fn()}
+        licenseUtilization={{
+          available: true,
+          historyRows: [
+            { snapshot_date: '2024-01-02', instance_name: 'inst-b', license_group: 'Creator Licenses', license_profile: 'A_PROFILE', assigned_count: 2, utilization_pct: 20 },
+            { snapshot_date: '2024-01-02', instance_name: 'inst-a', license_group: 'Creator Licenses', license_profile: 'Z_PROFILE', assigned_count: 1, utilization_pct: 10 },
+          ],
+          meta: { latestSnapshotDates: ['2024-01-02'], historyStartDate: '2024-01-02', historyEndDate: '2024-01-02', seriesCount: 2 },
+        }}
+        licenseStatusSummaryAll={emptyLicenseStatus}
+        licenseStatusSummaryInstance={null}
+      />
+    );
+
+    expect(screen.queryByText(/separate instance\/profile series/)).not.toBeInTheDocument();
+    expect(screen.getByText('inst-a / Z_PROFILE').compareDocumentPosition(screen.getByText('inst-b / A_PROFILE')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 

@@ -5327,6 +5327,7 @@ export function LicensePerformanceSection({
   const formatFactUtilization = (value) => (value == null || Number.isNaN(Number(value)) ? '—' : `${Number(value).toFixed(1)}%`);
   const [currentMode, setCurrentMode] = useState('profile');
   const [instancePage, setInstancePage] = useState(1);
+  const [expandedHistoryProfiles, setExpandedHistoryProfiles] = useState({});
   const currentProfileRows = [...(currentLicenseUtilization?.profileRows || [])].sort((left, right) => (
     compareNullableStrings(left.license_profile, right.license_profile)
     || compareNullableStrings(left.license_group, right.license_group)
@@ -5343,6 +5344,14 @@ export function LicensePerformanceSection({
       ? compareNullableStrings(left.instanceName, right.instanceName) || compareNullableStrings(left.licenseProfile, right.licenseProfile) || compareNullableStrings(left.licenseGroup, right.licenseGroup)
       : compareNullableStrings(left.licenseProfile, right.licenseProfile) || compareNullableStrings(left.instanceName, right.instanceName) || compareNullableStrings(left.licenseGroup, right.licenseGroup)
   ));
+  const profileHistoryGroups = Array.from(trendSeries.reduce((groups, series) => {
+    const key = series.licenseProfile || 'UNKNOWN';
+    if (!groups.has(key)) {
+      groups.set(key, { key, licenseProfile: key, series: [] });
+    }
+    groups.get(key).series.push(series);
+    return groups;
+  }, new Map()).values()).sort((left, right) => compareNullableStrings(left.licenseProfile, right.licenseProfile));
   const latestSnapshotDates = factMeta.latestSnapshotDates || [];
   const instancePageSize = 20;
   const totalInstancePages = Math.max(1, Math.ceil(currentInstanceRows.length / instancePageSize));
@@ -5351,6 +5360,10 @@ export function LicensePerformanceSection({
   useEffect(() => {
     setInstancePage(1);
   }, [selectedInstance, currentMode, currentInstanceRows.length]);
+
+  useEffect(() => {
+    setExpandedHistoryProfiles({});
+  }, [selectedInstance, licenseUtilization]);
 
   const selectedLicenseStatusSummary = selectedInstance ? licenseStatusSummaryInstance : null;
   const hasSelectedLicenseStatus = Boolean(
@@ -5509,6 +5522,84 @@ export function LicensePerformanceSection({
       return <div className="PulseMuted">No historical license utilization fact rows are available for the selected historical focus.</div>;
     }
 
+    const renderSeriesRow = (series) => {
+      const latestPoint = [...series.points].reverse().find((point) => point.assignedCount != null || point.utilizationPct != null) || {};
+      return (
+        <tr key={series.key}>
+          <td>{series.label}</td>
+          <td>{series.points.length ? `${series.points[0].snapshotDate} → ${series.points[series.points.length - 1].snapshotDate}` : '—'}</td>
+          <td>{formatFactCount(latestPoint.assignedCount)}</td>
+          <td>{formatFactUtilization(latestPoint.utilizationPct)}</td>
+          <td><LicenseTrendSparkline series={series} /></td>
+        </tr>
+      );
+    };
+
+    if (historyMode === 'profile') {
+      return (
+        <div className="PulseTableWrap">
+          <table className="PulseTable">
+            <thead>
+              <tr>
+                <th>Profile</th>
+                <th>Coverage</th>
+                <th>Contributions</th>
+                <th>Combined Metrics</th>
+              </tr>
+            </thead>
+            <tbody>
+              {profileHistoryGroups.map((group) => {
+                const childSeries = group.series || [];
+                const coverageDates = childSeries.flatMap((series) => (series.points || []).map((point) => point.snapshotDate).filter(Boolean)).sort();
+                const coverageLabel = coverageDates.length ? `${coverageDates[0]} → ${coverageDates[coverageDates.length - 1]}` : '—';
+                const expanded = Boolean(expandedHistoryProfiles[group.key]);
+                return (
+                  <React.Fragment key={group.key}>
+                    <tr>
+                      <td>
+                        <button
+                          className="PulseButton"
+                          type="button"
+                          aria-expanded={expanded}
+                          onClick={() => setExpandedHistoryProfiles((previous) => ({ ...previous, [group.key]: !previous[group.key] }))}
+                        >
+                          {expanded ? 'Hide' : 'Show'} instance trends
+                        </button>{' '}
+                        {group.licenseProfile}
+                      </td>
+                      <td>{coverageLabel}</td>
+                      <td>{childSeries.length.toLocaleString()} separate instance/profile series</td>
+                      <td className="PulseMuted">Not combined across instances</td>
+                    </tr>
+                    {expanded ? (
+                      <tr>
+                        <td colSpan="4">
+                          <div className="PulseTableWrap">
+                            <table className="PulseTable">
+                              <thead>
+                                <tr>
+                                  <th>Instance/Profile Series</th>
+                                  <th>Coverage</th>
+                                  <th>Latest Assigned</th>
+                                  <th>Latest Utilization</th>
+                                  <th>Trend</th>
+                                </tr>
+                              </thead>
+                              <tbody>{childSeries.map(renderSeriesRow)}</tbody>
+                            </table>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
     return (
       <div className="PulseTableWrap">
         <table className="PulseTable">
@@ -5521,20 +5612,7 @@ export function LicensePerformanceSection({
               <th>Trend</th>
             </tr>
           </thead>
-          <tbody>
-            {trendSeries.map((series) => {
-              const latestPoint = [...series.points].reverse().find((point) => point.assignedCount != null || point.utilizationPct != null) || {};
-              return (
-                <tr key={series.key}>
-                  <td>{series.label}</td>
-                  <td>{series.points.length ? `${series.points[0].snapshotDate} → ${series.points[series.points.length - 1].snapshotDate}` : '—'}</td>
-                  <td>{formatFactCount(latestPoint.assignedCount)}</td>
-                  <td>{formatFactUtilization(latestPoint.utilizationPct)}</td>
-                  <td><LicenseTrendSparkline series={series} /></td>
-                </tr>
-              );
-            })}
-          </tbody>
+          <tbody>{trendSeries.map(renderSeriesRow)}</tbody>
         </table>
       </div>
     );
@@ -5634,7 +5712,11 @@ export function LicensePerformanceSection({
           <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact">
             <div className="PulseSummaryCount">{historyCoverageLabel}</div>
             <div className="PulseSummaryLabel">History coverage</div>
-            <div className="PulseSummaryDetail">{Number(factMeta.seriesCount || trendSeries.length || 0).toLocaleString()} displayed series.</div>
+            <div className="PulseSummaryDetail">
+              {historyMode === 'profile'
+                ? `${profileHistoryGroups.length.toLocaleString()} profile groups covering ${Number(factMeta.seriesCount || trendSeries.length || 0).toLocaleString()} separate instance/profile series.`
+                : `${Number(factMeta.seriesCount || trendSeries.length || 0).toLocaleString()} displayed instance/profile series.`}
+            </div>
           </div>
           <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact">
             <div className="PulseSummaryCount">{historyFreshnessLabel}</div>
