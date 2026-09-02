@@ -5315,10 +5315,6 @@ export function LicensePerformanceSection({
   licenseUtilization,
   historyMode,
   setHistoryMode,
-  historyProfile,
-  setHistoryProfile,
-  historyInstance,
-  setHistoryInstance,
   licenseStatusSummaryAll,
   licenseStatusSummaryInstance,
 }) {
@@ -5330,35 +5326,31 @@ export function LicensePerformanceSection({
   };
   const formatFactUtilization = (value) => (value == null || Number.isNaN(Number(value)) ? '—' : `${Number(value).toFixed(1)}%`);
   const [currentMode, setCurrentMode] = useState('profile');
-  const [instanceSearch, setInstanceSearch] = useState('');
   const [instancePage, setInstancePage] = useState(1);
-  const currentProfileRows = currentLicenseUtilization?.profileRows || [];
-  const currentInstanceRows = currentLicenseUtilization?.instanceRows || [];
+  const currentProfileRows = [...(currentLicenseUtilization?.profileRows || [])].sort((left, right) => (
+    compareNullableStrings(left.license_profile, right.license_profile)
+    || compareNullableStrings(left.license_group, right.license_group)
+  ));
+  const currentInstanceRows = [...(currentLicenseUtilization?.instanceRows || [])].sort((left, right) => (
+    compareNullableStrings(left.instance_name, right.instance_name)
+    || compareNullableStrings(left.license_profile, right.license_profile)
+    || compareNullableStrings(left.license_group, right.license_group)
+  ));
   const historyFactRows = licenseUtilization?.historyRows || [];
   const factMeta = licenseUtilization?.meta || {};
-  const trendSeries = buildLicenseUtilizationTrendSeries(historyFactRows);
+  const trendSeries = buildLicenseUtilizationTrendSeries(historyFactRows).sort((left, right) => (
+    historyMode === 'instance'
+      ? compareNullableStrings(left.instanceName, right.instanceName) || compareNullableStrings(left.licenseProfile, right.licenseProfile) || compareNullableStrings(left.licenseGroup, right.licenseGroup)
+      : compareNullableStrings(left.licenseProfile, right.licenseProfile) || compareNullableStrings(left.instanceName, right.instanceName) || compareNullableStrings(left.licenseGroup, right.licenseGroup)
+  ));
   const latestSnapshotDates = factMeta.latestSnapshotDates || [];
-  const historyProfiles = Array.from(new Set([
-    ...currentProfileRows.map((row) => row.license_profile).filter(Boolean),
-    ...trendSeries.map((series) => series.licenseProfile).filter(Boolean),
-  ])).sort((a, b) => String(a).localeCompare(String(b)));
-  const historyInstances = Array.from(new Set([
-    ...currentInstanceRows.map((row) => row.instance_name).filter(Boolean),
-    ...trendSeries.map((series) => series.instanceName).filter(Boolean),
-  ])).sort((a, b) => String(a).localeCompare(String(b)));
-  const filteredInstanceRows = currentInstanceRows.filter((row) => {
-    const search = instanceSearch.trim().toLowerCase();
-    if (!search) return true;
-    const text = `${row.instance_name || ''} ${row.license_group || ''} ${row.license_profile || ''}`.toLowerCase();
-    return text.includes(search);
-  });
   const instancePageSize = 20;
-  const totalInstancePages = Math.max(1, Math.ceil(filteredInstanceRows.length / instancePageSize));
-  const visibleInstanceRows = filteredInstanceRows.slice((instancePage - 1) * instancePageSize, instancePage * instancePageSize);
+  const totalInstancePages = Math.max(1, Math.ceil(currentInstanceRows.length / instancePageSize));
+  const visibleInstanceRows = currentInstanceRows.slice((instancePage - 1) * instancePageSize, instancePage * instancePageSize);
 
   useEffect(() => {
     setInstancePage(1);
-  }, [instanceSearch, selectedInstance, currentMode]);
+  }, [selectedInstance, currentMode, currentInstanceRows.length]);
 
   const selectedLicenseStatusSummary = selectedInstance ? licenseStatusSummaryInstance : null;
   const hasSelectedLicenseStatus = Boolean(
@@ -5423,8 +5415,8 @@ export function LicensePerformanceSection({
         <table className="PulseTable">
           <thead>
             <tr>
-              <th>License Group</th>
               <th>Profile</th>
+              <th>License Group</th>
               <th>Current Assigned Users</th>
               <th>Entitled</th>
               <th>Available</th>
@@ -5435,8 +5427,8 @@ export function LicensePerformanceSection({
           <tbody>
             {currentProfileRows.map((row) => (
               <tr key={`${row.license_group}:${row.license_profile}`}>
-                <td>{row.license_group || 'Other Licenses'}</td>
                 <td>{row.license_profile || 'UNKNOWN'}</td>
+                <td>{row.license_group || 'Other Licenses'}</td>
                 <td>{formatFactCount(row.assigned_count)}</td>
                 <td>{formatFactCount(row.entitled_count)}</td>
                 <td>{formatAvailableCount(row.available_count)}</td>
@@ -5467,27 +5459,16 @@ export function LicensePerformanceSection({
 
     return (
       <>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-          <label className="PulseLabel" style={{ margin: 0, minWidth: 260 }}>
-            Search instance/profile rows
-            <input
-              className="PulseInput"
-              value={instanceSearch}
-              onChange={(event) => setInstanceSearch(event.target.value)}
-              placeholder="Filter by instance, group, or profile"
-            />
-          </label>
-          <div className="PulseMuted" style={{ alignSelf: 'end' }}>
-            Showing {visibleInstanceRows.length.toLocaleString()} of {filteredInstanceRows.length.toLocaleString()} rows.
-          </div>
+        <div className="PulseMuted" style={{ marginBottom: 10 }}>
+          Showing {visibleInstanceRows.length.toLocaleString()} of {currentInstanceRows.length.toLocaleString()} page-filtered rows.
         </div>
         <div className="PulseTableWrap">
           <table className="PulseTable">
             <thead>
               <tr>
                 <th>Instance</th>
-                <th>License Group</th>
                 <th>Profile</th>
+                <th>License Group</th>
                 <th>Current Assigned Users</th>
                 <th>Entitled</th>
                 <th>Available</th>
@@ -5498,8 +5479,8 @@ export function LicensePerformanceSection({
               {visibleInstanceRows.map((row) => (
                 <tr key={`${row.instance_name}:${row.license_profile}`}>
                   <td>{row.instance_name || 'Unknown instance'}</td>
-                  <td>{row.license_group || 'Other Licenses'}</td>
                   <td>{row.license_profile || 'UNKNOWN'}</td>
+                  <td>{row.license_group || 'Other Licenses'}</td>
                   <td>{formatFactCount(row.assigned_count)}</td>
                   <td>{formatFactCount(row.entitled_count)}</td>
                   <td>{formatAvailableCount(row.available_count)}</td>
@@ -5560,33 +5541,13 @@ export function LicensePerformanceSection({
   };
 
   const renderHistoryControls = () => (
-    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end', marginBottom: 12 }}>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <button className={`PulseButton ${historyMode === 'profile' ? 'PulseButtonToggleActive' : ''}`} type="button" onClick={() => setHistoryMode('profile')}>
-          Profile-oriented
-        </button>
-        <button className={`PulseButton ${historyMode === 'instance' ? 'PulseButtonToggleActive' : ''}`} type="button" onClick={() => setHistoryMode('instance')}>
-          Instance-oriented
-        </button>
-      </div>
-      {historyMode === 'profile' ? (
-        <label className="PulseLabel" style={{ margin: 0, minWidth: 240 }}>
-          Historical profile focus
-          <select className="PulseSelect" value={historyProfile} onChange={(event) => setHistoryProfile(event.target.value)}>
-            {historyProfiles.length ? null : <option value="">No profiles available</option>}
-            {historyProfiles.map((profile) => <option key={profile} value={profile}>{profile}</option>)}
-          </select>
-        </label>
-      ) : (
-        <label className="PulseLabel" style={{ margin: 0, minWidth: 240 }}>
-          Historical instance focus
-          <select className="PulseSelect" value={selectedInstance || historyInstance} onChange={(event) => setHistoryInstance(event.target.value)} disabled={Boolean(selectedInstance)}>
-            {selectedInstance ? <option value={selectedInstance}>{selectedInstance}</option> : null}
-            {!selectedInstance && historyInstances.length ? null : (!selectedInstance ? <option value="">No instances available</option> : null)}
-            {!selectedInstance ? historyInstances.map((instance) => <option key={instance} value={instance}>{instance}</option>) : null}
-          </select>
-        </label>
-      )}
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+      <button className={`PulseButton ${historyMode === 'profile' ? 'PulseButtonToggleActive' : ''}`} type="button" onClick={() => setHistoryMode('profile')}>
+        Profile-oriented
+      </button>
+      <button className={`PulseButton ${historyMode === 'instance' ? 'PulseButtonToggleActive' : ''}`} type="button" onClick={() => setHistoryMode('instance')}>
+        Instance-oriented
+      </button>
     </div>
   );
 
@@ -5666,7 +5627,7 @@ export function LicensePerformanceSection({
       <div className="PulseCard">
         <h2>Historical Utilization Trend</h2>
         <div className="PulseMuted" style={{ marginBottom: 10 }}>
-          Historical utilization uses the daily fact grain: snapshot date, DSS instance, and license profile. Choose a focus to keep separate series readable.
+          Historical utilization uses the daily fact grain: snapshot date, DSS instance, and license profile. Tabs change presentation order only; page filters define the scope.
         </div>
         {renderHistoryControls()}
         <div className="PulseSummaryGrid" style={{ marginBottom: 14 }}>
@@ -5683,8 +5644,8 @@ export function LicensePerformanceSection({
         </div>
         <div className="PulseMuted" style={{ marginBottom: 10 }}>
           {historyMode === 'profile'
-            ? `Showing separate per-instance series for ${historyProfile || 'the selected profile'}.`
-            : `Showing separate per-profile series for ${selectedInstance || historyInstance || 'the selected instance'}.`}
+            ? 'Showing every page-filtered series ordered by profile, then instance.'
+            : 'Showing every page-filtered series ordered by instance, then profile.'}
         </div>
         {renderFactTrend()}
       </div>
@@ -6295,8 +6256,6 @@ function UsersLicensePage({ apiBase }) {
   const [currentLicenseUtilization, setCurrentLicenseUtilization] = useState(null);
   const [licenseUtilization, setLicenseUtilization] = useState(null);
   const [historyMode, setHistoryMode] = useState('profile');
-  const [historyProfile, setHistoryProfile] = useState('');
-  const [historyInstance, setHistoryInstance] = useState('');
   const [licenseStatusSummaryAll, setLicenseStatusSummaryAll] = useState(null);
   const [licenseStatusSummaryInstance, setLicenseStatusSummaryInstance] = useState(null);
   const [creatorRiskMeta, setCreatorRiskMeta] = useState(null);
@@ -6421,47 +6380,11 @@ function UsersLicensePage({ apiBase }) {
       .finally(() => setLoading(false));
   }, [apiBase, licenseFilter, selectedInstance]);
 
-  const historyProfileOptions = useMemo(() => (currentLicenseUtilization?.profileRows || [])
-    .map((row) => row.license_profile)
-    .filter(Boolean)
-    .sort((a, b) => String(a).localeCompare(String(b))), [currentLicenseUtilization]);
-  const historyInstanceOptions = useMemo(() => (currentLicenseUtilization?.instanceRows || [])
-    .map((row) => row.instance_name)
-    .filter(Boolean)
-    .filter((value, index, values) => values.indexOf(value) === index)
-    .sort((a, b) => String(a).localeCompare(String(b))), [currentLicenseUtilization]);
-
-  useEffect(() => {
-    if (historyMode === 'profile' && historyProfileOptions.length && !historyProfileOptions.includes(historyProfile)) {
-      setHistoryProfile(historyProfileOptions[0]);
-    }
-  }, [historyMode, historyProfile, historyProfileOptions]);
-
-  useEffect(() => {
-    if (historyInstanceOptions.length && !historyInstanceOptions.includes(historyInstance)) {
-      setHistoryInstance(historyInstanceOptions[0]);
-    }
-  }, [historyInstance, historyInstanceOptions]);
-
   useEffect(() => {
     const params = new URLSearchParams();
     params.set('licenseFilter', licenseFilter);
     params.set('days', '180');
-    if (historyMode === 'profile') {
-      if (!historyProfile) {
-        setLicenseUtilization({ available: true, historyRows: [], meta: { seriesCount: 0 } });
-        return;
-      }
-      if (historyProfile) params.set('license_profile', historyProfile);
-      if (selectedInstance) params.set('instance_name', selectedInstance);
-    } else {
-      const scopedInstance = selectedInstance || historyInstance;
-      if (!scopedInstance) {
-        setLicenseUtilization({ available: true, historyRows: [], meta: { seriesCount: 0 } });
-        return;
-      }
-      if (scopedInstance) params.set('instance_name', scopedInstance);
-    }
+    if (selectedInstance) params.set('instance_name', selectedInstance);
 
     setLoading(true);
     setError('');
@@ -6474,7 +6397,7 @@ function UsersLicensePage({ apiBase }) {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [apiBase, historyInstance, historyMode, historyProfile, licenseFilter, selectedInstance]);
+  }, [apiBase, licenseFilter, selectedInstance]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -6643,10 +6566,6 @@ function UsersLicensePage({ apiBase }) {
         licenseUtilization={licenseUtilization}
         historyMode={historyMode}
         setHistoryMode={setHistoryMode}
-        historyProfile={historyProfile}
-        setHistoryProfile={setHistoryProfile}
-        historyInstance={historyInstance}
-        setHistoryInstance={setHistoryInstance}
         licenseStatusSummaryAll={licenseStatusSummaryAll}
         licenseStatusSummaryInstance={licenseStatusSummaryInstance}
       />

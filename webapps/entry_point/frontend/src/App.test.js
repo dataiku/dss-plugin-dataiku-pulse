@@ -14,10 +14,6 @@ describe('License utilization fact UI', () => {
   const sectionDefaults = {
     historyMode: 'profile',
     setHistoryMode: jest.fn(),
-    historyProfile: 'DESIGNER',
-    setHistoryProfile: jest.fn(),
-    historyInstance: 'inst-a',
-    setHistoryInstance: jest.fn(),
     licenseStatusSummaryAll: emptyLicenseStatus,
     licenseStatusSummaryInstance: null,
   };
@@ -34,6 +30,15 @@ describe('License utilization fact UI', () => {
           { instance_name: 'inst-a', assigned_count: 5 },
           { instance_name: 'inst-b', assigned_count: 12 },
         ],
+      },
+      {
+        license_group: 'Admin Licenses',
+        license_profile: 'ADMIN',
+        assigned_count: 1,
+        entitled_count: null,
+        available_count: null,
+        utilization_pct: null,
+        instances: [{ instance_name: 'inst-c', assigned_count: 1 }],
       },
     ],
     instanceRows: [
@@ -92,6 +97,8 @@ describe('License utilization fact UI', () => {
     );
 
     expect(screen.getByText('Profile Summary')).toBeInTheDocument();
+    const profileHeader = screen.getByText('Profile').closest('th');
+    expect(profileHeader).toBeInTheDocument();
     expect(screen.getByText('17')).toBeInTheDocument();
     expect(screen.getByText('-7 (over capacity)')).toBeInTheDocument();
     expect(screen.getByText(/inst-a · 5 users/)).toBeInTheDocument();
@@ -124,11 +131,13 @@ describe('License utilization fact UI', () => {
     expect(screen.getByText('inst-1 / DESIGNER')).toBeInTheDocument();
     expect(screen.getByText('inst-9 / DESIGNER')).toBeInTheDocument();
     expect(screen.queryByText(/Showing the first/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Historical profile focus/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Historical instance focus/)).not.toBeInTheDocument();
   });
 
-  test('instance summary provides paged access beyond the first viewport', () => {
+  test('instance summary provides paged access over all page-filtered rows', () => {
     const manyInstanceRows = Array.from({ length: 21 }, (_, index) => ({
-      instance_name: `inst-${index + 1}`,
+      instance_name: `inst-${String(index + 1).padStart(2, '0')}`,
       license_group: 'Creator Licenses',
       license_profile: 'DESIGNER',
       assigned_count: index + 1,
@@ -148,11 +157,42 @@ describe('License utilization fact UI', () => {
 
     fireEvent.click(screen.getByText('Instance Summary'));
 
-    expect(screen.getByText('Search instance/profile rows')).toBeInTheDocument();
+    expect(screen.queryByText('Search instance/profile rows')).not.toBeInTheDocument();
+    expect(screen.getByText('Showing 20 of 21 page-filtered rows.')).toBeInTheDocument();
     expect(screen.getByText('Page 1 of 2')).toBeInTheDocument();
     expect(screen.queryByText('inst-21')).not.toBeInTheDocument();
     fireEvent.click(screen.getByText('Next'));
     expect(screen.getByText('inst-21')).toBeInTheDocument();
+  });
+
+  test('sorts current summaries and history by the selected presentation tab', () => {
+    render(
+      <LicensePerformanceSection
+        selectedInstance=""
+        currentLicenseUtilization={{
+          profileRows: [
+            { license_group: 'Creator Licenses', license_profile: 'Z_PROFILE', assigned_count: 2, instances: [] },
+            { license_group: 'Admin Licenses', license_profile: 'A_PROFILE', assigned_count: 1, instances: [] },
+          ],
+          instanceRows: [
+            { instance_name: 'inst-b', license_group: 'Creator Licenses', license_profile: 'A_PROFILE', assigned_count: 1 },
+            { instance_name: 'inst-a', license_group: 'Creator Licenses', license_profile: 'Z_PROFILE', assigned_count: 1 },
+          ],
+        }}
+        licenseUtilization={{
+          available: true,
+          historyRows: [
+            { snapshot_date: '2024-01-02', instance_name: 'inst-b', license_group: 'Creator Licenses', license_profile: 'A_PROFILE', assigned_count: 2, utilization_pct: 20 },
+            { snapshot_date: '2024-01-02', instance_name: 'inst-a', license_group: 'Creator Licenses', license_profile: 'Z_PROFILE', assigned_count: 1, utilization_pct: 10 },
+          ],
+          meta: { latestSnapshotDates: ['2024-01-02'], historyStartDate: '2024-01-02', historyEndDate: '2024-01-02', seriesCount: 2 },
+        }}
+        {...sectionDefaults}
+      />
+    );
+
+    expect(screen.getByText('A_PROFILE').compareDocumentPosition(screen.getByText('Z_PROFILE')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText('inst-b / A_PROFILE').compareDocumentPosition(screen.getByText('inst-a / Z_PROFILE')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 
