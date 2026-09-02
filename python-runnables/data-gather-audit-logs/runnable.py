@@ -358,6 +358,8 @@ class MyRunnable(Runnable):
         files_scanned = 0
         chunks_scanned = 0
         processor_failures = 0
+        event_mapping_cursor_eligible = True
+        event_mapping_write_failures = 0
 
         logger.info(
             "Starting audit gather for %s with last_update=%s, chunk_size=%s, available_files=%s, selected_files=%s",
@@ -649,6 +651,10 @@ class MyRunnable(Runnable):
                                     chunk_idx,
                                 )
                                 processor_messages.setdefault(f"{proc_name}::__write__", repr(exc))
+                                if proc_name == "event_mapping":
+                                    event_mapping_cursor_eligible = False
+                                    event_mapping_write_failures += 1
+                                    processor_messages.setdefault(proc_name, repr(exc))
                                 stats = ChunkProcessingStats(
                                     rows_read=stats.rows_read,
                                     rows_missing_timestamp=stats.rows_missing_timestamp,
@@ -749,9 +755,19 @@ class MyRunnable(Runnable):
                 "Audit raw backup was enabled, but no chunk reached the raw backup write step"
             )
 
-        if pending_cursor_ts is not None and pd.notna(pending_cursor_ts):
+        if (
+            pending_cursor_ts is not None
+            and pd.notna(pending_cursor_ts)
+            and event_mapping_cursor_eligible
+        ):
             logger.info("Updating audit cursor to %s", pending_cursor_ts.isoformat())
             self._update_audit_delta(ctx.local_client, pending_cursor_ts.isoformat())
+        elif not event_mapping_cursor_eligible:
+            logger.warning(
+                "Skipping cursor update because an event_mapping SILVER write failed; max_ts_seen=%s",
+                max_ts_seen,
+            )
+            pending_cursor_ts = None
         else:
             logger.warning(
                 "Skipping cursor update because no chunk completed successfully; max_ts_seen=%s",
@@ -805,6 +821,7 @@ class MyRunnable(Runnable):
                 f"write_failures={stats.write_failures}; "
                 f"raw_write_failures={stats.raw_write_failures}; "
                 f"silver_write_failures={stats.silver_write_failures}; "
+                f"event_mapping_write_failures={event_mapping_write_failures}; "
                 f"silver_fail_groups={stats.silver_fail_groups}; "
                 f"processor_failures={processor_failures}; "
                 f"cursor_from={last_update.isoformat()}; "

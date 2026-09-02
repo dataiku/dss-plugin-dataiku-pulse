@@ -255,6 +255,7 @@ def test_event_mapping_upload_failure_is_recorded_and_skips_cursor(monkeypatch, 
     summary = next(record for record in result.records if record[0] == "__summary__")
     assert "write_failures=1" in summary[4]
     assert "silver_write_failures=1" in summary[4]
+    assert "event_mapping_write_failures=1" in summary[4]
     assert summary[4].endswith("cursor_to=")
 
 
@@ -311,3 +312,74 @@ def test_successful_multi_chunk_event_mapping_updates_cursor_after_outputs(monke
         ("cursor", "2026-09-02T10:05:00+00:00"),
     ]
     assert updates == ["2026-09-02T10:05:00+00:00"]
+
+
+def test_event_mapping_failure_between_successes_keeps_cursor_unchanged(monkeypatch, tmp_path, caplog):
+    runnable_module = _load_runnable_module()
+    audit_dir = tmp_path / "audit"
+    _write_audit_log(
+        audit_dir,
+        [
+            {
+                "timestamp": "2026-09-02T10:00:00Z",
+                "topic": "generic",
+                "message_msgType": "WEBAPP_VIEW",
+            },
+            {
+                "timestamp": "2026-09-02T10:01:00Z",
+                "topic": "generic",
+                "message_msgType": "WEBAPP_VIEW",
+            },
+            {
+                "timestamp": "2026-09-02T10:05:00Z",
+                "topic": "generic",
+                "message_msgType": "WEBAPP_VIEW",
+            },
+        ],
+    )
+    _target, updates = _install_common_fakes(monkeypatch, runnable_module, audit_dir, chunk_size=1)
+    events = []
+
+    processor = SimpleNamespace(
+        main=lambda df: pd.DataFrame(
+            [
+                {
+                    "dataiku_category": "webapps",
+                    "timestamp": df.iloc[0]["timestamp"],
+                }
+            ]
+        )
+    )
+    monkeypatch.setattr(runnable_module, "_load_processor_names", lambda: ["event_mapping"])
+    monkeypatch.setattr(runnable_module, "_load_processors", lambda names: ({"event_mapping": processor}, {}))
+    monkeypatch.setattr(runnable_module, "check_silver_dq", lambda df: _ok_dq(runnable_module))
+
+    def upload_side_effect(**kwargs):
+        output_name = kwargs["output_path"].name
+        events.append(("upload", output_name))
+        if output_name.endswith("-2.parquet"):
+            raise RuntimeError("second chunk write failed")
+
+    monkeypatch.setattr(runnable_module, "upload_parquet", upload_side_effect)
+    monkeypatch.setattr(
+        runnable_module.MyRunnable,
+        "_update_audit_delta",
+        lambda self, client, value: events.append(("cursor", value)) or updates.append(value),
+    )
+
+    with caplog.at_level("WARNING"):
+        result = runnable_module.MyRunnable(project_key="P", config={}, plugin_config={}).run(progress_callback=None)
+
+    assert events == [
+        ("upload", "audit_logs-1788357600000-1.parquet"),
+        ("upload", "audit_logs-1788357600000-2.parquet"),
+        ("upload", "audit_logs-1788357600000-3.parquet"),
+    ]
+    assert updates == []
+    assert "Skipping cursor update because an event_mapping SILVER write failed" in caplog.text
+    event_row = next(record for record in result.records if record[0] == "event_mapping")
+    assert event_row[1:4] == ["3", "3", "2"]
+    assert "second chunk write failed" in event_row[4]
+    summary = next(record for record in result.records if record[0] == "__summary__")
+    assert "event_mapping_write_failures=1" in summary[4]
+    assert summary[4].endswith("cursor_to=")
