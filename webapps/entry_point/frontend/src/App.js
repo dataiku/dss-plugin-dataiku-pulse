@@ -5287,11 +5287,21 @@ function LicenseTrendSparkline({ series }) {
     const width = 180;
     const height = 42;
     const xForIndex = (index) => (points.length <= 1 ? width / 2 : (width * index) / (points.length - 1));
-    const yForValue = (value) => height - (height * Math.max(0, Math.min(100, value))) / 100;
+    const values = points.map((point) => point.utilizationPct);
+    const minValue = values.length ? Math.min(...values) : null;
+    const maxValue = values.length ? Math.max(...values) : null;
+    const valueRange = minValue == null || maxValue == null ? 0 : maxValue - minValue;
+    const padding = valueRange > 0 ? Math.max(valueRange * 0.15, 0.1) : 0;
+    const domainMin = valueRange > 0 ? minValue - padding : minValue;
+    const domainMax = valueRange > 0 ? maxValue + padding : maxValue;
+    const domainRange = domainMin == null || domainMax == null ? 0 : domainMax - domainMin;
+    const yForValue = (value) => (domainRange > 0 ? height - (height * (value - domainMin)) / domainRange : height / 2);
+    const utilizationRangeLabel = minValue == null || maxValue == null ? '' : `${minValue.toFixed(1)}%–${maxValue.toFixed(1)}%`;
     return {
       width,
       height,
       points,
+      utilizationRangeLabel,
       path: points.map((point, index) => `${index === 0 ? 'M' : 'L'}${xForIndex(index)},${yForValue(point.utilizationPct)}`).join(' '),
     };
   }, [series]);
@@ -5301,7 +5311,8 @@ function LicenseTrendSparkline({ series }) {
   }
 
   return (
-    <svg className="PulseLineSvg" viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label={`${series.label} utilization trend`} style={{ maxWidth: 180, height: 42 }}>
+    <svg className="PulseLineSvg" viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label={`${series.label} utilization trend, locally scaled ${chart.utilizationRangeLabel}`} style={{ maxWidth: 180, height: 42 }}>
+      <title>{`${series.label} utilization trend, locally scaled ${chart.utilizationRangeLabel}`}</title>
       <line className="PulseLineGrid" x1="0" x2={chart.width} y1={chart.height} y2={chart.height} />
       <line className="PulseLineGrid" x1="0" x2={chart.width} y1="0" y2="0" />
       <path className="PulseMonthlyChartLine" d={chart.path} />
@@ -5544,7 +5555,7 @@ export function LicensePerformanceSection({
                 <th>Profile</th>
                 <th>Coverage</th>
                 <th>Contributions</th>
-                <th>Combined Metrics</th>
+                <th>Instance Trends</th>
               </tr>
             </thead>
             <tbody>
@@ -5556,6 +5567,9 @@ export function LicensePerformanceSection({
                 return (
                   <React.Fragment key={group.key}>
                     <tr>
+                      <td>{group.licenseProfile}</td>
+                      <td>{coverageLabel}</td>
+                      <td>{childSeries.length.toLocaleString()} separate instance/profile series</td>
                       <td>
                         <button
                           className="PulseButton"
@@ -5564,12 +5578,8 @@ export function LicensePerformanceSection({
                           onClick={() => setExpandedHistoryProfiles((previous) => ({ ...previous, [group.key]: !previous[group.key] }))}
                         >
                           {expanded ? 'Hide' : 'Show'} instance trends
-                        </button>{' '}
-                        {group.licenseProfile}
+                        </button>
                       </td>
-                      <td>{coverageLabel}</td>
-                      <td>{childSeries.length.toLocaleString()} separate instance/profile series</td>
-                      <td className="PulseMuted">Not combined across instances</td>
                     </tr>
                     {expanded ? (
                       <tr>

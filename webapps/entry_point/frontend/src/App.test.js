@@ -126,7 +126,13 @@ describe('License utilization fact UI', () => {
 
     expect(screen.getByText('A_I_ACCESS_USERS')).toBeInTheDocument();
     expect(screen.getByText('2 separate instance/profile series')).toBeInTheDocument();
-    expect(screen.getByText('Not combined across instances')).toBeInTheDocument();
+    expect(screen.getByText('Instance Trends')).toBeInTheDocument();
+    expect(screen.queryByText('Combined Metrics')).not.toBeInTheDocument();
+    expect(screen.queryByText('Not combined across instances')).not.toBeInTheDocument();
+    const parentProfileCell = screen.getByText('A_I_ACCESS_USERS').closest('td');
+    const parentCells = screen.getByText('A_I_ACCESS_USERS').closest('tr').querySelectorAll('td');
+    expect(parentProfileCell).not.toHaveTextContent(/Show instance trends/);
+    expect(parentCells[3]).toHaveTextContent(/Show instance trends/);
     expect(screen.queryByText('inst-a / A_I_ACCESS_USERS')).not.toBeInTheDocument();
     expect(screen.queryByText('5')).not.toBeInTheDocument();
 
@@ -136,7 +142,105 @@ describe('License utilization fact UI', () => {
     expect(screen.getByText('inst-b / A_I_ACCESS_USERS')).toBeInTheDocument();
     expect(screen.getByText('5')).toBeInTheDocument();
     expect(screen.getByText('12')).toBeInTheDocument();
-    expect(screen.getByLabelText('inst-a / A_I_ACCESS_USERS utilization trend')).toBeInTheDocument();
+    expect(screen.getByLabelText(/inst-a \/ A_I_ACCESS_USERS utilization trend, locally scaled 50.0%–50.0%/)).toBeInTheDocument();
+  });
+
+  test('locally scales low-valued changing historical sparklines', () => {
+    render(
+      <LicensePerformanceSection
+        selectedInstance=""
+        currentLicenseUtilization={{ profileRows: [], instanceRows: [] }}
+        licenseUtilization={{
+          available: true,
+          historyRows: [
+            { snapshot_date: '2024-01-01', instance_name: 'inst-a', license_group: 'Creator Licenses', license_profile: 'LOW_PROFILE', assigned_count: 1, utilization_pct: 0.0 },
+            { snapshot_date: '2024-01-02', instance_name: 'inst-a', license_group: 'Creator Licenses', license_profile: 'LOW_PROFILE', assigned_count: 2, utilization_pct: 0.1 },
+            { snapshot_date: '2024-01-03', instance_name: 'inst-a', license_group: 'Creator Licenses', license_profile: 'LOW_PROFILE', assigned_count: 3, utilization_pct: 0.7 },
+          ],
+          meta: { latestSnapshotDates: ['2024-01-03'], historyStartDate: '2024-01-01', historyEndDate: '2024-01-03', seriesCount: 1 },
+        }}
+        {...sectionDefaults}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Show instance trends/ }));
+
+    const sparkline = screen.getByLabelText(/inst-a \/ LOW_PROFILE utilization trend, locally scaled 0.0%–0.7%/);
+    const path = sparkline.querySelector('path');
+    expect(path).toBeInTheDocument();
+    const yCoordinates = path.getAttribute('d').match(/,([0-9.]+)/g).map((value) => Number(value.slice(1)));
+    expect(new Set(yCoordinates).size).toBeGreaterThan(1);
+    expect(Math.max(...yCoordinates) - Math.min(...yCoordinates)).toBeGreaterThan(1);
+  });
+
+  test('keeps constant historical sparklines flat', () => {
+    render(
+      <LicensePerformanceSection
+        selectedInstance=""
+        currentLicenseUtilization={{ profileRows: [], instanceRows: [] }}
+        licenseUtilization={{
+          available: true,
+          historyRows: [
+            { snapshot_date: '2024-01-01', instance_name: 'inst-a', license_group: 'Creator Licenses', license_profile: 'ZERO_PROFILE', assigned_count: 0, utilization_pct: 0 },
+            { snapshot_date: '2024-01-02', instance_name: 'inst-a', license_group: 'Creator Licenses', license_profile: 'ZERO_PROFILE', assigned_count: 0, utilization_pct: 0 },
+          ],
+          meta: { latestSnapshotDates: ['2024-01-02'], historyStartDate: '2024-01-01', historyEndDate: '2024-01-02', seriesCount: 1 },
+        }}
+        {...sectionDefaults}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Show instance trends/ }));
+
+    const sparkline = screen.getByLabelText(/inst-a \/ ZERO_PROFILE utilization trend, locally scaled 0.0%–0.0%/);
+    const yCoordinates = sparkline.querySelector('path').getAttribute('d').match(/,([0-9.]+)/g).map((value) => Number(value.slice(1)));
+    expect(new Set(yCoordinates).size).toBe(1);
+  });
+
+  test('does not clip over-capacity historical sparklines at 100 percent', () => {
+    render(
+      <LicensePerformanceSection
+        selectedInstance=""
+        currentLicenseUtilization={{ profileRows: [], instanceRows: [] }}
+        licenseUtilization={{
+          available: true,
+          historyRows: [
+            { snapshot_date: '2024-01-01', instance_name: 'inst-a', license_group: 'Creator Licenses', license_profile: 'OVER_PROFILE', assigned_count: 10, utilization_pct: 100 },
+            { snapshot_date: '2024-01-02', instance_name: 'inst-a', license_group: 'Creator Licenses', license_profile: 'OVER_PROFILE', assigned_count: 12, utilization_pct: 120 },
+          ],
+          meta: { latestSnapshotDates: ['2024-01-02'], historyStartDate: '2024-01-01', historyEndDate: '2024-01-02', seriesCount: 1 },
+        }}
+        {...sectionDefaults}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Show instance trends/ }));
+
+    const sparkline = screen.getByLabelText(/inst-a \/ OVER_PROFILE utilization trend, locally scaled 100.0%–120.0%/);
+    const yCoordinates = sparkline.querySelector('path').getAttribute('d').match(/,([0-9.]+)/g).map((value) => Number(value.slice(1)));
+    expect(new Set(yCoordinates).size).toBeGreaterThan(1);
+  });
+
+  test('keeps unavailable utilization state when history points are null', () => {
+    render(
+      <LicensePerformanceSection
+        selectedInstance=""
+        currentLicenseUtilization={{ profileRows: [], instanceRows: [] }}
+        licenseUtilization={{
+          available: true,
+          historyRows: [
+            { snapshot_date: '2024-01-01', instance_name: 'inst-a', license_group: 'Creator Licenses', license_profile: 'NULL_PROFILE', assigned_count: 1, utilization_pct: null },
+          ],
+          meta: { latestSnapshotDates: ['2024-01-01'], historyStartDate: '2024-01-01', historyEndDate: '2024-01-01', seriesCount: 1 },
+        }}
+        {...sectionDefaults}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Show instance trends/ }));
+
+    expect(screen.getByText('Utilization unavailable')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/NULL_PROFILE utilization trend/)).not.toBeInTheDocument();
   });
 
   test('profile-oriented history renders all profile groups without first-eight truncation', () => {
