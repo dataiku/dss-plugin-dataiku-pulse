@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-import tempfile
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -30,6 +29,100 @@ from data_collection.helper import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class MemoryDiagnosticsHighWater:
+    max_rss_mb: int | None = None
+    max_rss_stage: str | None = None
+    max_rss_chunk_idx: int | None = None
+    max_rss_processor: str | None = None
+    max_rss_module: str | None = None
+    max_df_memory_bytes: int | None = None
+    max_df_memory_stage: str | None = None
+    max_df_memory_chunk_idx: int | None = None
+    max_df_memory_processor: str | None = None
+    max_df_memory_module: str | None = None
+
+
+def _process_rss_mb() -> int | None:
+    try:
+        with Path("/proc/self/status").open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.startswith("VmRSS:"):
+                    continue
+                parts = line.split()
+                if len(parts) < 2:
+                    return None
+                rss_kb = int(parts[1])
+                if rss_kb < 0:
+                    return None
+                return rss_kb // 1024
+    except Exception:
+        return None
+    return None
+
+
+def _dataframe_deep_memory_bytes(df: pd.DataFrame | None) -> int | None:
+    if df is None or not isinstance(df, pd.DataFrame):
+        return None
+    try:
+        return int(df.memory_usage(index=True, deep=True).sum())
+    except Exception:
+        return None
+
+
+def _log_memory_stage(
+    *,
+    high_water: MemoryDiagnosticsHighWater,
+    stage: str,
+    chunk_idx: int,
+    file_name: str,
+    input_rows: int,
+    df: pd.DataFrame | None = None,
+    processor: str | None = None,
+    module: str | None = None,
+    normalized_rows: int | None = None,
+) -> None:
+    try:
+        rss_mb = _process_rss_mb()
+    except Exception:
+        rss_mb = None
+
+    try:
+        df_memory_bytes = _dataframe_deep_memory_bytes(df)
+    except Exception:
+        df_memory_bytes = None
+
+    if rss_mb is not None and (high_water.max_rss_mb is None or rss_mb > high_water.max_rss_mb):
+        high_water.max_rss_mb = rss_mb
+        high_water.max_rss_stage = stage
+        high_water.max_rss_chunk_idx = chunk_idx
+        high_water.max_rss_processor = processor
+        high_water.max_rss_module = module
+
+    if df_memory_bytes is not None and (
+        high_water.max_df_memory_bytes is None or df_memory_bytes > high_water.max_df_memory_bytes
+    ):
+        high_water.max_df_memory_bytes = df_memory_bytes
+        high_water.max_df_memory_stage = stage
+        high_water.max_df_memory_chunk_idx = chunk_idx
+        high_water.max_df_memory_processor = processor
+        high_water.max_df_memory_module = module
+
+    logger.info(
+        "Audit memory stage stage=%s chunk_idx=%s file_name=%s input_rows=%s rss_mb=%s "
+        "df_memory_bytes=%s processor=%s module=%s normalized_rows=%s",
+        stage,
+        chunk_idx,
+        file_name,
+        input_rows,
+        rss_mb,
+        df_memory_bytes,
+        processor or "",
+        module or "",
+        normalized_rows if normalized_rows is not None else "",
+    )
 
 
 def _select_candidate_audit_files(
@@ -202,16 +295,6 @@ def _prepare_generic_audit_chunk(*, chunk: pd.DataFrame, instance_name: str) -> 
     return prepared
 
 
-def _stage_event_mapping_output(*, staging_dir: Path, module_name: str, event_date, chunk_idx: int, df: pd.DataFrame) -> Path:
-    module_slug = str(module_name).strip().replace("/", "_")
-    event_day = event_date.isoformat()
-    out_dir = staging_dir / module_slug / event_day
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"chunk-{chunk_idx}.parquet"
-    df.to_parquet(out_path, index=False, engine="pyarrow", compression="snappy")
-    return out_path
-
-
 @dataclass(frozen=True)
 class ProcessorResult:
     name: str
@@ -360,8 +443,6 @@ class MyRunnable(Runnable):
         processor_results_by_name: dict[str, dict[str, int]] = defaultdict(
             lambda: {"rows_in": 0, "rows_out": 0, "wrote_groups": 0}
         )
-        staged_event_mapping_partitions: dict[tuple[str, object], list[Path]] = defaultdict(list)
-        staging_dir = Path(tempfile.mkdtemp(prefix="pulse_audit_stage_"))
 
         chunk_idx = 0
         wrote_any = False
@@ -371,6 +452,9 @@ class MyRunnable(Runnable):
         files_scanned = 0
         chunks_scanned = 0
         processor_failures = 0
+        event_mapping_cursor_eligible = True
+        event_mapping_write_failures = 0
+        memory_high_water = MemoryDiagnosticsHighWater()
 
         logger.info(
             "Starting audit gather for %s with last_update=%s, chunk_size=%s, available_files=%s, selected_files=%s",
@@ -400,6 +484,15 @@ class MyRunnable(Runnable):
 
                 if chunk is None or chunk.shape[0] == 0:
                     continue
+
+                _log_memory_stage(
+                    high_water=memory_high_water,
+                    stage="json_chunk_yielded",
+                    chunk_idx=chunk_idx,
+                    file_name=path.name,
+                    input_rows=int(chunk.shape[0]),
+                    df=chunk,
+                )
 
                 stats = ChunkProcessingStats(
                     rows_read=stats.rows_read + int(chunk.shape[0]),
@@ -509,9 +602,27 @@ class MyRunnable(Runnable):
                 if pd.notna(chunk_max_ts) and (max_ts_seen is None or chunk_max_ts > max_ts_seen):
                     max_ts_seen = chunk_max_ts
 
+                _log_memory_stage(
+                    high_water=memory_high_water,
+                    stage="timestamp_delta_filtered",
+                    chunk_idx=chunk_idx,
+                    file_name=path.name,
+                    input_rows=int(chunk.shape[0]),
+                    df=chunk,
+                )
+
                 prepared_chunk = _prepare_generic_audit_chunk(chunk=chunk, instance_name=instance_name)
                 if prepared_chunk.shape[0] == 0:
                     continue
+
+                _log_memory_stage(
+                    high_water=memory_high_water,
+                    stage="generic_prepared",
+                    chunk_idx=chunk_idx,
+                    file_name=path.name,
+                    input_rows=int(prepared_chunk.shape[0]),
+                    df=prepared_chunk,
+                )
 
                 chunk_success = True
 
@@ -573,6 +684,16 @@ class MyRunnable(Runnable):
                     if proc_input is None or not isinstance(proc_input, pd.DataFrame) or proc_input.shape[0] == 0:
                         continue
 
+                    _log_memory_stage(
+                        high_water=memory_high_water,
+                        stage="processor_input",
+                        chunk_idx=chunk_idx,
+                        file_name=path.name,
+                        input_rows=int(proc_input.shape[0]),
+                        df=proc_input,
+                        processor=proc_name,
+                    )
+
                     try:
                         out_df = mod.main(proc_input)
                     except Exception as exc:
@@ -586,6 +707,16 @@ class MyRunnable(Runnable):
 
                     if out_df is None or not isinstance(out_df, pd.DataFrame) or out_df.shape[0] == 0:
                         continue
+
+                    _log_memory_stage(
+                        high_water=memory_high_water,
+                        stage="processor_output",
+                        chunk_idx=chunk_idx,
+                        file_name=path.name,
+                        input_rows=int(proc_input.shape[0]),
+                        df=out_df,
+                        processor=proc_name,
+                    )
 
                     processor_results_by_name[proc_name]["rows_out"] += int(out_df.shape[0])
 
@@ -645,24 +776,25 @@ class MyRunnable(Runnable):
                         dq = check_silver_dq(silver_df)
                         if dq.ok:
                             try:
-                                if proc_name == "event_mapping":
-                                    staged_path = _stage_event_mapping_output(
-                                        staging_dir=staging_dir,
-                                        module_name=str(module_name),
-                                        event_date=event_date,
-                                        chunk_idx=chunk_idx,
-                                        df=silver_df,
-                                    )
-                                    staged_event_mapping_partitions[(str(module_name), event_date)].append(staged_path)
-                                else:
-                                    upload_parquet(
-                                        target=target,
-                                        output_path=silver_path,
-                                        output_base_dir=layout.base_dir,
-                                        df=silver_df,
-                                        compression="snappy",
-                                    )
-                                    processor_results_by_name[proc_name]["wrote_groups"] += 1
+                                _log_memory_stage(
+                                    high_water=memory_high_water,
+                                    stage="silver_upload_before",
+                                    chunk_idx=chunk_idx,
+                                    file_name=path.name,
+                                    input_rows=int(proc_input.shape[0]),
+                                    df=silver_df,
+                                    processor=proc_name,
+                                    module=str(module_name),
+                                    normalized_rows=int(silver_df.shape[0]),
+                                )
+                                upload_parquet(
+                                    target=target,
+                                    output_path=silver_path,
+                                    output_base_dir=layout.base_dir,
+                                    df=silver_df,
+                                    compression="snappy",
+                                )
+                                processor_results_by_name[proc_name]["wrote_groups"] += 1
                             except Exception as exc:
                                 chunk_success = False
                                 logger.exception(
@@ -672,6 +804,10 @@ class MyRunnable(Runnable):
                                     chunk_idx,
                                 )
                                 processor_messages.setdefault(f"{proc_name}::__write__", repr(exc))
+                                if proc_name == "event_mapping":
+                                    event_mapping_cursor_eligible = False
+                                    event_mapping_write_failures += 1
+                                    processor_messages.setdefault(proc_name, repr(exc))
                                 stats = ChunkProcessingStats(
                                     rows_read=stats.rows_read,
                                     rows_missing_timestamp=stats.rows_missing_timestamp,
@@ -684,6 +820,18 @@ class MyRunnable(Runnable):
                                     write_failures=stats.write_failures + 1,
                                     raw_write_failures=stats.raw_write_failures,
                                     silver_write_failures=stats.silver_write_failures + 1,
+                                )
+                            finally:
+                                _log_memory_stage(
+                                    high_water=memory_high_water,
+                                    stage="silver_upload_after",
+                                    chunk_idx=chunk_idx,
+                                    file_name=path.name,
+                                    input_rows=int(proc_input.shape[0]),
+                                    df=silver_df,
+                                    processor=proc_name,
+                                    module=str(module_name),
+                                    normalized_rows=int(silver_df.shape[0]),
                                 )
                         else:
                             chunk_success = False
@@ -709,6 +857,17 @@ class MyRunnable(Runnable):
                                 event_date=event_date,
                             ) / parquet_name
                             try:
+                                _log_memory_stage(
+                                    high_water=memory_high_water,
+                                    stage="silver_upload_before",
+                                    chunk_idx=chunk_idx,
+                                    file_name=path.name,
+                                    input_rows=int(proc_input.shape[0]),
+                                    df=silver_df,
+                                    processor=proc_name,
+                                    module=str(module_name),
+                                    normalized_rows=int(silver_df.shape[0]),
+                                )
                                 upload_parquet(
                                     target=target,
                                     output_path=fail_path,
@@ -751,6 +910,28 @@ class MyRunnable(Runnable):
                                     raw_write_failures=stats.raw_write_failures,
                                     silver_write_failures=stats.silver_write_failures + 1,
                                 )
+                            finally:
+                                _log_memory_stage(
+                                    high_water=memory_high_water,
+                                    stage="silver_upload_after",
+                                    chunk_idx=chunk_idx,
+                                    file_name=path.name,
+                                    input_rows=int(proc_input.shape[0]),
+                                    df=silver_df,
+                                    processor=proc_name,
+                                    module=str(module_name),
+                                    normalized_rows=int(silver_df.shape[0]),
+                                )
+
+                    _log_memory_stage(
+                        high_water=memory_high_water,
+                        stage="processor_silver_groups_done",
+                        chunk_idx=chunk_idx,
+                        file_name=path.name,
+                        input_rows=int(proc_input.shape[0]),
+                        df=out_df,
+                        processor=proc_name,
+                    )
 
                 if chunk_success and pd.notna(chunk_max_ts):
                     if pending_cursor_ts is None or chunk_max_ts > pending_cursor_ts:
@@ -772,55 +953,38 @@ class MyRunnable(Runnable):
                 "Audit raw backup was enabled, but no chunk reached the raw backup write step"
             )
 
-        final_event_mapping_upload_failures = 0
-        for (module_name, event_date), staged_paths in sorted(
-            staged_event_mapping_partitions.items(), key=lambda item: (str(item[0][1]), str(item[0][0]))
+        logger.info(
+            "Audit memory high water max_rss_mb=%s max_rss_stage=%s max_rss_chunk_idx=%s "
+            "max_rss_processor=%s max_rss_module=%s max_df_memory_bytes=%s "
+            "max_df_memory_stage=%s max_df_memory_chunk_idx=%s max_df_memory_processor=%s "
+            "max_df_memory_module=%s",
+            memory_high_water.max_rss_mb,
+            memory_high_water.max_rss_stage or "",
+            memory_high_water.max_rss_chunk_idx if memory_high_water.max_rss_chunk_idx is not None else "",
+            memory_high_water.max_rss_processor or "",
+            memory_high_water.max_rss_module or "",
+            memory_high_water.max_df_memory_bytes,
+            memory_high_water.max_df_memory_stage or "",
+            memory_high_water.max_df_memory_chunk_idx
+            if memory_high_water.max_df_memory_chunk_idx is not None
+            else "",
+            memory_high_water.max_df_memory_processor or "",
+            memory_high_water.max_df_memory_module or "",
+        )
+
+        if (
+            pending_cursor_ts is not None
+            and pd.notna(pending_cursor_ts)
+            and event_mapping_cursor_eligible
         ):
-            if not staged_paths:
-                continue
-            try:
-                combined_df = pd.concat((pd.read_parquet(path) for path in staged_paths), ignore_index=True)
-                parquet_name = f"audit_logs-{run_epoch_ms}-{str(module_name)}.parquet"
-                silver_path = self._build_partition_dir(
-                    layout=layout,
-                    layer="silver",
-                    proc_name="event_mapping",
-                    module_name=str(module_name),
-                    instance_name=instance_name,
-                    event_date=event_date,
-                ) / parquet_name
-                upload_parquet(
-                    target=target,
-                    output_path=silver_path,
-                    output_base_dir=layout.base_dir,
-                    df=combined_df,
-                    compression="snappy",
-                )
-                processor_results_by_name["event_mapping"]["wrote_groups"] += 1
-            except Exception as exc:
-                final_event_mapping_upload_failures += 1
-                processor_messages.setdefault("event_mapping::__final_write__", repr(exc))
-                logger.exception(
-                    "Final staged event_mapping upload failed for module=%s date=%s",
-                    module_name,
-                    event_date,
-                )
-                pending_cursor_ts = None
-
-        try:
-            for path in staging_dir.rglob("*"):
-                if path.is_file():
-                    path.unlink()
-            for path in sorted(staging_dir.rglob("*"), reverse=True):
-                if path.is_dir():
-                    path.rmdir()
-            staging_dir.rmdir()
-        except Exception:
-            logger.debug("Failed cleaning audit staging dir %s", staging_dir, exc_info=True)
-
-        if pending_cursor_ts is not None and pd.notna(pending_cursor_ts):
             logger.info("Updating audit cursor to %s", pending_cursor_ts.isoformat())
             self._update_audit_delta(ctx.local_client, pending_cursor_ts.isoformat())
+        elif not event_mapping_cursor_eligible:
+            logger.warning(
+                "Skipping cursor update because an event_mapping SILVER write failed; max_ts_seen=%s",
+                max_ts_seen,
+            )
+            pending_cursor_ts = None
         else:
             logger.warning(
                 "Skipping cursor update because no chunk completed successfully; max_ts_seen=%s",
@@ -874,7 +1038,17 @@ class MyRunnable(Runnable):
                 f"write_failures={stats.write_failures}; "
                 f"raw_write_failures={stats.raw_write_failures}; "
                 f"silver_write_failures={stats.silver_write_failures}; "
-                f"final_event_mapping_upload_failures={final_event_mapping_upload_failures}; "
+                f"event_mapping_write_failures={event_mapping_write_failures}; "
+                f"memory_max_rss_mb={memory_high_water.max_rss_mb if memory_high_water.max_rss_mb is not None else ''}; "
+                f"memory_max_rss_stage={memory_high_water.max_rss_stage or ''}; "
+                f"memory_max_rss_chunk_idx={memory_high_water.max_rss_chunk_idx if memory_high_water.max_rss_chunk_idx is not None else ''}; "
+                f"memory_max_rss_processor={memory_high_water.max_rss_processor or ''}; "
+                f"memory_max_rss_module={memory_high_water.max_rss_module or ''}; "
+                f"memory_max_df_bytes={memory_high_water.max_df_memory_bytes if memory_high_water.max_df_memory_bytes is not None else ''}; "
+                f"memory_max_df_stage={memory_high_water.max_df_memory_stage or ''}; "
+                f"memory_max_df_chunk_idx={memory_high_water.max_df_memory_chunk_idx if memory_high_water.max_df_memory_chunk_idx is not None else ''}; "
+                f"memory_max_df_processor={memory_high_water.max_df_memory_processor or ''}; "
+                f"memory_max_df_module={memory_high_water.max_df_memory_module or ''}; "
                 f"silver_fail_groups={stats.silver_fail_groups}; "
                 f"processor_failures={processor_failures}; "
                 f"cursor_from={last_update.isoformat()}; "
