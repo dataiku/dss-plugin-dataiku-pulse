@@ -30,6 +30,8 @@ from data_collection.helper import (
 
 logger = logging.getLogger(__name__)
 
+AUDIT_PROGRESS_CHUNK_INTERVAL = 5_000
+
 
 @dataclass
 class MemoryDiagnosticsHighWater:
@@ -109,20 +111,6 @@ def _log_memory_stage(
         high_water.max_df_memory_chunk_idx = chunk_idx
         high_water.max_df_memory_processor = processor
         high_water.max_df_memory_module = module
-
-    logger.info(
-        "Audit memory stage stage=%s chunk_idx=%s file_name=%s input_rows=%s rss_mb=%s "
-        "df_memory_bytes=%s processor=%s module=%s normalized_rows=%s",
-        stage,
-        chunk_idx,
-        file_name,
-        input_rows,
-        rss_mb,
-        df_memory_bytes,
-        processor or "",
-        module or "",
-        normalized_rows if normalized_rows is not None else "",
-    )
 
 
 def _select_candidate_audit_files(
@@ -451,6 +439,7 @@ class MyRunnable(Runnable):
         stats = ChunkProcessingStats()
         files_scanned = 0
         chunks_scanned = 0
+        non_empty_chunks_processed = 0
         processor_failures = 0
         event_mapping_cursor_eligible = True
         event_mapping_write_failures = 0
@@ -504,6 +493,21 @@ class MyRunnable(Runnable):
                     chunks_all_before_cursor=stats.chunks_all_before_cursor,
                     files_stopped_early=stats.files_stopped_early,
                 )
+                non_empty_chunks_processed += 1
+                if non_empty_chunks_processed % AUDIT_PROGRESS_CHUNK_INTERVAL == 0:
+                    logger.info(
+                        "Audit gather progress chunks_processed=%s chunks_scanned=%s rows_read=%s "
+                        "write_failures=%s raw_write_failures=%s silver_write_failures=%s "
+                        "processor_failures=%s rss_mb=%s",
+                        non_empty_chunks_processed,
+                        chunks_scanned,
+                        stats.rows_read,
+                        stats.write_failures,
+                        stats.raw_write_failures,
+                        stats.silver_write_failures,
+                        processor_failures,
+                        _process_rss_mb(),
+                    )
 
                 if "timestamp" not in chunk.columns:
                     logger.warning("Chunk %s missing timestamp column in %s", chunk_idx, path.name)
