@@ -385,7 +385,7 @@ def test_event_mapping_failure_between_successes_keeps_cursor_unchanged(monkeypa
     assert summary[4].endswith("cursor_to=")
 
 
-def test_memory_diagnostics_log_required_stages_and_high_water(monkeypatch, tmp_path, caplog):
+def test_memory_diagnostics_update_high_water_without_stage_logs(monkeypatch, tmp_path, caplog):
     runnable_module = _load_runnable_module()
     audit_dir = tmp_path / "audit"
     _write_audit_log(
@@ -444,19 +444,7 @@ def test_memory_diagnostics_log_required_stages_and_high_water(monkeypatch, tmp_
         result = runnable_module.MyRunnable(project_key="P", config={}, plugin_config={}).run(progress_callback=None)
 
     stage_lines = [message for message in caplog.messages if message.startswith("Audit memory stage")]
-    assert len(stage_lines) == 8
-    for stage in memory_by_stage:
-        assert any(f"stage={stage}" in message for message in stage_lines)
-    assert all("chunk_idx=1" in message for message in stage_lines)
-    assert all("file_name=audit.log" in message for message in stage_lines)
-    assert all("input_rows=1" in message for message in stage_lines)
-    assert any(
-        "stage=silver_upload_before" in message
-        and "processor=event_mapping" in message
-        and "module=webapps" in message
-        and "normalized_rows=1" in message
-        for message in stage_lines
-    )
+    assert stage_lines == []
     assert any(message.startswith("Audit memory high water max_rss_mb=80") for message in caplog.messages)
     summary = next(record for record in result.records if record[0] == "__summary__")
     assert "memory_max_rss_mb=80" in summary[4]
@@ -514,12 +502,59 @@ def test_memory_measurement_failures_are_non_fatal(monkeypatch, tmp_path, caplog
 
     assert len(uploads) == 1
     assert updates == ["2026-09-02T10:00:00+00:00"]
-    assert any(
-        message.startswith("Audit memory stage")
-        and "rss_mb=None" in message
-        and "df_memory_bytes=None" in message
-        for message in caplog.messages
-    )
+    assert not any(message.startswith("Audit memory stage") for message in caplog.messages)
     summary = next(record for record in result.records if record[0] == "__summary__")
     assert "memory_max_rss_mb=;" in summary[4]
     assert "memory_max_df_bytes=;" in summary[4]
+
+
+def test_audit_progress_logging_is_bounded(monkeypatch, tmp_path, caplog):
+    runnable_module = _load_runnable_module()
+    audit_dir = tmp_path / "audit"
+    _write_audit_log(
+        audit_dir,
+        [
+            {
+                "timestamp": f"2026-09-02T10:0{minute}:00Z",
+                "topic": "generic",
+                "message_msgType": "WEBAPP_VIEW",
+            }
+            for minute in range(5)
+        ],
+    )
+    _target, updates = _install_common_fakes(monkeypatch, runnable_module, audit_dir, chunk_size=1)
+    uploads = []
+
+    processor = SimpleNamespace(
+        main=lambda df: pd.DataFrame(
+            [
+                {
+                    "dataiku_category": "webapps",
+                    "timestamp": df.iloc[0]["timestamp"],
+                }
+            ]
+        )
+    )
+    monkeypatch.setattr(runnable_module, "AUDIT_PROGRESS_CHUNK_INTERVAL", 2)
+    monkeypatch.setattr(runnable_module, "_load_processor_names", lambda: ["event_mapping"])
+    monkeypatch.setattr(runnable_module, "_load_processors", lambda names: ({"event_mapping": processor}, {}))
+    monkeypatch.setattr(runnable_module, "check_silver_dq", lambda df: _ok_dq(runnable_module))
+    monkeypatch.setattr(runnable_module, "upload_parquet", lambda **kwargs: uploads.append(kwargs))
+    monkeypatch.setattr(runnable_module, "_process_rss_mb", lambda: 123)
+
+    with caplog.at_level("INFO"):
+        result = runnable_module.MyRunnable(project_key="P", config={}, plugin_config={}).run(progress_callback=None)
+
+    progress_lines = [message for message in caplog.messages if message.startswith("Audit gather progress")]
+    assert progress_lines == [
+        "Audit gather progress chunks_processed=2 chunks_scanned=2 rows_read=2 "
+        "write_failures=0 raw_write_failures=0 silver_write_failures=0 processor_failures=0 rss_mb=123",
+        "Audit gather progress chunks_processed=4 chunks_scanned=4 rows_read=4 "
+        "write_failures=0 raw_write_failures=0 silver_write_failures=0 processor_failures=0 rss_mb=123",
+    ]
+    assert runnable_module.AUDIT_PROGRESS_CHUNK_INTERVAL == 2
+    assert len(uploads) == 5
+    assert updates == ["2026-09-02T10:04:00+00:00"]
+    assert any(message.startswith("Audit memory high water") for message in caplog.messages)
+    summary = next(record for record in result.records if record[0] == "__summary__")
+    assert "chunks_scanned=5" in summary[4]
