@@ -6,11 +6,17 @@ from pathlib import Path
 from typing import Any, cast
 
 import dataiku
+from dataiku.customwebapp import get_webapp_config
 from flask import Flask, jsonify, request, send_from_directory
 
 from pulse_dashboard.webapp_backend import register_local_routes, register_routes
 
 logger = logging.getLogger(__name__)
+
+webapp_config = get_webapp_config() or {}
+pulse_primary = webapp_config.get("pulse_primary")
+if not isinstance(pulse_primary, dict):
+    raise RuntimeError("Pulse primary configuration is missing or invalid")
 
 INTERNAL_PREVIEW_DEBUG_VERSION = "preview-debug-2026-08-03-v2"
 
