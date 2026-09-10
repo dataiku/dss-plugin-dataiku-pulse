@@ -348,6 +348,21 @@ def _delete_stale_duckdb(duckdb_path: Path, metadata_path: Path) -> None:
     if metadata_path.exists():
         metadata_path.unlink()
 
+
+def _resolve_startup_duckdb_location() -> Path:
+    project_key, duckdb_path, metadata_path = pulse_settings.resolve_dashboard_duckdb_location()
+    pulse_settings.PULSE_SOURCE_PROJECT_KEY = project_key
+    pulse_settings.DUCKDB_PATH = duckdb_path
+    pulse_settings.DUCKDB_METADATA_PATH = metadata_path
+    logger.info(
+        "Pulse webapp startup: resolved source_project=%s duckdb_path=%s metadata_path=%s",
+        project_key,
+        duckdb_path,
+        metadata_path,
+    )
+    return duckdb_path
+
+
 def _maybe_schedule_startup_duckdb_init() -> None:
     global _startup_check_completed, _startup_init_started
 
@@ -363,7 +378,7 @@ def _maybe_schedule_startup_duckdb_init() -> None:
         _refresh_startup_status_metadata()
         return
 
-    duckdb_path = Path(getattr(pulse_settings, "DUCKDB_PATH", "") or "")
+    duckdb_path = _resolve_startup_duckdb_location()
     if not duckdb_path:
         _startup_init_status.update(
             {

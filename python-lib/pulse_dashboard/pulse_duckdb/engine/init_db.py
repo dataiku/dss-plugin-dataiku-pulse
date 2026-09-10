@@ -19,7 +19,7 @@ import os
 import time
 from typing import cast
 from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
 import yaml
@@ -548,9 +548,11 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
         replace_gold_tables = settings.PULSE_AUTO_LOAD_REPLACE
 
     started = time.time()
-    settings.PULSE_SOURCE_PROJECT_KEY = settings.resolve_source_project_key()
-    settings.DUCKDB_PATH = settings.resolve_duckdb_path()
-    settings.DUCKDB_METADATA_PATH = settings.DUCKDB_PATH.with_suffix(f"{settings.DUCKDB_PATH.suffix}.meta.json")
+    (
+        settings.PULSE_SOURCE_PROJECT_KEY,
+        settings.DUCKDB_PATH,
+        settings.DUCKDB_METADATA_PATH,
+    ) = settings.resolve_dashboard_duckdb_location()
     logger.info(
         "DuckDB ensure_database_ready: start load_gold_tables=%s replace_gold_tables=%s path=%s source_project=%s folder=%s",
         load_gold_tables,

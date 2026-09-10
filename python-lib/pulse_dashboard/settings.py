@@ -147,3 +147,11 @@ def resolve_duckdb_path() -> Path:
 
     project_key = resolve_source_project_key()
     return DUCKDB_DIR / shared_db_path(project_key=project_key, purpose="dashboard").name
+
+
+def resolve_dashboard_duckdb_location() -> tuple[str, Path, Path]:
+    """Resolve the effective dashboard source project, DuckDB path, and metadata path."""
+
+    project_key = resolve_source_project_key()
+    duckdb_path = resolve_duckdb_path()
+    return project_key, duckdb_path, duckdb_path.with_suffix(f"{duckdb_path.suffix}.meta.json")

@@ -57,6 +57,12 @@ def startup_env(monkeypatch, tmp_path):
     monkeypatch.setattr(pulse_settings, "PULSE_DUCKDB_STARTUP_STALE_TOLERANCE_SEC", 86400.0, raising=False)
     monkeypatch.setattr(pulse_settings, "PULSE_DUCKDB_REBUILD_ON_STARTUP_STALE", True, raising=False)
     monkeypatch.setattr(pulse_settings, "PULSE_AUTO_LOAD_REPLACE", False, raising=False)
+    monkeypatch.setattr(
+        pulse_settings,
+        "resolve_dashboard_duckdb_location",
+        lambda: ("TEST_PROJECT", duckdb_path, metadata_path),
+        raising=False,
+    )
 
     startup_module = importlib.import_module("pulse_dashboard.webapp_backend.startup")
     startup_module = importlib.reload(startup_module)
@@ -171,6 +177,40 @@ def test_old_last_rebuild_metadata_deletes_database_and_schedules_rebuild(startu
     assert status["staleReason"] == "lastRebuildAt_older_than_tolerance"
     assert status["rebuildTriggeredBy"] == "startup_stale"
     assert status["state"] == "ready"
+
+
+def test_startup_evaluates_resolved_project_path_not_import_time_default(startup_env, monkeypatch, tmp_path):
+    startup_module, pulse_settings, default_path, default_metadata_path, reports = startup_env
+    resolved_path = tmp_path / "resolved-project.duckdb"
+    resolved_metadata_path = resolved_path.with_suffix(f"{resolved_path.suffix}.meta.json")
+    monkeypatch.setattr(pulse_settings, "DUCKDB_PATH", default_path, raising=False)
+    monkeypatch.setattr(pulse_settings, "DUCKDB_METADATA_PATH", default_metadata_path, raising=False)
+    monkeypatch.setattr(
+        pulse_settings,
+        "resolve_dashboard_duckdb_location",
+        lambda: ("RESOLVED_PROJECT", resolved_path, resolved_metadata_path),
+        raising=False,
+    )
+    _touch(default_path, age_sec=3600)
+    _write_metadata(default_metadata_path, last_rebuild_at=_iso_utc(3600))
+    _touch(resolved_path, age_sec=3600)
+    _write_metadata(resolved_metadata_path, last_rebuild_at=_iso_utc(25 * 3600))
+
+    startup_module._maybe_schedule_startup_duckdb_init()
+
+    status = startup_module._startup_init_status
+    assert default_path.exists()
+    assert default_metadata_path.exists()
+    assert not resolved_path.exists()
+    assert not resolved_metadata_path.exists()
+    assert reports == [{"load_gold_tables": True, "replace_gold_tables": False}]
+    assert pulse_settings.PULSE_SOURCE_PROJECT_KEY == "RESOLVED_PROJECT"
+    assert pulse_settings.DUCKDB_PATH == resolved_path
+    assert pulse_settings.DUCKDB_METADATA_PATH == resolved_metadata_path
+    assert status["dbPath"] == str(resolved_path)
+    assert status["metadataPath"] == str(resolved_metadata_path)
+    assert status["staleReason"] == "lastRebuildAt_older_than_tolerance"
+    assert status["rebuildTriggeredBy"] == "startup_stale"
 
 
 @pytest.mark.parametrize("metadata", [{}, {"lastRebuildAt": "not-a-date"}])
