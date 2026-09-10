@@ -92,7 +92,6 @@ def test_recipe_builds_required_activity_facts_unconditionally(monkeypatch, reci
     monkeypatch.setattr(recipe_module, 'build_fact_object_activity_events', lambda *_args, **_kwargs: events.append('build_fact_object_activity_events') or calls.append('fact_object_activity_events') or 'fact_object_activity_events')
     monkeypatch.setattr(recipe_module, 'build_base_dataiku_products_registry', lambda *_args, **_kwargs: 'base_dataiku_products_registry')
     monkeypatch.setattr(recipe_module, 'read_manifest', lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(recipe_module, 'set_manifest_watermark', lambda *_args, **_kwargs: None)
     monkeypatch.setattr(recipe_module, 'stamp_manifest_updated_at', lambda *_args, **_kwargs: None)
     monkeypatch.setattr(recipe_module, 'write_manifest', lambda *_args, **_kwargs: None)
     monkeypatch.setattr(recipe_module, 'list_table_names', lambda *_args, **_kwargs: ['fact_dev_activity_events', 'fact_object_activity_events'])

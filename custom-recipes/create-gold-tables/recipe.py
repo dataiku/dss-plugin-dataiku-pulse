@@ -21,7 +21,7 @@ from data_collection.pulse_duckdb.duckdb_manager import prepare_duckdb
 from data_collection.pulse_duckdb.engine.storage_config import configure_storage
 from data_collection.pulse_duckdb.gold_builder import apply_gold_spec, resolve_gold_spec_build_order
 from data_collection.pulse_duckdb.license_wide import build_license_wide_sql_params
-from data_collection.pulse_duckdb.manifest import read_manifest, set_manifest_watermark, stamp_manifest_updated_at, write_manifest
+from data_collection.pulse_duckdb.manifest import copy_manifest, read_manifest, stamp_manifest_updated_at, write_manifest
 from data_collection.pulse_duckdb.sql_utils import log_timed_phase
 from data_collection.pulse_duckdb.unload import unload_gold_tables
 from data_collection.pulse_duckdb.object_activity import (
@@ -190,6 +190,7 @@ def run():
     built_products_registry = build_base_dataiku_products_registry(setup.conn, base_dir=base_dir)
 
     manifest = read_manifest(gold_folder_lookup) if manifest_enabled else {}
+    pending_manifest = copy_manifest(manifest) if manifest_enabled else None
 
     current_tables = list_table_names(setup.conn)
     table_groups = group_gold_tables_by_prefix(current_tables)
@@ -223,37 +224,21 @@ def run():
                 view_name=f"v_event_mapping__{module_name}",
             )
 
-        if dev_modules:
-            max_ts = (
-                setup.conn.execute(
-                    "SELECT CAST(MAX(run_timestamp) AS VARCHAR) FROM fact_dev_activity_events;"
-                ).fetchone()[0]
-                if "fact_dev_activity_events" in fact_tables
-                else None
-            )
-            set_manifest_watermark(manifest, "fact_dev_activity_events", max_ts)
-
-        if object_modules:
-            max_ts = (
-                setup.conn.execute(
-                    "SELECT CAST(MAX(run_timestamp) AS VARCHAR) FROM fact_object_activity_events;"
-                ).fetchone()[0]
-                if "fact_object_activity_events" in fact_tables
-                else None
-            )
-            set_manifest_watermark(manifest, "fact_object_activity_events", max_ts)
-
     unloaded_tables, failed_tables = unload_gold_tables(
         setup.conn,
         gold_ctx=gold_ctx,
         gold_folder_lookup=gold_folder_lookup,
         table_names=unload_candidates,
         unload_behavior=unload_behavior,
+        manifest=pending_manifest,
+        incremental_enabled=manifest_enabled,
+        lookback_days=lookback_days,
     )
 
-    if manifest_enabled and not failed_tables:
-        stamp_manifest_updated_at(manifest)
-        write_manifest(gold_folder_lookup, manifest)
+    if manifest_enabled and pending_manifest is not None and not failed_tables:
+        stamp_manifest_updated_at(pending_manifest)
+        write_manifest(gold_folder_lookup, pending_manifest)
+        manifest = pending_manifest
 
     return {
         "source_project_key": project_key,

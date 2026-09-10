@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import logging
 
@@ -29,6 +30,10 @@ def write_manifest(folder_lookup: str, manifest: dict[str, object]) -> None:
     folder.upload_stream(MANIFEST_PATH, io.BytesIO(content))
 
 
+def copy_manifest(manifest: dict[str, object]) -> dict[str, object]:
+    return deepcopy(manifest)
+
+
 def manifest_watermark(manifest: dict[str, object], key: str) -> str | None:
     watermarks = manifest.get("watermarks")
     if not isinstance(watermarks, dict):
@@ -46,15 +51,24 @@ def set_manifest_watermark(manifest: dict[str, object], key: str, value: str | N
 
 
 def lookback_adjusted_watermark(watermark: str | None, lookback_days: int) -> str | None:
-    if not watermark or lookback_days <= 0:
-        return watermark
+    normalized = normalized_manifest_watermark(watermark)
+    if not normalized:
+        return None
+    if lookback_days <= 0:
+        return normalized
+    adjusted = datetime.fromisoformat(normalized) - timedelta(days=lookback_days)
+    return adjusted.isoformat()
+
+
+def normalized_manifest_watermark(watermark: str | None) -> str | None:
+    if not watermark:
+        return None
     try:
         normalized = watermark.replace("Z", "+00:00")
-        adjusted = datetime.fromisoformat(normalized) - timedelta(days=lookback_days)
-        return adjusted.isoformat()
-    except Exception:
-        logger.warning("Failed to parse watermark %s for lookback adjustment", watermark)
-        return watermark
+        return datetime.fromisoformat(normalized).isoformat()
+    except ValueError:
+        logger.warning("Failed to parse manifest watermark %s", watermark)
+        return None
 
 
 def stamp_manifest_updated_at(manifest: dict[str, object]) -> None:
