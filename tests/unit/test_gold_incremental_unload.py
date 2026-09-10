@@ -15,6 +15,7 @@ from data_collection.pulse_duckdb import unload
 class LocalGoldContext:
     bucket_or_container: str = "bucket"
     blob_header: str = "file:///tmp/pulse-gold-test"
+    folder_root: str = ""
 
 
 def _create_fact_table(
@@ -272,6 +273,63 @@ def test_unload_failure_leaves_original_manifest_unchanged(
         "updated_at": "old",
     }
     assert pending_manifest == original_manifest
+
+
+def test_successful_unload_writes_each_supported_fact_watermark(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    conn = duckdb.connect(":memory:")
+    pending_manifest = {
+        "watermarks": {
+            "fact_user_activity_daily": "2026-01-01T00:00:00",
+            "unrelated_table": "preserve-me",
+        },
+        "updated_at": "old",
+    }
+    expected_watermarks: dict[str, str] = {}
+
+    for index, (table_name, time_column) in enumerate(
+        unload.FACT_TIME_COLUMNS.items(), start=1
+    ):
+        _create_fact_table(conn, table_name, time_column)
+        max_timestamp = f"2026-01-{index + 1:02d} 12:34:56"
+        _insert_rows(
+            conn,
+            table_name,
+            time_column,
+            [
+                ("a", "2026-01-01 00:00:00", index),
+                ("a", max_timestamp, index + 100),
+            ],
+        )
+        expected_watermarks[table_name] = conn.execute(
+            f"SELECT CAST(MAX(CAST({time_column} AS TIMESTAMP)) AS VARCHAR) FROM {table_name};"
+        ).fetchone()[0]
+
+    monkeypatch.setattr(
+        unload,
+        "_write_fact_table_partitions_duckdb",
+        lambda *_args, **_kwargs: None,
+    )
+
+    unloaded_tables, failed_tables = unload.unload_gold_tables(
+        conn,
+        gold_ctx=LocalGoldContext(),
+        gold_folder_lookup="gold_data",
+        table_names=list(unload.FACT_TIME_COLUMNS),
+        unload_behavior="duckdb",
+        manifest=pending_manifest,
+        incremental_enabled=True,
+        lookback_days=1,
+    )
+
+    assert unloaded_tables == list(unload.FACT_TIME_COLUMNS)
+    assert failed_tables == []
+    assert pending_manifest["watermarks"] == {
+        **expected_watermarks,
+        "unrelated_table": "preserve-me",
+    }
+    assert pending_manifest["updated_at"] == "old"
 
 
 def test_incremental_disabled_selects_all_partitions() -> None:
