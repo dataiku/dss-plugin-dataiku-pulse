@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import fnmatch
-import io
 import logging
 import os
 import re
@@ -14,7 +13,6 @@ from pathlib import Path, PurePosixPath
 
 import dataiku
 import duckdb
-import pandas as pd
 from data_collection.pulse_duckdb.destinations import gold_destination_path
 from shared_duckdb.sql_utils import quote_identifier
 from shared_duckdb.context import build_storage_context
@@ -94,6 +92,12 @@ def _build_gold_blob_paths(paths: list[str]) -> tuple[object, dict[str, list[str
     return storage_ctx, dict(grouped)
 
 
+def _read_parquet_path_expr(blob_paths: list[str]) -> tuple[str, list[object]]:
+    if len(blob_paths) == 1:
+        return "?", [blob_paths[0]]
+    return "[" + ", ".join("?" for _ in blob_paths) + "]", list(blob_paths)
+
+
 def _load_remote_parquet_table(
     conn: duckdb.DuckDBPyConnection,
     *,
@@ -103,7 +107,6 @@ def _load_remote_parquet_table(
     if not blob_paths:
         raise ValueError(f"No blob paths provided for {table_name}")
 
-    started = time.time()
     table_ident = _validated_gold_table_identifier(table_name)
     logger.info(
         "DuckDB gold_loader: starting remote parquet load table=%s parquet_files=%s first_path=%s",
@@ -112,8 +115,9 @@ def _load_remote_parquet_table(
         blob_paths[0],
     )
 
+    load_started = time.time()
+    path_expr, params = _read_parquet_path_expr(blob_paths)
     if table_name == "fact_user_activity_daily":
-        first_path, *remaining_paths = blob_paths
         conn.execute(
             f'''
             CREATE OR REPLACE TABLE {table_ident} AS
@@ -125,37 +129,11 @@ def _load_remote_parquet_table(
               viewing_actions_count,
               developing_actions_count,
               last_activity_at
-            FROM read_parquet(?);
+            FROM read_parquet({path_expr}, hive_partitioning = true);
             ''',
-            [first_path],
+            params,
         )  # nosec B608
-
-        for path in remaining_paths:
-            conn.execute(
-                f'''
-                INSERT INTO {table_ident} (
-                  day,
-                  instance_name,
-                  login_norm,
-                  login,
-                  viewing_actions_count,
-                  developing_actions_count,
-                  last_activity_at
-                )
-                SELECT
-                  make_date(CAST(year AS INTEGER), CAST(month AS INTEGER), CAST(day AS INTEGER)) AS day,
-                  instance_name,
-                  login_norm,
-                  login,
-                  viewing_actions_count,
-                  developing_actions_count,
-                  last_activity_at
-                FROM read_parquet(?);
-                ''',
-                [path],
-            )  # nosec B608
     elif table_name == "fact_formal_mau_daily":
-        first_path, *remaining_paths = blob_paths
         conn.execute(
             f'''
             CREATE OR REPLACE TABLE {table_ident} AS
@@ -166,56 +144,43 @@ def _load_remote_parquet_table(
               login,
               application_open_count,
               last_application_open_at
-            FROM read_parquet(?);
+            FROM read_parquet({path_expr}, hive_partitioning = true);
             ''',
-            [first_path],
+            params,
         )  # nosec B608
-
-        for path in remaining_paths:
-            conn.execute(
-                f'''
-                INSERT INTO {table_ident} (
-                  day,
-                  instance_name,
-                  login_norm,
-                  login,
-                  application_open_count,
-                  last_application_open_at
-                )
-                SELECT
-                  make_date(CAST(year AS INTEGER), CAST(month AS INTEGER), CAST(day AS INTEGER)) AS day,
-                  instance_name,
-                  login_norm,
-                  login,
-                  application_open_count,
-                  last_application_open_at
-                FROM read_parquet(?);
-                ''',
-                [path],
-            )  # nosec B608
     else:
-        params: list[object] = []
-        if len(blob_paths) == 1:
-            path_expr = "?"
-            params.append(blob_paths[0])
-        else:
-            path_expr = "[" + ", ".join("?" for _ in blob_paths) + "]"
-            params.extend(blob_paths)
-
         sql = (
             f'CREATE OR REPLACE TABLE {table_ident} AS '  # nosec B608
             f'SELECT * FROM read_parquet({path_expr});'
         )
         conn.execute(sql, params)
+    load_elapsed = time.time() - load_started
+    logger.info(
+        "DuckDB gold_loader: materialized remote parquet table=%s parquet_files=%s elapsed_sec=%.3f",
+        table_name,
+        len(blob_paths),
+        load_elapsed,
+    )
+
     # Bandit B608: validated and quoted table identifier.
+    count_started = time.time()
     row = conn.execute(f'SELECT COUNT(*) FROM {table_ident};').fetchone()  # nosec B608
+    count_elapsed = time.time() - count_started
     rows = int(row[0]) if row else 0
     logger.info(
-        "DuckDB gold_loader: finished remote parquet load table=%s parquet_files=%s rows=%s elapsed_sec=%.3f",
+        "DuckDB gold_loader: counted remote parquet table=%s rows=%s elapsed_sec=%.3f",
+        table_name,
+        rows,
+        count_elapsed,
+    )
+    logger.info(
+        "DuckDB gold_loader: finished remote parquet load table=%s parquet_files=%s rows=%s elapsed_sec=%.3f load_elapsed_sec=%.3f count_elapsed_sec=%.3f",
         table_name,
         len(blob_paths),
         rows,
-        time.time() - started,
+        load_elapsed + count_elapsed,
+        load_elapsed,
+        count_elapsed,
     )
     return rows
 
