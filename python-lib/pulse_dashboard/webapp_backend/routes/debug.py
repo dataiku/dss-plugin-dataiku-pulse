@@ -1,14 +1,23 @@
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any
+import time
+from typing import Any, cast
 
 from flask import Blueprint, jsonify, request
 from shared_duckdb.sql_utils import quote_identifier, validate_identifier
 
 from pulse_dashboard.pulse_duckdb.engine import ReadOnlySQLError
 from pulse_dashboard.webapp_backend.services.users import RequestValidationError
-from pulse_dashboard.webapp_backend.startup import duckdb_init_in_progress
+from pulse_dashboard.webapp_backend.routes.startup import (
+    invalidate_advanced_llm_mesh_capability_cache,
+)
+from pulse_dashboard.webapp_backend.startup import (
+    _refresh_startup_status_metadata,
+    _startup_init_status,
+    duckdb_init_in_progress,
+)
 from pulse_dashboard.webapp_backend.support import (
     _READ_ONLY_QUERY_LIMIT,
     _df_records,
@@ -33,6 +42,71 @@ def _safe_ident(name: str) -> str:
 
 
 def register_routes(bp: Blueprint) -> None:
+    @bp.route("/api/debug/duckdb/reload", methods=["POST"])
+    def debug_duckdb_reload():
+        started = None
+        try:
+            _require_debug_access()
+            _query_df, _create_connection, _ensure_database_ready = (
+                _require_duckdb_engine()
+            )
+
+            started = time.time()
+            _startup_init_status.update(
+                {
+                    "state": "running",
+                    "phase": "bootstrap",
+                    "message": "Reloading DuckDB and refreshing GOLD tables",
+                    "startedAt": started,
+                    "finishedAt": None,
+                    "durationSec": None,
+                    "error": None,
+                    "report": None,
+                    "startupCheckPerformed": True,
+                }
+            )
+            _refresh_startup_status_metadata()
+
+            load_report = cast(
+                dict[str, Any],
+                _ensure_database_ready(load_gold_tables=True, replace_gold_tables=True),
+            )
+            invalidate_advanced_llm_mesh_capability_cache()
+
+            reload_ok = bool(load_report.get("ok", False))
+            duration_sec = round(time.time() - started, 3)
+            _startup_init_status.update(
+                {
+                    "state": "ready" if reload_ok else "failed",
+                    "phase": "frontend_ready" if reload_ok else "failed",
+                    "message": "DuckDB reload complete" if reload_ok else "DuckDB reload failed",
+                    "finishedAt": time.time(),
+                    "durationSec": duration_sec,
+                    "error": None if reload_ok else json.dumps(load_report),
+                    "report": load_report,
+                }
+            )
+            _refresh_startup_status_metadata()
+
+            return jsonify({"ok": True, "load": load_report})
+        except PermissionError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 403
+        except Exception as exc:
+            if started is not None:
+                _startup_init_status.update(
+                    {
+                        "state": "failed",
+                        "phase": "failed",
+                        "message": "DuckDB reload failed",
+                        "finishedAt": time.time(),
+                        "durationSec": round(time.time() - started, 3),
+                        "error": str(exc),
+                    }
+                )
+                _refresh_startup_status_metadata()
+            logger.exception("duckdb reload failed")
+            return jsonify({"ok": False, "error": str(exc)}), 500
+
     @bp.route("/api/debug/duckdb/tables")
     def debug_duckdb_tables():
         try:
