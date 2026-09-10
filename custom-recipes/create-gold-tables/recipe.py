@@ -168,26 +168,37 @@ def run():
     if dev_activity_name:
         built_dev_activity.append(dev_activity_name)
 
-    built_user_activity = [
-        name
-        for name in [
-            build_fact_user_activity_daily(setup.conn, ctx=silver_ctx),
-            build_fact_user_activity_project_daily(setup.conn, ctx=silver_ctx),
-            build_fact_formal_mau_daily(setup.conn, ctx=silver_ctx),
-            build_fact_license_utilization_daily(setup.conn, ctx=silver_ctx),
-        ]
-        if name
-    ]
+    built_user_activity = []
+    with log_timed_phase(setup.conn, label="build_fact_user_activity_daily"):
+        user_activity_daily_name = build_fact_user_activity_daily(setup.conn, ctx=silver_ctx)
+    if user_activity_daily_name:
+        built_user_activity.append(user_activity_daily_name)
+    with log_timed_phase(setup.conn, label="build_fact_user_activity_project_daily"):
+        user_activity_project_daily_name = build_fact_user_activity_project_daily(setup.conn, ctx=silver_ctx)
+    if user_activity_project_daily_name:
+        built_user_activity.append(user_activity_project_daily_name)
+    with log_timed_phase(setup.conn, label="build_fact_formal_mau_daily"):
+        formal_mau_daily_name = build_fact_formal_mau_daily(setup.conn, ctx=silver_ctx)
+    if formal_mau_daily_name:
+        built_user_activity.append(formal_mau_daily_name)
+    with log_timed_phase(setup.conn, label="build_fact_license_utilization_daily"):
+        license_utilization_daily_name = build_fact_license_utilization_daily(setup.conn, ctx=silver_ctx)
+    if license_utilization_daily_name:
+        built_user_activity.append(license_utilization_daily_name)
 
-    user_activity_quality = collect_user_activity_quality_report(setup.conn)
-    license_utilization_quality = collect_license_utilization_quality_report(setup.conn)
+    with log_timed_phase(setup.conn, label="collect_user_activity_quality_report"):
+        user_activity_quality = collect_user_activity_quality_report(setup.conn)
+    with log_timed_phase(setup.conn, label="collect_license_utilization_quality_report"):
+        license_utilization_quality = collect_license_utilization_quality_report(setup.conn)
 
     built_object_activity = []
-    object_activity_name = build_fact_object_activity_events(setup.conn, ctx=silver_ctx, base_dir=base_dir)
+    with log_timed_phase(setup.conn, label="build_fact_object_activity_events"):
+        object_activity_name = build_fact_object_activity_events(setup.conn, ctx=silver_ctx, base_dir=base_dir)
     if object_activity_name:
         built_object_activity.append(object_activity_name)
 
-    built_products_registry = build_base_dataiku_products_registry(setup.conn, base_dir=base_dir)
+    with log_timed_phase(setup.conn, label="build_base_dataiku_products_registry"):
+        built_products_registry = build_base_dataiku_products_registry(setup.conn, base_dir=base_dir)
 
     manifest = read_manifest(gold_folder_lookup) if manifest_enabled else {}
     pending_manifest = copy_manifest(manifest) if manifest_enabled else None

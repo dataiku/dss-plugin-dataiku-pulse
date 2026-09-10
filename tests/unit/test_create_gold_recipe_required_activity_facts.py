@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,12 @@ def recipe_module():
 def test_recipe_builds_required_activity_facts_unconditionally(monkeypatch, recipe_module):
     calls: list[str] = []
     events: list[str] = []
+    phase_labels: list[str] = []
+
+    @contextmanager
+    def record_timed_phase(_conn, *, label: str):
+        phase_labels.append(label)
+        yield
 
     class _Conn:
         def execute(self, sql, *_args, **_kwargs):
@@ -91,6 +98,7 @@ def test_recipe_builds_required_activity_facts_unconditionally(monkeypatch, reci
     monkeypatch.setattr(recipe_module, 'collect_license_utilization_quality_report', lambda *_args, **_kwargs: {'ok': True})
     monkeypatch.setattr(recipe_module, 'build_fact_object_activity_events', lambda *_args, **_kwargs: events.append('build_fact_object_activity_events') or calls.append('fact_object_activity_events') or 'fact_object_activity_events')
     monkeypatch.setattr(recipe_module, 'build_base_dataiku_products_registry', lambda *_args, **_kwargs: 'base_dataiku_products_registry')
+    monkeypatch.setattr(recipe_module, 'log_timed_phase', record_timed_phase)
     monkeypatch.setattr(recipe_module, 'read_manifest', lambda *_args, **_kwargs: {})
     monkeypatch.setattr(recipe_module, 'stamp_manifest_updated_at', lambda *_args, **_kwargs: None)
     monkeypatch.setattr(recipe_module, 'write_manifest', lambda *_args, **_kwargs: None)
@@ -128,5 +136,17 @@ def test_recipe_builds_required_activity_facts_unconditionally(monkeypatch, reci
         'fact_dev_activity_events',
     ]
     assert result['built_object_activity'] == ['fact_object_activity_events']
+    assert phase_labels == [
+        'build_dim_category_to_capability',
+        'build_dim_dev_activity_event_classification',
+        'build_fact_user_activity_daily',
+        'build_fact_user_activity_project_daily',
+        'build_fact_formal_mau_daily',
+        'build_fact_license_utilization_daily',
+        'collect_user_activity_quality_report',
+        'collect_license_utilization_quality_report',
+        'build_fact_object_activity_events',
+        'build_base_dataiku_products_registry',
+    ]
     assert 'build_dev_activity' not in result
     assert 'build_object_activity' not in result
