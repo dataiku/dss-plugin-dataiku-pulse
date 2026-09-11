@@ -131,7 +131,7 @@ def _load_remote_parquet_table(
               viewing_actions_count,
               developing_actions_count,
               last_activity_at
-            FROM read_parquet({path_expr}, hive_partitioning = true);
+            FROM read_parquet({path_expr}, hive_partitioning = true, union_by_name = true);
             ''',
             params,
         )  # nosec B608
@@ -146,7 +146,7 @@ def _load_remote_parquet_table(
               login,
               application_open_count,
               last_application_open_at
-            FROM read_parquet({path_expr}, hive_partitioning = true);
+            FROM read_parquet({path_expr}, hive_partitioning = true, union_by_name = true);
             ''',
             params,
         )  # nosec B608

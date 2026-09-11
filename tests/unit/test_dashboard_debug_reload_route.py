@@ -111,9 +111,9 @@ def test_debug_reload_returns_failed_report_as_json(debug_reload_app):
     response = app.test_client().post("/api/debug/duckdb/reload")
     payload = response.get_json()
 
-    assert response.status_code == 200
+    assert response.status_code == 500
     assert response.content_type.startswith("application/json")
-    assert payload == {"ok": True, "load": load_report}
+    assert payload == {"ok": False, "load": load_report}
     assert calls == [{"load_gold_tables": True, "replace_gold_tables": True}]
     assert startup_module._startup_init_status["state"] == "failed"
     assert startup_module._startup_init_status["phase"] == "failed"

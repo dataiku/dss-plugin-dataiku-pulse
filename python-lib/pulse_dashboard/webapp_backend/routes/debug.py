@@ -88,7 +88,8 @@ def register_routes(bp: Blueprint) -> None:
             )
             _refresh_startup_status_metadata()
 
-            return jsonify({"ok": True, "load": load_report})
+            response_status = 200 if reload_ok else 500
+            return jsonify({"ok": reload_ok, "load": load_report}), response_status
         except PermissionError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 403
         except Exception as exc:

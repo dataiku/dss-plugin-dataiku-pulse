@@ -226,6 +226,92 @@ def test_special_daily_fact_bulk_load_preserves_schema_and_hive_day(
     ]
 
 
+@pytest.mark.parametrize(
+    ("table_name", "rows_by_day", "expected_columns"),
+    [
+        (
+            "fact_user_activity_daily",
+            {
+                21: {
+                    "day": [date(2026, 6, 21)],
+                    "login_norm": ["alice"],
+                    "login": ["Alice"],
+                    "viewing_actions_count": [1],
+                    "legacy_extra_column": ["ignored"],
+                },
+                22: {
+                    "login_norm": ["bob"],
+                    "login": ["Bob"],
+                    "developing_actions_count": [4],
+                    "last_activity_at": ["2026-06-22T10:00:00"],
+                },
+            },
+            [
+                "day",
+                "instance_name",
+                "login_norm",
+                "login",
+                "viewing_actions_count",
+                "developing_actions_count",
+                "last_activity_at",
+            ],
+        ),
+        (
+            "fact_formal_mau_daily",
+            {
+                21: {
+                    "day": [date(2026, 6, 21)],
+                    "login_norm": ["alice"],
+                    "login": ["Alice"],
+                    "application_open_count": [5],
+                    "legacy_extra_column": ["ignored"],
+                },
+                22: {
+                    "login_norm": ["bob"],
+                    "login": ["Bob"],
+                    "application_open_count": [6],
+                    "last_application_open_at": ["2026-06-22T11:00:00"],
+                },
+            },
+            [
+                "day",
+                "instance_name",
+                "login_norm",
+                "login",
+                "application_open_count",
+                "last_application_open_at",
+            ],
+        ),
+    ],
+)
+def test_special_daily_fact_bulk_load_tolerates_mixed_historical_schemas(
+    conn,
+    tmp_path,
+    table_name,
+    rows_by_day,
+    expected_columns,
+):
+    blob_paths = []
+    for day, columns in rows_by_day.items():
+        partition_dir = tmp_path / table_name / "instance_name=feoperations" / "year=2026" / "month=06" / f"day={day:02d}"
+        partition_dir.mkdir(parents=True)
+        path = partition_dir / "data.parquet"
+        pd.DataFrame(columns).to_parquet(path)
+        blob_paths.append(str(path))
+
+    rows = gold_loader._load_remote_parquet_table(conn, table_name=table_name, blob_paths=blob_paths)
+
+    assert rows == 2
+    assert [row[1] for row in conn.execute(f"PRAGMA table_info('{table_name}')").fetchall()] == expected_columns
+    loaded = conn.execute(
+        f'SELECT day, instance_name, login_norm FROM "{table_name}" ORDER BY day, login_norm;'
+    ).fetchall()
+    assert loaded == [
+        (duckdb.execute("SELECT DATE '2026-06-21'").fetchone()[0], "feoperations", "alice"),
+        (duckdb.execute("SELECT DATE '2026-06-22'").fetchone()[0], "feoperations", "bob"),
+    ]
+
+
 @pytest.mark.parametrize("table_name", ["fact_user_activity_daily", "fact_formal_mau_daily"])
 def test_special_daily_fact_uses_one_bulk_read_for_multiple_paths(table_name):
     class _ConnStub:
@@ -255,6 +341,7 @@ def test_special_daily_fact_uses_one_bulk_read_for_multiple_paths(table_name):
     assert "CREATE OR REPLACE TABLE" in load_calls[0][0]
     assert "INSERT INTO" not in load_calls[0][0]
     assert "hive_partitioning = true" in load_calls[0][0]
+    assert "union_by_name = true" in load_calls[0][0]
     assert load_calls[0][1] == blob_paths
 
 
