@@ -1,5 +1,6 @@
 # Change Log
 
+- Dashboard debug reload failures now surface the failed table and underlying load error in the top-level response.
 - Dashboard DuckDB reloads now bound raw development-activity event loading to recent partitions by default while preserving full daily facts.
 - Dashboard webapp startup freshness checks now resolve the active project-specific DuckDB path before evaluating or deleting stale local databases.
 - Dashboard webapp startup now checks local DuckDB freshness during both DSS-injected and standalone backend registration, using successful rebuild metadata before falling back to file mtime.

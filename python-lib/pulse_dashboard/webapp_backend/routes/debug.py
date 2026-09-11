@@ -41,6 +41,29 @@ def _safe_ident(name: str) -> str:
     return validate_identifier(name)
 
 
+def _summarize_reload_failure(load_report: dict[str, Any]) -> str:
+    failed = load_report.get("failed")
+    nested_report = load_report.get("report")
+    if not failed and isinstance(nested_report, dict):
+        failed = nested_report.get("failed")
+
+    if isinstance(failed, list) and failed:
+        first_failure = failed[0]
+        if isinstance(first_failure, dict):
+            table_name = first_failure.get("table")
+            error = first_failure.get("error")
+            if table_name and error:
+                return f"DuckDB reload failed while loading {table_name}: {error}"
+            if table_name:
+                return f"DuckDB reload failed while loading {table_name}; inspect the load report for details."
+            if error:
+                return f"DuckDB reload failed: {error}"
+        else:
+            return f"DuckDB reload failed while loading {first_failure}; inspect the load report for details."
+
+    return "DuckDB reload failed; inspect the load report for details."
+
+
 def register_routes(bp: Blueprint) -> None:
     @bp.route("/api/debug/duckdb/reload", methods=["POST"])
     def debug_duckdb_reload():
@@ -88,8 +111,12 @@ def register_routes(bp: Blueprint) -> None:
             )
             _refresh_startup_status_metadata()
 
+            response_body: dict[str, Any] = {"ok": reload_ok, "load": load_report}
+            if not reload_ok:
+                response_body["error"] = _summarize_reload_failure(load_report)
+
             response_status = 200 if reload_ok else 500
-            return jsonify({"ok": reload_ok, "load": load_report}), response_status
+            return jsonify(response_body), response_status
         except PermissionError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 403
         except Exception as exc:

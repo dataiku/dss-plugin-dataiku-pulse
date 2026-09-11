@@ -101,25 +101,64 @@ def test_debug_reload_route_accepts_post_and_calls_full_reload(debug_reload_app)
     assert status_response.get_json()["init"]["report"] == load_report
 
 
-def test_debug_reload_returns_failed_report_as_json(debug_reload_app):
+def test_debug_reload_returns_nested_failed_report_error_as_json(debug_reload_app):
     app, _debug_module, startup_module, _startup_routes_module, calls, load_report = (
         debug_reload_app
     )
     load_report.clear()
-    load_report.update({"ok": False, "failed": ["fact_formal_mau_daily"], "loaded": []})
+    load_report.update(
+        {
+            "ok": False,
+            "report": {
+                "ok": False,
+                "loaded": [],
+                "failed": [
+                    {
+                        "table": "fact_user_activity_daily",
+                        "path": "s3://bucket/gold/fact_user_activity_daily/year=2026/month=06/day=21/data.parquet",
+                        "error": "DuckDB schema mismatch in glob",
+                    }
+                ],
+            },
+            "views": {"ok": True},
+        }
+    )
 
     response = app.test_client().post("/api/debug/duckdb/reload")
     payload = response.get_json()
 
     assert response.status_code == 500
     assert response.content_type.startswith("application/json")
-    assert payload == {"ok": False, "load": load_report}
+    assert payload["ok"] is False
+    assert payload["load"] == load_report
+    assert "fact_user_activity_daily" in payload["error"]
+    assert "DuckDB schema mismatch in glob" in payload["error"]
     assert calls == [{"load_gold_tables": True, "replace_gold_tables": True}]
     assert startup_module._startup_init_status["state"] == "failed"
     assert startup_module._startup_init_status["phase"] == "failed"
     assert startup_module._startup_init_status["report"] == load_report
     assert startup_module._startup_init_status["normalizedState"] == "FAILED"
     assert startup_module._startup_init_status["error"] is not None
+
+
+def test_debug_reload_failed_report_without_details_returns_fallback_error(debug_reload_app):
+    app, _debug_module, startup_module, _startup_routes_module, calls, load_report = (
+        debug_reload_app
+    )
+    load_report.clear()
+    load_report.update({"ok": False, "report": {"ok": False, "failed": []}})
+
+    response = app.test_client().post("/api/debug/duckdb/reload")
+    payload = response.get_json()
+
+    assert response.status_code == 500
+    assert payload == {
+        "ok": False,
+        "load": load_report,
+        "error": "DuckDB reload failed; inspect the load report for details.",
+    }
+    assert calls == [{"load_gold_tables": True, "replace_gold_tables": True}]
+    assert startup_module._startup_init_status["state"] == "failed"
 
 
 def test_debug_reload_permission_failure_uses_json_403(debug_reload_app, monkeypatch):
