@@ -9,6 +9,7 @@ import re
 import time
 import uuid
 from collections import defaultdict
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 
 import dataiku
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 _SAFE_GOLD_TABLE_RE = re.compile(r"^(base_|dim_|fact_|reg_)[A-Za-z0-9_]+$")
+_DEV_ACTIVITY_RAW_TABLE = "fact_dev_activity_events"
 
 
 def _validated_gold_table_identifier(table_name: str) -> str:
@@ -233,6 +235,82 @@ def _parse_hive_partitions(rel_path: str) -> dict[str, str]:
         if k in {"instance_name", "year", "month", "day", "project_key"} and v:
             out[k] = v
     return out
+
+
+def _extract_hive_partition_date(rel_path: str) -> date | None:
+    partitions = _parse_hive_partitions(rel_path)
+    try:
+        return date(
+            int(partitions["year"]),
+            int(partitions["month"]),
+            int(partitions["day"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _filter_dev_activity_raw_paths(paths: list[str], *, today_utc: date | None = None) -> list[str]:
+    retention_days = settings.PULSE_DASHBOARD_DEV_ACTIVITY_RAW_RETENTION_DAYS
+    logger.info(
+        "DuckDB gold_loader: dev activity raw retention configured days=%s",
+        retention_days,
+    )
+
+    dev_paths: list[str] = []
+    other_paths: list[str] = []
+    for path in paths:
+        if infer_table_name(path) == _DEV_ACTIVITY_RAW_TABLE:
+            dev_paths.append(path)
+        else:
+            other_paths.append(path)
+
+    if not dev_paths:
+        return paths
+
+    if retention_days < 0:
+        raise ValueError(
+            "PULSE_DASHBOARD_DEV_ACTIVITY_RAW_RETENTION_DAYS must be a positive integer or 0 to disable the bound"
+        )
+
+    if retention_days == 0:
+        logger.info(
+            "DuckDB gold_loader: dev activity raw retention disabled; table=%s input_parquet_paths=%s retained_parquet_paths=%s excluded_parquet_paths=0",
+            _DEV_ACTIVITY_RAW_TABLE,
+            len(dev_paths),
+            len(dev_paths),
+        )
+        return paths
+
+    if today_utc is None:
+        today_utc = datetime.now(timezone.utc).date()
+    cutoff_date = today_utc - timedelta(days=retention_days)
+
+    retained_dev_paths: list[str] = []
+    excluded = 0
+    for path in dev_paths:
+        partition_date = _extract_hive_partition_date(path)
+        if partition_date is None:
+            logger.warning(
+                "DuckDB gold_loader: retaining %s path with unrecognized Hive date partitions path=%s",
+                _DEV_ACTIVITY_RAW_TABLE,
+                path,
+            )
+            retained_dev_paths.append(path)
+        elif partition_date >= cutoff_date:
+            retained_dev_paths.append(path)
+        else:
+            excluded += 1
+
+    logger.info(
+        "DuckDB gold_loader: dev activity raw retention table=%s configured_days=%s cutoff_utc_date=%s input_parquet_paths=%s retained_parquet_paths=%s excluded_parquet_paths=%s",
+        _DEV_ACTIVITY_RAW_TABLE,
+        retention_days,
+        cutoff_date.isoformat(),
+        len(dev_paths),
+        len(retained_dev_paths),
+        excluded,
+    )
+    return other_paths + retained_dev_paths
 
 
 def _load_parquet_to_table(
@@ -461,6 +539,8 @@ def load_gold_tables(
         if suffix not in allowed_suffixes:
             continue
         filtered_paths.append(rel_path)
+
+    filtered_paths = _filter_dev_activity_raw_paths(filtered_paths)
 
     storage_ctx, grouped_blob_paths = _build_gold_blob_paths(filtered_paths)
     logger.info(
