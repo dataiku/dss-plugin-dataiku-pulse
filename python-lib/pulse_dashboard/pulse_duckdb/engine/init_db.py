@@ -42,6 +42,10 @@ _EXPECTED_STARTUP_TABLES = {
     "final_build_products_catalog",
     "final_build_development_activity_events",
 }
+_REQUIRED_DASHBOARD_GOLD_TABLES = {
+    "fact_user_activity_daily",
+    "fact_user_activity_project_daily",
+}
 
 
 def _utc_now_iso() -> str:
@@ -217,6 +221,54 @@ def _object_type(conn, name: str) -> str | None:
 
 def _table_exists(conn, name: str) -> bool:
     return _object_type(conn, name) == "BASE TABLE"
+
+
+def _validate_required_dashboard_gold_tables(
+    conn,
+    *,
+    allowed_names: set[str],
+    load_report: dict | None,
+) -> dict[str, object]:
+    failures: list[dict[str, str]] = []
+    load_failed_by_table: dict[str, dict[str, object]] = {}
+    if isinstance(load_report, dict):
+        failed = load_report.get("failed")
+        if isinstance(failed, list):
+            for entry in failed:
+                if isinstance(entry, dict) and entry.get("table"):
+                    load_failed_by_table[str(entry["table"])] = entry
+
+    for table_name in sorted(_REQUIRED_DASHBOARD_GOLD_TABLES):
+        if _table_exists(conn, table_name):
+            continue
+
+        load_failure = load_failed_by_table.get(table_name)
+        if load_failure is not None:
+            failures.append(
+                {
+                    "table": table_name,
+                    "reason": "table_load_failed",
+                    "error": str(load_failure.get("error") or "GOLD table load failed"),
+                }
+            )
+        elif table_name not in allowed_names:
+            failures.append(
+                {
+                    "table": table_name,
+                    "reason": "no_eligible_gold_files_discovered",
+                    "error": f"Required dashboard GOLD table {table_name} has no eligible source files in the managed folder.",
+                }
+            )
+        else:
+            failures.append(
+                {
+                    "table": table_name,
+                    "reason": "table_not_materialized",
+                    "error": f"Required dashboard GOLD table {table_name} was selected but was not created in DuckDB.",
+                }
+            )
+
+    return {"ok": not failures, "failed": failures}
 
 
 def _replace_view_from_query(conn, *, view_name: str, source_table: str, select_sql: str) -> None:
@@ -612,6 +664,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                     )
 
                     report: dict | None = None
+                    allowed_names: set[str] = set()
                     gold_tables_loaded = False
                     reason = None
 
@@ -747,6 +800,28 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         )
                         gold_tables_loaded = bool(report.get("loaded"))
 
+                    required_gold_report = _validate_required_dashboard_gold_tables(
+                        conn,
+                        allowed_names=allowed_names,
+                        load_report=report,
+                    )
+                    if not bool(required_gold_report.get("ok", False)):
+                        logger.error(
+                            "DuckDB ensure_database_ready: required dashboard GOLD tables missing or failed=%s",
+                            required_gold_report.get("failed"),
+                        )
+                        _set_status_callback("failed", "Required dashboard GOLD tables are missing")
+                        return {
+                            "ok": False,
+                            "initialized": True,
+                            "gold_loaded": gold_tables_loaded,
+                            "reason": reason,
+                            "report": report,
+                            "required_gold_tables": required_gold_report,
+                            "maintenance": {"checkpoint": False, "vacuum": False},
+                            "views": {"ok": False, "skipped": ["required_gold_tables"], "errors": []},
+                        }
+
                     # Compatibility views: map GOLD `*_metadata_history` outputs to
                     # the UI-facing `base_*_metadata` tables expected by view specs.
                     inventory_started = time.time()
@@ -796,7 +871,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                             views_report.get("skipped"),
                         )
 
-                    ok = bool(views_report.get("ok", False))
+                    ok = bool(views_report.get("ok", False)) and bool(required_gold_report.get("ok", False))
                     if report is not None:
                         ok = ok and bool(report.get("ok", False))
 
@@ -842,6 +917,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         "report": report,
                         "license_views": license_report,
                         "dev_activity_tables": dev_activity_report,
+                        "required_gold_tables": required_gold_report,
                         "maintenance": maintenance_report,
                         "views": views_report,
                     }

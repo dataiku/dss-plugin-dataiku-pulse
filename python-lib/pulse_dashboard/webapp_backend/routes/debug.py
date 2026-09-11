@@ -46,6 +46,9 @@ def _summarize_reload_failure(load_report: dict[str, Any]) -> str:
     nested_report = load_report.get("report")
     if not failed and isinstance(nested_report, dict):
         failed = nested_report.get("failed")
+    required_gold_report = load_report.get("required_gold_tables")
+    if not failed and isinstance(required_gold_report, dict):
+        failed = required_gold_report.get("failed")
 
     if isinstance(failed, list) and failed:
         first_failure = failed[0]

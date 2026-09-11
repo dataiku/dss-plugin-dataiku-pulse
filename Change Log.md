@@ -1,5 +1,6 @@
 # Change Log
 
+- Dashboard DuckDB reloads now fail explicitly when required user-activity GOLD tables are missing or fail to materialize.
 - Dashboard debug reload failures now surface the failed table and underlying load error in the top-level response.
 - Dashboard DuckDB reloads now bound raw development-activity event loading to recent partitions by default while preserving full daily facts.
 - Dashboard webapp startup freshness checks now resolve the active project-specific DuckDB path before evaluating or deleting stale local databases.

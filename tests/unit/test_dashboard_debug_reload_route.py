@@ -161,6 +161,40 @@ def test_debug_reload_failed_report_without_details_returns_fallback_error(debug
     assert startup_module._startup_init_status["state"] == "failed"
 
 
+def test_debug_reload_surfaces_required_gold_table_error(debug_reload_app):
+    app, _debug_module, startup_module, _startup_routes_module, calls, load_report = (
+        debug_reload_app
+    )
+    load_report.clear()
+    load_report.update(
+        {
+            "ok": False,
+            "report": {"ok": True, "loaded": [], "failed": []},
+            "required_gold_tables": {
+                "ok": False,
+                "failed": [
+                    {
+                        "table": "fact_user_activity_daily",
+                        "reason": "no_eligible_gold_files_discovered",
+                        "error": "Required dashboard GOLD table fact_user_activity_daily has no eligible source files in the managed folder.",
+                    }
+                ],
+            },
+        }
+    )
+
+    response = app.test_client().post("/api/debug/duckdb/reload")
+    payload = response.get_json()
+
+    assert response.status_code == 500
+    assert payload["ok"] is False
+    assert payload["load"] == load_report
+    assert "fact_user_activity_daily" in payload["error"]
+    assert "no eligible source files" in payload["error"]
+    assert calls == [{"load_gold_tables": True, "replace_gold_tables": True}]
+    assert startup_module._startup_init_status["state"] == "failed"
+
+
 def test_debug_reload_permission_failure_uses_json_403(debug_reload_app, monkeypatch):
     app, debug_module, _startup_module, _startup_routes_module, calls, _load_report = (
         debug_reload_app
