@@ -150,3 +150,150 @@ def test_recipe_builds_required_activity_facts_unconditionally(monkeypatch, reci
     ]
     assert 'build_dev_activity' not in result
     assert 'build_object_activity' not in result
+
+
+def _install_recipe_boundary_test_stubs(monkeypatch, recipe_module, *, config, manifest):
+    events: list[str] = []
+    user_boundaries: dict[str, object] = {}
+
+    @contextmanager
+    def record_timed_phase(_conn, *, label: str):
+        events.append(label)
+        yield
+
+    class _Conn:
+        def execute(self, sql, *_args, **_kwargs):
+            class _Result:
+                def fetchone(self):
+                    if sql == "SELECT current_setting('memory_limit')":
+                        return ("4.0 GiB",)
+                    if sql == "SELECT current_setting('threads')":
+                        return (2,)
+                    return (None,)
+            return _Result()
+
+    class _Setup:
+        conn = _Conn()
+
+    class _Ctx:
+        folder_lookup = 'stub'
+        connection_type = 'EC2'
+        connection_name = 'stub-conn'
+
+    def build_daily(*_args, **kwargs):
+        user_boundaries['fact_user_activity_daily'] = kwargs.get('adjusted_watermark')
+        events.append('build_fact_user_activity_daily')
+        return 'fact_user_activity_daily'
+
+    def build_project(*_args, **kwargs):
+        user_boundaries['fact_user_activity_project_daily'] = kwargs.get('adjusted_watermark')
+        events.append('build_fact_user_activity_project_daily')
+        return 'fact_user_activity_project_daily'
+
+    def read_manifest(*_args, **_kwargs):
+        events.append('read_manifest')
+        return manifest
+
+    monkeypatch.setattr(recipe_module.dataiku, 'default_project_key', lambda: 'TEST_PROJECT')
+    monkeypatch.setattr(recipe_module, 'resolve_gold_folder_lookup', lambda: 'gold_data')
+    monkeypatch.setattr(recipe_module, 'get_recipe_config', lambda: config)
+    monkeypatch.setattr(recipe_module, 'ensure_managed_folder', lambda **_kwargs: None)
+    monkeypatch.setattr(recipe_module, 'build_storage_context', lambda **_kwargs: _Ctx())
+    monkeypatch.setattr(recipe_module, 'prepare_duckdb', lambda **_kwargs: _Setup())
+    monkeypatch.setattr(recipe_module, 'effective_memory_limit_bytes', lambda: (10 * 1024**3, 'cgroup_v2'))
+    monkeypatch.setattr(recipe_module, 'configure_storage', lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(recipe_module, 'resolve_unique_db_path', lambda **_kwargs: '/tmp/test.duckdb')
+    monkeypatch.setattr(recipe_module, 'resolve_gold_spec_build_order', lambda *args, **kwargs: [])
+    monkeypatch.setattr(recipe_module, 'apply_gold_spec', lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(recipe_module, 'create_silver_view', lambda **_kwargs: ('stub_view', None))
+    monkeypatch.setattr(recipe_module, 'build_license_wide_sql_params', lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(recipe_module, 'build_dim_addon_feature_flags', lambda *_args, **_kwargs: 'dim_addon_feature_flags')
+    monkeypatch.setattr(recipe_module, 'build_dim_category_to_capability', lambda *_args, **_kwargs: 'dim_category_to_capability')
+    monkeypatch.setattr(recipe_module, 'build_dim_dev_activity_event_classification', lambda *_args, **_kwargs: 'dim_dev_activity_event_classification')
+    monkeypatch.setattr(recipe_module, 'build_fact_dev_activity_events', lambda *_args, **_kwargs: 'fact_dev_activity_events')
+    monkeypatch.setattr(recipe_module, 'build_fact_user_activity_daily', build_daily)
+    monkeypatch.setattr(recipe_module, 'build_fact_user_activity_project_daily', build_project)
+    monkeypatch.setattr(recipe_module, 'build_fact_formal_mau_daily', lambda *_args, **_kwargs: 'fact_formal_mau_daily')
+    monkeypatch.setattr(recipe_module, 'build_fact_license_utilization_daily', lambda *_args, **_kwargs: 'fact_license_utilization_daily')
+    monkeypatch.setattr(recipe_module, 'collect_user_activity_quality_report', lambda *_args, **_kwargs: {'ok': True})
+    monkeypatch.setattr(recipe_module, 'collect_license_utilization_quality_report', lambda *_args, **_kwargs: {'ok': True})
+    monkeypatch.setattr(recipe_module, 'build_fact_object_activity_events', lambda *_args, **_kwargs: 'fact_object_activity_events')
+    monkeypatch.setattr(recipe_module, 'build_base_dataiku_products_registry', lambda *_args, **_kwargs: 'base_dataiku_products_registry')
+    monkeypatch.setattr(recipe_module, 'log_timed_phase', record_timed_phase)
+    monkeypatch.setattr(recipe_module, 'read_manifest', read_manifest)
+    monkeypatch.setattr(recipe_module, 'stamp_manifest_updated_at', lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(recipe_module, 'write_manifest', lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(recipe_module, 'list_table_names', lambda *_args, **_kwargs: ['fact_user_activity_daily', 'fact_user_activity_project_daily'])
+    monkeypatch.setattr(recipe_module, 'group_gold_tables_by_prefix', lambda names: {
+        'base_tables': [],
+        'dim_tables': [],
+        'agg_tables': [],
+        'fact_tables': list(names),
+    })
+    monkeypatch.setattr(recipe_module, 'gold_destination_for_table', lambda name: f'gold/{name}')
+    monkeypatch.setattr(recipe_module, 'log_pre_unload_debug', lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(recipe_module, 'load_dev_toolbox_modules', lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(recipe_module, 'load_object_activity_modules', lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(recipe_module, '_create_event_mapping_module_view', lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(recipe_module, 'unload_gold_tables', lambda *_args, **_kwargs: (['fact_user_activity_daily', 'fact_user_activity_project_daily'], []))
+    return events, user_boundaries
+
+
+def test_recipe_reads_manifest_before_user_builders_and_passes_independent_boundaries(monkeypatch, recipe_module):
+    events, user_boundaries = _install_recipe_boundary_test_stubs(
+        monkeypatch,
+        recipe_module,
+        config={'unload_behavior': 'dataiku', 'incremental_enabled': True, 'lookback_days': 3},
+        manifest={
+            'watermarks': {
+                'fact_user_activity_daily': '2026-09-14T00:00:00',
+                'fact_user_activity_project_daily': '2026-09-13T12:00:00',
+            }
+        },
+    )
+
+    result = recipe_module.run()
+
+    assert events.index('read_manifest') < events.index('build_fact_user_activity_daily')
+    assert events.index('read_manifest') < events.index('build_fact_user_activity_project_daily')
+    assert user_boundaries == {
+        'fact_user_activity_daily': '2026-09-11T00:00:00',
+        'fact_user_activity_project_daily': '2026-09-10T12:00:00',
+    }
+    assert result['user_activity_build_watermarks'] == user_boundaries
+
+
+@pytest.mark.parametrize(
+    ('config', 'manifest'),
+    [
+        ({'unload_behavior': 'dataiku', 'incremental_enabled': False, 'lookback_days': 3}, {'watermarks': {'fact_user_activity_daily': '2026-09-14T00:00:00'}}),
+        ({'unload_behavior': 'dataiku', 'incremental_enabled': True, 'lookback_days': 3}, {}),
+        ({'unload_behavior': 'dataiku', 'incremental_enabled': True, 'lookback_days': 3}, {'watermarks': {'fact_user_activity_project_daily': '2026-09-14T00:00:00'}}),
+        ({'unload_behavior': 'dataiku', 'incremental_enabled': True, 'lookback_days': 3}, {'watermarks': {'fact_user_activity_daily': 'not-a-date'}}),
+    ],
+)
+def test_recipe_passes_no_boundary_when_incremental_boundary_unavailable(monkeypatch, recipe_module, config, manifest):
+    _events, user_boundaries = _install_recipe_boundary_test_stubs(
+        monkeypatch,
+        recipe_module,
+        config=config,
+        manifest=manifest,
+    )
+
+    recipe_module.run()
+
+    if not config['incremental_enabled']:
+        assert user_boundaries == {
+            'fact_user_activity_daily': None,
+            'fact_user_activity_project_daily': None,
+        }
+    elif manifest == {}:
+        assert user_boundaries == {
+            'fact_user_activity_daily': None,
+            'fact_user_activity_project_daily': None,
+        }
+    elif manifest['watermarks'].get('fact_user_activity_daily') == 'not-a-date':
+        assert user_boundaries['fact_user_activity_daily'] is None
+    else:
+        assert user_boundaries['fact_user_activity_daily'] is None
+        assert user_boundaries['fact_user_activity_project_daily'] == '2026-09-11T00:00:00'

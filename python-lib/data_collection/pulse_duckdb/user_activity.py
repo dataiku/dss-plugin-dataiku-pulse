@@ -9,10 +9,17 @@ def build_fact_user_activity_daily(
     conn: duckdb.DuckDBPyConnection,
     *,
     ctx,
+    adjusted_watermark: str | None = None,
 ) -> str:
     view_name, _skip_reason = create_silver_view(conn=conn, ctx=ctx, category="users", module="user_activity")
     if not view_name:
         return ""
+
+    timestamp_predicate = ""
+    params: list[object] = []
+    if adjusted_watermark is not None:
+        timestamp_predicate = "\n          AND timestamp >= CAST(? AS TIMESTAMP)"
+        params.append(adjusted_watermark)
 
     conn.execute(
         f"""
@@ -28,9 +35,10 @@ def build_fact_user_activity_daily(
         FROM {view_name}
         WHERE timestamp IS NOT NULL
           AND login IS NOT NULL
-          AND length(trim(login)) > 0
+          AND length(trim(login)) > 0{timestamp_predicate}
         GROUP BY 1, 2, 3;
-        """.strip()  # nosec B608 (view_name comes from create_silver_view with fixed category/module values; it is not user-controlled)
+        """.strip(),  # nosec B608 (view_name comes from create_silver_view with fixed category/module values; it is not user-controlled)
+        params,
     )
     return "fact_user_activity_daily"
 
@@ -39,10 +47,17 @@ def build_fact_user_activity_project_daily(
     conn: duckdb.DuckDBPyConnection,
     *,
     ctx,
+    adjusted_watermark: str | None = None,
 ) -> str:
     view_name, _skip_reason = create_silver_view(conn=conn, ctx=ctx, category="users", module="user_activity")
     if not view_name:
         return ""
+
+    timestamp_predicate = ""
+    params: list[object] = []
+    if adjusted_watermark is not None:
+        timestamp_predicate = "\n          AND timestamp >= CAST(? AS TIMESTAMP)"
+        params.append(adjusted_watermark)
 
     conn.execute(
         f"""
@@ -61,9 +76,10 @@ def build_fact_user_activity_project_daily(
           AND login IS NOT NULL
           AND length(trim(login)) > 0
           AND project_key IS NOT NULL
-          AND length(trim(project_key)) > 0
+          AND length(trim(project_key)) > 0{timestamp_predicate}
         GROUP BY 1, 2, 3, 5;
-        """.strip()  # nosec B608 (view_name comes from create_silver_view with fixed category/module values; it is not user-controlled)
+        """.strip(),  # nosec B608 (view_name comes from create_silver_view with fixed category/module values; it is not user-controlled)
+        params,
     )
     return "fact_user_activity_project_daily"
 

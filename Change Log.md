@@ -1,5 +1,6 @@
 # Change Log
 
+- GOLD user-activity fact construction now uses existing incremental manifest boundaries when available.
 - Dashboard DuckDB reloads now fail explicitly when required user-activity GOLD tables are missing or fail to materialize.
 - Dashboard debug reload failures now surface the failed table and underlying load error in the top-level response.
 - Dashboard DuckDB reloads now bound raw development-activity event loading to recent partitions by default while preserving full daily facts.
