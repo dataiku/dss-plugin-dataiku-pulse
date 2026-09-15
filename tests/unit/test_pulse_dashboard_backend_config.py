@@ -11,7 +11,13 @@ from typing import Any
 BACKEND_PATH = Path(__file__).resolve().parents[2] / "webapps" / "pulse-dashboard" / "backend.py"
 
 
-def _load_backend(monkeypatch, *, webapp_config: dict[str, Any] | None = None, local_config: Path | None = None):
+def _load_backend(
+    monkeypatch,
+    *,
+    webapp_config: dict[str, Any] | None = None,
+    webapp_exception: Exception | None = None,
+    local_config: Path | None = None,
+):
     module_name = "pulse_dashboard_webapp_backend_under_test"
     sys.modules.pop(module_name, None)
 
@@ -21,7 +27,9 @@ def _load_backend(monkeypatch, *, webapp_config: dict[str, Any] | None = None, l
     monkeypatch.setitem(sys.modules, "pulse_dashboard.webapp_backend", fake_backend_package)
 
     customwebapp = types.ModuleType("dataiku.customwebapp")
-    if webapp_config is not None:
+    if webapp_exception is not None:
+        customwebapp.get_webapp_config = lambda: (_ for _ in ()).throw(webapp_exception)
+    elif webapp_config is not None:
         customwebapp.get_webapp_config = lambda: webapp_config
     monkeypatch.setitem(sys.modules, "dataiku.customwebapp", customwebapp)
 
@@ -58,6 +66,18 @@ def test_backend_falls_back_to_local_plugin_config_when_webapp_loader_missing(mo
 
     module = _load_backend(monkeypatch, webapp_config=None, local_config=fallback_path)
 
+    assert module.pulse_primary == {"pulse_project_key": "LOCAL"}
+
+
+def test_backend_falls_back_when_local_webapp_config_env_is_missing(monkeypatch, tmp_path: Path):
+    fallback_path = tmp_path / "plugin_config.json"
+    fallback_path.write_text(json.dumps({"pulse_primary": {"pulse_project_key": "LOCAL"}}), encoding="utf-8")
+
+    module = _load_backend(
+        monkeypatch,
+        webapp_exception=TypeError("the JSON object must be str, bytes or bytearray, not NoneType"),
+        local_config=fallback_path,
+    )
     assert module.pulse_primary == {"pulse_project_key": "LOCAL"}
 
 

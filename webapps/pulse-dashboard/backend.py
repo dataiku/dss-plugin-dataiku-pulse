@@ -68,10 +68,8 @@ def _load_pulse_primary_config() -> dict[str, Any]:
         if not isinstance(pulse_primary, dict):
             raise RuntimeError("Pulse primary configuration is missing or invalid")
         return pulse_primary
-    except (ImportError, ModuleNotFoundError) as exc:
-        logger.info("DSS webapp config loader unavailable; using local plugin config fallback: %s", exc)
-    except RuntimeError:
-        raise
+    except (ImportError, ModuleNotFoundError, TypeError, ValueError) as exc:
+        logger.info("DSS webapp config unavailable; using local plugin config fallback: %s", exc)
 
     return _load_pulse_primary_from_local_plugin_config()
 
