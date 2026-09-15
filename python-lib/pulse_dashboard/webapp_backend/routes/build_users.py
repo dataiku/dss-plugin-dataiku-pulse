@@ -7,6 +7,7 @@ from typing import Any, cast
 from flask import Blueprint, request
 
 from pulse_dashboard.webapp_backend.services.users import (
+    RequestValidationError,
     _addon_service_label,
     _license_profile_normalize_sql,
     _license_status_display_value,
@@ -863,6 +864,450 @@ def register_routes(bp: Blueprint) -> None:
 
         except Exception as e:
             logger.exception("users kpis failed")
+            return _err(str(e), status=500)
+
+    @bp.route("/api/build/users/license-utilization")
+    def build_users_license_utilization():
+        """Fact-backed license utilization reporting for the License Performance page."""
+
+        try:
+            _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+            _ensure_ready_if_enabled()
+
+            instance_name = _parse_instance_name(request.args.get("instance_name"))
+            license_filter = _parse_license_filter(request.args.get("licenseFilter"))
+            license_profile = (request.args.get("license_profile") or "").strip() or None
+            history_days = int(_parse_int_arg("days", default=180, minimum=1, maximum=3660) or 180)
+
+            if not _duckdb_relation_exists(_query_df, "fact_license_utilization_daily"):
+                return _ok(
+                    {
+                        "available": False,
+                        "unavailableReason": "fact_license_utilization_daily is unavailable. Rebuild GOLD tables with the license utilization fact before using License Performance capacity metrics.",
+                        "instanceName": instance_name,
+                        "licenseFilter": license_filter,
+                        "licenseProfile": license_profile,
+                        "latestRows": [],
+                        "historyRows": [],
+                        "meta": {
+                            "source": "fact_license_utilization_daily",
+                            "grain": ["snapshot_date", "instance_name", "license_profile"],
+                            "historyDays": history_days,
+                            "preservesSeparateInstances": not bool(instance_name),
+                            "scopeLabel": instance_name or "separate DSS instances",
+                            "latestSnapshotDates": [],
+                            "historyStartDate": None,
+                            "historyEndDate": None,
+                            "rowCount": 0,
+                            "seriesCount": 0,
+                        },
+                    }
+                )
+
+            instance_sql = ""
+            params: list[Any] = []
+            if instance_name:
+                instance_sql = " AND instance_name = ?"
+                params.append(instance_name)
+
+            profile_sql = ""
+            if license_profile:
+                profile_sql = " AND license_profile = ?"
+                params.append(license_profile)
+
+            license_filter_sql_template, license_filter_params = _resolve_license_filter_clause(license_filter)
+            license_filter_sql = _format_license_filter_clause(license_filter_sql_template, profile_expr="license_profile")
+            params.extend(license_filter_params)
+
+            base_where_sql = f"WHERE 1=1{instance_sql}{profile_sql}{license_filter_sql}"
+            license_group_case_sql = _license_group_case_sql("license_profile")
+            fact_license_group_case_sql = _license_group_case_sql("f.license_profile")
+            fact_where_parts = ["b.max_snapshot_date IS NOT NULL"]
+            fact_where_parts.append("f.snapshot_date >= b.max_snapshot_date - (?::INTEGER) * INTERVAL 1 DAY")
+            history_filter_params: list[Any] = [history_days]
+            fact_history_where_sql = "\n  AND ".join(fact_where_parts)
+
+            latest_df = _query_df(
+                (
+                    "WITH ranked AS (\n"
+                    "  SELECT\n"
+                    "    snapshot_date,\n"
+                    "    instance_name,\n"
+                    "    license_profile,\n"
+                    f"    {license_group_case_sql} AS license_group,\n"
+                    "    entitled_count,\n"
+                    "    assigned_count,\n"
+                    "    available_count,\n"
+                    "    utilization_pct,\n"
+                    "    run_ts,\n"
+                    "    ROW_NUMBER() OVER (\n"
+                    "      PARTITION BY instance_name, license_profile\n"
+                    "      ORDER BY snapshot_date DESC, run_ts DESC\n"
+                    "    ) AS rn\n"
+                    "  FROM fact_license_utilization_daily\n"
+                    f"  {base_where_sql}\n"
+                    ")\n"
+                    "SELECT\n"
+                    "  snapshot_date,\n"
+                    "  instance_name,\n"
+                    "  license_group,\n"
+                    "  license_profile,\n"
+                    "  entitled_count,\n"
+                    "  assigned_count,\n"
+                    "  available_count,\n"
+                    "  utilization_pct,\n"
+                    "  run_ts\n"
+                    "FROM ranked\n"
+                    "WHERE rn = 1\n"
+                    "ORDER BY instance_name, license_group, license_profile;"
+                ),
+                params,
+            )
+
+            history_df = _query_df(
+                (
+                    "WITH bounds AS (\n"
+                    "  SELECT\n"
+                    "    instance_name,\n"
+                    "    license_profile,\n"
+                    "    max(snapshot_date) AS max_snapshot_date\n"
+                    "  FROM fact_license_utilization_daily\n"
+                    f"  {base_where_sql}\n"
+                    "  GROUP BY instance_name, license_profile\n"
+                    ")\n"
+                    "SELECT\n"
+                    "  f.snapshot_date,\n"
+                    "  f.instance_name,\n"
+                    f"  {fact_license_group_case_sql} AS license_group,\n"
+                    "  f.license_profile,\n"
+                    "  f.entitled_count,\n"
+                    "  f.assigned_count,\n"
+                    "  f.available_count,\n"
+                    "  f.utilization_pct,\n"
+                    "  f.run_ts\n"
+                    "FROM fact_license_utilization_daily f\n"
+                    "INNER JOIN bounds b\n"
+                    "  ON f.instance_name IS NOT DISTINCT FROM b.instance_name\n"
+                    " AND f.license_profile IS NOT DISTINCT FROM b.license_profile\n"
+                    f"WHERE {fact_history_where_sql}\n"
+                    "ORDER BY f.instance_name, f.license_profile, f.snapshot_date;"
+                ),
+                [*params, *history_filter_params],
+            )
+
+            coverage_df = _query_df(
+                (
+                    "WITH bounds AS (\n"
+                    "  SELECT\n"
+                    "    instance_name,\n"
+                    "    license_profile,\n"
+                    "    max(snapshot_date) AS max_snapshot_date\n"
+                    "  FROM fact_license_utilization_daily\n"
+                    f"  {base_where_sql}\n"
+                    "  GROUP BY instance_name, license_profile\n"
+                    ")\n"
+                    "SELECT\n"
+                    "  min(f.snapshot_date) AS history_start_date,\n"
+                    "  max(f.snapshot_date) AS history_end_date,\n"
+                    "  count(*) AS row_count,\n"
+                    "  count(DISTINCT f.instance_name || '|' || coalesce(f.license_profile, 'UNKNOWN')) AS series_count\n"
+                    "FROM fact_license_utilization_daily f\n"
+                    "INNER JOIN bounds b\n"
+                    "  ON f.instance_name IS NOT DISTINCT FROM b.instance_name\n"
+                    " AND f.license_profile IS NOT DISTINCT FROM b.license_profile\n"
+                    f"WHERE {fact_history_where_sql};"
+                ),
+                [*params, *history_filter_params],
+            )
+            coverage = _df_records(coverage_df)[0] if not coverage_df.empty else {}
+            latest_rows = _df_records(latest_df)
+            latest_snapshot_dates = sorted(
+                {
+                    str(row.get("snapshot_date") or "")[:10]
+                    for row in latest_rows
+                    if row.get("snapshot_date")
+                }
+            )
+
+            return _ok(
+                {
+                    "available": True,
+                    "instanceName": instance_name,
+                    "licenseFilter": license_filter,
+                    "licenseProfile": license_profile,
+                    "latestRows": latest_rows,
+                    "historyRows": _df_records(history_df),
+                    "meta": {
+                        "source": "fact_license_utilization_daily",
+                        "grain": ["snapshot_date", "instance_name", "license_profile"],
+                        "historyDays": history_days,
+                        "preservesSeparateInstances": not bool(instance_name),
+                        "scopeLabel": instance_name or "separate DSS instances",
+                        "latestSnapshotDates": latest_snapshot_dates,
+                        "historyStartDate": coverage.get("history_start_date"),
+                        "historyEndDate": coverage.get("history_end_date"),
+                        "rowCount": int(coverage.get("row_count") or 0),
+                        "seriesCount": int(coverage.get("series_count") or 0),
+                    },
+                }
+            )
+
+        except RequestValidationError as exc:
+            return _err(str(exc), status=400)
+        except Exception as e:
+            logger.exception("users license utilization failed")
+            return _err(str(e), status=500)
+
+    @bp.route("/api/build/users/current-license-utilization")
+    def build_users_current_license_utilization():
+        """Current base-table license utilization reporting for the License Performance page."""
+
+        try:
+            _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+            _ensure_ready_if_enabled()
+
+            instance_name = _parse_instance_name(request.args.get("instance_name"))
+            license_filter = _parse_license_filter(request.args.get("licenseFilter"))
+
+            instance_sql = ""
+            instance_params: list[Any] = []
+            if instance_name:
+                instance_sql = " AND instance_name = ?"
+                instance_params = [instance_name]
+
+            license_filter_sql_template, license_filter_params = _resolve_license_filter_clause(license_filter)
+            user_license_filter_sql = _format_license_filter_clause(
+                license_filter_sql_template,
+                profile_expr="user_profile",
+            )
+            max_license_filter_sql = _format_license_filter_clause(
+                license_filter_sql_template,
+                profile_expr="profile",
+            )
+            profile_normalized_expr = _license_profile_normalize_sql("user_profile")
+            license_group_case_sql = _license_group_case_sql("user_profile")
+            max_license_group_case_sql = _license_group_case_sql("m.profile")
+
+            common_ctes = (
+                "WITH instance_scope AS (\n"
+                "  SELECT DISTINCT instance_name\n"
+                "  FROM base_users_instance_metadata\n"
+                "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
+                f"    {instance_sql}\n"
+                "),\n"
+                "latest_users AS (\n"
+                "  SELECT\n"
+                "    instance_name,\n"
+                "    lower(trim(users_login)) AS login_norm,\n"
+                "    coalesce(nullif(trim(users_userprofile), ''), 'UNKNOWN') AS user_profile,\n"
+                "    users_enabled,\n"
+                "    run_ts,\n"
+                "    ROW_NUMBER() OVER (\n"
+                "      PARTITION BY instance_name, lower(trim(users_login))\n"
+                "      ORDER BY run_ts DESC\n"
+                "    ) AS rn\n"
+                "  FROM base_users_instance_metadata\n"
+                "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
+                f"    {instance_sql}\n"
+                "),\n"
+                "current_users AS (\n"
+                "  SELECT\n"
+                "    instance_name,\n"
+                "    login_norm,\n"
+                "    user_profile,\n"
+                f"    {profile_normalized_expr} AS profile_norm,\n"
+                "    run_ts\n"
+                "  FROM latest_users\n"
+                "  WHERE rn = 1 AND users_enabled = 'True'\n"
+                f"    {user_license_filter_sql}\n"
+                "),\n"
+                "normalized_max AS (\n"
+                "  SELECT\n"
+                "    m.instance_name,\n"
+                "    coalesce(nullif(trim(m.license_profile), ''), 'UNKNOWN') AS profile,\n"
+                f"    {_license_profile_normalize_sql('m.license_profile')} AS profile_norm,\n"
+                "    try_cast(m.max_licenses AS BIGINT) AS max_licenses,\n"
+                "    m.run_ts\n"
+                "  FROM base_license_max_licenses_latest m\n"
+                "  INNER JOIN instance_scope s ON s.instance_name = m.instance_name\n"
+                "  WHERE try_cast(m.max_licenses AS BIGINT) IS NOT NULL\n"
+                "),\n"
+                "ranked_max AS (\n"
+                "  SELECT\n"
+                "    instance_name,\n"
+                "    profile,\n"
+                "    profile_norm,\n"
+                "    max_licenses,\n"
+                "    run_ts,\n"
+                "    ROW_NUMBER() OVER (\n"
+                "      PARTITION BY instance_name, profile_norm\n"
+                "      ORDER BY max_licenses DESC NULLS LAST, profile ASC, run_ts DESC\n"
+                "    ) AS rn\n"
+                "  FROM normalized_max\n"
+                "),\n"
+                "current_max AS (\n"
+                "  SELECT instance_name, profile, profile_norm, max_licenses, run_ts\n"
+                "  FROM ranked_max\n"
+                "  WHERE rn = 1\n"
+                f"    {max_license_filter_sql}\n"
+                ")\n"
+            )
+
+            instance_rows_df = _query_df(
+                (
+                    common_ctes +
+                    ", user_counts AS (\n"
+                    "  SELECT\n"
+                    "    instance_name,\n"
+                    "    user_profile AS profile,\n"
+                    "    profile_norm,\n"
+                    f"    {license_group_case_sql} AS license_group,\n"
+                    "    COUNT(DISTINCT login_norm) AS assigned_count,\n"
+                    "    max(run_ts) AS user_snapshot_ts\n"
+                    "  FROM current_users\n"
+                    "  GROUP BY 1, 2, 3, 4\n"
+                    "),\n"
+                    "row_keys AS (\n"
+                    "  SELECT\n"
+                    "    coalesce(u.instance_name, m.instance_name) AS instance_name,\n"
+                    "    coalesce(u.profile, m.profile) AS profile,\n"
+                    "    coalesce(u.profile_norm, m.profile_norm) AS profile_norm,\n"
+                    "    coalesce(u.license_group, "
+                    f"{max_license_group_case_sql}) AS license_group\n"
+                    "  FROM user_counts u\n"
+                    "  FULL OUTER JOIN current_max m\n"
+                    "    ON m.instance_name IS NOT DISTINCT FROM u.instance_name\n"
+                    "   AND m.profile_norm IS NOT DISTINCT FROM u.profile_norm\n"
+                    ")\n"
+                    "SELECT\n"
+                    "  k.instance_name,\n"
+                    "  k.license_group,\n"
+                    "  k.profile AS license_profile,\n"
+                    "  k.profile_norm,\n"
+                    "  coalesce(u.assigned_count, 0) AS assigned_count,\n"
+                    "  m.max_licenses AS entitled_count,\n"
+                    "  CASE WHEN m.max_licenses IS NULL THEN NULL ELSE m.max_licenses - coalesce(u.assigned_count, 0) END AS available_count,\n"
+                    "  CASE WHEN m.max_licenses > 0 THEN (coalesce(u.assigned_count, 0)::DOUBLE / m.max_licenses::DOUBLE) * 100 ELSE NULL END AS utilization_pct,\n"
+                    "  u.user_snapshot_ts,\n"
+                    "  m.run_ts AS license_snapshot_ts\n"
+                    "FROM row_keys k\n"
+                    "LEFT JOIN user_counts u\n"
+                    "  ON u.instance_name IS NOT DISTINCT FROM k.instance_name\n"
+                    " AND u.profile_norm IS NOT DISTINCT FROM k.profile_norm\n"
+                    "LEFT JOIN current_max m\n"
+                    "  ON m.instance_name IS NOT DISTINCT FROM k.instance_name\n"
+                    " AND m.profile_norm IS NOT DISTINCT FROM k.profile_norm\n"
+                    "ORDER BY k.instance_name, k.license_group, k.profile;"
+                ),
+                [*instance_params, *instance_params, *license_filter_params, *license_filter_params],
+            )
+
+            profile_rows_df = _query_df(
+                (
+                    common_ctes +
+                    ", profile_user_counts AS (\n"
+                    "  SELECT\n"
+                    "    user_profile AS profile,\n"
+                    "    profile_norm,\n"
+                    f"    {license_group_case_sql} AS license_group,\n"
+                    "    COUNT(DISTINCT login_norm) AS assigned_count,\n"
+                    "    COUNT(DISTINCT instance_name) AS contributing_instance_count,\n"
+                    "    max(run_ts) AS user_snapshot_ts\n"
+                    "  FROM current_users\n"
+                    "  GROUP BY 1, 2, 3\n"
+                    "),\n"
+                    "profile_max AS (\n"
+                    "  SELECT\n"
+                    "    profile_norm,\n"
+                    "    profile,\n"
+                    "    max_licenses,\n"
+                    "    COUNT(*) AS max_licenses_instance_count,\n"
+                    "    max(run_ts) AS license_snapshot_ts,\n"
+                    "    ROW_NUMBER() OVER (\n"
+                    "      PARTITION BY profile_norm\n"
+                    "      ORDER BY COUNT(*) DESC, max_licenses DESC, profile ASC\n"
+                    "    ) AS rn\n"
+                    "  FROM current_max\n"
+                    "  GROUP BY 1, 2, 3\n"
+                    "),\n"
+                    "representative_max AS (\n"
+                    "  SELECT profile_norm, profile, max_licenses, max_licenses_instance_count, license_snapshot_ts\n"
+                    "  FROM profile_max\n"
+                    "  WHERE rn = 1\n"
+                    "),\n"
+                    "row_keys AS (\n"
+                    "  SELECT\n"
+                    "    coalesce(u.profile, m.profile) AS profile,\n"
+                    "    coalesce(u.profile_norm, m.profile_norm) AS profile_norm,\n"
+                    "    coalesce(u.license_group, "
+                    f"{max_license_group_case_sql}) AS license_group\n"
+                    "  FROM profile_user_counts u\n"
+                    "  FULL OUTER JOIN representative_max m\n"
+                    "    ON m.profile_norm IS NOT DISTINCT FROM u.profile_norm\n"
+                    ")\n"
+                    "SELECT\n"
+                    "  k.license_group,\n"
+                    "  k.profile AS license_profile,\n"
+                    "  k.profile_norm,\n"
+                    "  coalesce(u.assigned_count, 0) AS assigned_count,\n"
+                    "  coalesce(u.contributing_instance_count, 0) AS contributing_instance_count,\n"
+                    "  m.max_licenses AS entitled_count,\n"
+                    "  CASE WHEN m.max_licenses IS NULL THEN NULL ELSE m.max_licenses - coalesce(u.assigned_count, 0) END AS available_count,\n"
+                    "  CASE WHEN m.max_licenses > 0 THEN (coalesce(u.assigned_count, 0)::DOUBLE / m.max_licenses::DOUBLE) * 100 ELSE NULL END AS utilization_pct,\n"
+                    "  m.profile AS entitlement_profile,\n"
+                    "  m.max_licenses_instance_count,\n"
+                    "  u.user_snapshot_ts,\n"
+                    "  m.license_snapshot_ts\n"
+                    "FROM row_keys k\n"
+                    "LEFT JOIN profile_user_counts u\n"
+                    "  ON u.profile_norm IS NOT DISTINCT FROM k.profile_norm\n"
+                    "LEFT JOIN representative_max m\n"
+                    "  ON m.profile_norm IS NOT DISTINCT FROM k.profile_norm\n"
+                    "ORDER BY assigned_count DESC, k.license_group, k.profile;"
+                ),
+                [*instance_params, *instance_params, *license_filter_params, *license_filter_params],
+            )
+
+            instance_rows = _df_records(instance_rows_df)
+            instances_by_profile_norm: dict[str, list[dict[str, Any]]] = {}
+            for row in instance_rows:
+                profile_norm = str(row.get("profile_norm") or "")
+                instances_by_profile_norm.setdefault(profile_norm, []).append(
+                    {
+                        "instance_name": row.get("instance_name"),
+                        "assigned_count": row.get("assigned_count"),
+                        "entitled_count": row.get("entitled_count"),
+                        "available_count": row.get("available_count"),
+                        "utilization_pct": row.get("utilization_pct"),
+                    }
+                )
+
+            profile_rows = _df_records(profile_rows_df)
+            for row in profile_rows:
+                profile_norm = str(row.get("profile_norm") or "")
+                row["instances"] = instances_by_profile_norm.get(profile_norm, [])
+
+            return _ok(
+                {
+                    "instanceName": instance_name,
+                    "licenseFilter": license_filter,
+                    "profileRows": profile_rows,
+                    "instanceRows": instance_rows,
+                    "meta": {
+                        "source": "base_users_instance_metadata + base_license_max_licenses_latest",
+                        "profileField": "users_userprofile",
+                        "assignmentCount": "enabled distinct normalized logins within the selected scope",
+                        "capacityAggregation": "representative max_licenses by normalized profile; capacity is not summed across instances",
+                        "profileRowCount": len(profile_rows),
+                        "instanceRowCount": len(instance_rows),
+                    },
+                }
+            )
+
+        except RequestValidationError as exc:
+            return _err(str(exc), status=400)
+        except Exception as e:
+            logger.exception("users current license utilization failed")
             return _err(str(e), status=500)
 
     @bp.route("/api/build/users/<login>")
