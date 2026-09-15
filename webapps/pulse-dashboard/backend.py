@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import logging
-from urllib.parse import splitport, urlparse
+import os
 from pathlib import Path
 from typing import Any, cast
+from urllib.parse import splitport, urlparse
 
 import dataiku
 from flask import Flask, jsonify, request, send_from_directory
@@ -35,6 +37,46 @@ _SENSITIVE_AUTH_KEYS = {
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _BUILD_DIR = _REPO_ROOT / "resource" / "pulse-dashboard" / "build"
+_LOCAL_PLUGIN_CONFIG_PATH = Path(
+    os.environ.get(
+        "PULSE_DASHBOARD_LOCAL_PLUGIN_CONFIG",
+        "/home/dataiku/workspace/project-lib-versioned/python/dataiku-pulse.extras/runnable-configs/plugin_config.json",
+    )
+)
+
+
+def _load_pulse_primary_from_local_plugin_config(config_path: Path = _LOCAL_PLUGIN_CONFIG_PATH) -> dict[str, Any]:
+    try:
+        plugin_config = json.loads(config_path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise RuntimeError(f"Unable to read local Pulse plugin configuration at {config_path}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Invalid JSON in local Pulse plugin configuration at {config_path}") from exc
+
+    pulse_primary = plugin_config.get("pulse_primary") if isinstance(plugin_config, dict) else None
+    if not isinstance(pulse_primary, dict):
+        raise RuntimeError(f"Local Pulse plugin configuration at {config_path} is missing pulse_primary")
+    return pulse_primary
+
+
+def _load_pulse_primary_config() -> dict[str, Any]:
+    try:
+        from dataiku.customwebapp import get_webapp_config
+
+        webapp_config = get_webapp_config() or {}
+        pulse_primary = webapp_config.get("pulse_primary") if isinstance(webapp_config, dict) else None
+        if not isinstance(pulse_primary, dict):
+            raise RuntimeError("Pulse primary configuration is missing or invalid")
+        return pulse_primary
+    except (ImportError, ModuleNotFoundError) as exc:
+        logger.info("DSS webapp config loader unavailable; using local plugin config fallback: %s", exc)
+    except RuntimeError:
+        raise
+
+    return _load_pulse_primary_from_local_plugin_config()
+
+
+pulse_primary = _load_pulse_primary_config()
 
 app = cast(Flask | None, globals().get("app"))
 _HAS_INJECTED_DSS_APP = app is not None
