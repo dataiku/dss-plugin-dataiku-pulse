@@ -74,6 +74,52 @@ function formatDate(iso) {
   }
 }
 
+function formatDateTime(iso) {
+  const value = String(iso || '').trim();
+  if (!value) return '—';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString();
+}
+
+function formatDurationMs(value) {
+  const ms = Number(value);
+  if (!Number.isFinite(ms)) return '—';
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = Math.round(seconds % 60);
+  return `${minutes}m ${remainder}s`;
+}
+
+function severityGroup(check) {
+  const severity = Number(check?.severity);
+  if (!Number.isFinite(severity)) return 'unclassified';
+  if (severity > 0) return 'attention';
+  return 'no_issue';
+}
+
+function severityLabel(check) {
+  const severity = Number(check?.severity);
+  if (!Number.isFinite(severity)) return 'Unclassified';
+  return `Severity ${severity}`;
+}
+
+function summarizeProjectStandards(report) {
+  const checks = Array.isArray(report?.checks) ? report.checks : [];
+  const numericSeverities = checks
+    .map((check) => Number(check?.severity))
+    .filter((severity) => Number.isFinite(severity));
+  return {
+    total: checks.length,
+    needsAttention: checks.filter((check) => severityGroup(check) === 'attention').length,
+    noIssue: checks.filter((check) => severityGroup(check) === 'no_issue').length,
+    unclassified: checks.filter((check) => severityGroup(check) === 'unclassified').length,
+    highestSeverity: numericSeverities.length ? Math.max(...numericSeverities) : null,
+  };
+}
+
 function parseIsoDateLabel(label) {
   const value = String(label || '').trim();
   if (!value) return null;
@@ -181,17 +227,18 @@ function ActionBadge({ children, onClick, title }) {
   );
 }
 
-function Modal({ title, onClose, children }) {
+function Modal({ title, onClose, children, isTopmost = true, zIndex }) {
   useEffect(() => {
+    if (!isTopmost) return undefined;
     const onKeyDown = (e) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
+  }, [isTopmost, onClose]);
 
   return (
-    <div className="PulseModalOverlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
+    <div className="PulseModalOverlay" role="dialog" aria-modal="true" style={zIndex ? { zIndex } : undefined} onMouseDown={onClose}>
       <div className="PulseModal" onMouseDown={(e) => e.stopPropagation()}>
         <div className="PulseModalHeader">
           <div className="PulseModalTitle">{title}</div>
@@ -612,6 +659,139 @@ function UserDashboard({
   );
 }
 
+function ProjectStandardsReportModal({ report, onClose }) {
+  const [search, setSearch] = useState('');
+  const [groupFilter, setGroupFilter] = useState('all');
+  const [severityFilter, setSeverityFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('severity_desc');
+  const [page, setPage] = useState(0);
+  const [expanded, setExpanded] = useState({});
+  const checks = useMemo(() => (Array.isArray(report?.checks) ? report.checks : []), [report]);
+  const context = report?.context || {};
+  const summary = useMemo(() => summarizeProjectStandards(report), [report]);
+  const severities = useMemo(
+    () => Array.from(new Set(checks.map((check) => Number(check?.severity)).filter((severity) => Number.isFinite(severity)))).sort((a, b) => b - a),
+    [checks]
+  );
+  const pageSize = 25;
+
+  useEffect(() => {
+    setPage(0);
+  }, [search, groupFilter, severityFilter, sortBy]);
+
+  const filteredChecks = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return checks
+      .filter((check) => {
+        if (groupFilter !== 'all' && severityGroup(check) !== groupFilter) return false;
+        if (severityFilter !== 'all' && Number(check?.severity) !== Number(severityFilter)) return false;
+        if (!query) return true;
+        const haystack = [check?.id, check?.name, check?.description, check?.message, ...(Array.isArray(check?.tags) ? check.tags : [])]
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(query);
+      })
+      .sort((left, right) => {
+        if (sortBy === 'name') return String(left?.name || left?.id || '').localeCompare(String(right?.name || right?.id || ''));
+        if (sortBy === 'duration_desc') return Number(right?.durationMs || 0) - Number(left?.durationMs || 0);
+        return (Number(right?.severity) || 0) - (Number(left?.severity) || 0)
+          || String(left?.name || left?.id || '').localeCompare(String(right?.name || right?.id || ''));
+      });
+  }, [checks, groupFilter, search, severityFilter, sortBy]);
+
+  const maxPage = Math.max(0, Math.ceil(filteredChecks.length / pageSize) - 1);
+  const safePage = Math.min(page, maxPage);
+  const visibleChecks = filteredChecks.slice(safePage * pageSize, safePage * pageSize + pageSize);
+
+  return (
+    <Modal title="Project Standards report" onClose={onClose} zIndex={120}>
+      <div className="PulseModalReport">
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+          <Badge>{context.instanceName || 'Unknown instance'}</Badge>
+          <Badge>{context.projectKey || 'Unknown project'}</Badge>
+          <Badge>{context.scope || 'Unknown scope'}</Badge>
+        </div>
+        <div className="PulseMuted" style={{ marginBottom: 12 }}>
+          Started {formatDateTime(context.startTime)} · Duration {formatDurationMs(context.totalDurationMs)}
+        </div>
+        {report?.lastError ? (
+          <div className="PulseCallout" style={{ marginBottom: 12 }}>
+            <div className="PulseCalloutTitle">Most recent Pulse attempt did not finalize</div>
+            <div className="PulseMuted">
+              State: {report.lastError.state || 'unknown'} · Finished: {formatDateTime(report.lastError.finishedAt)} · Exception type: {report.lastError.exceptionType || 'unknown'}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="PulseSummaryGrid" style={{ marginBottom: 14 }}>
+          <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact"><div className="PulseSummaryCount">{summary.total}</div><div className="PulseSummaryLabel">Total checks</div></div>
+          <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact"><div className="PulseSummaryCount">{summary.needsAttention}</div><div className="PulseSummaryLabel">Needs attention</div></div>
+          <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact"><div className="PulseSummaryCount">{summary.noIssue}</div><div className="PulseSummaryLabel">No issue</div></div>
+          <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact"><div className="PulseSummaryCount">{summary.unclassified}</div><div className="PulseSummaryLabel">Unclassified</div></div>
+          <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact"><div className="PulseSummaryCount">{summary.highestSeverity ?? '—'}</div><div className="PulseSummaryLabel">Highest severity</div></div>
+        </div>
+
+        {checks.length ? (
+          <>
+            <div className="PulseFilterGrid" style={{ marginBottom: 12 }}>
+              <label><span>Search</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search checks" /></label>
+              <label><span>Result group</span><select value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}><option value="all">All</option><option value="attention">Needs attention</option><option value="no_issue">No issue</option><option value="unclassified">Unclassified</option></select></label>
+              <label><span>Severity</span><select value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value)}><option value="all">All</option>{severities.map((severity) => <option key={severity} value={severity}>Severity {severity}</option>)}</select></label>
+              <label><span>Sort</span><select value={sortBy} onChange={(e) => setSortBy(e.target.value)}><option value="severity_desc">Severity descending</option><option value="name">Name</option><option value="duration_desc">Execution duration</option></select></label>
+            </div>
+            <div className="PulseResultsHeader" style={{ marginBottom: 8 }}>
+              <div className="PulseMuted">Showing {filteredChecks.length ? safePage * pageSize + 1 : 0}–{Math.min((safePage + 1) * pageSize, filteredChecks.length)} of {filteredChecks.length} filtered checks</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="PulseButton" type="button" onClick={() => setPage(Math.max(0, safePage - 1))} disabled={safePage === 0}>Prev</button>
+                <button className="PulseButton" type="button" onClick={() => setPage(Math.min(maxPage, safePage + 1))} disabled={safePage >= maxPage}>Next</button>
+              </div>
+            </div>
+            <div className="PulseTableWrap">
+              <table className="PulseTable">
+                <thead><tr><th>Severity</th><th>Check</th><th>Result message</th><th>Duration</th><th>Details</th></tr></thead>
+                <tbody>
+                  {visibleChecks.map((check) => {
+                    const checkKey = check.id || check.name;
+                    const isExpanded = Boolean(expanded[checkKey]);
+                    return (
+                      <React.Fragment key={checkKey}>
+                        <tr>
+                          <td><Badge>{severityLabel(check)}</Badge></td>
+                          <td><strong>{check.name || check.id}</strong><div className="PulseMuted">Execution status: {check.executionStatus || '—'}</div></td>
+                          <td>{check.message || '—'}</td>
+                          <td>{formatDurationMs(check.durationMs)}</td>
+                          <td><button className="PulseButton" type="button" aria-expanded={isExpanded} onClick={() => setExpanded((prev) => ({ ...prev, [checkKey]: !isExpanded }))}>{isExpanded ? 'Hide details' : 'Show details'}</button></td>
+                        </tr>
+                        {isExpanded ? (
+                          <tr>
+                            <td colSpan="5">
+                              <div className="PulseCallout">
+                                <div><strong>Check ID:</strong> <span className="PulseMono">{check.id}</span></div>
+                                {check.description ? <div><strong>Description:</strong> {check.description}</div> : null}
+                                {check.tags?.length ? <div><strong>Tags:</strong> {check.tags.join(', ')}</div> : null}
+                                {check.parameters ? <div><strong>Parameters:</strong> <span className="PulseMono">{JSON.stringify(check.parameters)}</span></div> : null}
+                                <div><strong>Native execution status:</strong> {check.executionStatus || '—'}</div>
+                                <div><strong>Duration:</strong> {formatDurationMs(check.durationMs)}</div>
+                                {check.resultDetails && Object.keys(check.resultDetails).length ? <div><strong>Result details:</strong> <span className="PulseMono">{JSON.stringify(check.resultDetails)}</span></div> : null}
+                              </div>
+                            </td>
+                          </tr>
+                        ) : null}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : (
+          <div className="PulseMuted">This Project Standards scope returned no checks.</div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 function BuildAssetsInventoryPage({
   apiBase = '',
   authState = null,
@@ -656,6 +836,10 @@ function BuildAssetsInventoryPage({
   const [detailsError, setDetailsError] = useState('');
   const [projectStandardsRunStatus, setProjectStandardsRunStatus] = useState('idle');
   const [projectStandardsMessage, setProjectStandardsMessage] = useState('');
+  const [projectStandardsReport, setProjectStandardsReport] = useState(null);
+  const [projectStandardsReportLoading, setProjectStandardsReportLoading] = useState(false);
+  const [projectStandardsReportError, setProjectStandardsReportError] = useState('');
+  const [projectStandardsReportOpen, setProjectStandardsReportOpen] = useState(false);
   const [metadataSummary, setMetadataSummary] = useState({ summary: {}, byType: [] });
   const [filtersExpanded, setFiltersExpanded] = useState(false);
 
@@ -672,16 +856,21 @@ function BuildAssetsInventoryPage({
   const selectedAssetProjectKey = String(selectedAsset?.projectKey || '').trim();
   const canRunProjectStandards = selectedAssetProjectKey && authState?.data?.permissions?.administration === true;
   const projectStandardsRunInProgress = projectStandardsRunStatus === 'running';
+  const canLoadProjectStandardsReport = canRunProjectStandards && projectStandardsReport?.available === true;
 
   const openDetails = (assetId) => {
     setSelectedAssetId(assetId);
     setDetailsOpen(true);
     setProjectStandardsRunStatus('idle');
     setProjectStandardsMessage('');
+    setProjectStandardsReport(null);
+    setProjectStandardsReportError('');
+    setProjectStandardsReportOpen(false);
   };
 
   const closeDetails = () => {
     setDetailsOpen(false);
+    setProjectStandardsReportOpen(false);
   };
 
   const detailsEndpoint = `${endpointBase}/details`;
@@ -717,6 +906,10 @@ function BuildAssetsInventoryPage({
       setDetailsLoading(false);
       setProjectStandardsRunStatus('idle');
       setProjectStandardsMessage('');
+      setProjectStandardsReport(null);
+      setProjectStandardsReportError('');
+      setProjectStandardsReportLoading(false);
+      setProjectStandardsReportOpen(false);
       return;
     }
 
@@ -758,6 +951,51 @@ function BuildAssetsInventoryPage({
     };
   }, [apiBase, detailsEndpoint, detailsOpen, effectiveRequestParams, selectedAssetId]);
 
+  useEffect(() => {
+    if (!detailsOpen || !selectedAssetId || !canRunProjectStandards) {
+      setProjectStandardsReport(null);
+      setProjectStandardsReportError('');
+      setProjectStandardsReportLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const load = async () => {
+      setProjectStandardsReportLoading(true);
+      setProjectStandardsReportError('');
+      try {
+        const res = await fetch(apiUrl(apiBase, '/api/project-standards/report'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ assetId: selectedAssetId }),
+        });
+        const raw = await res.text();
+        let data;
+        try {
+          data = JSON.parse(raw);
+        } catch (_) {
+          throw new Error(`Non-JSON response (${res.status}): ${raw.slice(0, 200)}`);
+        }
+        if (!res.ok || !data.ok) throw new Error(data?.error || 'Failed loading Project Standards report');
+        if (!cancelled) setProjectStandardsReport(data);
+      } catch (e) {
+        if (!cancelled) {
+          setProjectStandardsReport(null);
+          setProjectStandardsReportError(e.message || 'Failed loading Project Standards report');
+        }
+      } finally {
+        if (!cancelled) setProjectStandardsReportLoading(false);
+      }
+    };
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, canRunProjectStandards, detailsOpen, selectedAssetId]);
+
   const applyQuickFilter = ({ instanceName, projectKey, objectType, ownerLogin }) => {
     // “Reset to tag”: clear all filters then apply the requested one(s)
     setQ('');
@@ -796,10 +1034,16 @@ function BuildAssetsInventoryPage({
       if (!res.ok || !data.ok) throw new Error(data?.error || 'Project Standards run failed');
       setProjectStandardsRunStatus('success');
       setProjectStandardsMessage('Project Standards report started in the background.');
+      setProjectStandardsReport(null);
     } catch (e) {
       setProjectStandardsRunStatus('error');
       setProjectStandardsMessage(e.message || 'Project Standards run failed');
     }
+  };
+
+  const openProjectStandardsReport = () => {
+    if (!canLoadProjectStandardsReport) return;
+    setProjectStandardsReportOpen(true);
   };
 
   useEffect(() => {
@@ -1128,7 +1372,7 @@ function BuildAssetsInventoryPage({
           </div>
 
           {detailsOpen && selectedAsset ? (
-            <Modal title={detailsTitle} onClose={closeDetails}>
+            <Modal title={detailsTitle} onClose={closeDetails} isTopmost={!projectStandardsReportOpen}>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
                 <ActionBadge
                   title="Filter to this object type"
@@ -1213,17 +1457,19 @@ function BuildAssetsInventoryPage({
                     <button
                       className="PulseButton"
                       type="button"
-                      disabled
-                      title="Load last report is not connected yet."
+                      disabled={!canLoadProjectStandardsReport}
+                      title={canLoadProjectStandardsReport ? undefined : 'No previous Project Standards report is available.'}
+                      onClick={openProjectStandardsReport}
                     >
                       Load last report
                     </button>
                   </div>
                   <div className="PulseMuted">
                     {canRunProjectStandards
-                      ? 'Run / rerun report starts a Project Standards check in the background.'
+                      ? `Run / rerun report starts a Project Standards check in the background. ${projectStandardsReportLoading ? 'Checking for a cached report…' : canLoadProjectStandardsReport ? 'A cached report is available.' : 'No previous report is available.'}`
                       : 'Project Standards runs require administration access. Load last report is not connected yet.'}
                   </div>
+                  {projectStandardsReportError ? <div className="PulseError">{projectStandardsReportError}</div> : null}
                   {projectStandardsMessage ? (
                     <div className={projectStandardsRunStatus === 'error' ? 'PulseError' : 'PulseMuted'} style={{ marginTop: 6 }}>
                       {projectStandardsMessage}
@@ -1275,6 +1521,9 @@ function BuildAssetsInventoryPage({
                 ) : null}
               </div>
             </Modal>
+          ) : null}
+          {projectStandardsReportOpen && projectStandardsReport ? (
+            <ProjectStandardsReportModal report={projectStandardsReport} onClose={() => setProjectStandardsReportOpen(false)} />
           ) : null}
         </div>
       </FilterPageLayout>

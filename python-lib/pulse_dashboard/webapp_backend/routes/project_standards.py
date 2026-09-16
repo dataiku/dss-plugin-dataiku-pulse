@@ -37,6 +37,7 @@ _PULSE_PRIMARY_CONFIG_KEY = "_PULSE_DASHBOARD_PULSE_PRIMARY"
 _PROJECT_STANDARDS_CACHE_ROOT = Path(os.environ.get("PULSE_PROJECT_STANDARDS_CACHE_ROOT", "/tmp/pulse/ps"))  # nosec B108 - required ephemeral report cache path
 _ACTIVE_RUNS_LOCK = threading.Lock()
 _ACTIVE_RUNS: dict[tuple[str, str], dict[str, Any]] = {}
+_SENSITIVE_REPORT_KEY_RE = re.compile(r"(api|key|secret|token|password|credential|url)", re.IGNORECASE)
 
 
 def _is_md5(value: str | None) -> bool:
@@ -197,6 +198,133 @@ def _write_error_cache(
     return _write_json_cache_file(target_path, dict(payload))
 
 
+def _cache_paths(*, instance_name: str, project_key: str, cache_root: Path | None = None) -> tuple[Path, Path]:
+    safe_instance = _safe_path_component(instance_name, "instance_name")
+    safe_project = _safe_path_component(project_key, "project_key")
+    cache_root = cache_root or _PROJECT_STANDARDS_CACHE_ROOT
+    return (
+        cache_root / f"{safe_instance}-{safe_project}.json",
+        cache_root / f"{safe_instance}-{safe_project}.error.json",
+    )
+
+
+def _read_json_file(path: Path) -> Any:
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _json_safe_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        return [_json_safe_value(item) for item in value]
+    if isinstance(value, Mapping):
+        safe: dict[str, Any] = {}
+        for key, item in value.items():
+            key_text = str(key)
+            if _SENSITIVE_REPORT_KEY_RE.search(key_text):
+                continue
+            safe[key_text] = _json_safe_value(item)
+        return safe
+    return str(value)
+
+
+def _non_empty(value: Any) -> bool:
+    return value not in (None, "", [], {})
+
+
+def _numeric_severity(value: Any) -> int | float | None:
+    if isinstance(value, bool) or value in (None, ""):
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item or "").strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def _normalize_check(check_id: str, entry: Any) -> dict[str, Any]:
+    entry_mapping = entry if isinstance(entry, Mapping) else {}
+    check = entry_mapping.get("check") if isinstance(entry_mapping.get("check"), Mapping) else {}
+    result = entry_mapping.get("result") if isinstance(entry_mapping.get("result"), Mapping) else {}
+    native_id = str(check.get("id") or check.get("checkId") or "").strip()
+    stable_id = str(check_id or native_id or "unknown_check").strip()
+    name = str(check.get("name") or check.get("label") or stable_id).strip()
+    description = str(check.get("description") or check.get("shortDescription") or "").strip()
+    severity = _numeric_severity(result.get("severity"))
+
+    result_details: dict[str, Any] = {}
+    for key, value in result.items():
+        key_text = str(key)
+        if key_text in {"status", "severity", "message"}:
+            continue
+        safe_value = _json_safe_value(value)
+        if _non_empty(safe_value):
+            result_details[key_text] = safe_value
+
+    parameters = _json_safe_value(entry_mapping.get("expandedCheckParams"))
+
+    return {
+        "id": stable_id,
+        "name": name,
+        "description": description,
+        "tags": _string_list(check.get("tags") or check.get("categories")),
+        "parameters": parameters if _non_empty(parameters) else None,
+        "durationMs": entry_mapping.get("durationMs") if isinstance(entry_mapping.get("durationMs"), (int, float)) else None,
+        "executionStatus": str(result.get("status") or "").strip(),
+        "severity": severity,
+        "message": str(result.get("message") or "").strip(),
+        "resultDetails": result_details,
+    }
+
+
+def _normalize_report_payload(*, payload: Any, instance_name: str, project_key: str) -> dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        raise ValueError("Cached Project Standards report is not a JSON object")
+
+    checks_raw = payload.get("bundleChecksRunInfo")
+    checks: list[dict[str, Any]] = []
+    if isinstance(checks_raw, Mapping):
+        checks = [_normalize_check(str(check_id), entry) for check_id, entry in checks_raw.items()]
+
+    return {
+        "context": {
+            "instanceName": instance_name,
+            "projectKey": project_key,
+            "scope": str(payload.get("scope") or "").strip(),
+            "startTime": str(payload.get("startTime") or "").strip(),
+            "totalDurationMs": payload.get("totalDurationMs") if isinstance(payload.get("totalDurationMs"), (int, float)) else None,
+        },
+        "checks": checks,
+    }
+
+
+def _read_error_sidecar(error_path: Path) -> dict[str, Any] | None:
+    if not error_path.exists():
+        return None
+    payload = _read_json_file(error_path)
+    if not isinstance(payload, Mapping):
+        return None
+    return {
+        "runId": str(payload.get("runId") or "").strip(),
+        "state": str(payload.get("state") or "").strip(),
+        "instanceName": str(payload.get("instanceName") or "").strip(),
+        "projectKey": str(payload.get("projectKey") or "").strip(),
+        "startedAt": str(payload.get("startedAt") or "").strip(),
+        "finishedAt": str(payload.get("finishedAt") or "").strip(),
+        "exceptionType": str(payload.get("exceptionType") or "").strip(),
+    }
+
+
 def _remove_error_cache(*, instance_name: str, project_key: str, cache_root: Path | None = None) -> None:
     safe_instance = _safe_path_component(instance_name, "instance_name")
     safe_project = _safe_path_component(project_key, "project_key")
@@ -284,6 +412,77 @@ def _background_wait_and_cache_report(
 
 
 def register_routes(bp: Blueprint) -> None:
+    @bp.route("/api/project-standards/report", methods=["POST"])
+    def get_project_standards_report():
+        if not _has_administration_access():
+            return _err("Administration access is required", status=403)
+
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return _err("Expected JSON request body", status=400)
+
+        asset_id = str(body.get("assetId") or "").strip()
+        if not _is_md5(asset_id):
+            return _err("Invalid or missing assetId", status=400)
+
+        try:
+            query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+            _ensure_ready_if_enabled()
+            identity = _resolve_asset_identity(query_df, asset_id)
+        except Exception:
+            logger.exception("Project Standards cached report asset lookup failed for assetId=%s", asset_id)
+            return _err("Unable to resolve selected asset", status=500)
+
+        if identity is None:
+            return _err("Asset not found", status=404)
+
+        instance_name = identity["instanceName"]
+        project_key = identity["projectKey"]
+        if not instance_name:
+            return _err("Selected asset does not have an instance_name", status=400)
+        if not project_key:
+            return _err("Selected asset does not have a project_key", status=400)
+
+        try:
+            report_path, error_path = _cache_paths(instance_name=instance_name, project_key=project_key)
+            sidecar = _read_error_sidecar(error_path)
+            if not report_path.exists():
+                return _ok(
+                    {
+                        "available": False,
+                        "instanceName": instance_name,
+                        "projectKey": project_key,
+                        "cacheState": "missing",
+                        "lastError": sidecar,
+                    }
+                )
+
+            normalized = _normalize_report_payload(
+                payload=_read_json_file(report_path),
+                instance_name=instance_name,
+                project_key=project_key,
+            )
+        except json.JSONDecodeError:
+            logger.error("Project Standards cached report is malformed instance_name=%s project_key=%s", instance_name, project_key)
+            return _err("Cached Project Standards report is malformed", status=500)
+        except Exception as exc:
+            logger.error(
+                "Project Standards cached report could not be read instance_name=%s project_key=%s error_type=%s",
+                instance_name,
+                project_key,
+                type(exc).__name__,
+            )
+            return _err("Cached Project Standards report could not be read", status=500)
+
+        return _ok(
+            {
+                "available": True,
+                "cacheState": "available_with_error" if normalized and sidecar else "available",
+                "lastError": sidecar,
+                **normalized,
+            }
+        )
+
     @bp.route("/api/project-standards/run", methods=["POST"])
     def run_project_standards_report():
         if not _has_administration_access():

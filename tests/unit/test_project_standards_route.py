@@ -142,6 +142,10 @@ def post_run(app: Flask, payload: dict[str, Any] | None):
     return app.test_client().post("/api/project-standards/run", json=payload)
 
 
+def post_report(app: Flask, payload: dict[str, Any] | None):
+    return app.test_client().post("/api/project-standards/report", json=payload)
+
+
 def wait_for_file(path: Path, *, timeout: float = 5.0) -> None:
     assert threading.Event().wait(0) is False
     deadline = threading.Event()
@@ -153,6 +157,41 @@ def wait_for_file(path: Path, *, timeout: float = 5.0) -> None:
             return
         deadline.wait(0.02)
     raise AssertionError(f"timed out waiting for {path}")
+
+
+def sample_report_payload() -> dict[str, Any]:
+    return {
+        "projectKey": "PROJ_A",
+        "scope": "PROJECT",
+        "startTime": "2026-09-16T12:00:00.000Z",
+        "totalDurationMs": 1234,
+        "requester": "hidden-user",
+        "worker_url": "https://worker.example",
+        "bundleChecksRunInfo": {
+            "CHECK_POSITIVE": {
+                "check": {
+                    "id": "native-positive",
+                    "name": "Positive finding",
+                    "description": "A standard that found an issue",
+                    "tags": ["governance", "quality"],
+                },
+                "durationMs": 150,
+                "expandedCheckParams": {"threshold": 2, "apiKey": "SECRET_API_KEY"},
+                "result": {
+                    "status": "RUN_SUCCESS",
+                    "severity": 4,
+                    "message": "Needs owner review",
+                    "details": {"count": 3, "secretToken": "SECRET_API_KEY"},
+                },
+            },
+            "CHECK_ZERO": {
+                "check": {"name": "Zero severity", "description": "No issue found"},
+                "durationMs": 25,
+                "expandedCheckParams": {},
+                "result": {"status": "RUN_SUCCESS", "severity": 0, "message": "No issue"},
+            },
+        },
+    }
 
 
 def test_start_returns_202_before_blocked_future_resolves(route_app, monkeypatch):
@@ -244,6 +283,166 @@ def test_request_payload_cannot_override_resolved_identity(route_app, monkeypatc
     assert FakeDSSClient.project_keys == ["PROJ_A"]
     wait_for_file(cache_root / "worker-a-PROJ_A.json")
     assert not (cache_root / "attacker-ATTACKER_PROJECT.json").exists()
+
+
+def test_cached_report_resolves_identity_and_normalizes_without_sensitive_fields(route_app, monkeypatch):
+    _module, app, cache_root = route_app
+    monkeypatch.setattr("pulse_dashboard.webapp_backend.routes.project_standards._has_administration_access", lambda: True)
+    (cache_root / "worker-a-PROJ_A.json").write_text(json.dumps(sample_report_payload()), encoding="utf-8")
+
+    response = post_report(
+        app,
+        {
+            "assetId": asset_id("worker-a", "PROJ_A", "dataset", "customers"),
+            "instanceName": "attacker",
+            "projectKey": "ATTACKER_PROJECT",
+            "cachePath": "/tmp/pulse/ps/attacker.json",
+        },
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 200, payload
+    assert payload["ok"] is True
+    assert payload["available"] is True
+    assert payload["cacheState"] == "available"
+    assert payload["context"] == {
+        "instanceName": "worker-a",
+        "projectKey": "PROJ_A",
+        "scope": "PROJECT",
+        "startTime": "2026-09-16T12:00:00.000Z",
+        "totalDurationMs": 1234,
+    }
+    assert [check["id"] for check in payload["checks"]] == ["CHECK_POSITIVE", "CHECK_ZERO"]
+    assert payload["checks"][0]["name"] == "Positive finding"
+    assert payload["checks"][0]["executionStatus"] == "RUN_SUCCESS"
+    assert payload["checks"][0]["severity"] == 4
+    assert payload["checks"][0]["parameters"] == {"threshold": 2}
+    assert payload["checks"][0]["resultDetails"] == {"details": {"count": 3}}
+    assert "SECRET_API_KEY" not in json.dumps(payload)
+    assert "https://worker.example" not in json.dumps(payload)
+    assert "hidden-user" not in json.dumps(payload)
+    assert not (cache_root / "attacker-ATTACKER_PROJECT.json").exists()
+
+
+def test_cached_report_empty_payload_is_available_empty_report(route_app, monkeypatch):
+    _module, app, cache_root = route_app
+    monkeypatch.setattr("pulse_dashboard.webapp_backend.routes.project_standards._has_administration_access", lambda: True)
+    (cache_root / "worker-a-PROJ_A.json").write_text(
+        json.dumps({"scope": "PROJECT", "startTime": "2026-09-16T12:00:00Z", "bundleChecksRunInfo": {}}),
+        encoding="utf-8",
+    )
+
+    response = post_report(app, {"assetId": asset_id("worker-a", "PROJ_A", "dataset", "customers")})
+    payload = response.get_json()
+
+    assert response.status_code == 200, payload
+    assert payload["available"] is True
+    assert payload["checks"] == []
+    assert payload["context"]["scope"] == "PROJECT"
+
+
+def test_cached_report_missing_is_normal_unavailable_state(route_app, monkeypatch):
+    _module, app, cache_root = route_app
+    monkeypatch.setattr("pulse_dashboard.webapp_backend.routes.project_standards._has_administration_access", lambda: True)
+
+    response = post_report(app, {"assetId": asset_id("worker-a", "PROJ_A", "dataset", "customers")})
+    payload = response.get_json()
+
+    assert response.status_code == 200, payload
+    assert payload == {
+        "ok": True,
+        "available": False,
+        "instanceName": "worker-a",
+        "projectKey": "PROJ_A",
+        "cacheState": "missing",
+        "lastError": None,
+    }
+    assert list(cache_root.iterdir()) == []
+
+
+def test_cached_report_success_with_error_sidecar_returns_stale_warning_metadata(route_app, monkeypatch):
+    _module, app, cache_root = route_app
+    monkeypatch.setattr("pulse_dashboard.webapp_backend.routes.project_standards._has_administration_access", lambda: True)
+    (cache_root / "worker-a-PROJ_A.json").write_text(json.dumps(sample_report_payload()), encoding="utf-8")
+    (cache_root / "worker-a-PROJ_A.error.json").write_text(
+        json.dumps(
+            {
+                "runId": "run-123",
+                "state": "background_scheduling_failed",
+                "instanceName": "worker-a",
+                "projectKey": "PROJ_A",
+                "startedAt": "2026-09-16T12:01:00Z",
+                "finishedAt": "2026-09-16T12:01:01Z",
+                "exceptionType": "RuntimeError",
+                "error": "SECRET_API_KEY detail",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    response = post_report(app, {"assetId": asset_id("worker-a", "PROJ_A", "dataset", "customers")})
+    payload = response.get_json()
+
+    assert response.status_code == 200, payload
+    assert payload["available"] is True
+    assert payload["cacheState"] == "available_with_error"
+    assert payload["lastError"] == {
+        "runId": "run-123",
+        "state": "background_scheduling_failed",
+        "instanceName": "worker-a",
+        "projectKey": "PROJ_A",
+        "startedAt": "2026-09-16T12:01:00Z",
+        "finishedAt": "2026-09-16T12:01:01Z",
+        "exceptionType": "RuntimeError",
+    }
+    assert "SECRET_API_KEY" not in json.dumps(payload)
+
+
+def test_cached_report_malformed_artifact_returns_sanitized_server_error(route_app, monkeypatch, caplog):
+    _module, app, cache_root = route_app
+    monkeypatch.setattr("pulse_dashboard.webapp_backend.routes.project_standards._has_administration_access", lambda: True)
+    (cache_root / "worker-a-PROJ_A.json").write_text("{not-json SECRET_API_KEY", encoding="utf-8")
+    caplog.set_level("ERROR", logger="pulse_dashboard.webapp_backend.routes.project_standards")
+
+    response = post_report(app, {"assetId": asset_id("worker-a", "PROJ_A", "dataset", "customers")})
+    payload = response.get_json()
+
+    assert response.status_code == 500, payload
+    assert payload["error"] == "Cached Project Standards report is malformed"
+    assert "SECRET_API_KEY" not in json.dumps(payload)
+    assert "SECRET_API_KEY" not in caplog.text
+
+
+def test_cached_report_malformed_check_entry_does_not_break_report(route_app, monkeypatch):
+    _module, app, cache_root = route_app
+    monkeypatch.setattr("pulse_dashboard.webapp_backend.routes.project_standards._has_administration_access", lambda: True)
+    (cache_root / "worker-a-PROJ_A.json").write_text(
+        json.dumps({"bundleChecksRunInfo": {"BROKEN": "not-a-dict", "ODD": {"result": {"severity": "bad"}}}}),
+        encoding="utf-8",
+    )
+
+    response = post_report(app, {"assetId": asset_id("worker-a", "PROJ_A", "dataset", "customers")})
+    payload = response.get_json()
+
+    assert response.status_code == 200, payload
+    assert payload["available"] is True
+    assert payload["checks"][0]["id"] == "BROKEN"
+    assert payload["checks"][0]["name"] == "BROKEN"
+    assert payload["checks"][0]["severity"] is None
+    assert payload["checks"][1]["id"] == "ODD"
+    assert payload["checks"][1]["severity"] is None
+
+
+def test_cached_report_unauthorized_does_not_lookup_or_read_cache(route_app, monkeypatch):
+    module, app, cache_root = route_app
+    monkeypatch.setattr(module, "_has_administration_access", lambda: False)
+    monkeypatch.setattr(module, "_require_duckdb_engine", lambda: (_ for _ in ()).throw(AssertionError("should not query")))
+    (cache_root / "worker-a-PROJ_A.json").write_text(json.dumps(sample_report_payload()), encoding="utf-8")
+
+    response = post_report(app, {"assetId": asset_id("worker-a", "PROJ_A", "dataset", "customers")})
+
+    assert response.status_code == 403
+    assert FakeDSSClient.calls == []
 
 
 @pytest.mark.parametrize("payload", [None, {}, {"assetId": "not-md5"}, {"assetId": ""}])

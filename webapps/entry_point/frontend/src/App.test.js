@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App, {
   LicensePerformanceSection,
   buildLicenseUtilizationTrendSeries,
@@ -789,11 +789,94 @@ describe('Pulse export rendered navigation', () => {
 describe('Project Standards detail action', () => {
   const originalLocation = window.location;
   const originalFetch = global.fetch;
+  let reportResponse;
+
+  const buildReport = (count = 4) => {
+    const checks = [
+      {
+        id: 'CHECK_A',
+        name: 'Ownership metadata',
+        description: 'Project should declare owners',
+        tags: ['governance'],
+        parameters: { required: true },
+        durationMs: 120,
+        executionStatus: 'RUN_SUCCESS',
+        severity: 4,
+        message: 'Owner is missing',
+        resultDetails: { missing: ['owner'] },
+      },
+      {
+        id: 'CHECK_B',
+        name: 'Description metadata',
+        description: 'Project should have descriptions',
+        tags: ['documentation'],
+        parameters: null,
+        durationMs: 80,
+        executionStatus: 'RUN_SUCCESS',
+        severity: 2,
+        message: 'Description is short',
+        resultDetails: {},
+      },
+      {
+        id: 'CHECK_C',
+        name: 'Code environment policy',
+        description: 'Code environments should be governed',
+        tags: ['runtime'],
+        parameters: null,
+        durationMs: 500,
+        executionStatus: 'RUN_SUCCESS',
+        severity: 1,
+        message: 'Review code environment settings',
+        resultDetails: {},
+      },
+      {
+        id: 'CHECK_D',
+        name: 'Bundle freshness',
+        description: 'Bundle freshness standard',
+        tags: ['release'],
+        parameters: null,
+        durationMs: 40,
+        executionStatus: 'RUN_SUCCESS',
+        severity: 0,
+        message: 'No issue found',
+        resultDetails: {},
+      },
+    ];
+    for (let i = 5; i <= count; i += 1) {
+      checks.push({
+        id: `CHECK_${i}`,
+        name: `Additional check ${i}`,
+        description: `Additional description ${i}`,
+        tags: ['bulk'],
+        parameters: null,
+        durationMs: i,
+        executionStatus: 'RUN_SUCCESS',
+        severity: 0,
+        message: `Additional no issue ${i}`,
+        resultDetails: {},
+      });
+    }
+    return {
+      ok: true,
+      available: true,
+      cacheState: 'available',
+      lastError: null,
+      context: {
+        instanceName: 'worker-a',
+        projectKey: 'PROJ_A',
+        scope: 'PROJECT',
+        startTime: '2026-09-16T12:00:00Z',
+        totalDurationMs: 1234,
+      },
+      checks,
+    };
+  };
 
   beforeEach(() => {
     delete window.location;
     window.location = { hash: '#product-lifecycle/assets' };
     window.__PULSE_RUNTIME_CONFIG = { apiBaseUrl: '' };
+    reportResponse = { ok: true, available: false, cacheState: 'missing', instanceName: 'worker-a', projectKey: 'PROJ_A', lastError: null };
 
     global.fetch = jest.fn((url, options = {}) => {
       const target = String(url);
@@ -818,6 +901,9 @@ describe('Project Standards detail action', () => {
       }
       if (target.includes('/api/build/assets/details')) {
         return Promise.resolve({ ok: true, text: async () => JSON.stringify({ ok: true, capturedInfo: {}, usageSummary: {}, relatedAssets: [] }) });
+      }
+      if (target.includes('/api/project-standards/report')) {
+        return Promise.resolve({ ok: true, text: async () => JSON.stringify(reportResponse) });
       }
       if (target.includes('/api/build/assets?')) {
         return Promise.resolve({
@@ -846,7 +932,7 @@ describe('Project Standards detail action', () => {
       if (target.includes('/api/project-standards/run')) {
         return Promise.resolve({
           ok: true,
-          text: async () => JSON.stringify({ ok: true, cached: true, instanceName: 'worker-a', projectKey: 'PROJ_A' }),
+          text: async () => JSON.stringify({ ok: true, state: 'running', runId: 'run-1', instanceName: 'worker-a', projectKey: 'PROJ_A' }),
         });
       }
       return Promise.resolve({ ok: true, json: async () => ({ ok: true }) });
@@ -859,13 +945,14 @@ describe('Project Standards detail action', () => {
     delete window.__PULSE_RUNTIME_CONFIG;
   });
 
-  test('run button posts only asset id and load last report remains disabled', async () => {
+  test('run button posts only asset id and load last report remains disabled without cache', async () => {
     render(<App />);
 
     const assetLink = await screen.findByRole('button', { name: 'Customers' });
     fireEvent.click(assetLink);
 
     const runButton = await screen.findByRole('button', { name: 'Run / rerun report' });
+    await screen.findByText(/No previous report is available/);
     const loadButton = screen.getByRole('button', { name: 'Load last report' });
     expect(runButton).not.toBeDisabled();
     expect(loadButton).toBeDisabled();
@@ -877,5 +964,93 @@ describe('Project Standards detail action', () => {
     expect(runCall).toBeTruthy();
     expect(runCall[1]).toMatchObject({ method: 'POST', headers: { 'Content-Type': 'application/json' } });
     expect(JSON.parse(runCall[1].body)).toEqual({ assetId: '0123456789abcdef0123456789abcdef' });
+  });
+
+  test('opens cached report modal with correct severity summary and execution status', async () => {
+    reportResponse = buildReport(4);
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Customers' }));
+    const loadButton = await screen.findByRole('button', { name: 'Load last report' });
+    await waitFor(() => expect(loadButton).not.toBeDisabled());
+    fireEvent.click(loadButton);
+
+    expect(await screen.findByText('Project Standards report')).toBeInTheDocument();
+    const dialogs = screen.getAllByRole('dialog');
+    const reportDialog = within(dialogs[dialogs.length - 1]);
+    expect(reportDialog.getByText('PROJ_A')).toBeInTheDocument();
+    expect(reportDialog.getByText('PROJECT')).toBeInTheDocument();
+    expect(reportDialog.getByText('Total checks').previousSibling).toHaveTextContent('4');
+    expect(reportDialog.getAllByText('Needs attention').find((el) => el.className === 'PulseSummaryLabel').previousSibling).toHaveTextContent('3');
+    expect(reportDialog.getAllByText('No issue').find((el) => el.className === 'PulseSummaryLabel').previousSibling).toHaveTextContent('1');
+    expect(reportDialog.getByText('Highest severity').previousSibling).toHaveTextContent('4');
+    expect(reportDialog.getAllByText('Severity 4').length).toBeGreaterThan(0);
+    expect(reportDialog.getAllByText('Execution status: RUN_SUCCESS').length).toBeGreaterThan(0);
+    expect(reportDialog.queryByText(/passed/i)).not.toBeInTheDocument();
+
+    fireEvent.click(reportDialog.getAllByRole('button', { name: 'Show details' })[0]);
+    expect(reportDialog.getByText('Check ID:')).toBeInTheDocument();
+    expect(reportDialog.getByText('CHECK_A')).toBeInTheDocument();
+    expect(reportDialog.getByText(/Project should declare owners/)).toBeInTheDocument();
+    expect(reportDialog.getByText(/governance/)).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByText('Project Standards report')).not.toBeInTheDocument();
+    expect(screen.getByText('Captured info')).toBeInTheDocument();
+  });
+
+  test('filters sorts and pages a large cached report', async () => {
+    reportResponse = buildReport(30);
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Customers' }));
+    const loadButton = await screen.findByRole('button', { name: 'Load last report' });
+    await waitFor(() => expect(loadButton).not.toBeDisabled());
+    fireEvent.click(loadButton);
+
+    expect(await screen.findByText(/Showing 1–25 of 30 filtered checks/)).toBeInTheDocument();
+    const dialogs = screen.getAllByRole('dialog');
+    const reportDialog = within(dialogs[dialogs.length - 1]);
+    fireEvent.click(reportDialog.getByRole('button', { name: 'Next' }));
+    expect(await screen.findByText(/Showing 26–30 of 30 filtered checks/)).toBeInTheDocument();
+
+    fireEvent.change(reportDialog.getByLabelText('Search'), { target: { value: 'Additional check 30' } });
+    expect(await screen.findByText(/Showing 1–1 of 1 filtered checks/)).toBeInTheDocument();
+    expect(reportDialog.getByText('Additional check 30')).toBeInTheDocument();
+
+    fireEvent.change(reportDialog.getByLabelText('Result group'), { target: { value: 'attention' } });
+    expect(await screen.findByText(/Showing 0–0 of 0 filtered checks/)).toBeInTheDocument();
+
+    fireEvent.change(reportDialog.getByLabelText('Search'), { target: { value: '' } });
+    expect(await screen.findByText(/Showing 1–3 of 3 filtered checks/)).toBeInTheDocument();
+    fireEvent.change(reportDialog.getByLabelText('Severity'), { target: { value: '4' } });
+    expect(await screen.findByText(/Showing 1–1 of 1 filtered checks/)).toBeInTheDocument();
+    expect(reportDialog.getByText('Ownership metadata')).toBeInTheDocument();
+
+    fireEvent.change(reportDialog.getByLabelText('Sort'), { target: { value: 'duration_desc' } });
+    expect(reportDialog.getByText('Ownership metadata')).toBeInTheDocument();
+  });
+
+  test('shows empty report and stale-success warning states', async () => {
+    reportResponse = {
+      ...buildReport(0),
+      checks: [],
+      cacheState: 'available_with_error',
+      lastError: {
+        state: 'background_scheduling_failed',
+        finishedAt: '2026-09-16T12:02:00Z',
+        exceptionType: 'RuntimeError',
+      },
+    };
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Customers' }));
+    const loadButton = await screen.findByRole('button', { name: 'Load last report' });
+    await waitFor(() => expect(loadButton).not.toBeDisabled());
+    fireEvent.click(loadButton);
+
+    expect(await screen.findByText('Most recent Pulse attempt did not finalize')).toBeInTheDocument();
+    expect(screen.getByText(/background_scheduling_failed/)).toBeInTheDocument();
+    expect(screen.getByText('This Project Standards scope returned no checks.')).toBeInTheDocument();
   });
 });
