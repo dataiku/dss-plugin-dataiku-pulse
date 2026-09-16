@@ -1003,7 +1003,7 @@ describe('Project Standards detail action', () => {
     expect(reportDialog.getByText('PROJECT')).toBeInTheDocument();
     expect(reportDialog.getByText('Total checks').previousSibling).toHaveTextContent('4');
     expect(reportDialog.getAllByText('Needs attention').find((el) => el.className === 'PulseSummaryLabel').previousSibling).toHaveTextContent('3');
-    expect(reportDialog.getAllByText('No issue').find((el) => el.className === 'PulseSummaryLabel').previousSibling).toHaveTextContent('1');
+    expect(reportDialog.getAllByText('Success').find((el) => el.className === 'PulseSummaryLabel').previousSibling).toHaveTextContent('1');
     expect(reportDialog.getByText('Highest severity').previousSibling).toHaveTextContent('4');
     expect(reportDialog.getAllByText('High').length).toBeGreaterThan(0);
     expect(reportDialog.getAllByText(textContentMatcher('Execution status: Completed run')).length).toBeGreaterThan(0);
@@ -1231,7 +1231,7 @@ describe('Project Standards detail action', () => {
     expect(reportDialog.getAllByText(textContentMatcher('Execution status: Not applicable')).length).toBeGreaterThan(0);
     expect(reportDialog.getAllByText(textContentMatcher('Execution status: Error')).length).toBeGreaterThan(0);
     expect(reportDialog.getAllByText(textContentMatcher('Execution status: SOMETHING_NEW')).length).toBeGreaterThan(0);
-    expect(reportDialog.getAllByText('No issue').find((el) => el.className === 'PulseSummaryLabel').previousSibling).toHaveTextContent('1');
+    expect(reportDialog.getAllByText('Success').find((el) => el.className === 'PulseSummaryLabel').previousSibling).toHaveTextContent('1');
     expect(reportDialog.getAllByText('Needs attention').find((el) => el.className === 'PulseSummaryLabel').previousSibling).toHaveTextContent('5');
     expect(reportDialog.getAllByText('Unclassified').find((el) => el.className === 'PulseSummaryLabel').previousSibling).toHaveTextContent('3');
   });

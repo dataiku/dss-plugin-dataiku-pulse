@@ -764,7 +764,7 @@ function ProjectStandardsReportModal({ report, onClose }) {
         <div className="PulseSummaryGrid" style={{ marginBottom: 14 }}>
           <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact"><div className="PulseSummaryCount">{summary.total}</div><div className="PulseSummaryLabel">Total checks</div></div>
           <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact"><div className="PulseSummaryCount">{summary.needsAttention}</div><div className="PulseSummaryLabel">Needs attention</div></div>
-          <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact"><div className="PulseSummaryCount">{summary.noIssue}</div><div className="PulseSummaryLabel">No issue</div></div>
+          <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact"><div className="PulseSummaryCount">{summary.noIssue}</div><div className="PulseSummaryLabel">Success</div></div>
           <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact"><div className="PulseSummaryCount">{summary.unclassified}</div><div className="PulseSummaryLabel">Unclassified</div></div>
           <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact"><div className="PulseSummaryCount">{summary.highestSeverity ?? '—'}</div><div className="PulseSummaryLabel">Highest severity</div></div>
         </div>
@@ -773,7 +773,7 @@ function ProjectStandardsReportModal({ report, onClose }) {
           <>
             <div className="PulseFilterGrid" style={{ marginBottom: 12 }}>
               <label><span>Search</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search checks" /></label>
-              <label><span>Result group</span><select value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}><option value="all">All</option><option value="attention">Needs attention</option><option value="no_issue">No issue</option><option value="unclassified">Unclassified</option></select></label>
+              <label><span>Result group</span><select value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}><option value="all">All</option><option value="attention">Needs attention</option><option value="no_issue">Success</option><option value="unclassified">Unclassified</option></select></label>
               <label><span>Severity</span><select value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value)}><option value="all">All</option>{severities.map((severity) => <option key={severity} value={severity}>{PROJECT_STANDARDS_SEVERITY_LABELS[severity]}</option>)}</select></label>
               <label><span>Sort</span><select value={sortBy} onChange={(e) => setSortBy(e.target.value)}><option value="severity_desc">Severity descending</option><option value="name">Name</option><option value="duration_desc">Execution duration</option></select></label>
             </div>
