@@ -667,6 +667,8 @@ function BuildAssetsInventoryPage({
     return allAssets.find((a) => a.assetId === selectedAssetId) || null;
   }, [allAssets, selectedAssetId]);
 
+  const selectedAssetProjectKey = String(selectedAsset?.projectKey || '').trim();
+
   const openDetails = (assetId) => {
     setSelectedAssetId(assetId);
     setDetailsOpen(true);
@@ -1157,6 +1159,33 @@ function BuildAssetsInventoryPage({
                  </div>
 
               </div>
+
+              {selectedAssetProjectKey ? (
+                <div style={{ marginTop: 16 }}>
+                  <div className="PulseMuted" style={{ marginBottom: 6 }}>
+                    Project Standards
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                    <button
+                      className="PulseButton"
+                      type="button"
+                      disabled
+                      title="Project Standards actions are not connected yet."
+                    >
+                      Run / rerun report
+                    </button>
+                    <button
+                      className="PulseButton"
+                      type="button"
+                      disabled
+                      title="Project Standards actions are not connected yet."
+                    >
+                      Load last report
+                    </button>
+                  </div>
+                  <div className="PulseMuted">Project Standards actions are not connected yet.</div>
+                </div>
+              ) : null}
 
               <div style={{ marginTop: 16 }}>
                 <div className="PulseMuted" style={{ marginBottom: 6 }}>
