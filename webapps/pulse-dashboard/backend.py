@@ -37,6 +37,7 @@ _SENSITIVE_AUTH_KEYS = {
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _BUILD_DIR = _REPO_ROOT / "resource" / "pulse-dashboard" / "build"
+_PULSE_PRIMARY_CONFIG_KEY = "_PULSE_DASHBOARD_PULSE_PRIMARY"
 _LOCAL_PLUGIN_CONFIG_PATH = Path(
     os.environ.get(
         "PULSE_DASHBOARD_LOCAL_PLUGIN_CONFIG",
@@ -87,6 +88,7 @@ if app is None:  # pragma: no cover
         app = Flask(__name__)
 
 app = cast(Flask, app)
+app.config[_PULSE_PRIMARY_CONFIG_KEY] = dict(pulse_primary)
 
 if not logger.handlers:
     gunicorn_error_logger = logging.getLogger("gunicorn.error")

@@ -10,6 +10,7 @@ from .routes.consumption_products import register_routes as register_consumption
 from .routes.development_activity import register_routes as register_development_activity_routes
 from .routes.debug import register_routes as register_debug_routes
 from .routes.frontend import register_routes as register_frontend_routes
+from .routes.project_standards import register_routes as register_project_standards_routes
 from .routes.startup import register_routes as register_startup_routes
 from .startup import initialize_startup_ownership, run_backend_startup_check
 
@@ -33,6 +34,7 @@ def register_routes(app: Flask, *, is_local_dev: bool = False) -> None:
     register_build_products_routes(bp)
     register_consumption_products_routes(bp)
     register_development_activity_routes(bp)
+    register_project_standards_routes(bp)
     register_debug_routes(bp)
     app.register_blueprint(bp)
     run_backend_startup_check()

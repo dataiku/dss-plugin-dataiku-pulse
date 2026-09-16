@@ -58,6 +58,7 @@ def test_backend_uses_native_webapp_pulse_primary(monkeypatch, tmp_path: Path):
     )
 
     assert module.pulse_primary == {"pulse_project_key": "NATIVE"}
+    assert module.app.config["_PULSE_DASHBOARD_PULSE_PRIMARY"] == {"pulse_project_key": "NATIVE"}
 
 
 def test_backend_falls_back_to_local_plugin_config_when_webapp_loader_missing(monkeypatch, tmp_path: Path):

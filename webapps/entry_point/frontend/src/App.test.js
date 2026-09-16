@@ -785,3 +785,97 @@ describe('Pulse export rendered navigation', () => {
     expect(screen.queryByText('Export')).not.toBeInTheDocument();
   });
 });
+
+describe('Project Standards detail action', () => {
+  const originalLocation = window.location;
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    delete window.location;
+    window.location = { hash: '#product-lifecycle/assets' };
+    window.__PULSE_RUNTIME_CONFIG = { apiBaseUrl: '' };
+
+    global.fetch = jest.fn((url, options = {}) => {
+      const target = String(url);
+      if (target.includes('/api/me')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            authenticated: true,
+            user: { login: 'tester', displayName: 'Tester' },
+            permissions: { self: true, organization: true, administration: true },
+          }),
+        });
+      }
+      if (target.includes('/api/startup/flags')) {
+        return Promise.resolve({ ok: true, json: async () => ({ flags: { userActivity: true }, capabilities: {} }) });
+      }
+      if (target.includes('/api/build/assets/facets')) {
+        return Promise.resolve({ ok: true, json: async () => ({ ok: true, instances: ['worker-a'], projects: ['PROJ_A'], types: ['dataset'], owners: ['alice'] }) });
+      }
+      if (target.includes('/api/build/assets/metadata-summary')) {
+        return Promise.resolve({ ok: true, json: async () => ({ ok: true, summary: {}, byType: [] }) });
+      }
+      if (target.includes('/api/build/assets/details')) {
+        return Promise.resolve({ ok: true, text: async () => JSON.stringify({ ok: true, capturedInfo: {}, usageSummary: {}, relatedAssets: [] }) });
+      }
+      if (target.includes('/api/build/assets?')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            ok: true,
+            total: 1,
+            rows: [
+              {
+                assetId: '0123456789abcdef0123456789abcdef',
+                objectName: 'Customers',
+                objectKey: 'customers',
+                objectType: 'dataset',
+                instanceName: 'worker-a',
+                projectKey: 'PROJ_A',
+                ownerLogin: 'alice',
+                updatedAt: '2024-06-01T00:00:00Z',
+                activity30d: 5,
+                metadataCompletenessStatus: 'complete',
+                metadataCompletenessScore: 100,
+              },
+            ],
+          }),
+        });
+      }
+      if (target.includes('/api/project-standards/run')) {
+        return Promise.resolve({
+          ok: true,
+          text: async () => JSON.stringify({ ok: true, cached: true, instanceName: 'worker-a', projectKey: 'PROJ_A' }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ ok: true }) });
+    });
+  });
+
+  afterEach(() => {
+    window.location = originalLocation;
+    global.fetch = originalFetch;
+    delete window.__PULSE_RUNTIME_CONFIG;
+  });
+
+  test('run button posts only asset id and load last report remains disabled', async () => {
+    render(<App />);
+
+    const assetLink = await screen.findByRole('button', { name: 'Customers' });
+    fireEvent.click(assetLink);
+
+    const runButton = await screen.findByRole('button', { name: 'Run / rerun report' });
+    const loadButton = screen.getByRole('button', { name: 'Load last report' });
+    expect(runButton).not.toBeDisabled();
+    expect(loadButton).toBeDisabled();
+
+    fireEvent.click(runButton);
+    expect(await screen.findByText('Project Standards report saved for this project.')).toBeInTheDocument();
+
+    const runCall = global.fetch.mock.calls.find(([url]) => String(url).includes('/api/project-standards/run'));
+    expect(runCall).toBeTruthy();
+    expect(runCall[1]).toMatchObject({ method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    expect(JSON.parse(runCall[1].body)).toEqual({ assetId: '0123456789abcdef0123456789abcdef' });
+  });
+});

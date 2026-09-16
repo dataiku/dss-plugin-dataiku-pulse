@@ -654,6 +654,8 @@ function BuildAssetsInventoryPage({
   const [detailsInfo, setDetailsInfo] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState('');
+  const [projectStandardsRunStatus, setProjectStandardsRunStatus] = useState('idle');
+  const [projectStandardsMessage, setProjectStandardsMessage] = useState('');
   const [metadataSummary, setMetadataSummary] = useState({ summary: {}, byType: [] });
   const [filtersExpanded, setFiltersExpanded] = useState(false);
 
@@ -668,10 +670,14 @@ function BuildAssetsInventoryPage({
   }, [allAssets, selectedAssetId]);
 
   const selectedAssetProjectKey = String(selectedAsset?.projectKey || '').trim();
+  const canRunProjectStandards = selectedAssetProjectKey && authState?.data?.permissions?.administration === true;
+  const projectStandardsRunInProgress = projectStandardsRunStatus === 'running';
 
   const openDetails = (assetId) => {
     setSelectedAssetId(assetId);
     setDetailsOpen(true);
+    setProjectStandardsRunStatus('idle');
+    setProjectStandardsMessage('');
   };
 
   const closeDetails = () => {
@@ -709,6 +715,8 @@ function BuildAssetsInventoryPage({
       setDetailsInfo(null);
       setDetailsError('');
       setDetailsLoading(false);
+      setProjectStandardsRunStatus('idle');
+      setProjectStandardsMessage('');
       return;
     }
 
@@ -765,6 +773,33 @@ function BuildAssetsInventoryPage({
 
     setOffset(0);
     setDetailsOpen(false);
+  };
+
+  const runProjectStandardsReport = async () => {
+    if (!selectedAssetId || !canRunProjectStandards || projectStandardsRunInProgress) return;
+    setProjectStandardsRunStatus('running');
+    setProjectStandardsMessage('');
+
+    try {
+      const res = await fetch(apiUrl(apiBase, '/api/project-standards/run'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assetId: selectedAssetId }),
+      });
+      const raw = await res.text();
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch (_) {
+        throw new Error(`Non-JSON response (${res.status}): ${raw.slice(0, 200)}`);
+      }
+      if (!res.ok || !data.ok) throw new Error(data?.error || 'Project Standards run failed');
+      setProjectStandardsRunStatus('success');
+      setProjectStandardsMessage('Project Standards report saved for this project.');
+    } catch (e) {
+      setProjectStandardsRunStatus('error');
+      setProjectStandardsMessage(e.message || 'Project Standards run failed');
+    }
   };
 
   useEffect(() => {
@@ -1169,21 +1204,31 @@ function BuildAssetsInventoryPage({
                     <button
                       className="PulseButton"
                       type="button"
-                      disabled
-                      title="Project Standards actions are not connected yet."
+                      disabled={!canRunProjectStandards || projectStandardsRunInProgress}
+                      title={canRunProjectStandards ? undefined : 'Project Standards runs require administration access.'}
+                      onClick={runProjectStandardsReport}
                     >
-                      Run / rerun report
+                      {projectStandardsRunInProgress ? 'Running report…' : 'Run / rerun report'}
                     </button>
                     <button
                       className="PulseButton"
                       type="button"
                       disabled
-                      title="Project Standards actions are not connected yet."
+                      title="Load last report is not connected yet."
                     >
                       Load last report
                     </button>
                   </div>
-                  <div className="PulseMuted">Project Standards actions are not connected yet.</div>
+                  <div className="PulseMuted">
+                    {canRunProjectStandards
+                      ? 'Run / rerun report starts a Project Standards check and saves the raw report for this project.'
+                      : 'Project Standards runs require administration access. Load last report is not connected yet.'}
+                  </div>
+                  {projectStandardsMessage ? (
+                    <div className={projectStandardsRunStatus === 'error' ? 'PulseError' : 'PulseMuted'} style={{ marginTop: 6 }}>
+                      {projectStandardsMessage}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 
