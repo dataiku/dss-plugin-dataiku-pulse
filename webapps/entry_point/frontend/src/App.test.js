@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App, {
   LicensePerformanceSection,
   buildLicenseUtilizationTrendSeries,
@@ -668,6 +668,7 @@ describe('Organization LLM Mesh placeholder pages', () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     window.location = originalLocation;
     global.fetch = originalFetch;
     delete window.dataiku;
@@ -755,6 +756,7 @@ describe('Pulse export rendered navigation', () => {
   }
 
   afterEach(() => {
+    jest.useRealTimers();
     window.location = originalLocation;
     global.fetch = originalFetch;
     delete window.dataiku;
@@ -790,6 +792,21 @@ describe('Project Standards detail action', () => {
   const originalLocation = window.location;
   const originalFetch = global.fetch;
   let reportResponse;
+  let reportResponses;
+
+
+  const advanceRefresh = async (times = 1) => {
+    for (let i = 0; i < times; i += 1) {
+      await act(async () => {
+        jest.advanceTimersByTime(3000);
+        await Promise.resolve();
+      });
+    }
+  };
+
+  const textContentMatcher = (value) => (_content, element) => element?.textContent === value;
+
+  const reportFetchCount = () => global.fetch.mock.calls.filter(([url]) => String(url).includes('/api/project-standards/report')).length;
 
   const buildReport = (count = 4) => {
     const checks = [
@@ -877,6 +894,7 @@ describe('Project Standards detail action', () => {
     window.location = { hash: '#product-lifecycle/assets' };
     window.__PULSE_RUNTIME_CONFIG = { apiBaseUrl: '' };
     reportResponse = { ok: true, available: false, cacheState: 'missing', instanceName: 'worker-a', projectKey: 'PROJ_A', lastError: null };
+    reportResponses = null;
 
     global.fetch = jest.fn((url, options = {}) => {
       const target = String(url);
@@ -903,7 +921,9 @@ describe('Project Standards detail action', () => {
         return Promise.resolve({ ok: true, text: async () => JSON.stringify({ ok: true, capturedInfo: {}, usageSummary: {}, relatedAssets: [] }) });
       }
       if (target.includes('/api/project-standards/report')) {
-        return Promise.resolve({ ok: true, text: async () => JSON.stringify(reportResponse) });
+        const nextReport = reportResponses?.length ? reportResponses.shift() : reportResponse;
+        const payload = typeof nextReport === 'function' ? nextReport() : nextReport;
+        return Promise.resolve({ ok: true, text: async () => JSON.stringify(payload) });
       }
       if (target.includes('/api/build/assets?')) {
         return Promise.resolve({
@@ -940,6 +960,7 @@ describe('Project Standards detail action', () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     window.location = originalLocation;
     global.fetch = originalFetch;
     delete window.__PULSE_RUNTIME_CONFIG;
@@ -958,7 +979,7 @@ describe('Project Standards detail action', () => {
     expect(loadButton).toBeDisabled();
 
     fireEvent.click(runButton);
-    expect(await screen.findByText('Project Standards report started in the background.')).toBeInTheDocument();
+    expect(await screen.findByText('Project Standards report is running in the background; checking for the completed report…')).toBeInTheDocument();
 
     const runCall = global.fetch.mock.calls.find(([url]) => String(url).includes('/api/project-standards/run'));
     expect(runCall).toBeTruthy();
@@ -984,8 +1005,8 @@ describe('Project Standards detail action', () => {
     expect(reportDialog.getAllByText('Needs attention').find((el) => el.className === 'PulseSummaryLabel').previousSibling).toHaveTextContent('3');
     expect(reportDialog.getAllByText('No issue').find((el) => el.className === 'PulseSummaryLabel').previousSibling).toHaveTextContent('1');
     expect(reportDialog.getByText('Highest severity').previousSibling).toHaveTextContent('4');
-    expect(reportDialog.getAllByText('Severity 4').length).toBeGreaterThan(0);
-    expect(reportDialog.getAllByText('Execution status: RUN_SUCCESS').length).toBeGreaterThan(0);
+    expect(reportDialog.getAllByText('High').length).toBeGreaterThan(0);
+    expect(reportDialog.getAllByText(textContentMatcher('Execution status: Completed run')).length).toBeGreaterThan(0);
     expect(reportDialog.queryByText(/passed/i)).not.toBeInTheDocument();
 
     fireEvent.click(reportDialog.getAllByRole('button', { name: 'Show details' })[0]);
@@ -1052,5 +1073,166 @@ describe('Project Standards detail action', () => {
     expect(await screen.findByText('Most recent Pulse attempt did not finalize')).toBeInTheDocument();
     expect(screen.getByText(/background_scheduling_failed/)).toBeInTheDocument();
     expect(screen.getByText('This Project Standards scope returned no checks.')).toBeInTheDocument();
+  });
+
+  test('first run refreshes local cache and opens the new report automatically', async () => {
+    jest.useFakeTimers();
+    reportResponses = [
+      { ok: true, available: false, cacheState: 'missing', instanceName: 'worker-a', projectKey: 'PROJ_A', lastError: null },
+      { ok: true, available: false, cacheState: 'missing', instanceName: 'worker-a', projectKey: 'PROJ_A', lastError: null },
+      buildReport(4),
+    ];
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Customers' }));
+    await screen.findByText(/No previous report is available/);
+    await waitFor(() => expect(reportFetchCount()).toBe(1));
+    fireEvent.click(await screen.findByRole('button', { name: 'Run / rerun report' }));
+    expect(await screen.findByText('Project Standards report is running in the background; checking for the completed report…')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Check cache now' })).toBeInTheDocument();
+
+    await advanceRefresh(2);
+
+    expect(await screen.findByText('Project Standards report')).toBeInTheDocument();
+    expect(screen.getByText('Project Standards report is ready.')).toBeInTheDocument();
+    expect(global.fetch.mock.calls.filter(([url]) => String(url).includes('/api/project-standards/report')).length).toBe(3);
+  });
+
+  test('rerun with prior cache remains manually loadable and does not auto-open prior report', async () => {
+    jest.useFakeTimers();
+    reportResponse = buildReport(4);
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Customers' }));
+    const loadButton = await screen.findByRole('button', { name: 'Load last report' });
+    await waitFor(() => expect(loadButton).not.toBeDisabled());
+    fireEvent.click(await screen.findByRole('button', { name: 'Run / rerun report' }));
+
+    await advanceRefresh(1);
+
+    expect(screen.queryByText('Project Standards report')).not.toBeInTheDocument();
+    expect(loadButton).not.toBeDisabled();
+    fireEvent.click(loadButton);
+    expect(await screen.findByText('Project Standards report')).toBeInTheDocument();
+  });
+
+  test('manual cache recheck during waiting opens first completed report', async () => {
+    jest.useFakeTimers();
+    reportResponses = [
+      { ok: true, available: false, cacheState: 'missing', instanceName: 'worker-a', projectKey: 'PROJ_A', lastError: null },
+      buildReport(4),
+    ];
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Customers' }));
+    await screen.findByText(/No previous report is available/);
+    await waitFor(() => expect(reportFetchCount()).toBe(1));
+    fireEvent.click(await screen.findByRole('button', { name: 'Run / rerun report' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Check cache now' }));
+
+    expect(await screen.findByText('Project Standards report')).toBeInTheDocument();
+    expect(screen.getByText('Project Standards report is ready.')).toBeInTheDocument();
+  });
+
+  test('current sanitized sidecar stops refresh without exposing exception text', async () => {
+    jest.useFakeTimers();
+    let runStarted = false;
+    reportResponse = () => {
+      if (!runStarted) return { ok: true, available: false, cacheState: 'missing', instanceName: 'worker-a', projectKey: 'PROJ_A', lastError: null };
+      return {
+        ok: true,
+        available: false,
+        cacheState: 'missing',
+        instanceName: 'worker-a',
+        projectKey: 'PROJ_A',
+        lastError: { runId: 'run-1', state: 'background_scheduling_failed', exceptionType: 'RuntimeError', error: 'SECRET_API_KEY' },
+      };
+    };
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Customers' }));
+    await screen.findByText(/No previous report is available/);
+    await waitFor(() => expect(reportFetchCount()).toBe(1));
+    runStarted = true;
+    fireEvent.click(await screen.findByRole('button', { name: 'Run / rerun report' }));
+    await screen.findByText('Project Standards report is running in the background; checking for the completed report…');
+    await advanceRefresh(1);
+
+    expect(await screen.findByText('The most recent Project Standards attempt did not finalize; a completed cached report was not confirmed.')).toBeInTheDocument();
+    expect(screen.queryByText(/SECRET_API_KEY/)).not.toBeInTheDocument();
+    const callsAfterFailure = global.fetch.mock.calls.filter(([url]) => String(url).includes('/api/project-standards/report')).length;
+    await advanceRefresh(2);
+    expect(global.fetch.mock.calls.filter(([url]) => String(url).includes('/api/project-standards/report')).length).toBe(callsAfterFailure);
+  });
+
+  test('bounded refresh timeout is non-terminal and leaves manual recheck available', async () => {
+    jest.useFakeTimers();
+    reportResponse = { ok: true, available: false, cacheState: 'missing', instanceName: 'worker-a', projectKey: 'PROJ_A', lastError: null };
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Customers' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Run / rerun report' }));
+    await advanceRefresh(101);
+
+    expect(await screen.findByText('A completed cached Project Standards report was not found yet. The background run may still be running.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Check cache now' })).toBeInTheDocument();
+    expect(screen.queryByText(/failed|cancelled/i)).not.toBeInTheDocument();
+  });
+
+  test('closing details clears pending refresh and prevents later modal updates', async () => {
+    jest.useFakeTimers();
+    let runStarted = false;
+    reportResponse = () => (runStarted ? buildReport(4) : { ok: true, available: false, cacheState: 'missing', instanceName: 'worker-a', projectKey: 'PROJ_A', lastError: null });
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Customers' }));
+    await screen.findByText(/No previous report is available/);
+    await waitFor(() => expect(reportFetchCount()).toBe(1));
+    runStarted = true;
+    fireEvent.click(await screen.findByRole('button', { name: 'Run / rerun report' }));
+    await screen.findByText('Project Standards report is running in the background; checking for the completed report…');
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByText('Captured info')).not.toBeInTheDocument();
+    await advanceRefresh(2);
+
+    expect(screen.queryByText('Project Standards report')).not.toBeInTheDocument();
+  });
+
+  test('uses approved severity and execution labels and excludes non-success from success counts', async () => {
+    reportResponse = {
+      ...buildReport(0),
+      checks: [
+        { id: 'S0', name: 'Severity zero', executionStatus: 'RUN_SUCCESS', severity: 0, message: 'ok', durationMs: 1 },
+        { id: 'S1', name: 'Severity one', executionStatus: 'RUN_SUCCESS', severity: 1, message: 'lowest', durationMs: 1 },
+        { id: 'S2', name: 'Severity two', executionStatus: 'RUN_SUCCESS', severity: 2, message: 'low', durationMs: 1 },
+        { id: 'S3', name: 'Severity three', executionStatus: 'RUN_SUCCESS', severity: 3, message: 'medium', durationMs: 1 },
+        { id: 'S4', name: 'Severity four', executionStatus: 'RUN_SUCCESS', severity: 4, message: 'high', durationMs: 1 },
+        { id: 'S5', name: 'Severity five', executionStatus: 'RUN_SUCCESS', severity: 5, message: 'critical', durationMs: 1 },
+        { id: 'NA', name: 'Not applicable check', executionStatus: 'NOT_APPLICABLE', severity: 0, message: 'n/a', durationMs: 1 },
+        { id: 'ERR', name: 'Error check', executionStatus: 'RUN_ERROR', severity: 5, message: 'error', durationMs: 1 },
+        { id: 'UNK', name: 'Unknown check', executionStatus: 'SOMETHING_NEW', severity: null, message: 'unknown', durationMs: 1 },
+      ],
+    };
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Customers' }));
+    const loadButton = await screen.findByRole('button', { name: 'Load last report' });
+    await waitFor(() => expect(loadButton).not.toBeDisabled());
+    fireEvent.click(loadButton);
+    await screen.findByText('Project Standards report');
+    const dialogs = screen.getAllByRole('dialog');
+    const reportDialog = within(dialogs[dialogs.length - 1]);
+
+    ['Success', 'Lowest', 'Low', 'Medium', 'High', 'Critical'].forEach((label) => {
+      expect(reportDialog.getAllByText(label).length).toBeGreaterThan(0);
+    });
+    expect(reportDialog.getAllByText('Unclassified').length).toBeGreaterThanOrEqual(3);
+    expect(reportDialog.getAllByText(textContentMatcher('Execution status: Completed run')).length).toBeGreaterThanOrEqual(6);
+    expect(reportDialog.getAllByText(textContentMatcher('Execution status: Not applicable')).length).toBeGreaterThan(0);
+    expect(reportDialog.getAllByText(textContentMatcher('Execution status: Error')).length).toBeGreaterThan(0);
+    expect(reportDialog.getAllByText(textContentMatcher('Execution status: SOMETHING_NEW')).length).toBeGreaterThan(0);
+    expect(reportDialog.getAllByText('No issue').find((el) => el.className === 'PulseSummaryLabel').previousSibling).toHaveTextContent('1');
+    expect(reportDialog.getAllByText('Needs attention').find((el) => el.className === 'PulseSummaryLabel').previousSibling).toHaveTextContent('5');
+    expect(reportDialog.getAllByText('Unclassified').find((el) => el.className === 'PulseSummaryLabel').previousSibling).toHaveTextContent('3');
   });
 });
