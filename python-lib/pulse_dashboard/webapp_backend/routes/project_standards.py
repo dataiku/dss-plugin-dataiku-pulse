@@ -5,6 +5,9 @@ import logging
 import os
 import re
 import tempfile
+import threading
+import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -32,6 +35,8 @@ _MD5_RE = re.compile(r"^[a-fA-F0-9]{32}$")
 _SAFE_COMPONENT_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _PULSE_PRIMARY_CONFIG_KEY = "_PULSE_DASHBOARD_PULSE_PRIMARY"
 _PROJECT_STANDARDS_CACHE_ROOT = Path(os.environ.get("PULSE_PROJECT_STANDARDS_CACHE_ROOT", "/tmp/pulse/ps"))  # nosec B108 - required ephemeral report cache path
+_ACTIVE_RUNS_LOCK = threading.Lock()
+_ACTIVE_RUNS: dict[tuple[str, str], dict[str, Any]] = {}
 
 
 def _is_md5(value: str | None) -> bool:
@@ -132,23 +137,21 @@ def _safe_path_component(value: str, label: str) -> str:
     return normalized
 
 
-def _write_report_cache(
-    *,
-    instance_name: str,
-    project_key: str,
-    payload: Any,
-    cache_root: Path | None = None,
-) -> Path:
+def _utc_now_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _run_key(instance_name: str, project_key: str) -> tuple[str, str]:
+    return (instance_name, project_key)
+
+
+def _write_json_cache_file(target_path: Path, payload: Any) -> Path:
     json_text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    safe_instance = _safe_path_component(instance_name, "instance_name")
-    safe_project = _safe_path_component(project_key, "project_key")
-    cache_root = cache_root or _PROJECT_STANDARDS_CACHE_ROOT
-    cache_root.mkdir(parents=True, exist_ok=True)
-    target_path = cache_root / f"{safe_instance}-{safe_project}.json"
+    target_path.parent.mkdir(parents=True, exist_ok=True)
     temp_file = tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",
-        dir=cache_root,
+        dir=target_path.parent,
         prefix=f".{target_path.name}.",
         suffix=".tmp",
         delete=False,
@@ -166,7 +169,45 @@ def _write_report_cache(
     return target_path
 
 
-def _run_project_standards(worker: Mapping[str, Any], project_key: str, pulse_primary: Mapping[str, Any]) -> Any:
+def _write_report_cache(
+    *,
+    instance_name: str,
+    project_key: str,
+    payload: Any,
+    cache_root: Path | None = None,
+) -> Path:
+    safe_instance = _safe_path_component(instance_name, "instance_name")
+    safe_project = _safe_path_component(project_key, "project_key")
+    cache_root = cache_root or _PROJECT_STANDARDS_CACHE_ROOT
+    target_path = cache_root / f"{safe_instance}-{safe_project}.json"
+    return _write_json_cache_file(target_path, payload)
+
+
+def _write_error_cache(
+    *,
+    instance_name: str,
+    project_key: str,
+    payload: Mapping[str, Any],
+    cache_root: Path | None = None,
+) -> Path:
+    safe_instance = _safe_path_component(instance_name, "instance_name")
+    safe_project = _safe_path_component(project_key, "project_key")
+    cache_root = cache_root or _PROJECT_STANDARDS_CACHE_ROOT
+    target_path = cache_root / f"{safe_instance}-{safe_project}.error.json"
+    return _write_json_cache_file(target_path, dict(payload))
+
+
+def _remove_error_cache(*, instance_name: str, project_key: str, cache_root: Path | None = None) -> None:
+    safe_instance = _safe_path_component(instance_name, "instance_name")
+    safe_project = _safe_path_component(project_key, "project_key")
+    cache_root = cache_root or _PROJECT_STANDARDS_CACHE_ROOT
+    try:
+        (cache_root / f"{safe_instance}-{safe_project}.error.json").unlink()
+    except FileNotFoundError:
+        return
+
+
+def _start_project_standards_future(worker: Mapping[str, Any], project_key: str, pulse_primary: Mapping[str, Any]) -> Any:
     worker_url = str(worker.get("worker_url") or "").strip()
     worker_api = str(worker.get("worker_api") or "").strip()
     if not worker_url:
@@ -179,9 +220,67 @@ def _run_project_standards(worker: Mapping[str, Any], project_key: str, pulse_pr
         client_kwargs["insecure_tls"] = True
     client = dataikuapi.DSSClient(**client_kwargs)
     project = client.get_project(project_key)
-    future = project.start_run_project_standards_checks()
-    report = future.wait_for_result()
-    return report.data
+    return project.start_run_project_standards_checks()
+
+
+def _background_wait_and_cache_report(
+    *,
+    run_id: str,
+    run_key: tuple[str, str],
+    future: Any,
+    instance_name: str,
+    project_key: str,
+    started_at: str,
+) -> None:
+    state = "failed"
+    try:
+        report = future.wait_for_result()
+        payload = report.data
+        _write_report_cache(instance_name=instance_name, project_key=project_key, payload=payload)
+        _remove_error_cache(instance_name=instance_name, project_key=project_key)
+        state = "succeeded"
+        logger.info(
+            "Project Standards background run finished runId=%s instance_name=%s project_key=%s state=%s",
+            run_id,
+            instance_name,
+            project_key,
+            state,
+        )
+    except Exception as exc:
+        error_payload = {
+            "runId": run_id,
+            "state": "failed",
+            "instanceName": instance_name,
+            "projectKey": project_key,
+            "startedAt": started_at,
+            "finishedAt": _utc_now_iso(),
+            "exceptionType": type(exc).__name__,
+        }
+        try:
+            _write_error_cache(instance_name=instance_name, project_key=project_key, payload=error_payload)
+        except Exception as cache_exc:
+            logger.error(
+                "Project Standards error artifact write failed runId=%s instance_name=%s project_key=%s exception_type=%s cache_exception_type=%s",
+                run_id,
+                instance_name,
+                project_key,
+                type(exc).__name__,
+                type(cache_exc).__name__,
+            )
+        else:
+            logger.error(
+                "Project Standards background run failed runId=%s instance_name=%s project_key=%s state=%s exception_type=%s",
+                run_id,
+                instance_name,
+                project_key,
+                state,
+                type(exc).__name__,
+            )
+    finally:
+        with _ACTIVE_RUNS_LOCK:
+            active = _ACTIVE_RUNS.get(run_key)
+            if active and active.get("runId") == run_id:
+                _ACTIVE_RUNS.pop(run_key, None)
 
 
 def register_routes(bp: Blueprint) -> None:
@@ -216,35 +315,122 @@ def register_routes(bp: Blueprint) -> None:
         if not project_key:
             return _err("Selected asset does not have a project_key", status=400)
 
+        run_key = _run_key(instance_name, project_key)
+        run_id = uuid.uuid4().hex
+        started_at = _utc_now_iso()
+        with _ACTIVE_RUNS_LOCK:
+            active_run = _ACTIVE_RUNS.get(run_key)
+            if active_run:
+                return _ok(
+                    {
+                        "runId": str(active_run.get("runId") or ""),
+                        "state": "running",
+                        "deduped": True,
+                        "instanceName": instance_name,
+                        "projectKey": project_key,
+                    },
+                    status=202,
+                )
+            _ACTIVE_RUNS[run_key] = {"runId": run_id, "startedAt": started_at, "state": "starting"}
+
         pulse_primary = _pulse_primary_config()
         matches = _enabled_worker_matches(pulse_primary, instance_name)
         if not matches:
+            with _ACTIVE_RUNS_LOCK:
+                active = _ACTIVE_RUNS.get(run_key)
+                if active and active.get("runId") == run_id:
+                    _ACTIVE_RUNS.pop(run_key, None)
             return _err(f"No enabled Project Standards worker is configured for instance_name={instance_name}", status=409)
         if len(matches) > 1:
+            with _ACTIVE_RUNS_LOCK:
+                active = _ACTIVE_RUNS.get(run_key)
+                if active and active.get("runId") == run_id:
+                    _ACTIVE_RUNS.pop(run_key, None)
             return _err(f"Multiple enabled Project Standards workers are configured for instance_name={instance_name}", status=409)
 
         worker = matches[0]
         try:
-            payload = _run_project_standards(worker, project_key, pulse_primary)
+            future = _start_project_standards_future(worker, project_key, pulse_primary)
         except ValueError as exc:
+            with _ACTIVE_RUNS_LOCK:
+                active = _ACTIVE_RUNS.get(run_key)
+                if active and active.get("runId") == run_id:
+                    _ACTIVE_RUNS.pop(run_key, None)
             return _err(str(exc), status=409)
         except Exception as exc:
+            with _ACTIVE_RUNS_LOCK:
+                active = _ACTIVE_RUNS.get(run_key)
+                if active and active.get("runId") == run_id:
+                    _ACTIVE_RUNS.pop(run_key, None)
             logger.error(
-                "Project Standards run failed for instance_name=%s project_key=%s error_type=%s",
+                "Project Standards start failed runId=%s instance_name=%s project_key=%s error_type=%s",
+                run_id,
                 instance_name,
                 project_key,
                 type(exc).__name__,
             )
+            try:
+                _write_error_cache(
+                    instance_name=instance_name,
+                    project_key=project_key,
+                    payload={
+                        "runId": run_id,
+                        "state": "failed",
+                        "instanceName": instance_name,
+                        "projectKey": project_key,
+                        "startedAt": started_at,
+                        "finishedAt": _utc_now_iso(),
+                        "exceptionType": type(exc).__name__,
+                    },
+                )
+            except Exception as cache_exc:
+                logger.error(
+                    "Project Standards start error artifact write failed runId=%s instance_name=%s project_key=%s exception_type=%s cache_exception_type=%s",
+                    run_id,
+                    instance_name,
+                    project_key,
+                    type(exc).__name__,
+                    type(cache_exc).__name__,
+                )
             return _err("Project Standards run failed", status=502)
 
         try:
-            _write_report_cache(instance_name=instance_name, project_key=project_key, payload=payload)
-        except (TypeError, ValueError) as exc:
-            logger.exception("Project Standards report payload/cache identifier invalid for instance_name=%s project_key=%s", instance_name, project_key)
-            return _err(f"Project Standards report could not be cached: {exc}", status=500)
-        except Exception:
-            logger.exception("Project Standards report cache write failed for instance_name=%s project_key=%s", instance_name, project_key)
-            return _err("Project Standards report could not be cached", status=500)
+            thread = threading.Thread(
+                target=_background_wait_and_cache_report,
+                kwargs={
+                    "run_id": run_id,
+                    "run_key": run_key,
+                    "future": future,
+                    "instance_name": instance_name,
+                    "project_key": project_key,
+                    "started_at": started_at,
+                },
+                name=f"pulse-project-standards-{run_id[:12]}",
+                daemon=True,
+            )
+            thread.start()
+            with _ACTIVE_RUNS_LOCK:
+                active = _ACTIVE_RUNS.get(run_key)
+                if active and active.get("runId") == run_id:
+                    active["state"] = "running"
+        except Exception as exc:
+            with _ACTIVE_RUNS_LOCK:
+                active = _ACTIVE_RUNS.get(run_key)
+                if active and active.get("runId") == run_id:
+                    _ACTIVE_RUNS.pop(run_key, None)
+            logger.error(
+                "Project Standards background scheduling failed runId=%s instance_name=%s project_key=%s error_type=%s",
+                run_id,
+                instance_name,
+                project_key,
+                type(exc).__name__,
+            )
+            return _err("Project Standards background run could not be scheduled", status=500)
 
-        logger.info("Project Standards report cached for instance_name=%s project_key=%s", instance_name, project_key)
-        return _ok({"cached": True, "instanceName": instance_name, "projectKey": project_key})
+        logger.info(
+            "Project Standards background run started runId=%s instance_name=%s project_key=%s",
+            run_id,
+            instance_name,
+            project_key,
+        )
+        return _ok({"runId": run_id, "state": "running", "deduped": False, "instanceName": instance_name, "projectKey": project_key}, status=202)

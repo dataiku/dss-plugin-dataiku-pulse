@@ -871,7 +871,7 @@ describe('Project Standards detail action', () => {
     expect(loadButton).toBeDisabled();
 
     fireEvent.click(runButton);
-    expect(await screen.findByText('Project Standards report saved for this project.')).toBeInTheDocument();
+    expect(await screen.findByText('Project Standards report started in the background.')).toBeInTheDocument();
 
     const runCall = global.fetch.mock.calls.find(([url]) => String(url).includes('/api/project-standards/run'));
     expect(runCall).toBeTruthy();

@@ -795,7 +795,7 @@ function BuildAssetsInventoryPage({
       }
       if (!res.ok || !data.ok) throw new Error(data?.error || 'Project Standards run failed');
       setProjectStandardsRunStatus('success');
-      setProjectStandardsMessage('Project Standards report saved for this project.');
+      setProjectStandardsMessage('Project Standards report started in the background.');
     } catch (e) {
       setProjectStandardsRunStatus('error');
       setProjectStandardsMessage(e.message || 'Project Standards run failed');
@@ -1221,7 +1221,7 @@ function BuildAssetsInventoryPage({
                   </div>
                   <div className="PulseMuted">
                     {canRunProjectStandards
-                      ? 'Run / rerun report starts a Project Standards check and saves the raw report for this project.'
+                      ? 'Run / rerun report starts a Project Standards check in the background.'
                       : 'Project Standards runs require administration access. Load last report is not connected yet.'}
                   </div>
                   {projectStandardsMessage ? (

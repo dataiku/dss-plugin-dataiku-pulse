@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -17,13 +18,24 @@ class FakeReport:
 
 
 class FakeFuture:
-    def __init__(self, report_data: Any = None, error: Exception | None = None):
+    def __init__(
+        self,
+        report_data: Any = None,
+        error: Exception | None = None,
+        block: bool = False,
+    ):
         self.report_data = report_data if report_data is not None else {"bundleChecksRunInfo": {"status": "SUCCESS"}}
         self.error = error
         self.waited = False
+        self.wait_started = threading.Event()
+        self.release = threading.Event()
+        if not block:
+            self.release.set()
 
     def wait_for_result(self):
         self.waited = True
+        self.wait_started.set()
+        self.release.wait(timeout=5)
         if self.error is not None:
             raise self.error
         return FakeReport(self.report_data)
@@ -32,16 +44,16 @@ class FakeFuture:
 class FakeProject:
     def __init__(self, future: FakeFuture):
         self.future = future
-        self.run_count = 0
 
     def start_run_project_standards_checks(self):
-        self.run_count += 1
+        FakeDSSClient.start_count += 1
         return self.future
 
 
 class FakeDSSClient:
     calls: list[dict[str, Any]] = []
     project_keys: list[str] = []
+    start_count = 0
     future = FakeFuture()
 
     def __init__(self, **kwargs: Any):
@@ -100,6 +112,7 @@ def route_app(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(module.dataikuapi, "DSSClient", FakeDSSClient)
     FakeDSSClient.calls = []
     FakeDSSClient.project_keys = []
+    FakeDSSClient.start_count = 0
     FakeDSSClient.future = FakeFuture()
 
     app = Flask(__name__)
@@ -129,22 +142,86 @@ def post_run(app: Flask, payload: dict[str, Any] | None):
     return app.test_client().post("/api/project-standards/run", json=payload)
 
 
-def test_authorized_valid_request_runs_and_caches_sanitized_response(route_app, monkeypatch):
-    _module, app, cache_root = route_app
-    monkeypatch.setattr("pulse_dashboard.webapp_backend.routes.project_standards._has_administration_access", lambda: True)
+def wait_for_file(path: Path, *, timeout: float = 5.0) -> None:
+    assert threading.Event().wait(0) is False
+    deadline = threading.Event()
+    import time
+
+    end = time.time() + timeout
+    while time.time() < end:
+        if path.exists():
+            return
+        deadline.wait(0.02)
+    raise AssertionError(f"timed out waiting for {path}")
+
+
+def test_start_returns_202_before_blocked_future_resolves(route_app, monkeypatch):
+    module, app, cache_root = route_app
+    monkeypatch.setattr(module, "_has_administration_access", lambda: True)
+    report_payload = {"bundleChecksRunInfo": {"status": "SUCCESS"}, "checks": [{"id": "check-a"}]}
+    FakeDSSClient.future = FakeFuture(report_payload, block=True)
+
+    response = post_run(app, {"assetId": asset_id("worker-a", "PROJ_A", "dataset", "customers")})
+    payload = response.get_json()
+
+    assert response.status_code == 202, payload
+    assert payload["ok"] is True
+    assert payload["state"] == "running"
+    assert payload["deduped"] is False
+    assert payload["instanceName"] == "worker-a"
+    assert payload["projectKey"] == "PROJ_A"
+    assert payload["runId"]
+    assert FakeDSSClient.start_count == 1
+    assert FakeDSSClient.future.wait_started.wait(timeout=2)
+    assert not (cache_root / "worker-a-PROJ_A.json").exists()
+
+    FakeDSSClient.future.release.set()
+    wait_for_file(cache_root / "worker-a-PROJ_A.json")
+    assert json.loads((cache_root / "worker-a-PROJ_A.json").read_text(encoding="utf-8")) == report_payload
+    assert ("worker-a", "PROJ_A") not in module._ACTIVE_RUNS
+    assert "SECRET_API_KEY" not in json.dumps(payload)
+    assert "https://worker.example" not in json.dumps(payload)
+
+
+def test_duplicate_same_process_run_returns_active_run_without_second_start(route_app, monkeypatch):
+    module, app, cache_root = route_app
+    monkeypatch.setattr(module, "_has_administration_access", lambda: True)
+    FakeDSSClient.future = FakeFuture(block=True)
+
+    first = post_run(app, {"assetId": asset_id("worker-a", "PROJ_A", "dataset", "customers")})
+    first_payload = first.get_json()
+    second = post_run(app, {"assetId": asset_id("worker-a", "PROJ_A", "dataset", "customers")})
+    second_payload = second.get_json()
+
+    assert first.status_code == 202, first_payload
+    assert second.status_code == 202, second_payload
+    assert second_payload["runId"] == first_payload["runId"]
+    assert second_payload["deduped"] is True
+    assert second_payload["state"] == "running"
+    assert FakeDSSClient.start_count == 1
+    assert FakeDSSClient.calls == [{"host": "https://worker.example", "api_key": "SECRET_API_KEY", "insecure_tls": True}]
+
+    FakeDSSClient.future.release.set()
+    wait_for_file(cache_root / "worker-a-PROJ_A.json")
+    assert ("worker-a", "PROJ_A") not in module._ACTIVE_RUNS
+
+
+def test_successful_background_run_removes_prior_error_artifact(route_app, monkeypatch):
+    module, app, cache_root = route_app
+    monkeypatch.setattr(module, "_has_administration_access", lambda: True)
+    error_path = cache_root / "worker-a-PROJ_A.error.json"
+    error_path.write_text(json.dumps({"state": "failed"}), encoding="utf-8")
     report_payload = {"bundleChecksRunInfo": {"status": "SUCCESS"}, "checks": [{"id": "check-a"}]}
     FakeDSSClient.future = FakeFuture(report_payload)
 
     response = post_run(app, {"assetId": asset_id("worker-a", "PROJ_A", "dataset", "customers")})
     payload = response.get_json()
 
-    assert response.status_code == 200, payload
-    assert payload == {"ok": True, "cached": True, "instanceName": "worker-a", "projectKey": "PROJ_A"}
-    assert FakeDSSClient.calls == [{"host": "https://worker.example", "api_key": "SECRET_API_KEY", "insecure_tls": True}]
-    assert FakeDSSClient.project_keys == ["PROJ_A"]
+    assert response.status_code == 202, payload
+    wait_for_file(cache_root / "worker-a-PROJ_A.json")
     assert json.loads((cache_root / "worker-a-PROJ_A.json").read_text(encoding="utf-8")) == report_payload
-    assert "SECRET_API_KEY" not in json.dumps(payload)
-    assert "https://worker.example" not in json.dumps(payload)
+    assert not error_path.exists()
+    assert ("worker-a", "PROJ_A") not in module._ACTIVE_RUNS
 
 
 def test_request_payload_cannot_override_resolved_identity(route_app, monkeypatch):
@@ -161,11 +238,11 @@ def test_request_payload_cannot_override_resolved_identity(route_app, monkeypatc
     )
     payload = response.get_json()
 
-    assert response.status_code == 200, payload
+    assert response.status_code == 202, payload
     assert payload["instanceName"] == "worker-a"
     assert payload["projectKey"] == "PROJ_A"
     assert FakeDSSClient.project_keys == ["PROJ_A"]
-    assert (cache_root / "worker-a-PROJ_A.json").exists()
+    wait_for_file(cache_root / "worker-a-PROJ_A.json")
     assert not (cache_root / "attacker-ATTACKER_PROJECT.json").exists()
 
 
@@ -223,8 +300,8 @@ def test_asset_without_project_key_fails_without_remote_call(route_app, monkeypa
     ],
 )
 def test_worker_configuration_failures_do_not_connect_or_cache(route_app, monkeypatch, workers, expected_error):
-    _module, app, cache_root = route_app
-    monkeypatch.setattr("pulse_dashboard.webapp_backend.routes.project_standards._has_administration_access", lambda: True)
+    module, app, cache_root = route_app
+    monkeypatch.setattr(module, "_has_administration_access", lambda: True)
     app.config["_PULSE_DASHBOARD_PULSE_PRIMARY"] = {"worker_hosts": workers}
 
     response = post_run(app, {"assetId": asset_id("worker-a", "PROJ_A", "dataset", "customers")})
@@ -235,6 +312,7 @@ def test_worker_configuration_failures_do_not_connect_or_cache(route_app, monkey
     assert "SECRET" not in json.dumps(payload)
     assert FakeDSSClient.calls == []
     assert list(cache_root.iterdir()) == []
+    assert module._ACTIVE_RUNS == {}
 
 
 def test_unauthorized_request_does_not_lookup_connect_run_or_cache(route_app, monkeypatch):
@@ -249,41 +327,57 @@ def test_unauthorized_request_does_not_lookup_connect_run_or_cache(route_app, mo
     assert list(cache_root.iterdir()) == []
 
 
-def test_remote_run_failure_is_sanitized_and_not_cached(route_app, monkeypatch, caplog):
-    _module, app, cache_root = route_app
-    monkeypatch.setattr("pulse_dashboard.webapp_backend.routes.project_standards._has_administration_access", lambda: True)
+def test_future_failure_writes_sanitized_error_preserves_success_cache_and_clears_active(route_app, monkeypatch, caplog):
+    module, app, cache_root = route_app
+    monkeypatch.setattr(module, "_has_administration_access", lambda: True)
+    target = cache_root / "worker-a-PROJ_A.json"
+    target.write_text(json.dumps({"previous": "success"}), encoding="utf-8")
     FakeDSSClient.future = FakeFuture(error=RuntimeError("SECRET_API_KEY upstream detail"))
 
     caplog.set_level("ERROR", logger="pulse_dashboard.webapp_backend.routes.project_standards")
     response = post_run(app, {"assetId": asset_id("worker-a", "PROJ_A", "dataset", "customers")})
     payload = response.get_json()
 
-    assert response.status_code == 502
-    assert payload["error"] == "Project Standards run failed"
-    assert "SECRET_API_KEY" not in json.dumps(payload)
+    assert response.status_code == 202, payload
+    wait_for_file(cache_root / "worker-a-PROJ_A.error.json")
+    error_payload = json.loads((cache_root / "worker-a-PROJ_A.error.json").read_text(encoding="utf-8"))
+    assert error_payload["runId"] == payload["runId"]
+    assert error_payload["state"] == "failed"
+    assert error_payload["instanceName"] == "worker-a"
+    assert error_payload["projectKey"] == "PROJ_A"
+    assert error_payload["exceptionType"] == "RuntimeError"
+    assert "SECRET_API_KEY" not in json.dumps(error_payload)
     assert "SECRET_API_KEY" not in caplog.text
-    assert "RuntimeError" in caplog.text
-    assert list(cache_root.iterdir()) == []
+    assert target.read_text(encoding="utf-8") == json.dumps({"previous": "success"})
+    assert ("worker-a", "PROJ_A") not in module._ACTIVE_RUNS
 
 
-def test_cache_write_failure_does_not_claim_success_or_leave_partial(route_app, monkeypatch, tmp_path: Path):
+def test_cache_write_failure_writes_safe_error_and_clears_active(route_app, monkeypatch, caplog):
     module, app, cache_root = route_app
     monkeypatch.setattr(module, "_has_administration_access", lambda: True)
     target = cache_root / "worker-a-PROJ_A.json"
     target.write_text("existing", encoding="utf-8")
+    original_write_error_cache = module._write_error_cache
 
-    def fail_replace(self, target_path):
-        raise OSError("disk full")
+    def fail_report_cache(*, instance_name, project_key, payload, cache_root=None):
+        raise OSError("SECRET_API_KEY disk detail")
 
-    monkeypatch.setattr(Path, "replace", fail_replace)
+    monkeypatch.setattr(module, "_write_report_cache", fail_report_cache)
+    monkeypatch.setattr(module, "_write_error_cache", original_write_error_cache)
+    caplog.set_level("ERROR", logger="pulse_dashboard.webapp_backend.routes.project_standards")
 
     response = post_run(app, {"assetId": asset_id("worker-a", "PROJ_A", "dataset", "customers")})
     payload = response.get_json()
 
-    assert response.status_code == 500, payload
-    assert payload["error"] == "Project Standards report could not be cached"
+    assert response.status_code == 202, payload
+    wait_for_file(cache_root / "worker-a-PROJ_A.error.json")
+    error_payload = json.loads((cache_root / "worker-a-PROJ_A.error.json").read_text(encoding="utf-8"))
+    assert error_payload["runId"] == payload["runId"]
+    assert error_payload["exceptionType"] == "OSError"
+    assert "SECRET_API_KEY" not in json.dumps(error_payload)
+    assert "SECRET_API_KEY" not in caplog.text
     assert target.read_text(encoding="utf-8") == "existing"
-    assert not list(cache_root.glob("*.tmp"))
+    assert ("worker-a", "PROJ_A") not in module._ACTIVE_RUNS
 
 
 def test_cache_writer_uses_unique_sibling_temp_paths_for_same_target(route_app, monkeypatch):
@@ -335,14 +429,14 @@ def test_cache_writer_failed_replace_preserves_target_and_removes_only_own_temp(
 
 
 def test_product_asset_id_resolves_server_side(route_app, monkeypatch):
-    _module, app, cache_root = route_app
-    monkeypatch.setattr("pulse_dashboard.webapp_backend.routes.project_standards._has_administration_access", lambda: True)
+    module, app, cache_root = route_app
+    monkeypatch.setattr(module, "_has_administration_access", lambda: True)
 
     response = post_run(app, {"assetId": asset_id("worker-a", "PROD_PROJECT", "api_service", "svc")})
     payload = response.get_json()
 
-    assert response.status_code == 200, payload
+    assert response.status_code == 202, payload
     assert payload["instanceName"] == "worker-a"
     assert payload["projectKey"] == "PROD_PROJECT"
     assert FakeDSSClient.project_keys == ["PROD_PROJECT"]
-    assert (cache_root / "worker-a-PROD_PROJECT.json").exists()
+    wait_for_file(cache_root / "worker-a-PROD_PROJECT.json")
