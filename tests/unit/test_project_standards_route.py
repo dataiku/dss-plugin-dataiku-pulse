@@ -327,6 +327,80 @@ def test_unauthorized_request_does_not_lookup_connect_run_or_cache(route_app, mo
     assert list(cache_root.iterdir()) == []
 
 
+def test_background_scheduling_failure_writes_uncertain_error_and_clears_active(route_app, monkeypatch, caplog):
+    module, app, cache_root = route_app
+    monkeypatch.setattr(module, "_has_administration_access", lambda: True)
+    target = cache_root / "worker-a-PROJ_A.json"
+    target.write_text("existing", encoding="utf-8")
+    FakeDSSClient.future = FakeFuture(block=True)
+
+    class FailingThread:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("SECRET_API_KEY thread detail")
+
+    monkeypatch.setattr(module.threading, "Thread", FailingThread)
+    caplog.set_level("ERROR", logger="pulse_dashboard.webapp_backend.routes.project_standards")
+
+    response = post_run(app, {"assetId": asset_id("worker-a", "PROJ_A", "dataset", "customers")})
+    payload = response.get_json()
+
+    assert response.status_code == 500, payload
+    assert payload["error"] == "Project Standards background run could not be scheduled"
+    assert "SECRET_API_KEY" not in json.dumps(payload)
+    assert FakeDSSClient.start_count == 1
+    assert FakeDSSClient.future.waited is False
+    error_payload = json.loads((cache_root / "worker-a-PROJ_A.error.json").read_text(encoding="utf-8"))
+    assert error_payload["runId"]
+    assert error_payload["state"] == "background_scheduling_failed"
+    assert error_payload["instanceName"] == "worker-a"
+    assert error_payload["projectKey"] == "PROJ_A"
+    assert error_payload["startedAt"]
+    assert error_payload["finishedAt"]
+    assert error_payload["exceptionType"] == "RuntimeError"
+    assert "SECRET_API_KEY" not in json.dumps(error_payload)
+    assert "SECRET_API_KEY" not in caplog.text
+    assert target.read_text(encoding="utf-8") == "existing"
+    assert ("worker-a", "PROJ_A") not in module._ACTIVE_RUNS
+
+
+def test_background_scheduling_error_cache_failure_is_sanitized(route_app, monkeypatch, caplog):
+    module, app, cache_root = route_app
+    monkeypatch.setattr(module, "_has_administration_access", lambda: True)
+    target = cache_root / "worker-a-PROJ_A.json"
+    target.write_text("existing", encoding="utf-8")
+    FakeDSSClient.future = FakeFuture(block=True)
+
+    class FailingThread:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("SECRET_API_KEY thread detail")
+
+    def fail_error_cache(*, instance_name, project_key, payload, cache_root=None):
+        raise OSError("SECRET_API_KEY disk detail")
+
+    monkeypatch.setattr(module.threading, "Thread", FailingThread)
+    monkeypatch.setattr(module, "_write_error_cache", fail_error_cache)
+    caplog.set_level("ERROR", logger="pulse_dashboard.webapp_backend.routes.project_standards")
+
+    response = post_run(app, {"assetId": asset_id("worker-a", "PROJ_A", "dataset", "customers")})
+    payload = response.get_json()
+
+    assert response.status_code == 500, payload
+    assert payload["error"] == "Project Standards background run could not be scheduled"
+    assert "SECRET_API_KEY" not in json.dumps(payload)
+    assert FakeDSSClient.start_count == 1
+    assert FakeDSSClient.future.waited is False
+    assert not (cache_root / "worker-a-PROJ_A.error.json").exists()
+    assert "SECRET_API_KEY" not in caplog.text
+    assert target.read_text(encoding="utf-8") == "existing"
+    assert ("worker-a", "PROJ_A") not in module._ACTIVE_RUNS
+
+
 def test_future_failure_writes_sanitized_error_preserves_success_cache_and_clears_active(route_app, monkeypatch, caplog):
     module, app, cache_root = route_app
     monkeypatch.setattr(module, "_has_administration_access", lambda: True)

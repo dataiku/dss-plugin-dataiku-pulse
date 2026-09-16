@@ -418,6 +418,29 @@ def register_routes(bp: Blueprint) -> None:
                 active = _ACTIVE_RUNS.get(run_key)
                 if active and active.get("runId") == run_id:
                     _ACTIVE_RUNS.pop(run_key, None)
+            try:
+                _write_error_cache(
+                    instance_name=instance_name,
+                    project_key=project_key,
+                    payload={
+                        "runId": run_id,
+                        "state": "background_scheduling_failed",
+                        "instanceName": instance_name,
+                        "projectKey": project_key,
+                        "startedAt": started_at,
+                        "finishedAt": _utc_now_iso(),
+                        "exceptionType": type(exc).__name__,
+                    },
+                )
+            except Exception as cache_exc:
+                logger.error(
+                    "Project Standards scheduling error artifact write failed runId=%s instance_name=%s project_key=%s exception_type=%s cache_exception_type=%s",
+                    run_id,
+                    instance_name,
+                    project_key,
+                    type(exc).__name__,
+                    type(cache_exc).__name__,
+                )
             logger.error(
                 "Project Standards background scheduling failed runId=%s instance_name=%s project_key=%s error_type=%s",
                 run_id,
