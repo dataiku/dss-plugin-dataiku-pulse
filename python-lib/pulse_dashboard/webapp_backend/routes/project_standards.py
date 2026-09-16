@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -144,9 +145,18 @@ def _write_report_cache(
     cache_root = cache_root or _PROJECT_STANDARDS_CACHE_ROOT
     cache_root.mkdir(parents=True, exist_ok=True)
     target_path = cache_root / f"{safe_instance}-{safe_project}.json"
-    temp_path = target_path.with_name(f".{target_path.name}.{os.getpid()}.tmp")
+    temp_file = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=cache_root,
+        prefix=f".{target_path.name}.",
+        suffix=".tmp",
+        delete=False,
+    )
+    temp_path = Path(temp_file.name)
     try:
-        temp_path.write_text(json_text, encoding="utf-8")
+        with temp_file:
+            temp_file.write(json_text)
         temp_path.replace(target_path)
     finally:
         try:

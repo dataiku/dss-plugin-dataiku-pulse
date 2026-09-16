@@ -286,6 +286,54 @@ def test_cache_write_failure_does_not_claim_success_or_leave_partial(route_app, 
     assert not list(cache_root.glob("*.tmp"))
 
 
+def test_cache_writer_uses_unique_sibling_temp_paths_for_same_target(route_app, monkeypatch):
+    module, _app, cache_root = route_app
+    original_replace = Path.replace
+    replace_calls: list[tuple[Path, Path]] = []
+
+    def spy_replace(self, target_path):
+        replace_calls.append((self, Path(target_path)))
+        return original_replace(self, target_path)
+
+    monkeypatch.setattr(Path, "replace", spy_replace)
+
+    first_target = module._write_report_cache(instance_name="worker-a", project_key="PROJ_A", payload={"run": 1})
+    second_target = module._write_report_cache(instance_name="worker-a", project_key="PROJ_A", payload={"run": 2})
+
+    assert first_target == cache_root / "worker-a-PROJ_A.json"
+    assert second_target == cache_root / "worker-a-PROJ_A.json"
+    assert json.loads(second_target.read_text(encoding="utf-8")) == {"run": 2}
+    assert len(replace_calls) == 2
+    assert replace_calls[0][0] != replace_calls[1][0]
+    assert {call[0].parent for call in replace_calls} == {cache_root}
+    assert {call[1] for call in replace_calls} == {cache_root / "worker-a-PROJ_A.json"}
+    assert not list(cache_root.glob("*.tmp"))
+
+
+def test_cache_writer_failed_replace_preserves_target_and_removes_only_own_temp(route_app, monkeypatch):
+    module, _app, cache_root = route_app
+    target = cache_root / "worker-a-PROJ_A.json"
+    target.write_text("existing", encoding="utf-8")
+    unrelated_temp = cache_root / ".worker-a-PROJ_A.json.unrelated.tmp"
+    unrelated_temp.write_text("other request", encoding="utf-8")
+    temp_paths: list[Path] = []
+
+    def fail_replace(self, target_path):
+        temp_paths.append(self)
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+
+    with pytest.raises(OSError):
+        module._write_report_cache(instance_name="worker-a", project_key="PROJ_A", payload={"run": 1})
+
+    assert target.read_text(encoding="utf-8") == "existing"
+    assert unrelated_temp.read_text(encoding="utf-8") == "other request"
+    assert len(temp_paths) == 1
+    assert temp_paths[0].parent == cache_root
+    assert not temp_paths[0].exists()
+
+
 def test_product_asset_id_resolves_server_side(route_app, monkeypatch):
     _module, app, cache_root = route_app
     monkeypatch.setattr("pulse_dashboard.webapp_backend.routes.project_standards._has_administration_access", lambda: True)
