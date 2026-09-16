@@ -131,6 +131,20 @@
                     "mandatory": true
                 },
                 {
+                "name": "worker_name",
+                "label": "Name",
+                "type": "STRING",
+                "description": "Stable Pulse instance identifier. Must exactly match instance_name used in Pulse data; changing it creates a new logical instance.",
+                "mandatory": true
+                },
+                {
+                "name": "worker_label",
+                "label": "Label",
+                "type": "STRING",
+                "description": "Optional friendly name shown in administration and dashboard views. Defaults to Name when blank.",
+                "mandatory": false
+                },
+                {
                     "name": "worker_url",
                     "label": "URL",
                     "type": "STRING",
