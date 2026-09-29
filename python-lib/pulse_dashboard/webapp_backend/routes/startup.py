@@ -142,6 +142,12 @@ def get_advanced_llm_mesh_capability() -> dict[str, Any]:
         return dict(_ADVANCED_LLM_MESH_DISABLED_CAPABILITY)
 
 
+def invalidate_advanced_llm_mesh_capability_cache() -> None:
+    global _advanced_llm_mesh_capability_cache
+
+    _advanced_llm_mesh_capability_cache = None
+
+
 def _duckdb_init_in_progress() -> bool:
     if is_initialization_in_progress is None:
         return False

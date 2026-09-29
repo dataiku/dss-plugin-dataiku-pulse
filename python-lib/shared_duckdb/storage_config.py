@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import base64
+import base64  # noqa: F401 - re-exported for legacy storage_config imports
 import logging
 from pathlib import Path
 
@@ -12,7 +12,7 @@ from .context import StorageContext
 from .extensions import duckdb_version, ensure_provider_extensions
 from . import yaml_loader
 from shared_storage_credentials import connection_info as _connection_info
-from shared_storage_credentials import decrypt_string, derive_key_from_password, resolve_gcs_hmac_credentials
+from shared_storage_credentials import decrypt_string, derive_key_from_password, resolve_gcs_hmac_credentials  # noqa: F401
 
 
 logger = logging.getLogger(__name__)
@@ -27,6 +27,7 @@ def aws_credentials(ctx: StorageContext) -> str:
     params = info.get("params", {})
     credentials_mode = params.get("credentialsMode")
     aws_region = params.get("regionOrEndpoint")
+    url_style = "path" if params.get("usePathMode") is True else "vhost"
 
     queries = _load_queries()
 
@@ -36,6 +37,7 @@ def aws_credentials(ctx: StorageContext) -> str:
             key_id=params["accessKey"],
             secret=params["secretKey"],
             aws_region=aws_region,
+            url_style=url_style,
         )
 
     if credentials_mode in {"STS_ASSUME_ROLE", "ENVIRONMENT"}:
@@ -46,6 +48,7 @@ def aws_credentials(ctx: StorageContext) -> str:
             secret=resolved["secretKey"],
             token=resolved["sessionToken"],
             aws_region=aws_region,
+            url_style=url_style,
         )
 
     raise RuntimeError(f"Unsupported AWS credentials mode: {credentials_mode}")

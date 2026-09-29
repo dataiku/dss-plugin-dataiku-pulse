@@ -21,7 +21,7 @@ from data_collection.pulse_duckdb.duckdb_manager import prepare_duckdb
 from data_collection.pulse_duckdb.engine.storage_config import configure_storage
 from data_collection.pulse_duckdb.gold_builder import apply_gold_spec, resolve_gold_spec_build_order
 from data_collection.pulse_duckdb.license_wide import build_license_wide_sql_params
-from data_collection.pulse_duckdb.manifest import read_manifest, set_manifest_watermark, stamp_manifest_updated_at, write_manifest
+from data_collection.pulse_duckdb.manifest import copy_manifest, lookback_adjusted_watermark, manifest_watermark, read_manifest, stamp_manifest_updated_at, write_manifest
 from data_collection.pulse_duckdb.sql_utils import log_timed_phase
 from data_collection.pulse_duckdb.unload import unload_gold_tables
 from data_collection.pulse_duckdb.object_activity import (
@@ -44,6 +44,10 @@ logger = logging.getLogger(__name__)
 
 CREATE_GOLD_DUCKDB_MEMORY_PERCENTAGE = 0.40
 CREATE_GOLD_DUCKDB_THREADS = 2
+USER_ACTIVITY_INCREMENTAL_FACTS = {
+    "fact_user_activity_daily",
+    "fact_user_activity_project_daily",
+}
 
 
 def _format_gib(memory_bytes: int) -> str | None:
@@ -90,6 +94,36 @@ def _apply_create_gold_duckdb_session_limits(conn) -> None:
     )
 
 
+def _user_activity_build_watermark(
+    *,
+    manifest: dict[str, object] | None,
+    table_name: str,
+    incremental_enabled: bool,
+    lookback_days: int,
+) -> str | None:
+    if not incremental_enabled:
+        return None
+    prior_watermark = manifest_watermark(manifest or {}, table_name)
+    adjusted_watermark = lookback_adjusted_watermark(prior_watermark, lookback_days)
+    if adjusted_watermark:
+        logger.info(
+            "GOLD user activity build boundary: table=%s prior_watermark=%s adjusted_watermark=%s lookback_days=%s mode=incremental",
+            table_name,
+            prior_watermark,
+            adjusted_watermark,
+            lookback_days,
+        )
+        return adjusted_watermark
+    reason = "missing" if not prior_watermark else "unusable"
+    logger.info(
+        "GOLD user activity full build selected: table=%s reason=%s prior_watermark=%s",
+        table_name,
+        reason,
+        prior_watermark,
+    )
+    return None
+
+
 def run():
     project_key = dataiku.default_project_key()
     gold_folder_lookup = resolve_gold_folder_lookup()
@@ -101,6 +135,9 @@ def run():
 
     ensure_managed_folder(project_key=project_key, folder_lookup="partitioned_data")
     ensure_managed_folder(project_key=project_key, folder_lookup=gold_folder_lookup)
+
+    manifest = read_manifest(gold_folder_lookup) if manifest_enabled else {}
+    pending_manifest = copy_manifest(manifest) if manifest_enabled else None
 
     silver_ctx = build_storage_context(project_key=project_key, folder_lookup="partitioned_data")
     gold_ctx = build_storage_context(project_key=project_key, folder_lookup=gold_folder_lookup)
@@ -168,28 +205,54 @@ def run():
     if dev_activity_name:
         built_dev_activity.append(dev_activity_name)
 
-    built_user_activity = [
-        name
-        for name in [
-            build_fact_user_activity_daily(setup.conn, ctx=silver_ctx),
-            build_fact_user_activity_project_daily(setup.conn, ctx=silver_ctx),
-            build_fact_formal_mau_daily(setup.conn, ctx=silver_ctx),
-            build_fact_license_utilization_daily(setup.conn, ctx=silver_ctx),
-        ]
-        if name
-    ]
+    built_user_activity = []
+    user_activity_build_watermarks = {
+        table_name: _user_activity_build_watermark(
+            manifest=manifest,
+            table_name=table_name,
+            incremental_enabled=manifest_enabled,
+            lookback_days=lookback_days,
+        )
+        for table_name in USER_ACTIVITY_INCREMENTAL_FACTS
+    }
+    with log_timed_phase(setup.conn, label="build_fact_user_activity_daily"):
+        user_activity_daily_name = build_fact_user_activity_daily(
+            setup.conn,
+            ctx=silver_ctx,
+            adjusted_watermark=user_activity_build_watermarks["fact_user_activity_daily"],
+        )
+    if user_activity_daily_name:
+        built_user_activity.append(user_activity_daily_name)
+    with log_timed_phase(setup.conn, label="build_fact_user_activity_project_daily"):
+        user_activity_project_daily_name = build_fact_user_activity_project_daily(
+            setup.conn,
+            ctx=silver_ctx,
+            adjusted_watermark=user_activity_build_watermarks["fact_user_activity_project_daily"],
+        )
+    if user_activity_project_daily_name:
+        built_user_activity.append(user_activity_project_daily_name)
+    with log_timed_phase(setup.conn, label="build_fact_formal_mau_daily"):
+        formal_mau_daily_name = build_fact_formal_mau_daily(setup.conn, ctx=silver_ctx)
+    if formal_mau_daily_name:
+        built_user_activity.append(formal_mau_daily_name)
+    with log_timed_phase(setup.conn, label="build_fact_license_utilization_daily"):
+        license_utilization_daily_name = build_fact_license_utilization_daily(setup.conn, ctx=silver_ctx)
+    if license_utilization_daily_name:
+        built_user_activity.append(license_utilization_daily_name)
 
-    user_activity_quality = collect_user_activity_quality_report(setup.conn)
-    license_utilization_quality = collect_license_utilization_quality_report(setup.conn)
+    with log_timed_phase(setup.conn, label="collect_user_activity_quality_report"):
+        user_activity_quality = collect_user_activity_quality_report(setup.conn)
+    with log_timed_phase(setup.conn, label="collect_license_utilization_quality_report"):
+        license_utilization_quality = collect_license_utilization_quality_report(setup.conn)
 
     built_object_activity = []
-    object_activity_name = build_fact_object_activity_events(setup.conn, ctx=silver_ctx, base_dir=base_dir)
+    with log_timed_phase(setup.conn, label="build_fact_object_activity_events"):
+        object_activity_name = build_fact_object_activity_events(setup.conn, ctx=silver_ctx, base_dir=base_dir)
     if object_activity_name:
         built_object_activity.append(object_activity_name)
 
-    built_products_registry = build_base_dataiku_products_registry(setup.conn, base_dir=base_dir)
-
-    manifest = read_manifest(gold_folder_lookup) if manifest_enabled else {}
+    with log_timed_phase(setup.conn, label="build_base_dataiku_products_registry"):
+        built_products_registry = build_base_dataiku_products_registry(setup.conn, base_dir=base_dir)
 
     current_tables = list_table_names(setup.conn)
     table_groups = group_gold_tables_by_prefix(current_tables)
@@ -223,37 +286,21 @@ def run():
                 view_name=f"v_event_mapping__{module_name}",
             )
 
-        if dev_modules:
-            max_ts = (
-                setup.conn.execute(
-                    "SELECT CAST(MAX(run_timestamp) AS VARCHAR) FROM fact_dev_activity_events;"
-                ).fetchone()[0]
-                if "fact_dev_activity_events" in fact_tables
-                else None
-            )
-            set_manifest_watermark(manifest, "fact_dev_activity_events", max_ts)
-
-        if object_modules:
-            max_ts = (
-                setup.conn.execute(
-                    "SELECT CAST(MAX(run_timestamp) AS VARCHAR) FROM fact_object_activity_events;"
-                ).fetchone()[0]
-                if "fact_object_activity_events" in fact_tables
-                else None
-            )
-            set_manifest_watermark(manifest, "fact_object_activity_events", max_ts)
-
     unloaded_tables, failed_tables = unload_gold_tables(
         setup.conn,
         gold_ctx=gold_ctx,
         gold_folder_lookup=gold_folder_lookup,
         table_names=unload_candidates,
         unload_behavior=unload_behavior,
+        manifest=pending_manifest,
+        incremental_enabled=manifest_enabled,
+        lookback_days=lookback_days,
     )
 
-    if manifest_enabled and not failed_tables:
-        stamp_manifest_updated_at(manifest)
-        write_manifest(gold_folder_lookup, manifest)
+    if manifest_enabled and pending_manifest is not None and not failed_tables:
+        stamp_manifest_updated_at(pending_manifest)
+        write_manifest(gold_folder_lookup, pending_manifest)
+        manifest = pending_manifest
 
     return {
         "source_project_key": project_key,
@@ -265,6 +312,7 @@ def run():
         "unload_behavior": unload_behavior,
         "manifest_enabled": manifest_enabled,
         "lookback_days": lookback_days,
+        "user_activity_build_watermarks": user_activity_build_watermarks,
         "duckdb_connection_ready": setup.conn is not None,
         "gold_specs_dir": str(base_dir),
         "built_specs": built_specs,

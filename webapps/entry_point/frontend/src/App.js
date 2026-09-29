@@ -74,6 +74,90 @@ function formatDate(iso) {
   }
 }
 
+function formatDateTime(iso) {
+  const value = String(iso || '').trim();
+  if (!value) return '—';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString();
+}
+
+function formatDurationMs(value) {
+  const ms = Number(value);
+  if (!Number.isFinite(ms)) return '—';
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = Math.round(seconds % 60);
+  return `${minutes}m ${remainder}s`;
+}
+
+const PROJECT_STANDARDS_REFRESH_INTERVAL_MS = 3000;
+const PROJECT_STANDARDS_REFRESH_TIMEOUT_MS = 5 * 60 * 1000;
+const PROJECT_STANDARDS_SEVERITY_LABELS = {
+  0: 'Success',
+  1: 'Lowest',
+  2: 'Low',
+  3: 'Medium',
+  4: 'High',
+  5: 'Critical',
+};
+const PROJECT_STANDARDS_STATUS_LABELS = {
+  RUN_SUCCESS: 'Completed run',
+  NOT_APPLICABLE: 'Not applicable',
+  RUN_ERROR: 'Error',
+};
+
+function isCompletedProjectStandardsRun(check) {
+  return String(check?.executionStatus || '') === 'RUN_SUCCESS';
+}
+
+function validProjectStandardsSeverity(check) {
+  if (!isCompletedProjectStandardsRun(check)) return null;
+  const severity = Number(check?.severity);
+  if (!Number.isInteger(severity) || severity < 0 || severity > 5) return null;
+  return severity;
+}
+
+function severityGroup(check) {
+  const severity = validProjectStandardsSeverity(check);
+  if (severity == null) return 'unclassified';
+  if (severity > 0) return 'attention';
+  return 'no_issue';
+}
+
+function severityLabel(check) {
+  const severity = validProjectStandardsSeverity(check);
+  if (severity == null) return 'Unclassified';
+  return PROJECT_STANDARDS_SEVERITY_LABELS[severity] || 'Unclassified';
+}
+
+function executionStatusLabel(status) {
+  const normalized = String(status || '').trim();
+  return PROJECT_STANDARDS_STATUS_LABELS[normalized] || normalized || '—';
+}
+
+function summarizeProjectStandards(report) {
+  const checks = Array.isArray(report?.checks) ? report.checks : [];
+  const numericSeverities = checks
+    .map((check) => validProjectStandardsSeverity(check))
+    .filter((severity) => severity != null);
+  return {
+    total: checks.length,
+    needsAttention: checks.filter((check) => severityGroup(check) === 'attention').length,
+    noIssue: checks.filter((check) => severityGroup(check) === 'no_issue').length,
+    unclassified: checks.filter((check) => severityGroup(check) === 'unclassified').length,
+    highestSeverity: numericSeverities.length ? Math.max(...numericSeverities) : null,
+  };
+}
+
+function projectStandardsReportSignature(report) {
+  if (!report?.available) return '';
+  const context = report.context || {};
+  return [context.startTime || '', context.totalDurationMs ?? '', Array.isArray(report.checks) ? report.checks.length : 0].join('|');
+}
+
 function parseIsoDateLabel(label) {
   const value = String(label || '').trim();
   if (!value) return null;
@@ -181,17 +265,18 @@ function ActionBadge({ children, onClick, title }) {
   );
 }
 
-function Modal({ title, onClose, children }) {
+function Modal({ title, onClose, children, isTopmost = true, zIndex }) {
   useEffect(() => {
+    if (!isTopmost) return undefined;
     const onKeyDown = (e) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
+  }, [isTopmost, onClose]);
 
   return (
-    <div className="PulseModalOverlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
+    <div className="PulseModalOverlay" role="dialog" aria-modal="true" style={zIndex ? { zIndex } : undefined} onMouseDown={onClose}>
       <div className="PulseModal" onMouseDown={(e) => e.stopPropagation()}>
         <div className="PulseModalHeader">
           <div className="PulseModalTitle">{title}</div>
@@ -612,6 +697,139 @@ function UserDashboard({
   );
 }
 
+function ProjectStandardsReportModal({ report, onClose }) {
+  const [search, setSearch] = useState('');
+  const [groupFilter, setGroupFilter] = useState('all');
+  const [severityFilter, setSeverityFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('severity_desc');
+  const [page, setPage] = useState(0);
+  const [expanded, setExpanded] = useState({});
+  const checks = useMemo(() => (Array.isArray(report?.checks) ? report.checks : []), [report]);
+  const context = report?.context || {};
+  const summary = useMemo(() => summarizeProjectStandards(report), [report]);
+  const severities = useMemo(
+    () => Array.from(new Set(checks.map((check) => validProjectStandardsSeverity(check)).filter((severity) => severity != null))).sort((a, b) => b - a),
+    [checks]
+  );
+  const pageSize = 25;
+
+  useEffect(() => {
+    setPage(0);
+  }, [search, groupFilter, severityFilter, sortBy]);
+
+  const filteredChecks = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return checks
+      .filter((check) => {
+        if (groupFilter !== 'all' && severityGroup(check) !== groupFilter) return false;
+        if (severityFilter !== 'all' && validProjectStandardsSeverity(check) !== Number(severityFilter)) return false;
+        if (!query) return true;
+        const haystack = [check?.id, check?.name, check?.description, check?.message, ...(Array.isArray(check?.tags) ? check.tags : [])]
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(query);
+      })
+      .sort((left, right) => {
+        if (sortBy === 'name') return String(left?.name || left?.id || '').localeCompare(String(right?.name || right?.id || ''));
+        if (sortBy === 'duration_desc') return Number(right?.durationMs || 0) - Number(left?.durationMs || 0);
+        return (validProjectStandardsSeverity(right) || 0) - (validProjectStandardsSeverity(left) || 0)
+          || String(left?.name || left?.id || '').localeCompare(String(right?.name || right?.id || ''));
+      });
+  }, [checks, groupFilter, search, severityFilter, sortBy]);
+
+  const maxPage = Math.max(0, Math.ceil(filteredChecks.length / pageSize) - 1);
+  const safePage = Math.min(page, maxPage);
+  const visibleChecks = filteredChecks.slice(safePage * pageSize, safePage * pageSize + pageSize);
+
+  return (
+    <Modal title="Project Standards report" onClose={onClose} zIndex={120}>
+      <div className="PulseModalReport">
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+          <Badge>{context.instanceName || 'Unknown instance'}</Badge>
+          <Badge>{context.projectKey || 'Unknown project'}</Badge>
+          <Badge>{context.scope || 'Unknown scope'}</Badge>
+        </div>
+        <div className="PulseMuted" style={{ marginBottom: 12 }}>
+          Started {formatDateTime(context.startTime)} · Duration {formatDurationMs(context.totalDurationMs)}
+        </div>
+        {report?.lastError ? (
+          <div className="PulseCallout" style={{ marginBottom: 12 }}>
+            <div className="PulseCalloutTitle">Most recent Pulse attempt did not finalize</div>
+            <div className="PulseMuted">
+              State: {report.lastError.state || 'unknown'} · Finished: {formatDateTime(report.lastError.finishedAt)} · Exception type: {report.lastError.exceptionType || 'unknown'}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="PulseSummaryGrid" style={{ marginBottom: 14 }}>
+          <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact"><div className="PulseSummaryCount">{summary.total}</div><div className="PulseSummaryLabel">Total checks</div></div>
+          <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact"><div className="PulseSummaryCount">{summary.needsAttention}</div><div className="PulseSummaryLabel">Needs attention</div></div>
+          <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact"><div className="PulseSummaryCount">{summary.noIssue}</div><div className="PulseSummaryLabel">Success</div></div>
+          <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact"><div className="PulseSummaryCount">{summary.unclassified}</div><div className="PulseSummaryLabel">Unclassified</div></div>
+          <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact"><div className="PulseSummaryCount">{summary.highestSeverity ?? '—'}</div><div className="PulseSummaryLabel">Highest severity</div></div>
+        </div>
+
+        {checks.length ? (
+          <>
+            <div className="PulseFilterGrid" style={{ marginBottom: 12 }}>
+              <label><span>Search</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search checks" /></label>
+              <label><span>Result group</span><select value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}><option value="all">All</option><option value="attention">Needs attention</option><option value="no_issue">Success</option><option value="unclassified">Unclassified</option></select></label>
+              <label><span>Severity</span><select value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value)}><option value="all">All</option>{severities.map((severity) => <option key={severity} value={severity}>{PROJECT_STANDARDS_SEVERITY_LABELS[severity]}</option>)}</select></label>
+              <label><span>Sort</span><select value={sortBy} onChange={(e) => setSortBy(e.target.value)}><option value="severity_desc">Severity descending</option><option value="name">Name</option><option value="duration_desc">Execution duration</option></select></label>
+            </div>
+            <div className="PulseResultsHeader" style={{ marginBottom: 8 }}>
+              <div className="PulseMuted">Showing {filteredChecks.length ? safePage * pageSize + 1 : 0}–{Math.min((safePage + 1) * pageSize, filteredChecks.length)} of {filteredChecks.length} filtered checks</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="PulseButton" type="button" onClick={() => setPage(Math.max(0, safePage - 1))} disabled={safePage === 0}>Prev</button>
+                <button className="PulseButton" type="button" onClick={() => setPage(Math.min(maxPage, safePage + 1))} disabled={safePage >= maxPage}>Next</button>
+              </div>
+            </div>
+            <div className="PulseTableWrap">
+              <table className="PulseTable">
+                <thead><tr><th>Severity</th><th>Check</th><th>Result message</th><th>Duration</th><th>Details</th></tr></thead>
+                <tbody>
+                  {visibleChecks.map((check) => {
+                    const checkKey = check.id || check.name;
+                    const isExpanded = Boolean(expanded[checkKey]);
+                    return (
+                      <React.Fragment key={checkKey}>
+                        <tr>
+                          <td><Badge>{severityLabel(check)}</Badge></td>
+                          <td><strong>{check.name || check.id}</strong><div className="PulseMuted">Execution status: {executionStatusLabel(check.executionStatus)}</div></td>
+                          <td>{check.message || '—'}</td>
+                          <td>{formatDurationMs(check.durationMs)}</td>
+                          <td><button className="PulseButton" type="button" aria-expanded={isExpanded} onClick={() => setExpanded((prev) => ({ ...prev, [checkKey]: !isExpanded }))}>{isExpanded ? 'Hide details' : 'Show details'}</button></td>
+                        </tr>
+                        {isExpanded ? (
+                          <tr>
+                            <td colSpan="5">
+                              <div className="PulseCallout">
+                                <div><strong>Check ID:</strong> <span className="PulseMono">{check.id}</span></div>
+                                {check.description ? <div><strong>Description:</strong> {check.description}</div> : null}
+                                {check.tags?.length ? <div><strong>Tags:</strong> {check.tags.join(', ')}</div> : null}
+                                {check.parameters ? <div><strong>Parameters:</strong> <span className="PulseMono">{JSON.stringify(check.parameters)}</span></div> : null}
+                                <div><strong>Execution status:</strong> {executionStatusLabel(check.executionStatus)}</div>
+                                <div><strong>Duration:</strong> {formatDurationMs(check.durationMs)}</div>
+                                {check.resultDetails && Object.keys(check.resultDetails).length ? <div><strong>Result details:</strong> <span className="PulseMono">{JSON.stringify(check.resultDetails)}</span></div> : null}
+                              </div>
+                            </td>
+                          </tr>
+                        ) : null}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : (
+          <div className="PulseMuted">This Project Standards scope returned no checks.</div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 function BuildAssetsInventoryPage({
   apiBase = '',
   authState = null,
@@ -654,6 +872,16 @@ function BuildAssetsInventoryPage({
   const [detailsInfo, setDetailsInfo] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState('');
+  const [projectStandardsRunStatus, setProjectStandardsRunStatus] = useState('idle');
+  const [projectStandardsMessage, setProjectStandardsMessage] = useState('');
+  const [projectStandardsReport, setProjectStandardsReport] = useState(null);
+  const [projectStandardsReportLoading, setProjectStandardsReportLoading] = useState(false);
+  const [projectStandardsReportError, setProjectStandardsReportError] = useState('');
+  const [projectStandardsReportOpen, setProjectStandardsReportOpen] = useState(false);
+  const [projectStandardsRefreshActive, setProjectStandardsRefreshActive] = useState(false);
+  const [projectStandardsManualRecheckAvailable, setProjectStandardsManualRecheckAvailable] = useState(false);
+  const projectStandardsRefreshRef = useRef({ active: false, assetId: null, runId: '', startedAt: 0, timeoutId: null, hadPriorReport: false, priorSignature: '' });
+  const projectStandardsDetailRef = useRef({ open: false, assetId: null });
   const [metadataSummary, setMetadataSummary] = useState({ summary: {}, byType: [] });
   const [filtersExpanded, setFiltersExpanded] = useState(false);
 
@@ -667,14 +895,62 @@ function BuildAssetsInventoryPage({
     return allAssets.find((a) => a.assetId === selectedAssetId) || null;
   }, [allAssets, selectedAssetId]);
 
+  const selectedAssetProjectKey = String(selectedAsset?.projectKey || '').trim();
+  const canRunProjectStandards = selectedAssetProjectKey && authState?.data?.permissions?.administration === true;
+  const projectStandardsRunInProgress = projectStandardsRunStatus === 'running';
+  const canLoadProjectStandardsReport = canRunProjectStandards && projectStandardsReport?.available === true;
+
   const openDetails = (assetId) => {
     setSelectedAssetId(assetId);
     setDetailsOpen(true);
+    setProjectStandardsRunStatus('idle');
+    setProjectStandardsMessage('');
+    setProjectStandardsReport(null);
+    setProjectStandardsReportError('');
+    setProjectStandardsReportOpen(false);
   };
 
   const closeDetails = () => {
+    stopProjectStandardsRefresh();
     setDetailsOpen(false);
+    setProjectStandardsReportOpen(false);
   };
+
+  const stopProjectStandardsRefresh = useCallback(() => {
+    const refresh = projectStandardsRefreshRef.current;
+    refresh.active = false;
+    refresh.assetId = null;
+    refresh.runId = '';
+    refresh.startedAt = 0;
+    refresh.hadPriorReport = false;
+    refresh.priorSignature = '';
+    if (refresh.timeoutId) {
+      clearTimeout(refresh.timeoutId);
+      refresh.timeoutId = null;
+    }
+    setProjectStandardsRefreshActive(false);
+  }, []);
+
+  const fetchProjectStandardsReport = useCallback(async (assetId) => {
+    const res = await fetch(apiUrl(apiBase, '/api/project-standards/report'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assetId }),
+    });
+    const raw = await res.text();
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch (_) {
+      throw new Error(`Non-JSON response (${res.status}): ${raw.slice(0, 200)}`);
+    }
+    if (!res.ok || !data.ok) throw new Error(data?.error || 'Failed loading Project Standards report');
+    return data;
+  }, [apiBase]);
+
+  useEffect(() => {
+    projectStandardsDetailRef.current = { open: detailsOpen, assetId: selectedAssetId };
+  }, [detailsOpen, selectedAssetId]);
 
   const detailsEndpoint = `${endpointBase}/details`;
   const metadataSummaryEndpoint = `${endpointBase}/metadata-summary`;
@@ -707,6 +983,13 @@ function BuildAssetsInventoryPage({
       setDetailsInfo(null);
       setDetailsError('');
       setDetailsLoading(false);
+      setProjectStandardsRunStatus('idle');
+      setProjectStandardsMessage('');
+      setProjectStandardsReport(null);
+      setProjectStandardsReportError('');
+      setProjectStandardsReportLoading(false);
+      setProjectStandardsReportOpen(false);
+      stopProjectStandardsRefresh();
       return;
     }
 
@@ -746,7 +1029,103 @@ function BuildAssetsInventoryPage({
     return () => {
       cancelled = true;
     };
-  }, [apiBase, detailsEndpoint, detailsOpen, effectiveRequestParams, selectedAssetId]);
+  }, [apiBase, detailsEndpoint, detailsOpen, effectiveRequestParams, selectedAssetId, stopProjectStandardsRefresh]);
+
+  useEffect(() => {
+    if (!detailsOpen || !selectedAssetId || !canRunProjectStandards) {
+      setProjectStandardsReport(null);
+      setProjectStandardsReportError('');
+      setProjectStandardsReportLoading(false);
+      setProjectStandardsManualRecheckAvailable(false);
+      stopProjectStandardsRefresh();
+      return;
+    }
+
+    let cancelled = false;
+
+    const load = async () => {
+      setProjectStandardsReportLoading(true);
+      setProjectStandardsReportError('');
+      try {
+        const data = await fetchProjectStandardsReport(selectedAssetId);
+        if (!cancelled) setProjectStandardsReport(data);
+      } catch (e) {
+        if (!cancelled) {
+          setProjectStandardsReport(null);
+          setProjectStandardsReportError(e.message || 'Failed loading Project Standards report');
+        }
+      } finally {
+        if (!cancelled) setProjectStandardsReportLoading(false);
+      }
+    };
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canRunProjectStandards, detailsOpen, fetchProjectStandardsReport, selectedAssetId, stopProjectStandardsRefresh]);
+
+  const scheduleProjectStandardsRefresh = useCallback((assetId, runId, hadPriorReport) => {
+    if (!assetId || projectStandardsRefreshRef.current.active) return;
+    const refresh = projectStandardsRefreshRef.current;
+    refresh.active = true;
+    refresh.assetId = assetId;
+    refresh.runId = String(runId || '');
+    refresh.startedAt = Date.now();
+    setProjectStandardsRefreshActive(true);
+    refresh.hadPriorReport = hadPriorReport;
+    refresh.priorSignature = hadPriorReport ? projectStandardsReportSignature(projectStandardsReport) : '';
+    setProjectStandardsManualRecheckAvailable(false);
+    setProjectStandardsMessage('Project Standards report is running in the background; checking for the completed report…');
+
+    const tick = async () => {
+      if (!refresh.active || refresh.assetId !== assetId) return;
+      try {
+        const data = await fetchProjectStandardsReport(assetId);
+        if (!refresh.active || refresh.assetId !== assetId) return;
+        if (data?.lastError?.runId && data.lastError.runId === refresh.runId && data.lastError.state) {
+          setProjectStandardsReport(data?.available ? data : null);
+          setProjectStandardsRunStatus('error');
+          setProjectStandardsMessage('The most recent Project Standards attempt did not finalize; a completed cached report was not confirmed.');
+          setProjectStandardsManualRecheckAvailable(true);
+          stopProjectStandardsRefresh();
+          return;
+        }
+        if (data?.available && (!hadPriorReport || projectStandardsReportSignature(data) !== refresh.priorSignature)) {
+          setProjectStandardsReport(data);
+          setProjectStandardsRunStatus('success');
+          setProjectStandardsMessage('Project Standards report is ready.');
+          if (!hadPriorReport) setProjectStandardsReportOpen(true);
+          stopProjectStandardsRefresh();
+          return;
+        }
+        if (!hadPriorReport) setProjectStandardsReport(data);
+      } catch (e) {
+        if (refresh.active && refresh.assetId === assetId) {
+          setProjectStandardsReportError(e.message || 'Failed checking Project Standards report cache');
+        }
+      }
+
+      if (!refresh.active || refresh.assetId !== assetId) return;
+      if (Date.now() - refresh.startedAt >= PROJECT_STANDARDS_REFRESH_TIMEOUT_MS) {
+        setProjectStandardsRunStatus('idle');
+        setProjectStandardsMessage('A completed cached Project Standards report was not found yet. The background run may still be running.');
+        setProjectStandardsManualRecheckAvailable(true);
+        stopProjectStandardsRefresh();
+        return;
+      }
+      refresh.timeoutId = setTimeout(tick, PROJECT_STANDARDS_REFRESH_INTERVAL_MS);
+    };
+
+    refresh.timeoutId = setTimeout(tick, PROJECT_STANDARDS_REFRESH_INTERVAL_MS);
+  }, [fetchProjectStandardsReport, projectStandardsReport, stopProjectStandardsRefresh]);
+
+  useEffect(() => () => stopProjectStandardsRefresh(), [stopProjectStandardsRefresh]);
+
+  useEffect(() => {
+    if (projectStandardsReportOpen) stopProjectStandardsRefresh();
+  }, [projectStandardsReportOpen, stopProjectStandardsRefresh]);
 
   const applyQuickFilter = ({ instanceName, projectKey, objectType, ownerLogin }) => {
     // “Reset to tag”: clear all filters then apply the requested one(s)
@@ -763,6 +1142,71 @@ function BuildAssetsInventoryPage({
 
     setOffset(0);
     setDetailsOpen(false);
+  };
+
+  const runProjectStandardsReport = async () => {
+    if (!selectedAssetId || !canRunProjectStandards || projectStandardsRunInProgress) return;
+    setProjectStandardsRunStatus('running');
+    setProjectStandardsMessage('');
+
+    try {
+      const res = await fetch(apiUrl(apiBase, '/api/project-standards/run'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assetId: selectedAssetId }),
+      });
+      const raw = await res.text();
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch (_) {
+        throw new Error(`Non-JSON response (${res.status}): ${raw.slice(0, 200)}`);
+      }
+      if (!res.ok || !data.ok) throw new Error(data?.error || 'Project Standards run failed');
+      const currentDetail = projectStandardsDetailRef.current;
+      if (!currentDetail.open || currentDetail.assetId !== selectedAssetId) return;
+      setProjectStandardsRunStatus('idle');
+      const hadPriorReport = projectStandardsReport?.available === true;
+      setProjectStandardsMessage('Project Standards report is running in the background; checking for the completed report…');
+      if (!hadPriorReport) setProjectStandardsReport(null);
+      scheduleProjectStandardsRefresh(selectedAssetId, data?.runId, hadPriorReport);
+    } catch (e) {
+      setProjectStandardsRunStatus('error');
+      setProjectStandardsMessage(e.message || 'Project Standards run failed');
+    }
+  };
+
+  const recheckProjectStandardsReport = async () => {
+    if (!selectedAssetId || !canRunProjectStandards) return;
+    setProjectStandardsReportLoading(true);
+    setProjectStandardsReportError('');
+    try {
+      const data = await fetchProjectStandardsReport(selectedAssetId);
+      setProjectStandardsReport(data);
+      if (data?.available) {
+        setProjectStandardsMessage('Project Standards report is ready.');
+        setProjectStandardsManualRecheckAvailable(false);
+        if (projectStandardsRefreshRef.current.active && !projectStandardsRefreshRef.current.hadPriorReport) {
+          stopProjectStandardsRefresh();
+          setProjectStandardsReportOpen(true);
+        }
+      } else if (data?.lastError) {
+        setProjectStandardsMessage('The most recent Project Standards attempt did not finalize; a completed cached report was not confirmed.');
+        stopProjectStandardsRefresh();
+      } else {
+        setProjectStandardsMessage('A completed cached Project Standards report was not found yet. The background run may still be running.');
+      }
+    } catch (e) {
+      setProjectStandardsReportError(e.message || 'Failed checking Project Standards report cache');
+    } finally {
+      setProjectStandardsReportLoading(false);
+    }
+  };
+
+  const openProjectStandardsReport = () => {
+    if (!canLoadProjectStandardsReport) return;
+    stopProjectStandardsRefresh();
+    setProjectStandardsReportOpen(true);
   };
 
   useEffect(() => {
@@ -1091,7 +1535,7 @@ function BuildAssetsInventoryPage({
           </div>
 
           {detailsOpen && selectedAsset ? (
-            <Modal title={detailsTitle} onClose={closeDetails}>
+            <Modal title={detailsTitle} onClose={closeDetails} isTopmost={!projectStandardsReportOpen}>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
                 <ActionBadge
                   title="Filter to this object type"
@@ -1158,6 +1602,55 @@ function BuildAssetsInventoryPage({
 
               </div>
 
+              {selectedAssetProjectKey ? (
+                <div style={{ marginTop: 16 }}>
+                  <div className="PulseMuted" style={{ marginBottom: 6 }}>
+                    Project Standards
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                    <button
+                      className="PulseButton"
+                      type="button"
+                      disabled={!canRunProjectStandards || projectStandardsRunInProgress}
+                      title={canRunProjectStandards ? undefined : 'Project Standards runs require administration access.'}
+                      onClick={runProjectStandardsReport}
+                    >
+                      {projectStandardsRunInProgress ? 'Running report…' : 'Run / rerun report'}
+                    </button>
+                    <button
+                      className="PulseButton"
+                      type="button"
+                      disabled={!canLoadProjectStandardsReport}
+                      title={canLoadProjectStandardsReport ? undefined : 'No previous Project Standards report is available.'}
+                      onClick={openProjectStandardsReport}
+                    >
+                      Load last report
+                    </button>
+                    {(projectStandardsRefreshActive || projectStandardsManualRecheckAvailable) ? (
+                      <button
+                        className="PulseButton"
+                        type="button"
+                        disabled={projectStandardsReportLoading}
+                        onClick={recheckProjectStandardsReport}
+                      >
+                        Check cache now
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="PulseMuted">
+                    {canRunProjectStandards
+                      ? `Run / rerun report starts a Project Standards check in the background. ${projectStandardsReportLoading ? 'Checking for a cached report…' : canLoadProjectStandardsReport ? 'A cached report is available.' : 'No previous report is available.'}`
+                      : 'Project Standards runs require administration access. Load last report is not connected yet.'}
+                  </div>
+                  {projectStandardsReportError ? <div className="PulseError">{projectStandardsReportError}</div> : null}
+                  {projectStandardsMessage ? (
+                    <div className={projectStandardsRunStatus === 'error' ? 'PulseError' : 'PulseMuted'} style={{ marginTop: 6 }}>
+                      {projectStandardsMessage}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
               <div style={{ marginTop: 16 }}>
                 <div className="PulseMuted" style={{ marginBottom: 6 }}>
                   Captured info
@@ -1201,6 +1694,9 @@ function BuildAssetsInventoryPage({
                 ) : null}
               </div>
             </Modal>
+          ) : null}
+          {projectStandardsReportOpen && projectStandardsReport ? (
+            <ProjectStandardsReportModal report={projectStandardsReport} onClose={() => setProjectStandardsReportOpen(false)} />
           ) : null}
         </div>
       </FilterPageLayout>
