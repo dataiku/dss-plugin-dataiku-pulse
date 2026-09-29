@@ -13,6 +13,12 @@ import dataiku
 from data_collection.helper.dss_folder_writer import DSSFolderTarget, upload_parquet
 from data_collection.pulse_duckdb.destinations import gold_destination_for_table, gold_destination_path
 from data_collection.pulse_duckdb.diagnostics import verify_event_fact_unload
+from data_collection.pulse_duckdb.manifest import (
+    lookback_adjusted_watermark,
+    manifest_watermark,
+    normalized_manifest_watermark,
+    set_manifest_watermark,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +66,13 @@ def _fact_partition_key_rows(
     *,
     table_name: str,
     time_column: str,
+    adjusted_watermark: str | None = None,
 ) -> list[tuple[str, int, int, int]]:
+    watermark_filter = ""
+    params: list[str] = []
+    if adjusted_watermark:
+        watermark_filter = f"  AND CAST({time_column} AS TIMESTAMP) >= CAST(? AS TIMESTAMP)"
+        params.append(adjusted_watermark)
     query = "\n".join(
         [
             "SELECT DISTINCT",
@@ -71,12 +83,13 @@ def _fact_partition_key_rows(
             f"FROM {table_name}",
             "WHERE instance_name IS NOT NULL",
             f"  AND CAST({time_column} AS TIMESTAMP) IS NOT NULL",
+            watermark_filter,
             "ORDER BY 1, 2, 3, 4;",
         ]
     )  # nosec B608 (table_name/time_column come from internal fact contract)
     return [
         (str(instance_name), int(year), int(month), int(day))
-        for instance_name, year, month, day in conn.execute(query).fetchall()
+        for instance_name, year, month, day in conn.execute(query, params).fetchall()
     ]
 
 
@@ -85,7 +98,13 @@ def _fact_calendar_days(
     *,
     table_name: str,
     time_column: str,
+    adjusted_watermark: str | None = None,
 ) -> list[tuple[int, int, int]]:
+    watermark_filter = ""
+    params: list[str] = []
+    if adjusted_watermark:
+        watermark_filter = f"  AND CAST({time_column} AS TIMESTAMP) >= CAST(? AS TIMESTAMP)"
+        params.append(adjusted_watermark)
     query = "\n".join(
         [
             "SELECT DISTINCT",
@@ -95,12 +114,13 @@ def _fact_calendar_days(
             f"FROM {table_name}",
             "WHERE instance_name IS NOT NULL",
             f"  AND CAST({time_column} AS TIMESTAMP) IS NOT NULL",
+            watermark_filter,
             "ORDER BY 1, 2, 3;",
         ]
     )  # nosec B608 (table_name/time_column come from internal fact contract)
     return [
         (int(year), int(month), int(day))
-        for year, month, day in conn.execute(query).fetchall()
+        for year, month, day in conn.execute(query, params).fetchall()
     ]
 
 
@@ -207,12 +227,15 @@ def _duckdb_native_day_partition_copy_sql(
     year: int,
     month: int,
     day: int,
+    instance_names: Iterable[str],
 ) -> str:
+    instance_literals = ", ".join(_sql_string(instance_name) for instance_name in instance_names)
     return "\n".join(
         [
             "COPY (",
             f"  SELECT * FROM {table_name}",  # nosec B608 (table_name comes from the internal fact contract)
             "  WHERE instance_name IS NOT NULL",
+            f"    AND CAST(instance_name AS VARCHAR) IN ({instance_literals})",
             f"    AND EXTRACT(YEAR FROM CAST({time_column} AS TIMESTAMP)) = {int(year)}",
             f"    AND EXTRACT(MONTH FROM CAST({time_column} AS TIMESTAMP)) = {int(month)}",
             f"    AND EXTRACT(DAY FROM CAST({time_column} AS TIMESTAMP)) = {int(day)}",
@@ -223,6 +246,81 @@ def _duckdb_native_day_partition_copy_sql(
             ");",
         ]
     )  # nosec B608 (table_name/time_column come from internal fact contract; destination_path is a local managed stage path)
+
+
+def fact_table_watermark(conn: duckdb.DuckDBPyConnection, *, table_name: str, time_column: str) -> str | None:
+    return conn.execute(
+        f"SELECT CAST(MAX(CAST({time_column} AS TIMESTAMP)) AS VARCHAR) FROM {table_name};"  # nosec B608
+    ).fetchone()[0]
+
+
+def selected_fact_partition_rows(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    table_name: str,
+    time_column: str,
+    adjusted_watermark: str | None,
+) -> list[tuple[str, int, int, int]]:
+    return _fact_partition_key_rows(
+        conn,
+        table_name=table_name,
+        time_column=time_column,
+        adjusted_watermark=adjusted_watermark,
+    )
+
+
+def _fact_selection_watermark(
+    *,
+    manifest: dict[str, object] | None,
+    table_name: str,
+    incremental_enabled: bool,
+    lookback_days: int,
+) -> tuple[str | None, str | None, str]:
+    if not incremental_enabled:
+        return None, None, "full"
+
+    prior_watermark = manifest_watermark(manifest or {}, table_name)
+    normalized_watermark = normalized_manifest_watermark(prior_watermark)
+    if not normalized_watermark:
+        reason = "missing" if not prior_watermark else "unusable"
+        logger.info(
+            "GOLD fact full unload selected: table=%s reason=%s prior_watermark=%s",
+            table_name,
+            reason,
+            prior_watermark,
+        )
+        return prior_watermark, None, "full"
+
+    return prior_watermark, lookback_adjusted_watermark(normalized_watermark, lookback_days), "incremental"
+
+
+def _log_fact_unload_selection(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    table_name: str,
+    time_column: str,
+    prior_watermark: str | None,
+    adjusted_watermark: str | None,
+    lookback_days: int,
+    mode: str,
+) -> None:
+    selected_partitions = selected_fact_partition_rows(
+        conn,
+        table_name=table_name,
+        time_column=time_column,
+        adjusted_watermark=adjusted_watermark,
+    )
+    selected_calendar_days = {(year, month, day) for _, year, month, day in selected_partitions}
+    logger.info(
+        "GOLD fact unload selection: table=%s prior_watermark=%s adjusted_watermark=%s lookback_days=%s mode=%s selected_calendar_days=%s selected_instance_day_partitions=%s",
+        table_name,
+        prior_watermark,
+        adjusted_watermark,
+        lookback_days,
+        mode,
+        len(selected_calendar_days),
+        len(selected_partitions),
+    )
 
 
 def _upload_staged_fact_partitions(
@@ -334,8 +432,18 @@ def _write_fact_table_partitions_duckdb(
     table_name: str,
     destination: str,
     time_column: str,
+    adjusted_watermark: str | None,
 ) -> None:
-    day_rows = _fact_calendar_days(conn, table_name=table_name, time_column=time_column)
+    selected_partitions = _fact_partition_key_rows(
+        conn,
+        table_name=table_name,
+        time_column=time_column,
+        adjusted_watermark=adjusted_watermark,
+    )
+    selected_by_day: dict[tuple[int, int, int], list[str]] = {}
+    for instance_name, year, month, day in selected_partitions:
+        selected_by_day.setdefault((year, month, day), []).append(instance_name)
+    day_rows = sorted(selected_by_day)
     memory_snapshot = _duckdb_memory_snapshot(conn)
     logger.info(
         "DuckDB fact unload memory baseline: table=%s days=%s rss_mb=%.1f memory_limit=%s threads=%s temp_directory=%s max_temp_directory_size=%s",
@@ -372,6 +480,7 @@ def _write_fact_table_partitions_duckdb(
                     year=year,
                     month=month,
                     day=day,
+                    instance_names=selected_by_day[(year, month, day)],
                 )
             )
             logger.info(
@@ -424,6 +533,7 @@ def _write_fact_table_partitions(
     table_name: str,
     destination: str,
     time_column: str,
+    adjusted_watermark: str | None,
 ) -> None:
     df = _table_df(conn, table_name)
     if df.shape[0] == 0:
@@ -438,6 +548,32 @@ def _write_fact_table_partitions(
     working = working[working["instance_name"].notna()].copy()
     working[time_column] = pd.to_datetime(working[time_column], utc=True, errors="coerce")
     working = working[working[time_column].notna()].copy()
+    if adjusted_watermark:
+        adjusted_timestamp = pd.to_datetime(adjusted_watermark, utc=True, errors="coerce")
+        if pd.isna(adjusted_timestamp):
+            raise ValueError(f"Adjusted watermark for {table_name} is not a valid timestamp: {adjusted_watermark}")
+        selected_rows = working[working[time_column] >= adjusted_timestamp].copy()
+        if selected_rows.shape[0] == 0:
+            return
+        selected_keys = set(
+            zip(
+                selected_rows["instance_name"].astype(str),
+                selected_rows[time_column].dt.year.astype(int),
+                selected_rows[time_column].dt.month.astype(int),
+                selected_rows[time_column].dt.day.astype(int),
+                strict=False,
+            )
+        )
+        partition_keys = list(
+            zip(
+                working["instance_name"].astype(str),
+                working[time_column].dt.year.astype(int),
+                working[time_column].dt.month.astype(int),
+                working[time_column].dt.day.astype(int),
+                strict=False,
+            )
+        )
+        working = working[[partition_key in selected_keys for partition_key in partition_keys]].copy()
     if working.shape[0] == 0:
         return
 
@@ -483,6 +619,9 @@ def unload_gold_table(
     gold_folder_lookup: str,
     table_name: str,
     unload_behavior: str,
+    manifest: dict[str, object] | None = None,
+    incremental_enabled: bool = False,
+    lookback_days: int = 0,
 ) -> str:
     destination = gold_destination_for_table(table_name)
     table_type = table_name.split("_", 1)[0] if "_" in table_name else table_name
@@ -504,6 +643,21 @@ def unload_gold_table(
             time_column = FACT_TIME_COLUMNS.get(table_name)
             if not time_column:
                 raise ValueError(f"No canonical fact time column configured for {table_name}")
+            prior_watermark, adjusted_watermark, mode = _fact_selection_watermark(
+                manifest=manifest,
+                table_name=table_name,
+                incremental_enabled=incremental_enabled,
+                lookback_days=lookback_days,
+            )
+            _log_fact_unload_selection(
+                conn,
+                table_name=table_name,
+                time_column=time_column,
+                prior_watermark=prior_watermark,
+                adjusted_watermark=adjusted_watermark,
+                lookback_days=lookback_days,
+                mode=mode,
+            )
             _write_fact_table_partitions_duckdb(
                 conn,
                 gold_ctx=gold_ctx,
@@ -511,6 +665,7 @@ def unload_gold_table(
                 table_name=table_name,
                 destination=destination,
                 time_column=time_column,
+                adjusted_watermark=adjusted_watermark,
             )
         else:
             sql = _single_file_copy_sql(table_name, destination_path)
@@ -523,6 +678,11 @@ def unload_gold_table(
                 relative_path=destination,
                 table_name=table_name,
             )
+        if table_name.startswith("fact_") and manifest is not None:
+            time_column = FACT_TIME_COLUMNS[table_name]
+            max_watermark = fact_table_watermark(conn, table_name=table_name, time_column=time_column)
+            set_manifest_watermark(manifest, table_name, max_watermark)
+            logger.info("GOLD fact unload watermark: table=%s watermark=%s", table_name, max_watermark)
         logger.info("Completed GOLD unload: table=%s", table_name)
         return destination
 
@@ -531,12 +691,28 @@ def unload_gold_table(
             time_column = FACT_TIME_COLUMNS.get(table_name)
             if not time_column:
                 raise ValueError(f"No canonical fact time column configured for {table_name}")
+            prior_watermark, adjusted_watermark, mode = _fact_selection_watermark(
+                manifest=manifest,
+                table_name=table_name,
+                incremental_enabled=incremental_enabled,
+                lookback_days=lookback_days,
+            )
+            _log_fact_unload_selection(
+                conn,
+                table_name=table_name,
+                time_column=time_column,
+                prior_watermark=prior_watermark,
+                adjusted_watermark=adjusted_watermark,
+                lookback_days=lookback_days,
+                mode=mode,
+            )
             _write_fact_table_partitions(
                 conn,
                 gold_folder_lookup=gold_folder_lookup,
                 table_name=table_name,
                 destination=destination,
                 time_column=time_column,
+                adjusted_watermark=adjusted_watermark,
             )
         else:
             _write_single_table_via_dataiku(
@@ -545,6 +721,11 @@ def unload_gold_table(
                 table_name=table_name,
                 destination=destination,
             )
+        if table_name.startswith("fact_") and manifest is not None:
+            time_column = FACT_TIME_COLUMNS[table_name]
+            max_watermark = fact_table_watermark(conn, table_name=table_name, time_column=time_column)
+            set_manifest_watermark(manifest, table_name, max_watermark)
+            logger.info("GOLD fact unload watermark: table=%s watermark=%s", table_name, max_watermark)
         logger.info("Completed GOLD unload: table=%s", table_name)
         return destination
 
@@ -558,6 +739,9 @@ def unload_gold_tables(
     gold_folder_lookup: str,
     table_names: Iterable[str],
     unload_behavior: str,
+    manifest: dict[str, object] | None = None,
+    incremental_enabled: bool = False,
+    lookback_days: int = 0,
 ) -> tuple[list[str], list[str]]:
     unloaded_tables: list[str] = []
     failed_tables: list[str] = []
@@ -570,6 +754,9 @@ def unload_gold_tables(
                 gold_folder_lookup=gold_folder_lookup,
                 table_name=table_name,
                 unload_behavior=unload_behavior,
+                manifest=manifest,
+                incremental_enabled=incremental_enabled,
+                lookback_days=lookback_days,
             )
             unloaded_tables.append(table_name)
         except Exception:

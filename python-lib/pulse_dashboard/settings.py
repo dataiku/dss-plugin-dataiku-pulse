@@ -35,7 +35,7 @@ PULSE_DUCKDB_REBUILD_ON_STARTUP_STALE = os.getenv("PULSE_DUCKDB_REBUILD_ON_START
     "true",
     "yes",
 )
-PULSE_DUCKDB_STARTUP_STALE_TOLERANCE_SEC = float(os.getenv("PULSE_DUCKDB_STARTUP_STALE_TOLERANCE_SEC", "28800"))
+PULSE_DUCKDB_STARTUP_STALE_TOLERANCE_SEC = float(os.getenv("PULSE_DUCKDB_STARTUP_STALE_TOLERANCE_SEC", "86400"))
 
 
 def _resolve_default_project_key() -> str | None:
@@ -109,6 +109,9 @@ DUCKDB_PATH = Path(
 DUCKDB_METADATA_PATH = Path(os.getenv("PULSE_DUCKDB_METADATA_PATH", f"{DUCKDB_PATH}.meta.json"))
 PULSE_GOLD_TABLES_FOLDER_ID = os.getenv("PULSE_GOLD_TABLES_FOLDER_ID", "")
 PULSE_GOLD_TABLES_FOLDER_NAME = os.getenv("PULSE_GOLD_TABLES_FOLDER_NAME", "gold_data")
+PULSE_DASHBOARD_DEV_ACTIVITY_RAW_RETENTION_DAYS = int(
+    os.getenv("PULSE_DASHBOARD_DEV_ACTIVITY_RAW_RETENTION_DAYS", "90")
+)
 
 # GOLD auto-load filters (managed-folder paths).
 PULSE_GOLD_LOAD_PREFIX = os.getenv("PULSE_GOLD_LOAD_PREFIX", "")
@@ -147,3 +150,11 @@ def resolve_duckdb_path() -> Path:
 
     project_key = resolve_source_project_key()
     return DUCKDB_DIR / shared_db_path(project_key=project_key, purpose="dashboard").name
+
+
+def resolve_dashboard_duckdb_location() -> tuple[str, Path, Path]:
+    """Resolve the effective dashboard source project, DuckDB path, and metadata path."""
+
+    project_key = resolve_source_project_key()
+    duckdb_path = resolve_duckdb_path()
+    return project_key, duckdb_path, duckdb_path.with_suffix(f"{duckdb_path.suffix}.meta.json")
