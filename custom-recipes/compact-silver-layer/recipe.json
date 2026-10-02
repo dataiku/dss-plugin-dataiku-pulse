@@ -109,7 +109,7 @@
                 { "value": "webapps", "label": "Webapps" },
                 { "value": "wiki_artical_discussions", "label": "Wiki Artical Discussions" }
             ],
-            "visibilityCondition": "!model.module_filter == 'all'"
+            "visibilityCondition": "!model.module_filter == ['all']"
         }
     ],
     "resourceKeys": []
