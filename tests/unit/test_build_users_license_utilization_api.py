@@ -107,6 +107,70 @@ def _insert_current_base_rows(conn):
     )
 
 
+def _create_user_segments_tables(conn):
+    conn.execute(
+        """
+        CREATE TABLE base_users_instance_metadata (
+            instance_name VARCHAR,
+            users_login VARCHAR,
+            users_displayname VARCHAR,
+            users_enabled VARCHAR,
+            users_userprofile VARCHAR,
+            run_ts TIMESTAMP
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE fact_user_activity_daily (
+            day DATE,
+            instance_name VARCHAR,
+            login_norm VARCHAR,
+            viewing_actions_count INTEGER,
+            developing_actions_count INTEGER,
+            last_activity_at DATE
+        );
+        """
+    )
+
+
+def _insert_user_segments_rows(conn):
+    user_rows = [
+        ("inst-a", "viewer_a", "Viewer A", "True", "DESIGNER", "2026-10-02 00:00:00"),
+        ("inst-a", "excluded_viewer", "Excluded Viewer", "True", "READER", "2026-10-02 00:00:00"),
+        ("inst-a", "excluded_mixed", "Excluded Mixed", "True", "AI_CONSUMER", "2026-10-02 00:00:00"),
+        ("inst-a", "mixed_a", "Mixed A", "True", "DESIGNER", "2026-10-02 00:00:00"),
+        ("inst-a", "developer_a", "Developer A", "True", "SCIENTIST", "2026-10-02 00:00:00"),
+        ("inst-a", "inactive_a", "Inactive A", "True", "DESIGNER", "2026-10-02 00:00:00"),
+        ("inst-b", "viewer_b", "Viewer B", "True", "DESIGNER", "2026-10-02 00:00:00"),
+        ("inst-b", "excluded_b", "Excluded B", "True", "AI_CONSUMER", "2026-10-02 00:00:00"),
+        ("inst-a", "disabled_a", "Disabled A", "False", "DESIGNER", "2026-10-02 00:00:00"),
+    ]
+    conn.executemany(
+        "INSERT INTO base_users_instance_metadata VALUES (?, ?, ?, ?, ?, ?)",
+        user_rows,
+    )
+
+    activity_rows = [
+        ("2026-10-01", "inst-a", "viewer_a", 5, 0, "2026-10-01"),
+        ("2026-10-01", "inst-a", "excluded_viewer", 7, 0, "2026-10-01"),
+        ("2026-10-01", "inst-a", "excluded_mixed", 2, 2, "2026-10-01"),
+        ("2026-10-01", "inst-a", "mixed_a", 3, 1, "2026-10-01"),
+        ("2026-10-01", "inst-a", "developer_a", 0, 4, "2026-10-01"),
+        ("2026-10-01", "inst-b", "viewer_b", 2, 0, "2026-10-01"),
+        ("2026-10-01", "inst-b", "excluded_b", 4, 0, "2026-10-01"),
+        ("2026-10-01", "inst-a", "disabled_a", 5, 0, "2026-10-01"),
+    ]
+    conn.executemany(
+        "INSERT INTO fact_user_activity_daily VALUES (?, ?, ?, ?, ?, ?)",
+        activity_rows,
+    )
+
+
+def _segment_value(payload, label):
+    return next(row["value"] for row in payload["segments"] if row["label"] == label)
+
+
 def test_latest_rows_are_sourced_from_fact(license_api_app):
     app, conn = license_api_app
     _create_fact(conn)
@@ -315,3 +379,100 @@ def test_historical_profile_filter_scopes_fact_series(license_api_app):
     assert payload["licenseProfile"] == "READER"
     assert {row["license_profile"] for row in payload["historyRows"]} == {"READER"}
     assert {row["license_profile"] for row in payload["latestRows"]} == {"READER"}
+
+
+def test_user_segments_consumer_filter_repeats_exclusion_params_and_counts_semantically(
+    monkeypatch, license_api_app
+):
+    app, conn = license_api_app
+    module = importlib.import_module("pulse_dashboard.webapp_backend.routes.build_users")
+    monkeypatch.setattr(module, "_read_user_profile_exclude_consumer", lambda _standard: ["READER", "AI_CONSUMER"])
+    _create_user_segments_tables(conn)
+    _insert_user_segments_rows(conn)
+
+    response = app.test_client().get("/api/build/users/segments?days=365&activityFilter=license_consumer")
+    payload = response.get_json()
+
+    assert response.status_code == 200, payload
+    assert payload["activityFilter"] == "license_consumer"
+    assert payload["totals"] == {
+        "enabledUsers": 5,
+        "viewerOnlyUsers": 2,
+        "developerOnlyUsers": 1,
+        "mixedUsers": 1,
+        "inactiveUsers": 1,
+        "viewerDominantUsers": 1,
+        "developerDominantUsers": 0,
+        "balancedMixedUsers": 0,
+    }
+    assert _segment_value(payload, "Viewer only") == 2
+    assert _segment_value(payload, "Mixed") == 1
+    assert _segment_value(payload, "Inactive") == 1
+
+
+def test_user_segments_without_filter_preserves_existing_counts(monkeypatch, license_api_app):
+    app, conn = license_api_app
+    module = importlib.import_module("pulse_dashboard.webapp_backend.routes.build_users")
+    monkeypatch.setattr(module, "_read_user_profile_exclude_consumer", lambda _standard: ["READER", "AI_CONSUMER"])
+    _create_user_segments_tables(conn)
+    _insert_user_segments_rows(conn)
+
+    response = app.test_client().get("/api/build/users/segments?days=365")
+    payload = response.get_json()
+
+    assert response.status_code == 200, payload
+    assert payload["activityFilter"] == "license_creator"
+    assert payload["totals"] == {
+        "enabledUsers": 8,
+        "viewerOnlyUsers": 4,
+        "developerOnlyUsers": 1,
+        "mixedUsers": 2,
+        "inactiveUsers": 1,
+        "viewerDominantUsers": 1,
+        "developerDominantUsers": 0,
+        "balancedMixedUsers": 1,
+    }
+
+
+def test_user_segments_creator_filter_remains_successful(monkeypatch, license_api_app):
+    app, conn = license_api_app
+    module = importlib.import_module("pulse_dashboard.webapp_backend.routes.build_users")
+    monkeypatch.setattr(module, "_read_user_profile_exclude_consumer", lambda _standard: ["READER", "AI_CONSUMER"])
+    _create_user_segments_tables(conn)
+    _insert_user_segments_rows(conn)
+
+    response = app.test_client().get("/api/build/users/segments?days=365&activityFilter=license_creator")
+    payload = response.get_json()
+
+    assert response.status_code == 200, payload
+    assert payload["activityFilter"] == "license_creator"
+    assert payload["totals"]["enabledUsers"] == 8
+    assert payload["totals"]["viewerOnlyUsers"] == 4
+
+
+def test_user_segments_consumer_filter_preserves_instance_parameter_order(
+    monkeypatch, license_api_app
+):
+    app, conn = license_api_app
+    module = importlib.import_module("pulse_dashboard.webapp_backend.routes.build_users")
+    monkeypatch.setattr(module, "_read_user_profile_exclude_consumer", lambda _standard: ["READER", "AI_CONSUMER"])
+    _create_user_segments_tables(conn)
+    _insert_user_segments_rows(conn)
+
+    response = app.test_client().get(
+        "/api/build/users/segments?days=365&activityFilter=license_consumer&instance_name=inst-a"
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 200, payload
+    assert payload["instanceName"] == "inst-a"
+    assert payload["totals"] == {
+        "enabledUsers": 4,
+        "viewerOnlyUsers": 1,
+        "developerOnlyUsers": 1,
+        "mixedUsers": 1,
+        "inactiveUsers": 1,
+        "viewerDominantUsers": 1,
+        "developerDominantUsers": 0,
+        "balancedMixedUsers": 0,
+    }
