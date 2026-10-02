@@ -50,6 +50,7 @@ class CompactRunConfig:
     selection_mode: Literal["latest_up_to_capacity", "all_eligible_filtered"] = (
         "latest_up_to_capacity"
     )
+    excluded_modules: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -278,11 +279,26 @@ def _queue_status_for_outcome(outcome: CompactPartitionOutcome) -> str:
     return "failed"
 
 
-def _filter_module_manifest_for_config(module_manifest: list[Any], *, config: CompactRunConfig) -> list[Any]:
+def _filter_module_manifest_for_config(
+    module_manifest: list[Any], *, config: CompactRunConfig
+) -> list[Any]:
     module_filter = str(config.partition_filters.get("module") or "").strip()
-    if not module_filter:
+    if module_filter:
+        return [entry for entry in module_manifest if entry.module == module_filter]
+    if not config.excluded_modules:
         return module_manifest
-    return [entry for entry in module_manifest if entry.module == module_filter]
+
+    excluded_modules = set(config.excluded_modules)
+    filtered_manifest = [
+        entry for entry in module_manifest if entry.module not in excluded_modules
+    ]
+    if module_manifest and not filtered_manifest:
+        excluded_text = ",".join(config.excluded_modules)
+        raise ValueError(
+            "All available Compact SILVER modules were excluded; nothing remains to compact "
+            f"after exclude_modules={excluded_text}"
+        )
+    return filtered_manifest
 
 
 def run_compact_silver_streaming(

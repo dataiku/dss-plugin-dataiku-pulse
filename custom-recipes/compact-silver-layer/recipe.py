@@ -129,14 +129,46 @@ def _resolve_module_filter(recipe_config: dict[str, Any]) -> str:
     return module_filter
 
 
+def _resolve_excluded_modules(
+    recipe_config: dict[str, Any], *, module_filter: str
+) -> tuple[str, ...]:
+    exclude_filter = recipe_config.get("exclude_filter")
+    if module_filter != "all" or not exclude_filter:
+        return ()
+    if isinstance(exclude_filter, str) or not isinstance(
+        exclude_filter, list | tuple | set
+    ):
+        raise ValueError(
+            "Invalid compact SILVER exclude_filter; expected a list of event-mapping module IDs"
+        )
+
+    allowed_modules = MODULE_FILTER_CHOICES - {"all"}
+    excluded_modules: set[str] = set()
+    for raw_value in exclude_filter:
+        module = str(raw_value).strip() if isinstance(raw_value, str) else ""
+        if not module or module not in allowed_modules:
+            allowed_values = ", ".join(sorted(allowed_modules))
+            raise ValueError(
+                f"Invalid compact SILVER exclude_filter value={raw_value!r}; expected one of: {allowed_values}"
+            )
+        excluded_modules.add(module)
+    return tuple(sorted(excluded_modules))
+
+
 def _partition_filters_for_module_filter(module_filter: str) -> dict[str, str]:
     if module_filter == "all":
         return dict(PHASE3_FILTERS)
     return {**PHASE3_FILTERS, "module": module_filter}
 
 
-def _filter_scope_for_module_filter(module_filter: str) -> str:
+def _filter_scope_for_module_filter(
+    module_filter: str, *, excluded_modules: tuple[str, ...] = ()
+) -> str:
     if module_filter == "all":
+        if excluded_modules:
+            return (
+                f"{PHASE3_FILTER_SCOPE}; exclude_modules={','.join(excluded_modules)}"
+            )
         return PHASE3_FILTER_SCOPE
     return f"{PHASE3_FILTER_SCOPE}; module={module_filter}"
 
@@ -420,8 +452,13 @@ def run():
     param_set = plugin_config.get("pulse_primary", {}) or {}
     normalize_silver_mode = bool(recipe_config.get("normalize_silver", False))
     module_filter = _resolve_module_filter(recipe_config)
+    excluded_modules = _resolve_excluded_modules(
+        recipe_config, module_filter=module_filter
+    )
     partition_filters = _partition_filters_for_module_filter(module_filter)
-    filter_scope = _filter_scope_for_module_filter(module_filter)
+    filter_scope = _filter_scope_for_module_filter(
+        module_filter, excluded_modules=excluded_modules
+    )
 
     source_folder_lookup = str(param_set.get("pulse_partitioned_data") or "partitioned_data")
     audit_dataset_name = _resolve_single_role_name(
@@ -458,6 +495,7 @@ def run():
                 param_set=param_set,
                 execution_environment=execution_environment,
                 batch_size=batch_size,
+                excluded_modules=excluded_modules,
                 selection_mode="all_eligible_filtered",
             ),
             on_outcomes=lambda stream_result, selected_partitions, outcomes: _stream_audit_batch(

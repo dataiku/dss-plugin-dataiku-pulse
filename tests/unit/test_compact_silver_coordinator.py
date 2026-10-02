@@ -627,6 +627,365 @@ def test_run_compact_silver_streaming_module_filter_only_lists_matching_manifest
     assert seen["closed"] is True
 
 
+def test_run_compact_silver_streaming_excluded_modules_never_reach_discovery_or_jobs(
+    monkeypatch,
+):
+    storage_ctx = SimpleNamespace(connection_type="EC2", folder_id="folder")
+    seen = {
+        "populated_modules": [],
+        "job_modules": [],
+        "status_modules": [],
+        "released_modules": [],
+    }
+
+    class FakeQueue:
+        def __init__(self):
+            self.runtime = SimpleNamespace(memory_limit_setting="4096MiB")
+            self.calls_by_module = {"administration": 0}
+
+        def replace_module_manifest(self, *, module_prefixes):
+            seen["module_prefixes"] = module_prefixes
+            return [
+                SimpleNamespace(
+                    module="administration",
+                    relative_prefix="silver/category=event_mapping/module=administration/",
+                    status="pending",
+                ),
+                SimpleNamespace(
+                    module="containers",
+                    relative_prefix="silver/category=event_mapping/module=containers/",
+                    status="pending",
+                ),
+                SimpleNamespace(
+                    module="folders",
+                    relative_prefix="silver/category=event_mapping/module=folders/",
+                    status="pending",
+                ),
+            ]
+
+        def populate_from_discovery(self, **kwargs):
+            module = kwargs["partition_filters"]["module"]
+            seen["populated_modules"].append(module)
+            assert module == "administration"
+            return SimpleNamespace(
+                total_matched_paths=2,
+                filtered_matching_paths=2,
+                skipped_compact_outputs=0,
+                excluded_recent_paths=0,
+                eligible_paths=2,
+                eligible_partition_count=1,
+                cutoff_date=date(2026, 8, 24),
+                minimum_age_days=3,
+            )
+
+        def next_partition_batch(self, *, batch_size):
+            self.calls_by_module["administration"] += 1
+            if self.calls_by_module["administration"] == 1:
+                return SimpleNamespace(
+                    selected_partitions=[
+                        _selected_partition("23", module="administration")
+                    ]
+                )
+            return SimpleNamespace(selected_partitions=[])
+
+        def mark_partition_status(self, *, partition, status):
+            seen["partition_status"] = (partition.module, status)
+
+        def remaining_pending_partition_count(self):
+            return 0
+
+        def mark_module_status(self, *, module, status):
+            seen["status_modules"].append(module)
+
+        def release_module_paths(self, *, module):
+            seen["released_modules"].append(module)
+
+        def close(self):
+            seen["closed"] = True
+
+    monkeypatch.setattr(
+        coordinator, "build_storage_context", lambda **kwargs: storage_ctx
+    )
+    monkeypatch.setattr(
+        coordinator,
+        "iter_managed_folder_child_prefixes",
+        lambda *args, **kwargs: iter(
+            [
+                "silver/category=event_mapping/module=administration/",
+                "silver/category=event_mapping/module=containers/",
+                "silver/category=event_mapping/module=folders/",
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        coordinator.CompactSilverQueue, "create", classmethod(lambda cls: FakeQueue())
+    )
+    monkeypatch.setattr(
+        coordinator,
+        "resolve_worker_resolution",
+        lambda **kwargs: coordinator.WorkerResolution(
+            execution_environment="local",
+            resolution_source="local_preset",
+            python_visible_cpu_count=8,
+            configured_cores=2,
+            parallel_enabled=False,
+            resolved_n_jobs=1,
+            partition_cap=2,
+        ),
+    )
+
+    def fake_run_partition_jobs(**kwargs):
+        modules = [partition.module for partition in kwargs["selected_partitions"]]
+        seen["job_modules"].extend(modules)
+        assert modules == ["administration"]
+        return "sequential", [SimpleNamespace(status="succeeded", retained_count=0)]
+
+    monkeypatch.setattr(coordinator, "run_partition_jobs", fake_run_partition_jobs)
+
+    result = coordinator.run_compact_silver_streaming(
+        coordinator.CompactRunConfig(
+            project_key="P",
+            folder_lookup="partitioned_data",
+            relative_prefix="silver/category=event_mapping/",
+            partition_filters={"category": "event_mapping"},
+            minimum_age_days=3,
+            normalize_silver_mode=False,
+            param_set={},
+            execution_environment="local",
+            batch_size=25,
+            excluded_modules=("containers", "folders"),
+            selection_mode="all_eligible_filtered",
+        ),
+        on_outcomes=lambda *_args: None,
+    )
+
+    assert seen["module_prefixes"] == [
+        "silver/category=event_mapping/module=administration/",
+        "silver/category=event_mapping/module=containers/",
+        "silver/category=event_mapping/module=folders/",
+    ]
+    assert seen["populated_modules"] == ["administration"]
+    assert seen["job_modules"] == ["administration"]
+    assert seen["status_modules"] == [
+        "administration",
+        "administration",
+        "administration",
+    ]
+    assert seen["released_modules"] == ["administration"]
+    assert seen["partition_status"] == ("administration", "succeeded")
+    assert result.queue_summary.eligible_partition_count == 1
+    assert seen["closed"] is True
+
+
+def test_run_compact_silver_streaming_single_module_filter_ignores_excluded_modules(
+    monkeypatch,
+):
+    storage_ctx = SimpleNamespace(connection_type="EC2", folder_id="folder")
+    seen = {"populated_modules": [], "released_modules": []}
+
+    class FakeQueue:
+        def __init__(self):
+            self.runtime = SimpleNamespace(memory_limit_setting="4096MiB")
+            self.calls = 0
+
+        def replace_module_manifest(self, *, module_prefixes):
+            return [
+                SimpleNamespace(
+                    module="administration",
+                    relative_prefix="silver/category=event_mapping/module=administration/",
+                    status="pending",
+                ),
+                SimpleNamespace(
+                    module="folders",
+                    relative_prefix="silver/category=event_mapping/module=folders/",
+                    status="pending",
+                ),
+            ]
+
+        def populate_from_discovery(self, **kwargs):
+            module = kwargs["partition_filters"]["module"]
+            seen["populated_modules"].append(module)
+            return SimpleNamespace(
+                total_matched_paths=2,
+                filtered_matching_paths=2,
+                skipped_compact_outputs=0,
+                excluded_recent_paths=0,
+                eligible_paths=2,
+                eligible_partition_count=1,
+                cutoff_date=date(2026, 8, 24),
+                minimum_age_days=3,
+            )
+
+        def next_partition_batch(self, *, batch_size):
+            self.calls += 1
+            if self.calls == 1:
+                return SimpleNamespace(
+                    selected_partitions=[_selected_partition("23", module="folders")]
+                )
+            return SimpleNamespace(selected_partitions=[])
+
+        def mark_partition_status(self, *, partition, status):
+            pass
+
+        def remaining_pending_partition_count(self):
+            return 0
+
+        def mark_module_status(self, *, module, status):
+            pass
+
+        def release_module_paths(self, *, module):
+            seen["released_modules"].append(module)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        coordinator, "build_storage_context", lambda **kwargs: storage_ctx
+    )
+    monkeypatch.setattr(
+        coordinator,
+        "iter_managed_folder_child_prefixes",
+        lambda *args, **kwargs: iter(
+            [
+                "silver/category=event_mapping/module=administration/",
+                "silver/category=event_mapping/module=folders/",
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        coordinator.CompactSilverQueue, "create", classmethod(lambda cls: FakeQueue())
+    )
+    monkeypatch.setattr(
+        coordinator,
+        "resolve_worker_resolution",
+        lambda **kwargs: coordinator.WorkerResolution(
+            execution_environment="local",
+            resolution_source="local_preset",
+            python_visible_cpu_count=8,
+            configured_cores=2,
+            parallel_enabled=False,
+            resolved_n_jobs=1,
+            partition_cap=2,
+        ),
+    )
+    monkeypatch.setattr(
+        coordinator,
+        "run_partition_jobs",
+        lambda **kwargs: (
+            "sequential",
+            [SimpleNamespace(status="succeeded", retained_count=0)],
+        ),
+    )
+
+    coordinator.run_compact_silver_streaming(
+        coordinator.CompactRunConfig(
+            project_key="P",
+            folder_lookup="partitioned_data",
+            relative_prefix="silver/category=event_mapping/",
+            partition_filters={"category": "event_mapping", "module": "folders"},
+            minimum_age_days=3,
+            normalize_silver_mode=False,
+            param_set={},
+            execution_environment="local",
+            batch_size=25,
+            excluded_modules=("folders",),
+            selection_mode="all_eligible_filtered",
+        ),
+        on_outcomes=lambda *_args: None,
+    )
+
+    assert seen["populated_modules"] == ["folders"]
+    assert seen["released_modules"] == ["folders"]
+
+
+def test_run_compact_silver_streaming_all_excluded_fails_before_recursive_listing(
+    monkeypatch,
+):
+    storage_ctx = SimpleNamespace(connection_type="EC2", folder_id="folder")
+    seen = {"closed": False}
+
+    class FakeQueue:
+        runtime = SimpleNamespace(memory_limit_setting="4096MiB")
+
+        def replace_module_manifest(self, *, module_prefixes):
+            return [
+                SimpleNamespace(
+                    module="containers",
+                    relative_prefix="silver/category=event_mapping/module=containers/",
+                    status="pending",
+                ),
+                SimpleNamespace(
+                    module="folders",
+                    relative_prefix="silver/category=event_mapping/module=folders/",
+                    status="pending",
+                ),
+            ]
+
+        def populate_from_discovery(self, **kwargs):
+            pytest.fail("recursive module path discovery must not run")
+
+        def close(self):
+            seen["closed"] = True
+
+    monkeypatch.setattr(
+        coordinator, "build_storage_context", lambda **kwargs: storage_ctx
+    )
+    monkeypatch.setattr(
+        coordinator,
+        "iter_managed_folder_child_prefixes",
+        lambda *args, **kwargs: iter(
+            [
+                "silver/category=event_mapping/module=containers/",
+                "silver/category=event_mapping/module=folders/",
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        coordinator.CompactSilverQueue, "create", classmethod(lambda cls: FakeQueue())
+    )
+    monkeypatch.setattr(
+        coordinator,
+        "resolve_worker_resolution",
+        lambda **kwargs: coordinator.WorkerResolution(
+            execution_environment="local",
+            resolution_source="local_preset",
+            python_visible_cpu_count=8,
+            configured_cores=2,
+            parallel_enabled=False,
+            resolved_n_jobs=1,
+            partition_cap=2,
+        ),
+    )
+    monkeypatch.setattr(
+        coordinator,
+        "run_partition_jobs",
+        lambda **kwargs: pytest.fail("queue dispatch must not run"),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="All available Compact SILVER modules were excluded; nothing remains to compact",
+    ):
+        coordinator.run_compact_silver_streaming(
+            coordinator.CompactRunConfig(
+                project_key="P",
+                folder_lookup="partitioned_data",
+                relative_prefix="silver/category=event_mapping/",
+                partition_filters={"category": "event_mapping"},
+                minimum_age_days=3,
+                normalize_silver_mode=False,
+                param_set={},
+                execution_environment="local",
+                batch_size=25,
+                excluded_modules=("containers", "folders"),
+                selection_mode="all_eligible_filtered",
+            ),
+            on_outcomes=lambda *_args: None,
+        )
+
+    assert seen["closed"] is True
+
+
 def test_run_compact_silver_streaming_marks_retained_failures_without_retry(
     monkeypatch,
 ):

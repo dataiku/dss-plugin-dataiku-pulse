@@ -205,28 +205,56 @@ def test_recipe_manifest_uses_pulse_primary_and_explicit_flow_roles():
 
 
 @pytest.mark.parametrize(
-    ("recipe_config", "expected_filters", "expected_scope"),
+    (
+        "recipe_config",
+        "expected_filters",
+        "expected_scope",
+        "expected_excluded_modules",
+    ),
     [
-        ({}, {"category": "event_mapping"}, "category=event_mapping"),
+        ({}, {"category": "event_mapping"}, "category=event_mapping", ()),
         (
             {"module_filter": ""},
             {"category": "event_mapping"},
             "category=event_mapping",
+            (),
         ),
         (
             {"module_filter": "all"},
             {"category": "event_mapping"},
             "category=event_mapping",
+            (),
         ),
         (
-            {"module_filter": "folders"},
+            {"module_filter": "all", "exclude_filter": []},
+            {"category": "event_mapping"},
+            "category=event_mapping",
+            (),
+        ),
+        (
+            {
+                "module_filter": "all",
+                "exclude_filter": ["folders", "containers", "folders"],
+            },
+            {"category": "event_mapping"},
+            "category=event_mapping; exclude_modules=containers,folders",
+            ("containers", "folders"),
+        ),
+        (
+            {"module_filter": "folders", "exclude_filter": ["containers"]},
             {"category": "event_mapping", "module": "folders"},
             "category=event_mapping; module=folders",
+            (),
         ),
     ],
 )
 def test_recipe_module_filter_resolves_effective_filters_and_audit_scope(
-    monkeypatch, recipe_module, recipe_config, expected_filters, expected_scope
+    monkeypatch,
+    recipe_module,
+    recipe_config,
+    expected_filters,
+    expected_scope,
+    expected_excluded_modules,
 ):
     seen: dict[str, object] = {}
 
@@ -266,8 +294,54 @@ def test_recipe_module_filter_resolves_effective_filters_and_audit_scope(
     recipe_module.run()
 
     assert seen["config"].partition_filters == expected_filters
+    assert seen["config"].excluded_modules == expected_excluded_modules
     audit_df = pd.concat(seen["batches"], ignore_index=True)
     assert set(audit_df["filter_scope"]) == {expected_scope}
+
+
+@pytest.mark.parametrize(
+    "recipe_config",
+    [
+        {"module_filter": "all", "exclude_filter": "folders"},
+        {"module_filter": "all", "exclude_filter": ["folders", "missing_module"]},
+        {"module_filter": "all", "exclude_filter": ["all"]},
+        {"module_filter": "all", "exclude_filter": [None]},
+    ],
+)
+def test_recipe_invalid_active_exclude_filter_fails_before_discovery_or_audit_mutation(
+    monkeypatch, recipe_module, recipe_config
+):
+    monkeypatch.setattr(
+        recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT"
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_plugin_config",
+        lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data"}},
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_recipe_config",
+        lambda: {"normalize_silver": True, **recipe_config},
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_output_names_for_role",
+        lambda role: pytest.fail("output role resolution must not run"),
+    )
+    monkeypatch.setattr(
+        recipe_module.dataiku,
+        "Dataset",
+        lambda name: pytest.fail("audit dataset must not open"),
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "run_compact_silver_streaming",
+        lambda *args, **kwargs: pytest.fail("source discovery must not run"),
+    )
+
+    with pytest.raises(ValueError, match="Invalid compact SILVER exclude_filter"):
+        recipe_module.run()
 
 
 def test_recipe_invalid_module_filter_fails_before_discovery_or_audit_mutation(
