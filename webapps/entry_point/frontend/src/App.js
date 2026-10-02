@@ -130,6 +130,31 @@ export function buildObservedActivityWindowDisplay(
   };
 }
 
+export function buildSecondaryActivityTiles(activityKpiSource, activityHistoryStart, activityHistoryEnd) {
+  const observedWindowDisplay = (value, requiredDays, formatter) => (
+    buildObservedActivityWindowDisplay(
+      value,
+      requiredDays,
+      formatter,
+      activityHistoryStart,
+      activityHistoryEnd
+    )
+  );
+
+  return [
+    {
+      label: 'Inactive users (6 months)',
+      detail: 'Enabled users with no recorded activity in the last 6 months.',
+      value: observedWindowDisplay(activityKpiSource?.inactive_users_6m ?? 0, 183, (value) => Number(value ?? 0).toLocaleString()).value,
+    },
+    {
+      label: 'View-only users (6 months)',
+      detail: 'Users with viewing activity but no creation activity in the last 6 months.',
+      value: observedWindowDisplay(activityKpiSource?.viewer_only_users_6m ?? 0, 183, (value) => Number(value ?? 0).toLocaleString()).value,
+    },
+  ];
+}
+
 const PROJECT_STANDARDS_REFRESH_INTERVAL_MS = 3000;
 const PROJECT_STANDARDS_REFRESH_TIMEOUT_MS = 5 * 60 * 1000;
 const PROJECT_STANDARDS_SEVERITY_LABELS = {
@@ -2937,10 +2962,7 @@ function UsersActivityPage({ apiBase }) {
     },
   ];
 
-  const secondaryActivityTiles = [
-    { label: 'Inactive users (6 months)', detail: 'Enabled users with no recorded activity in the last 6 months.', value: Number(activityKpiSource?.inactive_users_6m ?? 0).toLocaleString() },
-    { label: 'View-only users (6 months)', detail: 'Users with viewing activity but no creation activity in the last 6 months.', value: Number(activityKpiSource?.viewer_only_users_6m ?? 0).toLocaleString() },
-  ];
+  const secondaryActivityTiles = buildSecondaryActivityTiles(activityKpiSource, activityHistoryStart, activityHistoryEnd);
 
   return (
     <div className="PulseWide">
