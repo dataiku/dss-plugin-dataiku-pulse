@@ -46,7 +46,7 @@
         {
             "type": "SELECT",
             "name": "module_filter",
-            "label": "Filter on a module",
+            "label": "Filter on am Event Mapping module",
             "selectChoices": [
                 { "value": "all", "label": "All Modules" },
                 { "value": "administration", "label": "Administration" },
@@ -80,7 +80,7 @@
         {
             "type": "MULTISELECT",
             "name": "exclude_filter",
-            "label": "Exclude on a module(s)",
+            "label": "Exclude on a Event Mapping module(s)",
             "selectChoices": [
                 { "value": "administration", "label": "Administration" },
                 { "value": "apis", "label": "Apis" },
