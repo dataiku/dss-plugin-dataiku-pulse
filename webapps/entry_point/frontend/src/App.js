@@ -137,20 +137,38 @@ export function buildSecondaryActivityTiles(activityKpiSource, activityHistorySt
       requiredDays,
       formatter,
       activityHistoryStart,
-      activityHistoryEnd
+      activityHistoryEnd,
+      { allowPartial: true }
     )
+  );
+  const partialLabel = (display) => (
+    display.partial && Number.isFinite(display.availableDays)
+      ? `Partial history (${display.availableDays} of 183 days)`
+      : null
+  );
+  const inactiveUsersDisplay = observedWindowDisplay(
+    activityKpiSource?.inactive_users_6m ?? 0,
+    183,
+    (value) => Number(value ?? 0).toLocaleString()
+  );
+  const viewerOnlyUsersDisplay = observedWindowDisplay(
+    activityKpiSource?.viewer_only_users_6m ?? 0,
+    183,
+    (value) => Number(value ?? 0).toLocaleString()
   );
 
   return [
     {
       label: 'Inactive users (6 months)',
       detail: 'Enabled users with no recorded activity in the last 6 months.',
-      value: observedWindowDisplay(activityKpiSource?.inactive_users_6m ?? 0, 183, (value) => Number(value ?? 0).toLocaleString()).value,
+      value: inactiveUsersDisplay.value,
+      partialLabel: partialLabel(inactiveUsersDisplay),
     },
     {
       label: 'View-only users (6 months)',
       detail: 'Users with viewing activity but no creation activity in the last 6 months.',
-      value: observedWindowDisplay(activityKpiSource?.viewer_only_users_6m ?? 0, 183, (value) => Number(value ?? 0).toLocaleString()).value,
+      value: viewerOnlyUsersDisplay.value,
+      partialLabel: partialLabel(viewerOnlyUsersDisplay),
     },
   ];
 }
@@ -3055,6 +3073,7 @@ function UsersActivityPage({ apiBase }) {
             <div key={tile.label} className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact">
               <div className="PulseSummaryCount">{tile.value}</div>
               <div className="PulseSummaryLabel">{tile.label}</div>
+              {tile.partialLabel ? <div className="PulseSummaryDetail">{tile.partialLabel}</div> : null}
               {tile.detail ? <div className="PulseSummaryDetail">{tile.detail}</div> : null}
             </div>
           ))}

@@ -84,11 +84,13 @@ describe('user activity observed windows', () => {
         label: 'Inactive users (6 months)',
         detail: 'Enabled users with no recorded activity in the last 6 months.',
         value: '42',
+        partialLabel: null,
       },
       {
         label: 'View-only users (6 months)',
         detail: 'Users with viewing activity but no creation activity in the last 6 months.',
         value: '7',
+        partialLabel: null,
       },
     ]);
     expect(
@@ -96,11 +98,24 @@ describe('user activity observed windows', () => {
     ).toEqual({ value: '42', available: true, partial: false, availableDays: 183 });
   });
 
-  test('hides secondary six-month values for shorter coverage while preserving 30-day partial display', () => {
+  test('shows secondary six-month values as partial for shorter coverage while preserving primary six-month suppression', () => {
     const start = new Date('2026-09-28T00:00:00Z');
     const end = new Date('2026-10-02T00:00:00Z');
 
-    expect(buildSecondaryActivityTiles(secondaryTileSource, start, end).map((tile) => tile.value)).toEqual(['-', '-']);
+    expect(buildSecondaryActivityTiles(secondaryTileSource, start, end)).toEqual([
+      {
+        label: 'Inactive users (6 months)',
+        detail: 'Enabled users with no recorded activity in the last 6 months.',
+        value: '42',
+        partialLabel: 'Partial history (5 of 183 days)',
+      },
+      {
+        label: 'View-only users (6 months)',
+        detail: 'Users with viewing activity but no creation activity in the last 6 months.',
+        value: '7',
+        partialLabel: 'Partial history (5 of 183 days)',
+      },
+    ]);
     expect(
       buildObservedActivityWindowDisplay(12, 30, formatNumber, start, end, { allowPartial: true })
     ).toEqual({ value: '12', available: true, partial: true, availableDays: 5 });
@@ -109,14 +124,33 @@ describe('user activity observed windows', () => {
     ).toEqual({ value: '-', available: false, partial: false, availableDays: 5 });
   });
 
+  test('shows secondary six-month values without partial label after 183 days', () => {
+    const start = new Date('2026-04-02T00:00:00Z');
+    const end = new Date('2026-10-02T00:00:00Z');
+
+    expect(buildSecondaryActivityTiles(secondaryTileSource, start, end).map((tile) => ({ value: tile.value, partialLabel: tile.partialLabel }))).toEqual([
+      { value: '42', partialLabel: null },
+      { value: '7', partialLabel: null },
+    ]);
+  });
+
   test('hides secondary six-month values for missing invalid or reversed boundaries', () => {
     const start = new Date('2026-04-03T00:00:00Z');
     const end = new Date('2026-10-02T00:00:00Z');
     const invalidDate = new Date('not-a-date');
 
-    expect(buildSecondaryActivityTiles(secondaryTileSource, null, end).map((tile) => tile.value)).toEqual(['-', '-']);
-    expect(buildSecondaryActivityTiles(secondaryTileSource, invalidDate, end).map((tile) => tile.value)).toEqual(['-', '-']);
-    expect(buildSecondaryActivityTiles(secondaryTileSource, end, start).map((tile) => tile.value)).toEqual(['-', '-']);
+    expect(buildSecondaryActivityTiles(secondaryTileSource, null, end).map((tile) => ({ value: tile.value, partialLabel: tile.partialLabel }))).toEqual([
+      { value: '-', partialLabel: null },
+      { value: '-', partialLabel: null },
+    ]);
+    expect(buildSecondaryActivityTiles(secondaryTileSource, invalidDate, end).map((tile) => ({ value: tile.value, partialLabel: tile.partialLabel }))).toEqual([
+      { value: '-', partialLabel: null },
+      { value: '-', partialLabel: null },
+    ]);
+    expect(buildSecondaryActivityTiles(secondaryTileSource, end, start).map((tile) => ({ value: tile.value, partialLabel: tile.partialLabel }))).toEqual([
+      { value: '-', partialLabel: null },
+      { value: '-', partialLabel: null },
+    ]);
   });
 });
 
