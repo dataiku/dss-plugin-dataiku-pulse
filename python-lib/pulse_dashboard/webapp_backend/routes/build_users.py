@@ -111,7 +111,7 @@ def register_routes(bp: Blueprint) -> None:
             activity_filter_params: list[Any] = []
             if activity_filter == "license_consumer" and excluded_profiles:
                 activity_filter_sql = (
-                    f" AND coalesce(upper(trim(users_userprofile)), '') NOT IN ({_sql_placeholders(len(excluded_profiles))})"
+                    f" AND coalesce(upper(trim(u.user_profile)), '') NOT IN ({_sql_placeholders(len(excluded_profiles))})"
                 )
                 activity_filter_params = list(excluded_profiles)
 
@@ -1690,6 +1690,7 @@ def register_routes(bp: Blueprint) -> None:
                     f" AND coalesce(upper(trim(l.users_userprofile)), '') NOT IN ({_sql_placeholders(len(excluded_profiles))})"
                 )
                 exclude_params = list(excluded_profiles)
+            segment_exclude_params = exclude_params * 7
 
             latest_instance_sql = ""
             activity_instance_sql = ""
@@ -1751,7 +1752,7 @@ def register_routes(bp: Blueprint) -> None:
                     "LEFT JOIN activity a ON a.login_norm = l.login_norm\n"
                     "WHERE l.rn = 1;"
                 ),
-                [*instance_params, *activity_params, *instance_params, *exclude_params],
+                [*instance_params, *activity_params, *instance_params, *segment_exclude_params],
             )
 
             row = _df_records(df)[0] if len(df.index) else {}
