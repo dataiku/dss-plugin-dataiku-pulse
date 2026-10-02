@@ -2,12 +2,123 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App, {
   LicensePerformanceSection,
+  buildObservedActivityWindowDisplay,
+  buildSecondaryActivityTiles,
   buildLicenseUtilizationTrendSeries,
   buildPageRegistry,
   checkPageCapability,
   checkPagePermission,
   validatePageRegistry,
 } from './App';
+
+describe('user activity observed windows', () => {
+  const formatNumber = (value) => Number(value ?? 0).toLocaleString();
+  const formatRate = (value) => `${((Number(value ?? 0) * 100)).toFixed(1)}%`;
+  const secondaryTileSource = { inactive_users_6m: 42, viewer_only_users_6m: 7 };
+
+  test('shows supplied 30-day values as partial history for valid five-day coverage', () => {
+    const start = new Date('2026-09-28T00:00:00Z');
+    const end = new Date('2026-10-02T00:00:00Z');
+
+    expect(
+      buildObservedActivityWindowDisplay(12, 30, formatNumber, start, end, { allowPartial: true })
+    ).toEqual({ value: '12', available: true, partial: true, availableDays: 5 });
+    expect(
+      buildObservedActivityWindowDisplay(0.4, 30, formatRate, start, end, { allowPartial: true })
+    ).toEqual({ value: '40.0%', available: true, partial: true, availableDays: 5 });
+  });
+
+  test('keeps longer windows unavailable for the same five-day coverage', () => {
+    const start = new Date('2026-09-28T00:00:00Z');
+    const end = new Date('2026-10-02T00:00:00Z');
+
+    [90, 183, 365].forEach((requiredDays) => {
+      expect(
+        buildObservedActivityWindowDisplay(12, requiredDays, formatNumber, start, end)
+      ).toEqual({ value: '-', available: false, partial: false, availableDays: 5 });
+    });
+  });
+
+  test('shows complete 30-day values without the partial-history indicator', () => {
+    const start = new Date('2026-09-03T00:00:00Z');
+    const end = new Date('2026-10-02T00:00:00Z');
+
+    expect(
+      buildObservedActivityWindowDisplay(30, 30, formatNumber, start, end, { allowPartial: true })
+    ).toEqual({ value: '30', available: true, partial: false, availableDays: 30 });
+  });
+
+  test('shows 90-day values once valid 90-day coverage exists', () => {
+    const start = new Date('2026-07-05T00:00:00Z');
+    const end = new Date('2026-10-02T00:00:00Z');
+
+    expect(
+      buildObservedActivityWindowDisplay(57, 90, formatNumber, start, end)
+    ).toEqual({ value: '57', available: true, partial: false, availableDays: 90 });
+  });
+
+  test('keeps missing or invalid activity-history boundaries unavailable', () => {
+    const validDate = new Date('2026-10-02T00:00:00Z');
+    const invalidDate = new Date('not-a-date');
+
+    expect(
+      buildObservedActivityWindowDisplay(12, 30, formatNumber, null, validDate, { allowPartial: true })
+    ).toEqual({ value: '-', available: false, partial: false });
+    expect(
+      buildObservedActivityWindowDisplay(12, 30, formatNumber, invalidDate, validDate, { allowPartial: true })
+    ).toEqual({ value: '-', available: false, partial: false });
+    expect(
+      buildObservedActivityWindowDisplay(12, 30, formatNumber, validDate, invalidDate, { allowPartial: true })
+    ).toEqual({ value: '-', available: false, partial: false });
+    expect(
+      buildObservedActivityWindowDisplay(12, 30, formatNumber, validDate, new Date('2026-09-28T00:00:00Z'), { allowPartial: true })
+    ).toEqual({ value: '-', available: false, partial: false, availableDays: -3 });
+  });
+
+  test('shows secondary six-month tile values with inclusive 183-day coverage', () => {
+    const start = new Date('2026-04-03T00:00:00Z');
+    const end = new Date('2026-10-02T00:00:00Z');
+
+    expect(buildSecondaryActivityTiles(secondaryTileSource, start, end)).toEqual([
+      {
+        label: 'Inactive users (6 months)',
+        detail: 'Enabled users with no recorded activity in the last 6 months.',
+        value: '42',
+      },
+      {
+        label: 'View-only users (6 months)',
+        detail: 'Users with viewing activity but no creation activity in the last 6 months.',
+        value: '7',
+      },
+    ]);
+    expect(
+      buildObservedActivityWindowDisplay(42, 183, formatNumber, start, end)
+    ).toEqual({ value: '42', available: true, partial: false, availableDays: 183 });
+  });
+
+  test('hides secondary six-month values for shorter coverage while preserving 30-day partial display', () => {
+    const start = new Date('2026-09-28T00:00:00Z');
+    const end = new Date('2026-10-02T00:00:00Z');
+
+    expect(buildSecondaryActivityTiles(secondaryTileSource, start, end).map((tile) => tile.value)).toEqual(['-', '-']);
+    expect(
+      buildObservedActivityWindowDisplay(12, 30, formatNumber, start, end, { allowPartial: true })
+    ).toEqual({ value: '12', available: true, partial: true, availableDays: 5 });
+    expect(
+      buildObservedActivityWindowDisplay(42, 183, formatNumber, start, end)
+    ).toEqual({ value: '-', available: false, partial: false, availableDays: 5 });
+  });
+
+  test('hides secondary six-month values for missing invalid or reversed boundaries', () => {
+    const start = new Date('2026-04-03T00:00:00Z');
+    const end = new Date('2026-10-02T00:00:00Z');
+    const invalidDate = new Date('not-a-date');
+
+    expect(buildSecondaryActivityTiles(secondaryTileSource, null, end).map((tile) => tile.value)).toEqual(['-', '-']);
+    expect(buildSecondaryActivityTiles(secondaryTileSource, invalidDate, end).map((tile) => tile.value)).toEqual(['-', '-']);
+    expect(buildSecondaryActivityTiles(secondaryTileSource, end, start).map((tile) => tile.value)).toEqual(['-', '-']);
+  });
+});
 
 describe('License utilization fact UI', () => {
   const emptyLicenseStatus = { fields: {}, addonServices: [], features: [], instanceCount: 0 };

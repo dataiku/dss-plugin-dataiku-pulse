@@ -93,6 +93,68 @@ function formatDurationMs(value) {
   return `${minutes}m ${remainder}s`;
 }
 
+function parseActivityHistoryDate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00Z` : raw;
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function buildObservedActivityWindowDisplay(
+  value,
+  requiredDays,
+  formatter,
+  activityHistoryStart,
+  activityHistoryEnd,
+  { allowPartial = false } = {}
+) {
+  if (!(activityHistoryStart instanceof Date) || Number.isNaN(activityHistoryStart.getTime())) {
+    return { value: '-', available: false, partial: false };
+  }
+  if (!(activityHistoryEnd instanceof Date) || Number.isNaN(activityHistoryEnd.getTime())) {
+    return { value: '-', available: false, partial: false };
+  }
+  const availableDays = Math.floor((activityHistoryEnd.getTime() - activityHistoryStart.getTime()) / 86400000) + 1;
+  if (availableDays < 1) {
+    return { value: '-', available: false, partial: false, availableDays };
+  }
+  if (availableDays < requiredDays && !allowPartial) {
+    return { value: '-', available: false, partial: false, availableDays };
+  }
+  return {
+    value: formatter(value),
+    available: true,
+    partial: availableDays < requiredDays,
+    availableDays,
+  };
+}
+
+export function buildSecondaryActivityTiles(activityKpiSource, activityHistoryStart, activityHistoryEnd) {
+  const observedWindowDisplay = (value, requiredDays, formatter) => (
+    buildObservedActivityWindowDisplay(
+      value,
+      requiredDays,
+      formatter,
+      activityHistoryStart,
+      activityHistoryEnd
+    )
+  );
+
+  return [
+    {
+      label: 'Inactive users (6 months)',
+      detail: 'Enabled users with no recorded activity in the last 6 months.',
+      value: observedWindowDisplay(activityKpiSource?.inactive_users_6m ?? 0, 183, (value) => Number(value ?? 0).toLocaleString()).value,
+    },
+    {
+      label: 'View-only users (6 months)',
+      detail: 'Users with viewing activity but no creation activity in the last 6 months.',
+      value: observedWindowDisplay(activityKpiSource?.viewer_only_users_6m ?? 0, 183, (value) => Number(value ?? 0).toLocaleString()).value,
+    },
+  ];
+}
+
 const PROJECT_STANDARDS_REFRESH_INTERVAL_MS = 3000;
 const PROJECT_STANDARDS_REFRESH_TIMEOUT_MS = 5 * 60 * 1000;
 const PROJECT_STANDARDS_SEVERITY_LABELS = {
@@ -2853,30 +2915,19 @@ function UsersActivityPage({ apiBase }) {
 
   const activityKpiSource = selectedInstance ? userKpisInstance : userKpisAll;
 
-  const parseHistoryDate = useCallback((value) => {
-    const raw = String(value || '').trim();
-    if (!raw) return null;
-    const normalized = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00:00Z` : raw;
-    const parsed = new Date(normalized);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-  }, []);
+  const activityHistoryStart = useMemo(() => parseActivityHistoryDate(activityKpiSource?.activity_history_start), [activityKpiSource?.activity_history_start]);
+  const activityHistoryEnd = useMemo(() => parseActivityHistoryDate(activityKpiSource?.activity_history_end), [activityKpiSource?.activity_history_end]);
 
-  const activityHistoryStart = useMemo(() => parseHistoryDate(activityKpiSource?.activity_history_start), [activityKpiSource?.activity_history_start, parseHistoryDate]);
-  const activityHistoryEnd = useMemo(() => parseHistoryDate(activityKpiSource?.activity_history_end), [activityKpiSource?.activity_history_end, parseHistoryDate]);
-
-  const observedWindowDisplay = useCallback((value, requiredDays, formatter) => {
-    if (!(activityHistoryStart instanceof Date) || Number.isNaN(activityHistoryStart.getTime())) {
-      return { value: '-', available: false };
-    }
-    if (!(activityHistoryEnd instanceof Date) || Number.isNaN(activityHistoryEnd.getTime())) {
-      return { value: '-', available: false };
-    }
-    const availableDays = Math.floor((activityHistoryEnd.getTime() - activityHistoryStart.getTime()) / 86400000) + 1;
-    if (availableDays < requiredDays) {
-      return { value: '-', available: false, availableDays };
-    }
-    return { value: formatter(value), available: true, availableDays };
-  }, [activityHistoryEnd, activityHistoryStart]);
+  const observedWindowDisplay = useCallback((value, requiredDays, formatter, options) => (
+    buildObservedActivityWindowDisplay(
+      value,
+      requiredDays,
+      formatter,
+      activityHistoryStart,
+      activityHistoryEnd,
+      options
+    )
+  ), [activityHistoryEnd, activityHistoryStart]);
 
   const activityVolumeTiles = [
     { label: 'Viewing actions', value: Number(activityKpiSource?.total_viewing_actions ?? 0).toLocaleString() },
@@ -2887,9 +2938,9 @@ function UsersActivityPage({ apiBase }) {
   const activityWindowRows = [
     {
       window: '30 days',
-      observedActors: observedWindowDisplay(activityKpiSource?.active_users_30d ?? 0, 30, (value) => Number(value ?? 0).toLocaleString()),
-      observedActorRate: observedWindowDisplay(activityKpiSource?.active_rate_30d ?? 0, 30, (value) => `${((Number(value ?? 0) * 100)).toFixed(1)}%`),
-      creatorRate: observedWindowDisplay(activityKpiSource?.contributor_rate_30d ?? 0, 30, (value) => `${((Number(value ?? 0) * 100)).toFixed(1)}%`),
+      observedActors: observedWindowDisplay(activityKpiSource?.active_users_30d ?? 0, 30, (value) => Number(value ?? 0).toLocaleString(), { allowPartial: true }),
+      observedActorRate: observedWindowDisplay(activityKpiSource?.active_rate_30d ?? 0, 30, (value) => `${((Number(value ?? 0) * 100)).toFixed(1)}%`, { allowPartial: true }),
+      creatorRate: observedWindowDisplay(activityKpiSource?.contributor_rate_30d ?? 0, 30, (value) => `${((Number(value ?? 0) * 100)).toFixed(1)}%`, { allowPartial: true }),
     },
     {
       window: '90 days',
@@ -2911,10 +2962,7 @@ function UsersActivityPage({ apiBase }) {
     },
   ];
 
-  const secondaryActivityTiles = [
-    { label: 'Inactive users (6 months)', detail: 'Enabled users with no recorded activity in the last 6 months.', value: Number(activityKpiSource?.inactive_users_6m ?? 0).toLocaleString() },
-    { label: 'View-only users (6 months)', detail: 'Users with viewing activity but no creation activity in the last 6 months.', value: Number(activityKpiSource?.viewer_only_users_6m ?? 0).toLocaleString() },
-  ];
+  const secondaryActivityTiles = buildSecondaryActivityTiles(activityKpiSource, activityHistoryStart, activityHistoryEnd);
 
   return (
     <div className="PulseWide">
@@ -3017,7 +3065,10 @@ function UsersActivityPage({ apiBase }) {
             {activityWindowRows.map((row) => (
               <div key={`observed-${row.window}`} className="PulseActivityMetricRow">
                 <div className="PulseActivityWindow">{row.window}</div>
-                <div className="PulseActivityValue">{row.observedActors.value}</div>
+                <div className="PulseActivityValue">
+                  {row.observedActors.value}
+                  {row.observedActors.partial ? <div className="PulseActivityPartial">Partial history</div> : null}
+                </div>
               </div>
             ))}
           </div>
@@ -3026,7 +3077,10 @@ function UsersActivityPage({ apiBase }) {
             {activityWindowRows.map((row) => (
               <div key={`rate-${row.window}`} className="PulseActivityMetricRow">
                 <div className="PulseActivityWindow">{row.window}</div>
-                <div className="PulseActivityValue">{row.observedActorRate.value}</div>
+                <div className="PulseActivityValue">
+                  {row.observedActorRate.value}
+                  {row.observedActorRate.partial ? <div className="PulseActivityPartial">Partial history</div> : null}
+                </div>
               </div>
             ))}
           </div>
@@ -3035,7 +3089,10 @@ function UsersActivityPage({ apiBase }) {
             {activityWindowRows.map((row) => (
               <div key={`creator-${row.window}`} className="PulseActivityMetricRow">
                 <div className="PulseActivityWindow">{row.window}</div>
-                <div className="PulseActivityValue">{row.creatorRate.value}</div>
+                <div className="PulseActivityValue">
+                  {row.creatorRate.value}
+                  {row.creatorRate.partial ? <div className="PulseActivityPartial">Partial history</div> : null}
+                </div>
               </div>
             ))}
           </div>
