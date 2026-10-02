@@ -82,7 +82,6 @@
             "name": "exclude_filter",
             "label": "Exclude on a module(s)",
             "selectChoices": [
-                { "value": "all", "label": "All Modules" },
                 { "value": "administration", "label": "Administration" },
                 { "value": "apis", "label": "Apis" },
                 { "value": "application_designer", "label": "Application Designer" },
