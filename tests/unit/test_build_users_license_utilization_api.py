@@ -114,8 +114,10 @@ def _create_user_segments_tables(conn):
             instance_name VARCHAR,
             users_login VARCHAR,
             users_displayname VARCHAR,
+            users_email VARCHAR,
             users_enabled VARCHAR,
             users_userprofile VARCHAR,
+            users_groups VARCHAR,
             run_ts TIMESTAMP
         );
         """
@@ -136,18 +138,18 @@ def _create_user_segments_tables(conn):
 
 def _insert_user_segments_rows(conn):
     user_rows = [
-        ("inst-a", "viewer_a", "Viewer A", "True", "DESIGNER", "2026-10-02 00:00:00"),
-        ("inst-a", "excluded_viewer", "Excluded Viewer", "True", "READER", "2026-10-02 00:00:00"),
-        ("inst-a", "excluded_mixed", "Excluded Mixed", "True", "AI_CONSUMER", "2026-10-02 00:00:00"),
-        ("inst-a", "mixed_a", "Mixed A", "True", "DESIGNER", "2026-10-02 00:00:00"),
-        ("inst-a", "developer_a", "Developer A", "True", "SCIENTIST", "2026-10-02 00:00:00"),
-        ("inst-a", "inactive_a", "Inactive A", "True", "DESIGNER", "2026-10-02 00:00:00"),
-        ("inst-b", "viewer_b", "Viewer B", "True", "DESIGNER", "2026-10-02 00:00:00"),
-        ("inst-b", "excluded_b", "Excluded B", "True", "AI_CONSUMER", "2026-10-02 00:00:00"),
-        ("inst-a", "disabled_a", "Disabled A", "False", "DESIGNER", "2026-10-02 00:00:00"),
+        ("inst-a", "viewer_a", "Viewer A", "viewer_a@example.com", "True", "DESIGNER", "grp", "2026-10-02 00:00:00"),
+        ("inst-a", "excluded_viewer", "Excluded Viewer", "excluded_viewer@example.com", "True", "READER", "grp", "2026-10-02 00:00:00"),
+        ("inst-a", "excluded_mixed", "Excluded Mixed", "excluded_mixed@example.com", "True", "AI_CONSUMER", "grp", "2026-10-02 00:00:00"),
+        ("inst-a", "mixed_a", "Mixed A", "mixed_a@example.com", "True", "DESIGNER", "grp", "2026-10-02 00:00:00"),
+        ("inst-a", "developer_a", "Developer A", "developer_a@example.com", "True", "SCIENTIST", "grp", "2026-10-02 00:00:00"),
+        ("inst-a", "inactive_a", "Inactive A", "inactive_a@example.com", "True", "DESIGNER", "grp", "2026-10-02 00:00:00"),
+        ("inst-b", "viewer_b", "Viewer B", "viewer_b@example.com", "True", "DESIGNER", "grp", "2026-10-02 00:00:00"),
+        ("inst-b", "excluded_b", "Excluded B", "excluded_b@example.com", "True", "AI_CONSUMER", "grp", "2026-10-02 00:00:00"),
+        ("inst-a", "disabled_a", "Disabled A", "disabled_a@example.com", "False", "DESIGNER", "grp", "2026-10-02 00:00:00"),
     ]
     conn.executemany(
-        "INSERT INTO base_users_instance_metadata VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO base_users_instance_metadata VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         user_rows,
     )
 
@@ -169,6 +171,10 @@ def _insert_user_segments_rows(conn):
 
 def _segment_value(payload, label):
     return next(row["value"] for row in payload["segments"] if row["label"] == label)
+
+
+def _rows_by_login(rows):
+    return {row["login"]: row for row in rows}
 
 
 def test_latest_rows_are_sourced_from_fact(license_api_app):
@@ -476,3 +482,87 @@ def test_user_segments_consumer_filter_preserves_instance_parameter_order(
         "developerDominantUsers": 0,
         "balancedMixedUsers": 0,
     }
+
+
+def test_user_leaderboard_consumer_filter_uses_directory_profile_scope(
+    monkeypatch, license_api_app
+):
+    app, conn = license_api_app
+    module = importlib.import_module("pulse_dashboard.webapp_backend.routes.build_users")
+    monkeypatch.setattr(module, "_read_user_profile_exclude_consumer", lambda _standard: ["READER", "AI_CONSUMER"])
+    _create_user_segments_tables(conn)
+    _insert_user_segments_rows(conn)
+
+    response = app.test_client().get("/api/build/users/leaderboard?days=365&activityFilter=license_consumer")
+    payload = response.get_json()
+
+    assert response.status_code == 200, payload
+    assert payload["activityFilter"] == "license_consumer"
+    viewing_by_login = _rows_by_login(payload["viewing"])
+    developing_by_login = _rows_by_login(payload["developing"])
+    assert "excluded_viewer" not in viewing_by_login
+    assert "excluded_mixed" not in viewing_by_login
+    assert "excluded_mixed" not in developing_by_login
+    assert viewing_by_login["viewer_a"]["value"] == 5
+    assert viewing_by_login["viewer_a"]["userProfile"] == "DESIGNER"
+    assert developing_by_login["mixed_a"]["value"] == 1
+    assert developing_by_login["mixed_a"]["userProfile"] == "DESIGNER"
+
+
+def test_user_leaderboard_default_and_creator_filters_preserve_existing_behavior(
+    monkeypatch, license_api_app
+):
+    app, conn = license_api_app
+    module = importlib.import_module("pulse_dashboard.webapp_backend.routes.build_users")
+    monkeypatch.setattr(module, "_read_user_profile_exclude_consumer", lambda _standard: ["READER", "AI_CONSUMER"])
+    _create_user_segments_tables(conn)
+    _insert_user_segments_rows(conn)
+
+    default_response = app.test_client().get("/api/build/users/leaderboard?days=365")
+    default_payload = default_response.get_json()
+    creator_response = app.test_client().get("/api/build/users/leaderboard?days=365&activityFilter=license_creator")
+    creator_payload = creator_response.get_json()
+
+    assert default_response.status_code == 200, default_payload
+    assert creator_response.status_code == 200, creator_payload
+    assert default_payload["activityFilter"] == "license_creator"
+    assert creator_payload["activityFilter"] == "license_creator"
+    default_viewing = _rows_by_login(default_payload["viewing"])
+    default_developing = _rows_by_login(default_payload["developing"])
+    creator_viewing = _rows_by_login(creator_payload["viewing"])
+    creator_developing = _rows_by_login(creator_payload["developing"])
+    assert "excluded_viewer" not in default_viewing
+    assert "excluded_mixed" in default_developing
+    assert default_developing["excluded_mixed"]["value"] == 2
+    assert "excluded_mixed" in default_viewing
+    assert default_viewing["excluded_mixed"]["value"] == 2
+    assert creator_viewing == default_viewing
+    assert creator_developing == default_developing
+
+
+def test_user_leaderboard_consumer_filter_preserves_instance_parameter_order(
+    monkeypatch, license_api_app
+):
+    app, conn = license_api_app
+    module = importlib.import_module("pulse_dashboard.webapp_backend.routes.build_users")
+    monkeypatch.setattr(module, "_read_user_profile_exclude_consumer", lambda _standard: ["READER", "AI_CONSUMER"])
+    _create_user_segments_tables(conn)
+    _insert_user_segments_rows(conn)
+
+    response = app.test_client().get(
+        "/api/build/users/leaderboard?days=365&activityFilter=license_consumer&instance_name=inst-a"
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 200, payload
+    assert payload["instanceName"] == "inst-a"
+    viewing_by_login = _rows_by_login(payload["viewing"])
+    developing_by_login = _rows_by_login(payload["developing"])
+    assert "excluded_viewer" not in viewing_by_login
+    assert "excluded_mixed" not in viewing_by_login
+    assert "viewer_a" in viewing_by_login
+    assert "mixed_a" in viewing_by_login
+    assert "excluded_mixed" not in developing_by_login
+    assert "mixed_a" in developing_by_login
+    assert viewing_by_login["viewer_a"]["instances"] == 1
+    assert developing_by_login["mixed_a"]["instances"] == 1

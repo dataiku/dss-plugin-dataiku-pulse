@@ -111,7 +111,7 @@ def register_routes(bp: Blueprint) -> None:
             activity_filter_params: list[Any] = []
             if activity_filter == "license_consumer" and excluded_profiles:
                 activity_filter_sql = (
-                    f" AND coalesce(upper(trim(users_userprofile)), '') NOT IN ({_sql_placeholders(len(excluded_profiles))})"
+                    f" AND coalesce(upper(trim(u.user_profile)), '') NOT IN ({_sql_placeholders(len(excluded_profiles))})"
                 )
                 activity_filter_params = list(excluded_profiles)
 
