@@ -302,7 +302,8 @@ def _dev_activity_events_branch_sql(
               WHEN authvia IS NULL THEN FALSE
               WHEN regexp_matches(lower(authvia), 'ticket:')
                    AND NOT regexp_matches(lower(authvia), 'ticket:job:')
-                   AND NOT regexp_matches(lower(authvia), 'ticket:jupyter:') THEN TRUE
+                   AND NOT regexp_matches(lower(authvia), 'ticket:jupyter:')
+                   AND NOT regexp_matches(lower(authvia), 'ticket:code studio') THEN TRUE
               WHEN regexp_matches(lower(authvia), 'macro') THEN TRUE
               ELSE FALSE
             END AS has_unvalidated_ticket_or_macro_context

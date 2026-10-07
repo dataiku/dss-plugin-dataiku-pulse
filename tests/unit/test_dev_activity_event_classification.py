@@ -91,7 +91,8 @@ def _create_event_mapping_view_for_origin_test(conn: duckdb.DuckDBPyConnection) 
             (6, TIMESTAMP '2026-01-01 15:00:00', 'inst1', 'alice', 'recipe-save', 'recipe', 'visual_recipes', 'FIN', '/projects/FIN', '{"message_jobId":"job-from-extras"}', 'PERSONAL_API_KEY', NULL, NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
             (7, TIMESTAMP '2026-01-01 16:00:00', 'inst1', 'alice', 'recipe-save', 'recipe', 'visual_recipes', 'FIN', '/projects/FIN', NULL, 'USER_FROM_UI', 'scenario=FIN.SCENARIO', NULL, 'job-flat', TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
             (8, TIMESTAMP '2026-01-01 17:00:00', 'inst1', 'alice', 'recipe-save', 'recipe', 'visual_recipes', 'FIN', '/projects/FIN', '{bad', 'USER_FROM_UI', NULL, NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
-            (9, TIMESTAMP '2026-01-01 18:00:00', 'inst1', 'alice', 'recipe-save', 'recipe', 'visual_recipes', 'FIN', '/projects/FIN', NULL, 'PERSONAL_API_KEY', 'ticket:macro:FIN.MACRO', NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1)
+            (9, TIMESTAMP '2026-01-01 18:00:00', 'inst1', 'alice', 'recipe-save', 'recipe', 'visual_recipes', 'FIN', '/projects/FIN', NULL, 'PERSONAL_API_KEY', 'ticket:macro:FIN.MACRO', NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
+            (10, TIMESTAMP '2026-01-01 19:00:00', 'inst1', 'alice', 'code-studio-object-state', 'code-studio', 'code_studio', 'FIN', '/projects/FIN', NULL, 'USER_FROM_UI', 'ticket:Code Studio FIN.session', NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1)
         ) AS t(row_id, timestamp, instance_name, authuser, msgtype, msgtypebase, dataiku_category, project_key, callpath, extras, authsource, authvia, scenarioid, jobid, run_ts, year, month, day)
         """.strip())
     conn.execute(
@@ -354,6 +355,14 @@ def test_actor_origin_classification_rules_are_precedence_ordered(conn):
             "ui_no_automation_marker",
         ),
         ("18:00", "unknown_or_other", "PERSONAL_API_KEY", False, False, "unclassified"),
+        (
+            "19:00",
+            "direct_ui_user",
+            "USER_FROM_UI",
+            False,
+            False,
+            "ui_no_automation_marker",
+        ),
     ]
 
 
@@ -374,13 +383,14 @@ def test_origin_fact_retains_existing_values_and_one_row_per_event(conn):
 
     assert actual == expected
     assert (
-        conn.execute("SELECT COUNT(*) FROM fact_dev_activity_events").fetchone()[0] == 9
+        conn.execute("SELECT COUNT(*) FROM fact_dev_activity_events").fetchone()[0]
+        == 10
     )
     assert (
         conn.execute(
             "SELECT COUNT(DISTINCT timestamp) FROM fact_dev_activity_events"
         ).fetchone()[0]
-        == 9
+        == 10
     )
 
 
@@ -430,8 +440,8 @@ def test_final_view_exposes_actor_origin_without_changing_user_attribution(conn)
         SELECT COUNT(*), SUM(CASE WHEN is_user_attributed THEN 1 ELSE 0 END)
         FROM final_build_development_activity_events
         """.strip()).fetchone()
-    assert row_count == 9
-    assert user_attributed_count == 9
+    assert row_count == 10
+    assert user_attributed_count == 10
 
     scenario_row = conn.execute("""
         SELECT activity_origin, has_scenario_marker, has_job_marker, is_user_attributed
