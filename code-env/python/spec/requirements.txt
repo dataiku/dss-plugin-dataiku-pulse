@@ -50,7 +50,7 @@ weasyprint==70.0
 # =========================
 cryptography==50.0.0
 filelock==3.29.0
-fsspec==2026.3.0
+fsspec==2026.6.0
 joblib==1.5.3
 tqdm==4.67.3
 python-dotenv==1.2.2
