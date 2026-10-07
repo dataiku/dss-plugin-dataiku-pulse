@@ -17,7 +17,7 @@ import json
 import logging
 import os
 import time
-from typing import cast
+from typing import NamedTuple, cast
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -43,9 +43,169 @@ _EXPECTED_STARTUP_TABLES = {
     "final_build_development_activity_events",
 }
 _REQUIRED_DASHBOARD_GOLD_TABLES = {
+    "base_license_limits_wide_latest",
+    "base_license_max_licenses_latest",
+    "base_license_status_latest",
+    "base_users_instance_metadata",
+    "fact_formal_mau_daily",
+    "fact_license_utilization_daily",
     "fact_user_activity_daily",
     "fact_user_activity_project_daily",
 }
+
+
+class OptionalInventoryContract(NamedTuple):
+    source_table: str
+    target_table: str
+    empty_select_sql: str
+
+
+_OPTIONAL_INVENTORY_CONTRACTS = (
+    OptionalInventoryContract(
+        source_table="base_agent_tools_project_metadata",
+        target_table="base_agent_tools_metadata",
+        empty_select_sql="""
+        SELECT
+          CAST(NULL AS VARCHAR) AS instance_name,
+          CAST(NULL AS VARCHAR) AS project_key,
+          CAST(NULL AS VARCHAR) AS agent_tools_id,
+          CAST(NULL AS VARCHAR) AS agent_tools_name,
+          CAST(NULL AS VARCHAR) AS agent_tools_type,
+          CAST(NULL AS VARCHAR) AS owner_login,
+          CAST(NULL AS VARCHAR) AS last_modified_by_login,
+          CAST(NULL AS TIMESTAMP) AS created_at,
+          CAST(NULL AS TIMESTAMP) AS updated_at,
+          CAST(NULL AS VARCHAR) AS details_json
+        WHERE 1 = 0
+        """.strip(),
+    ),
+    OptionalInventoryContract(
+        source_table="base_api_services_project_metadata",
+        target_table="base_api_services_metadata",
+        empty_select_sql="""
+        SELECT
+          CAST(NULL AS VARCHAR) AS instance_name,
+          CAST(NULL AS VARCHAR) AS project_key,
+          CAST(NULL AS VARCHAR) AS api_services_id,
+          CAST(NULL AS VARCHAR) AS api_services_name,
+          CAST(NULL AS VARCHAR) AS api_services_type,
+          CAST(NULL AS VARCHAR) AS owner_login,
+          CAST(NULL AS VARCHAR) AS last_modified_by_login,
+          CAST(NULL AS TIMESTAMP) AS created_at,
+          CAST(NULL AS TIMESTAMP) AS updated_at,
+          CAST(NULL AS VARCHAR) AS details_json
+        WHERE 1 = 0
+        """.strip(),
+    ),
+    OptionalInventoryContract(
+        source_table="base_dashboards_project_metadata",
+        target_table="base_dashboards_metadata",
+        empty_select_sql="""
+        SELECT
+          CAST(NULL AS VARCHAR) AS instance_name,
+          CAST(NULL AS VARCHAR) AS project_key,
+          CAST(NULL AS VARCHAR) AS dashboard_id,
+          CAST(NULL AS VARCHAR) AS dashboard_name,
+          CAST(NULL AS VARCHAR) AS dashboard_kind,
+          CAST(NULL AS VARCHAR) AS owner_login,
+          CAST(NULL AS VARCHAR) AS last_modified_by_login,
+          CAST(NULL AS TIMESTAMP) AS created_at,
+          CAST(NULL AS TIMESTAMP) AS updated_at,
+          CAST(NULL AS VARCHAR) AS details_json
+        WHERE 1 = 0
+        """.strip(),
+    ),
+    OptionalInventoryContract(
+        source_table="base_insights_project_metadata",
+        target_table="base_insights_metadata",
+        empty_select_sql="""
+        SELECT
+          CAST(NULL AS VARCHAR) AS instance_name,
+          CAST(NULL AS VARCHAR) AS project_key,
+          CAST(NULL AS VARCHAR) AS insights_id,
+          CAST(NULL AS VARCHAR) AS insights_name,
+          CAST(NULL AS VARCHAR) AS insights_type,
+          CAST(NULL AS VARCHAR) AS owner_login,
+          CAST(NULL AS VARCHAR) AS last_modified_by_login,
+          CAST(NULL AS TIMESTAMP) AS created_at,
+          CAST(NULL AS TIMESTAMP) AS updated_at,
+          CAST(NULL AS VARCHAR) AS details_json
+        WHERE 1 = 0
+        """.strip(),
+    ),
+    OptionalInventoryContract(
+        source_table="base_retrieval_augmented_llms_project_metadata",
+        target_table="base_retrieval_augmented_llms_metadata",
+        empty_select_sql="""
+        SELECT
+          CAST(NULL AS VARCHAR) AS instance_name,
+          CAST(NULL AS VARCHAR) AS project_key,
+          CAST(NULL AS VARCHAR) AS retrieval_augmented_llms_id,
+          CAST(NULL AS VARCHAR) AS retrieval_augmented_llms_activeversion,
+          CAST(NULL AS VARCHAR) AS owner_login,
+          CAST(NULL AS VARCHAR) AS last_modified_by_login,
+          CAST(NULL AS TIMESTAMP) AS created_at,
+          CAST(NULL AS TIMESTAMP) AS updated_at,
+          CAST(NULL AS VARCHAR) AS details_json
+        WHERE 1 = 0
+        """.strip(),
+    ),
+    OptionalInventoryContract(
+        source_table="base_saved_models_project_metadata",
+        target_table="base_saved_models_metadata",
+        empty_select_sql="""
+        SELECT
+          CAST(NULL AS VARCHAR) AS instance_name,
+          CAST(NULL AS VARCHAR) AS project_key,
+          CAST(NULL AS VARCHAR) AS saved_models_id,
+          CAST(NULL AS VARCHAR) AS saved_models_name,
+          CAST(NULL AS VARCHAR) AS saved_models_type,
+          CAST(NULL AS VARCHAR) AS saved_models_backendtype,
+          CAST(NULL AS VARCHAR) AS saved_models_predictiontype,
+          CAST(NULL AS VARCHAR) AS owner_login,
+          CAST(NULL AS VARCHAR) AS last_modified_by_login,
+          CAST(NULL AS TIMESTAMP) AS created_at,
+          CAST(NULL AS TIMESTAMP) AS updated_at,
+          CAST(NULL AS VARCHAR) AS details_json
+        WHERE 1 = 0
+        """.strip(),
+    ),
+    OptionalInventoryContract(
+        source_table="base_webapps_project_metadata",
+        target_table="base_webapps_metadata",
+        empty_select_sql="""
+        SELECT
+          CAST(NULL AS VARCHAR) AS instance_name,
+          CAST(NULL AS VARCHAR) AS project_key,
+          CAST(NULL AS VARCHAR) AS webapp_id,
+          CAST(NULL AS VARCHAR) AS webapp_name,
+          CAST(NULL AS VARCHAR) AS webapp_type,
+          CAST(NULL AS VARCHAR) AS owner_login,
+          CAST(NULL AS TIMESTAMP) AS created_at,
+          CAST(NULL AS TIMESTAMP) AS updated_at,
+          CAST(NULL AS VARCHAR) AS last_modified_by_login
+        WHERE 1 = 0
+        """.strip(),
+    ),
+    OptionalInventoryContract(
+        source_table="base_apps_instance_metadata",
+        target_table="base_dataiku_applications_metadata",
+        empty_select_sql="""
+        SELECT
+          CAST(NULL AS VARCHAR) AS instance_name,
+          CAST(NULL AS VARCHAR) AS project_key,
+          CAST(NULL AS VARCHAR) AS application_id,
+          CAST(NULL AS VARCHAR) AS application_name,
+          CAST(NULL AS VARCHAR) AS application_kind,
+          CAST(NULL AS VARCHAR) AS owner_login,
+          CAST(NULL AS VARCHAR) AS last_modified_by_login,
+          CAST(NULL AS TIMESTAMP) AS created_at,
+          CAST(NULL AS TIMESTAMP) AS updated_at,
+          CAST(NULL AS VARCHAR) AS details_json
+        WHERE 1 = 0
+        """.strip(),
+    ),
+)
 
 
 def _utc_now_iso() -> str:
@@ -292,20 +452,71 @@ def _replace_view_from_query(conn, *, view_name: str, source_table: str, select_
     conn.execute(f'CREATE VIEW {quote_identifier(view_name)} AS {select_sql}')  # nosec B608
 
 
-def _maybe_create_inventory_views(conn) -> None:
+def _create_empty_optional_inventory_table(conn, *, contract: OptionalInventoryContract) -> None:
+    conn.execute(
+        f"CREATE OR REPLACE TABLE {quote_identifier(contract.target_table)} AS {contract.empty_select_sql};"  # nosec B608
+    )
+
+
+def _failed_load_error_by_table(load_report: dict | None) -> dict[str, str]:
+    failures: dict[str, str] = {}
+    if not isinstance(load_report, dict):
+        return failures
+
+    failed = load_report.get("failed")
+    if not isinstance(failed, list):
+        return failures
+
+    for entry in failed:
+        if isinstance(entry, dict) and entry.get("table"):
+            failures[str(entry["table"])] = str(entry.get("error") or "GOLD table load failed")
+    return failures
+
+
+def _maybe_create_inventory_views(
+    conn,
+    *,
+    allowed_names: set[str] | None = None,
+    load_report: dict | None = None,
+) -> dict[str, object]:
     """Create compatibility views for inventory tables when base tables are absent."""
 
-    for table_name in [
-        "base_agent_tools_metadata",
-        "base_api_services_metadata",
-        "base_dashboards_metadata",
-        "base_insights_metadata",
-        "base_retrieval_augmented_llms_metadata",
-        "base_saved_models_metadata",
-        "base_webapps_metadata",
-        "base_dataiku_applications_metadata",
-    ]:
-        _ensure_table_exists(conn, table_name=table_name)
+    optional_absent: list[dict[str, str]] = []
+    created: list[str] = []
+    load_failed_by_table = _failed_load_error_by_table(load_report)
+    for contract in _OPTIONAL_INVENTORY_CONTRACTS:
+        if _table_exists(conn, contract.target_table):
+            continue
+
+        if _object_type(conn, contract.source_table):
+            if _ensure_table_exists(conn, table_name=contract.target_table):
+                created.append(contract.target_table)
+            continue
+
+        if contract.source_table in load_failed_by_table:
+            raise RuntimeError(
+                f"Optional inventory source {contract.source_table} was discovered but failed to load: "
+                f"{load_failed_by_table[contract.source_table]}"
+            )
+
+        if allowed_names is not None and contract.source_table in allowed_names:
+            raise RuntimeError(
+                f"Optional inventory source {contract.source_table} was discovered but was not created in DuckDB."
+            )
+
+        _create_empty_optional_inventory_table(conn, contract=contract)
+        created.append(contract.target_table)
+        warning = {
+            "source": contract.source_table,
+            "target": contract.target_table,
+            "reason": "optional_source_absent",
+            "message": (
+                f"Optional inventory source {contract.source_table} was absent; "
+                f"created empty compatible table {contract.target_table}."
+            ),
+        }
+        optional_absent.append(warning)
+        logger.warning("DuckDB init: %s", warning["message"])
 
     _replace_view_from_query(
         conn,
@@ -400,6 +611,8 @@ def _maybe_create_inventory_views(conn) -> None:
         source_table="fact_object_activity_events",
         select_sql="SELECT * FROM fact_object_activity_events",
     )
+
+    return {"ok": True, "created": created, "optional_absent": optional_absent}
 
 
 def ensure_consumption_product_views(conn) -> dict[str, object]:
@@ -826,10 +1039,16 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                     # the UI-facing `base_*_metadata` tables expected by view specs.
                     inventory_started = time.time()
                     _set_status_callback("inventory_views", "Creating compatibility views")
-                    _maybe_create_inventory_views(conn)
+                    inventory_report = _maybe_create_inventory_views(
+                        conn,
+                        allowed_names=allowed_names,
+                        load_report=report,
+                    )
                     logger.info(
-                        "DuckDB ensure_database_ready: inventory compatibility views ready in %.3fs",
+                        "DuckDB ensure_database_ready: inventory compatibility views ready in %.3fs created=%s optional_absent=%s",
                         time.time() - inventory_started,
+                        len(cast(list[object], inventory_report.get("created", []))),
+                        len(cast(list[object], inventory_report.get("optional_absent", []))),
                     )
 
                     license_started = time.time()
@@ -915,6 +1134,7 @@ def ensure_database_ready(*, load_gold_tables: bool | None = None, replace_gold_
                         "gold_loaded": gold_tables_loaded,
                         "reason": reason,
                         "report": report,
+                        "inventory_views": inventory_report,
                         "license_views": license_report,
                         "dev_activity_tables": dev_activity_report,
                         "required_gold_tables": required_gold_report,
