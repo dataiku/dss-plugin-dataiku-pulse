@@ -15,7 +15,12 @@ fact_dev_activity_events:
           CAST(NULL AS VARCHAR) AS project_key,
           CAST(NULL AS VARCHAR) AS callpath,
           CAST(NULL AS VARCHAR) AS extras,
+          CAST(NULL AS VARCHAR) AS activity_origin,
+          CAST(NULL AS VARCHAR) AS authsource,
+          CAST(NULL AS BOOLEAN) AS has_scenario_marker,
+          CAST(NULL AS BOOLEAN) AS has_job_marker,
+          CAST(NULL AS VARCHAR) AS activity_origin_evidence,
           CAST(NULL AS TIMESTAMP) AS run_timestamp
     WHERE 1=0;
   example_data: |
-    INSERT INTO "fact_dev_activity_events" (timestamp, instance_name, login, msgtype, msgtypebase, dataiku_category, project_key, callpath, extras) VALUES (TIMESTAMP '2026-03-23 12:00:00', 'dss-prod', 'alice', 'msgtype_example', 'msgtypebase_example', 'dataiku_category_example', 'FIN', callpath_example', 'extras_example');
+    INSERT INTO "fact_dev_activity_events" (timestamp, instance_name, login, msgtype, msgtypebase, dataiku_category, project_key, callpath, extras, activity_origin, authsource, has_scenario_marker, has_job_marker, activity_origin_evidence) VALUES (TIMESTAMP '2026-03-23 12:00:00', 'dss-prod', 'alice', 'msgtype_example', 'msgtypebase_example', 'dataiku_category_example', 'FIN', 'callpath_example', 'extras_example', 'direct_ui_user', 'USER_FROM_UI', FALSE, FALSE, 'ui_no_automation_marker');

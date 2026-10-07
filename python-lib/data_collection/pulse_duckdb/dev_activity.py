@@ -7,7 +7,7 @@ import yaml
 
 from data_collection.data_normalizer.flatten_config import _slug
 from data_collection.pulse_duckdb.duckdb_manager import prepare_duckdb
-from data_collection.pulse_duckdb.object_activity import _create_event_mapping_module_view
+from data_collection.pulse_duckdb.object_activity import _create_event_mapping_module_view, _view_columns
 from data_collection.pulse_duckdb.sql_utils import log_phase_snapshot, log_table_stats, log_timed_phase
 
 
@@ -202,6 +202,149 @@ def build_dim_dev_activity_event_classification(
     return "dim_dev_activity_event_classification"
 
 
+def _dev_activity_events_branch_sql(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    view_name: str,
+) -> str:
+    view_columns = _view_columns(conn, view_name)
+    extras_expr = "CAST(e.extras AS VARCHAR)" if "extras" in view_columns else "CAST(NULL AS VARCHAR)"
+    extras_json_expr = (
+        "CASE "
+        f"WHEN json_type(try_cast({extras_expr} AS JSON)) = 'OBJECT' "
+        f"THEN try_cast({extras_expr} AS JSON) "
+        "ELSE NULL END"
+    )
+
+    def _has_column(name: str) -> bool:
+        return name.lower() in view_columns
+
+    def _null_if_empty(expr: str) -> str:
+        return f"NULLIF(TRIM(CAST({expr} AS VARCHAR)), '')"
+
+    def _native_text(*names: str) -> str:
+        exprs = [_null_if_empty(f"e.{name}") for name in names if _has_column(name)]
+        if not exprs:
+            return "CAST(NULL AS VARCHAR)"
+        if len(exprs) == 1:
+            return exprs[0]
+        return "COALESCE(" + ", ".join(exprs) + ")"
+
+    def _json_text(*paths: str) -> str:
+        exprs = [_null_if_empty(f"json_extract_string({extras_json_expr}, '{path}')") for path in paths]
+        return "COALESCE(" + ", ".join(exprs) + ")"
+
+    authsource_expr = _native_text("authsource")
+    authvia_expr = _native_text("authvia")
+    timestamp_exprs = [f"e.{name}" for name in ("timestamp", "date") if _has_column(name)]
+    timestamp_expr = (
+        "COALESCE(" + ", ".join(timestamp_exprs) + ")"
+        if timestamp_exprs
+        else "CAST(NULL AS TIMESTAMP)"
+    )
+    explicit_scenario_marker_expr = "COALESCE(" + ", ".join(
+        [
+            _native_text("scenarioid", "smartscenarioid"),
+            _json_text(
+                "$.scenarioid",
+                "$.smartscenarioid",
+                "$.message_scenarioId",
+                "$.message_scenarioid",
+                "$.scenarioId",
+                "$.smartScenarioId",
+            ),
+        ]
+    ) + ")"
+    explicit_job_marker_expr = "COALESCE(" + ", ".join(
+        [
+            _native_text("jobid"),
+            _json_text("$.jobid", "$.message_jobId", "$.message_jobid", "$.jobId"),
+        ]
+    ) + ")"
+
+    return f"""
+        WITH source_events AS (
+          SELECT
+            try_cast({timestamp_expr} AS TIMESTAMP) AS timestamp,
+            instance_name,
+            authuser AS login,
+            msgtype,
+            msgtypebase,
+            dataiku_category,
+            project_key,
+            callpath,
+            extras,
+            {authsource_expr} AS authsource,
+            {authvia_expr} AS authvia,
+            {explicit_scenario_marker_expr} AS explicit_scenario_marker,
+            {explicit_job_marker_expr} AS explicit_job_marker,
+            try_cast(run_ts AS TIMESTAMP) AS run_timestamp,
+            CAST(year AS INTEGER) AS year,
+            CAST(month AS INTEGER) AS month,
+            CAST(day AS INTEGER) AS day
+          FROM {view_name} e
+        ),
+        classified_events AS (
+          SELECT
+            *,
+            CASE
+              WHEN authvia IS NULL THEN FALSE
+              WHEN regexp_matches(lower(authvia), 'scenario-run:') THEN TRUE
+              WHEN regexp_matches(lower(authvia), 'scenario=') THEN TRUE
+              ELSE FALSE
+            END AS has_authvia_scenario_marker,
+            CASE
+              WHEN authvia IS NULL THEN FALSE
+              WHEN regexp_matches(lower(authvia), 'ticket:job:') THEN TRUE
+              ELSE FALSE
+            END AS has_authvia_job_marker,
+            CASE
+              WHEN authvia IS NULL THEN FALSE
+              WHEN regexp_matches(lower(authvia), 'ticket:')
+                   AND NOT regexp_matches(lower(authvia), 'ticket:job:')
+                   AND NOT regexp_matches(lower(authvia), 'ticket:jupyter:') THEN TRUE
+              WHEN regexp_matches(lower(authvia), 'macro') THEN TRUE
+              ELSE FALSE
+            END AS has_unvalidated_ticket_or_macro_context
+          FROM source_events
+        )
+        SELECT
+          timestamp,
+          instance_name,
+          login,
+          msgtype,
+          msgtypebase,
+          dataiku_category,
+          project_key,
+          callpath,
+          extras,
+          CASE
+            WHEN explicit_scenario_marker IS NOT NULL OR has_authvia_scenario_marker THEN 'scenario_automation'
+            WHEN explicit_job_marker IS NOT NULL OR has_authvia_job_marker THEN 'job_automation'
+            WHEN upper(authsource) = 'PERSONAL_API_KEY' AND NOT has_unvalidated_ticket_or_macro_context THEN 'api_activity'
+            WHEN upper(authsource) = 'USER_FROM_UI' AND NOT has_unvalidated_ticket_or_macro_context THEN 'direct_ui_user'
+            ELSE 'unknown_or_other'
+          END AS activity_origin,
+          authsource,
+          (explicit_scenario_marker IS NOT NULL OR has_authvia_scenario_marker) AS has_scenario_marker,
+          (explicit_job_marker IS NOT NULL OR has_authvia_job_marker) AS has_job_marker,
+          CASE
+            WHEN explicit_scenario_marker IS NOT NULL THEN 'explicit_scenario_marker'
+            WHEN has_authvia_scenario_marker THEN 'authvia_scenario'
+            WHEN explicit_job_marker IS NOT NULL THEN 'explicit_job_marker'
+            WHEN has_authvia_job_marker THEN 'authvia_ticket_job'
+            WHEN upper(authsource) = 'PERSONAL_API_KEY' AND NOT has_unvalidated_ticket_or_macro_context THEN 'personal_api_key'
+            WHEN upper(authsource) = 'USER_FROM_UI' AND NOT has_unvalidated_ticket_or_macro_context THEN 'ui_no_automation_marker'
+            ELSE 'unclassified'
+          END AS activity_origin_evidence,
+          run_timestamp,
+          year,
+          month,
+          day
+        FROM classified_events
+    """.strip()  # nosec B608 (view_name is plugin-controlled)
+
+
 def build_fact_dev_activity_events(
     conn: duckdb.DuckDBPyConnection,
     *,
@@ -226,6 +369,11 @@ def build_fact_dev_activity_events(
               CAST(NULL AS VARCHAR) AS project_key,
               CAST(NULL AS VARCHAR) AS callpath,
               CAST(NULL AS VARCHAR) AS extras,
+              CAST(NULL AS VARCHAR) AS activity_origin,
+              CAST(NULL AS VARCHAR) AS authsource,
+              CAST(NULL AS BOOLEAN) AS has_scenario_marker,
+              CAST(NULL AS BOOLEAN) AS has_job_marker,
+              CAST(NULL AS VARCHAR) AS activity_origin_evidence,
               CAST(NULL AS TIMESTAMP) AS run_timestamp,
               CAST(NULL AS INTEGER) AS year,
               CAST(NULL AS INTEGER) AS month,
@@ -257,24 +405,8 @@ def build_fact_dev_activity_events(
                     continue
 
                 inserted_any = True
-                insert_sql = f"""
-                    INSERT INTO fact_dev_activity_events
-                    SELECT
-                      try_cast(COALESCE(timestamp, date) AS TIMESTAMP) AS timestamp,
-                      instance_name,
-                      authuser AS login,
-                      msgtype,
-                      msgtypebase,
-                      dataiku_category,
-                      project_key,
-                      callpath,
-                      extras,
-                      try_cast(run_ts AS TIMESTAMP) AS run_timestamp,
-                      CAST(year AS INTEGER) AS year,
-                      CAST(month AS INTEGER) AS month,
-                      CAST(day AS INTEGER) AS day
-                    FROM {view_name}
-                """.strip()  # nosec B608 (view_name is generated from curated toolbox modules and internal slugging; it is not user-controlled)
+                branch_sql = _dev_activity_events_branch_sql(module_setup.conn, view_name=view_name)
+                insert_sql = f"INSERT INTO fact_dev_activity_events {branch_sql}"  # nosec B608 (view_name is generated from curated toolbox modules and internal slugging; it is not user-controlled)
 
                 with log_timed_phase(module_setup.conn, label=insert_label):
                     module_setup.conn.execute(insert_sql)

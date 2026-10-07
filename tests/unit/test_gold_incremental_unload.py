@@ -170,6 +170,13 @@ def test_late_arriving_row_replaces_complete_selected_instance_day(
             ("a", "2026-01-04 00:00:00", 4),
         ],
     )
+    conn.execute("""
+        ALTER TABLE fact_dev_activity_events ADD COLUMN activity_origin VARCHAR DEFAULT 'direct_ui_user';
+        ALTER TABLE fact_dev_activity_events ADD COLUMN authsource VARCHAR DEFAULT 'USER_FROM_UI';
+        ALTER TABLE fact_dev_activity_events ADD COLUMN has_scenario_marker BOOLEAN DEFAULT FALSE;
+        ALTER TABLE fact_dev_activity_events ADD COLUMN has_job_marker BOOLEAN DEFAULT FALSE;
+        ALTER TABLE fact_dev_activity_events ADD COLUMN activity_origin_evidence VARCHAR DEFAULT 'ui_no_automation_marker';
+        """.strip())
     uploaded: dict[str, bytes] = {}
     cleared: list[str] = []
 
@@ -212,6 +219,13 @@ def test_late_arriving_row_replaces_complete_selected_instance_day(
         )
     ).sort_values("value")
     assert day_three_df["value"].tolist() == [2, 99]
+    assert {
+        "activity_origin",
+        "authsource",
+        "has_scenario_marker",
+        "has_job_marker",
+        "activity_origin_evidence",
+    } <= set(day_three_df.columns)
 
 
 def test_rows_older_than_adjusted_watermark_are_not_unloaded() -> None:
