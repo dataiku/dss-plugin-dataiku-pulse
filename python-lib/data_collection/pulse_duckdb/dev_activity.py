@@ -205,10 +205,12 @@ def build_dim_dev_activity_event_classification(
 def _dev_activity_events_branch_sql(
     conn: duckdb.DuckDBPyConnection,
     *,
+    module: str,
     view_name: str,
 ) -> str:
     view_columns = _view_columns(conn, view_name)
     extras_expr = "CAST(e.extras AS VARCHAR)" if "extras" in view_columns else "CAST(NULL AS VARCHAR)"
+    uses_explicit_origin_markers = _slug(module) != "coding"
     extras_json_expr = (
         "CASE "
         f"WHEN json_type(try_cast({extras_expr} AS JSON)) = 'OBJECT' "
@@ -231,6 +233,8 @@ def _dev_activity_events_branch_sql(
         return "COALESCE(" + ", ".join(exprs) + ")"
 
     def _json_text(*paths: str) -> str:
+        if not uses_explicit_origin_markers:
+            return "CAST(NULL AS VARCHAR)"
         exprs = [_null_if_empty(f"json_extract_string({extras_json_expr}, '{path}')") for path in paths]
         return "COALESCE(" + ", ".join(exprs) + ")"
 
@@ -242,25 +246,29 @@ def _dev_activity_events_branch_sql(
         if timestamp_exprs
         else "CAST(NULL AS TIMESTAMP)"
     )
-    explicit_scenario_marker_expr = "COALESCE(" + ", ".join(
-        [
-            _native_text("scenarioid", "smartscenarioid"),
-            _json_text(
-                "$.scenarioid",
-                "$.smartscenarioid",
-                "$.message_scenarioId",
-                "$.message_scenarioid",
-                "$.scenarioId",
-                "$.smartScenarioId",
-            ),
-        ]
-    ) + ")"
-    explicit_job_marker_expr = "COALESCE(" + ", ".join(
-        [
-            _native_text("jobid"),
-            _json_text("$.jobid", "$.message_jobId", "$.message_jobid", "$.jobId"),
-        ]
-    ) + ")"
+    if uses_explicit_origin_markers:
+        explicit_scenario_marker_expr = "COALESCE(" + ", ".join(
+            [
+                _native_text("scenarioid", "smartscenarioid"),
+                _json_text(
+                    "$.scenarioid",
+                    "$.smartscenarioid",
+                    "$.message_scenarioId",
+                    "$.message_scenarioid",
+                    "$.scenarioId",
+                    "$.smartScenarioId",
+                ),
+            ]
+        ) + ")"
+        explicit_job_marker_expr = "COALESCE(" + ", ".join(
+            [
+                _native_text("jobid"),
+                _json_text("$.jobid", "$.message_jobId", "$.message_jobid", "$.jobId"),
+            ]
+        ) + ")"
+    else:
+        explicit_scenario_marker_expr = "CAST(NULL AS VARCHAR)"
+        explicit_job_marker_expr = "CAST(NULL AS VARCHAR)"
 
     return f"""
         WITH source_events AS (
@@ -406,7 +414,11 @@ def build_fact_dev_activity_events(
                     continue
 
                 inserted_any = True
-                branch_sql = _dev_activity_events_branch_sql(module_setup.conn, view_name=view_name)
+                branch_sql = _dev_activity_events_branch_sql(
+                    module_setup.conn,
+                    module=module_name,
+                    view_name=view_name,
+                )
                 insert_sql = f"INSERT INTO fact_dev_activity_events {branch_sql}"  # nosec B608 (view_name is generated from curated toolbox modules and internal slugging; it is not user-controlled)
 
                 with log_timed_phase(module_setup.conn, label=insert_label):

@@ -100,11 +100,33 @@ def _create_event_mapping_view_for_origin_test(conn: duckdb.DuckDBPyConnection) 
     )
 
 
-def _create_origin_fact_for_test(conn: duckdb.DuckDBPyConnection) -> None:
+def _create_origin_fact_for_test(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    module: str = "visual_recipes",
+    view_name: str = "v_event_mapping__visual_recipes",
+) -> None:
     branch_sql = _dev_activity_events_branch_sql(
-        conn, view_name="v_event_mapping__visual_recipes"
+        conn, module=module, view_name=view_name
     )
     conn.execute(f"CREATE OR REPLACE TABLE fact_dev_activity_events AS {branch_sql}")
+
+
+def _create_coding_event_mapping_view_for_origin_test(conn: duckdb.DuckDBPyConnection) -> None:
+    conn.execute("""
+        CREATE OR REPLACE TABLE source_coding_event_mapping AS
+        SELECT * FROM (
+          VALUES
+            (1, TIMESTAMP '2026-01-01 10:00:00', 'inst1', 'alice', 'code-studio-action-create', 'code-studio', 'coding', 'FIN', '/projects/FIN', '{"scenarioId":"scenario-from-extras"}', 'USER_FROM_UI', NULL, NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
+            (2, TIMESTAMP '2026-01-01 11:00:00', 'inst1', 'alice', 'code-studio-action-create', 'code-studio', 'coding', 'FIN', '/projects/FIN', '{"message_jobId":"job-from-extras"}', 'PERSONAL_API_KEY', NULL, NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
+            (3, TIMESTAMP '2026-01-01 12:00:00', 'inst1', 'alice', 'code-studio-action-create', 'code-studio', 'coding', 'FIN', '/projects/FIN', NULL, 'USER_FROM_UI', 'scenario-run:FIN.SCENARIO', NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
+            (4, TIMESTAMP '2026-01-01 13:00:00', 'inst1', 'alice', 'code-studio-action-create', 'code-studio', 'coding', 'FIN', '/projects/FIN', NULL, 'USER_FROM_UI', 'ticket:job:FIN.JOB', NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
+            (5, TIMESTAMP '2026-01-01 14:00:00', 'inst1', 'alice', 'code-studio-action-create', 'code-studio', 'coding', 'FIN', '/projects/FIN', '{bad', 'USER_FROM_UI', NULL, NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1)
+        ) AS t(row_id, timestamp, instance_name, authuser, msgtype, msgtypebase, dataiku_category, project_key, callpath, extras, authsource, authvia, scenarioid, jobid, run_ts, year, month, day)
+        """.strip())
+    conn.execute(
+        "CREATE OR REPLACE VIEW v_event_mapping__coding AS SELECT * FROM source_coding_event_mapping"
+    )
 
 
 @pytest.fixture()
@@ -292,6 +314,145 @@ def test_activity_classes_are_from_supported_set(classification_rows):
         _slug(str(row.get("activity_class") or "")) for row in classification_rows
     }
     assert actual <= ALLOWED_CLASSES
+
+
+def test_coding_origin_ignores_scenario_and_job_candidates_only_in_extras(conn):
+    _create_coding_event_mapping_view_for_origin_test(conn)
+    _create_origin_fact_for_test(
+        conn, module="coding", view_name="v_event_mapping__coding"
+    )
+
+    rows = conn.execute("""
+        SELECT
+          strftime(timestamp, '%H:%M') AS event_time,
+          activity_origin,
+          has_scenario_marker,
+          has_job_marker,
+          activity_origin_evidence,
+          extras
+        FROM fact_dev_activity_events
+        WHERE event_time IN ('10:00', '11:00')
+        ORDER BY timestamp
+        """.strip()).fetchall()
+
+    assert rows == [
+        (
+            "10:00",
+            "direct_ui_user",
+            False,
+            False,
+            "ui_no_automation_marker",
+            '{"scenarioId":"scenario-from-extras"}',
+        ),
+        (
+            "11:00",
+            "api_activity",
+            False,
+            False,
+            "personal_api_key",
+            '{"message_jobId":"job-from-extras"}',
+        ),
+    ]
+
+
+def test_coding_origin_recognizes_authvia_scenario_and_job_patterns(conn):
+    _create_coding_event_mapping_view_for_origin_test(conn)
+    _create_origin_fact_for_test(
+        conn, module="coding", view_name="v_event_mapping__coding"
+    )
+
+    rows = conn.execute("""
+        SELECT
+          strftime(timestamp, '%H:%M') AS event_time,
+          activity_origin,
+          has_scenario_marker,
+          has_job_marker,
+          activity_origin_evidence
+        FROM fact_dev_activity_events
+        WHERE event_time IN ('12:00', '13:00')
+        ORDER BY timestamp
+        """.strip()).fetchall()
+
+    assert rows == [
+        ("12:00", "scenario_automation", True, False, "authvia_scenario"),
+        ("13:00", "job_automation", False, True, "authvia_ticket_job"),
+    ]
+
+
+def test_coding_origin_sql_does_not_parse_extras(conn):
+    _create_coding_event_mapping_view_for_origin_test(conn)
+
+    branch_sql = _dev_activity_events_branch_sql(
+        conn, module="coding", view_name="v_event_mapping__coding"
+    )
+
+    assert "extras" in branch_sql
+    assert "json_extract_string" not in branch_sql
+    assert "try_cast(CAST(e.extras AS VARCHAR) AS JSON)" not in branch_sql
+
+
+def test_coding_origin_preserves_one_row_per_event_with_malformed_extras(conn):
+    _create_coding_event_mapping_view_for_origin_test(conn)
+    _create_origin_fact_for_test(
+        conn, module="coding", view_name="v_event_mapping__coding"
+    )
+
+    row_count, distinct_timestamp_count = conn.execute("""
+        SELECT COUNT(*), COUNT(DISTINCT timestamp)
+        FROM fact_dev_activity_events
+        """.strip()).fetchone()
+    malformed_row = conn.execute("""
+        SELECT activity_origin, has_scenario_marker, has_job_marker, activity_origin_evidence, extras
+        FROM fact_dev_activity_events
+        WHERE strftime(timestamp, '%H:%M') = '14:00'
+        """.strip()).fetchone()
+
+    assert row_count == 5
+    assert distinct_timestamp_count == 5
+    assert malformed_row == (
+        "direct_ui_user",
+        False,
+        False,
+        "ui_no_automation_marker",
+        "{bad",
+    )
+
+
+def test_non_coding_origin_keeps_extras_fallback_and_malformed_json_safety(conn):
+    _create_event_mapping_view_for_origin_test(conn)
+    _create_origin_fact_for_test(conn)
+
+    rows = conn.execute("""
+        SELECT
+          strftime(timestamp, '%H:%M') AS event_time,
+          activity_origin,
+          has_scenario_marker,
+          has_job_marker,
+          activity_origin_evidence,
+          extras
+        FROM fact_dev_activity_events
+        WHERE event_time IN ('15:00', '17:00')
+        ORDER BY timestamp
+        """.strip()).fetchall()
+
+    assert rows == [
+        (
+            "15:00",
+            "job_automation",
+            False,
+            True,
+            "explicit_job_marker",
+            '{"message_jobId":"job-from-extras"}',
+        ),
+        (
+            "17:00",
+            "direct_ui_user",
+            False,
+            False,
+            "ui_no_automation_marker",
+            "{bad",
+        ),
+    ]
 
 
 def test_actor_origin_classification_rules_are_precedence_ordered(conn):
