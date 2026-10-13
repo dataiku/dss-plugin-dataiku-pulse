@@ -103,11 +103,10 @@ def _create_event_mapping_view_for_origin_test(conn: duckdb.DuckDBPyConnection) 
 def _create_origin_fact_for_test(
     conn: duckdb.DuckDBPyConnection,
     *,
-    module: str = "visual_recipes",
     view_name: str = "v_event_mapping__visual_recipes",
 ) -> None:
     branch_sql = _dev_activity_events_branch_sql(
-        conn, module=module, view_name=view_name
+        conn, view_name=view_name
     )
     conn.execute(f"CREATE OR REPLACE TABLE fact_dev_activity_events AS {branch_sql}")
 
@@ -316,50 +315,60 @@ def test_activity_classes_are_from_supported_set(classification_rows):
     assert actual <= ALLOWED_CLASSES
 
 
-def test_coding_origin_ignores_scenario_and_job_candidates_only_in_extras(conn):
+def test_packaged_fact_schema_has_no_extras():
+    fact_sql = yaml.safe_load(
+        Path(
+            "python-lib/pulse_dashboard/pulse_duckdb/datasets/base/fact_dev_activity_events.yaml"
+        ).read_text(encoding="utf-8")
+    )["fact_dev_activity_events"]
+
+    assert "extras" not in fact_sql["sql"].lower()
+    assert "extras" not in fact_sql["example_data"].lower()
+
+
+def test_actor_origin_sql_references_no_extras_or_json_for_coding_and_non_coding(conn):
+    _create_event_mapping_view_for_origin_test(conn)
     _create_coding_event_mapping_view_for_origin_test(conn)
-    _create_origin_fact_for_test(
-        conn, module="coding", view_name="v_event_mapping__coding"
-    )
+
+    for view_name in (
+        "v_event_mapping__coding",
+        "v_event_mapping__visual_recipes",
+    ):
+        branch_sql = _dev_activity_events_branch_sql(conn, view_name=view_name)
+        lowered_sql = branch_sql.lower()
+
+        assert "extras" not in lowered_sql
+        assert "json_extract" not in lowered_sql
+        assert "json_type" not in lowered_sql
+        assert " as json" not in lowered_sql
+
+
+def test_origin_ignores_scenario_and_job_candidates_only_in_extras(conn):
+    _create_event_mapping_view_for_origin_test(conn)
+    _create_origin_fact_for_test(conn)
 
     rows = conn.execute("""
         SELECT
           strftime(timestamp, '%H:%M') AS event_time,
           activity_origin,
+          authsource,
           has_scenario_marker,
           has_job_marker,
-          activity_origin_evidence,
-          extras
+          activity_origin_evidence
         FROM fact_dev_activity_events
-        WHERE event_time IN ('10:00', '11:00')
+        WHERE event_time IN ('15:00', '17:00')
         ORDER BY timestamp
         """.strip()).fetchall()
 
     assert rows == [
-        (
-            "10:00",
-            "direct_ui_user",
-            False,
-            False,
-            "ui_no_automation_marker",
-            '{"scenarioId":"scenario-from-extras"}',
-        ),
-        (
-            "11:00",
-            "api_activity",
-            False,
-            False,
-            "personal_api_key",
-            '{"message_jobId":"job-from-extras"}',
-        ),
+        ("15:00", "api_activity", "PERSONAL_API_KEY", False, False, "personal_api_key"),
+        ("17:00", "direct_ui_user", "USER_FROM_UI", False, False, "ui_no_automation_marker"),
     ]
 
 
 def test_coding_origin_recognizes_authvia_scenario_and_job_patterns(conn):
     _create_coding_event_mapping_view_for_origin_test(conn)
-    _create_origin_fact_for_test(
-        conn, module="coding", view_name="v_event_mapping__coding"
-    )
+    _create_origin_fact_for_test(conn, view_name="v_event_mapping__coding")
 
     rows = conn.execute("""
         SELECT
@@ -379,34 +388,22 @@ def test_coding_origin_recognizes_authvia_scenario_and_job_patterns(conn):
     ]
 
 
-def test_coding_origin_sql_does_not_parse_extras(conn):
+def test_origin_fact_schema_has_no_extras_and_preserves_one_row_per_event(conn):
     _create_coding_event_mapping_view_for_origin_test(conn)
+    _create_origin_fact_for_test(conn, view_name="v_event_mapping__coding")
 
-    branch_sql = _dev_activity_events_branch_sql(
-        conn, module="coding", view_name="v_event_mapping__coding"
-    )
-
-    assert "extras" in branch_sql
-    assert "json_extract_string" not in branch_sql
-    assert "try_cast(CAST(e.extras AS VARCHAR) AS JSON)" not in branch_sql
-
-
-def test_coding_origin_preserves_one_row_per_event_with_malformed_extras(conn):
-    _create_coding_event_mapping_view_for_origin_test(conn)
-    _create_origin_fact_for_test(
-        conn, module="coding", view_name="v_event_mapping__coding"
-    )
-
+    columns = {row[0] for row in conn.execute("DESCRIBE fact_dev_activity_events").fetchall()}
     row_count, distinct_timestamp_count = conn.execute("""
         SELECT COUNT(*), COUNT(DISTINCT timestamp)
         FROM fact_dev_activity_events
         """.strip()).fetchone()
     malformed_row = conn.execute("""
-        SELECT activity_origin, has_scenario_marker, has_job_marker, activity_origin_evidence, extras
+        SELECT activity_origin, has_scenario_marker, has_job_marker, activity_origin_evidence
         FROM fact_dev_activity_events
         WHERE strftime(timestamp, '%H:%M') = '14:00'
         """.strip()).fetchone()
 
+    assert "extras" not in columns
     assert row_count == 5
     assert distinct_timestamp_count == 5
     assert malformed_row == (
@@ -414,45 +411,7 @@ def test_coding_origin_preserves_one_row_per_event_with_malformed_extras(conn):
         False,
         False,
         "ui_no_automation_marker",
-        "{bad",
     )
-
-
-def test_non_coding_origin_keeps_extras_fallback_and_malformed_json_safety(conn):
-    _create_event_mapping_view_for_origin_test(conn)
-    _create_origin_fact_for_test(conn)
-
-    rows = conn.execute("""
-        SELECT
-          strftime(timestamp, '%H:%M') AS event_time,
-          activity_origin,
-          has_scenario_marker,
-          has_job_marker,
-          activity_origin_evidence,
-          extras
-        FROM fact_dev_activity_events
-        WHERE event_time IN ('15:00', '17:00')
-        ORDER BY timestamp
-        """.strip()).fetchall()
-
-    assert rows == [
-        (
-            "15:00",
-            "job_automation",
-            False,
-            True,
-            "explicit_job_marker",
-            '{"message_jobId":"job-from-extras"}',
-        ),
-        (
-            "17:00",
-            "direct_ui_user",
-            False,
-            False,
-            "ui_no_automation_marker",
-            "{bad",
-        ),
-    ]
 
 
 def test_actor_origin_classification_rules_are_precedence_ordered(conn):
@@ -493,11 +452,11 @@ def test_actor_origin_classification_rules_are_precedence_ordered(conn):
         ("14:00", "unknown_or_other", "USER_FROM_UI", False, False, "unclassified"),
         (
             "15:00",
-            "job_automation",
+            "api_activity",
             "PERSONAL_API_KEY",
             False,
-            True,
-            "explicit_job_marker",
+            False,
+            "personal_api_key",
         ),
         (
             "16:00",
@@ -532,16 +491,18 @@ def test_origin_fact_retains_existing_values_and_one_row_per_event(conn):
     _create_origin_fact_for_test(conn)
 
     expected = conn.execute("""
-        SELECT timestamp, instance_name, authuser, msgtype, msgtypebase, dataiku_category, project_key, callpath, extras, run_ts, year, month, day
+        SELECT timestamp, instance_name, authuser, msgtype, msgtypebase, dataiku_category, project_key, callpath, run_ts, year, month, day
         FROM v_event_mapping__visual_recipes
         ORDER BY timestamp
         """.strip()).fetchall()
     actual = conn.execute("""
-        SELECT timestamp, instance_name, login, msgtype, msgtypebase, dataiku_category, project_key, callpath, extras, run_timestamp, year, month, day
+        SELECT timestamp, instance_name, login, msgtype, msgtypebase, dataiku_category, project_key, callpath, run_timestamp, year, month, day
         FROM fact_dev_activity_events
         ORDER BY timestamp
         """.strip()).fetchall()
+    columns = {row[0] for row in conn.execute("DESCRIBE fact_dev_activity_events").fetchall()}
 
+    assert "extras" not in columns
     assert actual == expected
     assert (
         conn.execute("SELECT COUNT(*) FROM fact_dev_activity_events").fetchone()[0]
@@ -589,6 +550,7 @@ def test_final_view_exposes_actor_origin_without_changing_user_attribution(conn)
             "DESCRIBE final_build_development_activity_events"
         ).fetchall()
     }
+    assert "extras" not in columns
     assert {
         "activity_origin",
         "authsource",

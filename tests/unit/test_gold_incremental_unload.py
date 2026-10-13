@@ -219,6 +219,7 @@ def test_late_arriving_row_replaces_complete_selected_instance_day(
         )
     ).sort_values("value")
     assert day_three_df["value"].tolist() == [2, 99]
+    assert "extras" not in set(day_three_df.columns)
     assert {
         "activity_origin",
         "authsource",

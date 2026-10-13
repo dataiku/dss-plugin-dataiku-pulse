@@ -205,18 +205,9 @@ def build_dim_dev_activity_event_classification(
 def _dev_activity_events_branch_sql(
     conn: duckdb.DuckDBPyConnection,
     *,
-    module: str,
     view_name: str,
 ) -> str:
     view_columns = _view_columns(conn, view_name)
-    extras_expr = "CAST(e.extras AS VARCHAR)" if "extras" in view_columns else "CAST(NULL AS VARCHAR)"
-    uses_explicit_origin_markers = _slug(module) != "coding"
-    extras_json_expr = (
-        "CASE "
-        f"WHEN json_type(try_cast({extras_expr} AS JSON)) = 'OBJECT' "
-        f"THEN try_cast({extras_expr} AS JSON) "
-        "ELSE NULL END"
-    )
 
     def _has_column(name: str) -> bool:
         return name.lower() in view_columns
@@ -232,12 +223,6 @@ def _dev_activity_events_branch_sql(
             return exprs[0]
         return "COALESCE(" + ", ".join(exprs) + ")"
 
-    def _json_text(*paths: str) -> str:
-        if not uses_explicit_origin_markers:
-            return "CAST(NULL AS VARCHAR)"
-        exprs = [_null_if_empty(f"json_extract_string({extras_json_expr}, '{path}')") for path in paths]
-        return "COALESCE(" + ", ".join(exprs) + ")"
-
     authsource_expr = _native_text("authsource")
     authvia_expr = _native_text("authvia")
     timestamp_exprs = [f"e.{name}" for name in ("timestamp", "date") if _has_column(name)]
@@ -246,29 +231,8 @@ def _dev_activity_events_branch_sql(
         if timestamp_exprs
         else "CAST(NULL AS TIMESTAMP)"
     )
-    if uses_explicit_origin_markers:
-        explicit_scenario_marker_expr = "COALESCE(" + ", ".join(
-            [
-                _native_text("scenarioid", "smartscenarioid"),
-                _json_text(
-                    "$.scenarioid",
-                    "$.smartscenarioid",
-                    "$.message_scenarioId",
-                    "$.message_scenarioid",
-                    "$.scenarioId",
-                    "$.smartScenarioId",
-                ),
-            ]
-        ) + ")"
-        explicit_job_marker_expr = "COALESCE(" + ", ".join(
-            [
-                _native_text("jobid"),
-                _json_text("$.jobid", "$.message_jobId", "$.message_jobid", "$.jobId"),
-            ]
-        ) + ")"
-    else:
-        explicit_scenario_marker_expr = "CAST(NULL AS VARCHAR)"
-        explicit_job_marker_expr = "CAST(NULL AS VARCHAR)"
+    explicit_scenario_marker_expr = _native_text("scenarioid", "smartscenarioid")
+    explicit_job_marker_expr = _native_text("jobid")
 
     return f"""
         WITH source_events AS (
@@ -281,7 +245,6 @@ def _dev_activity_events_branch_sql(
             dataiku_category,
             project_key,
             callpath,
-            extras,
             {authsource_expr} AS authsource,
             {authvia_expr} AS authvia,
             {explicit_scenario_marker_expr} AS explicit_scenario_marker,
@@ -326,7 +289,6 @@ def _dev_activity_events_branch_sql(
           dataiku_category,
           project_key,
           callpath,
-          extras,
           CASE
             WHEN explicit_scenario_marker IS NOT NULL OR has_authvia_scenario_marker THEN 'scenario_automation'
             WHEN explicit_job_marker IS NOT NULL OR has_authvia_job_marker THEN 'job_automation'
@@ -377,7 +339,6 @@ def build_fact_dev_activity_events(
               CAST(NULL AS VARCHAR) AS dataiku_category,
               CAST(NULL AS VARCHAR) AS project_key,
               CAST(NULL AS VARCHAR) AS callpath,
-              CAST(NULL AS VARCHAR) AS extras,
               CAST(NULL AS VARCHAR) AS activity_origin,
               CAST(NULL AS VARCHAR) AS authsource,
               CAST(NULL AS BOOLEAN) AS has_scenario_marker,
