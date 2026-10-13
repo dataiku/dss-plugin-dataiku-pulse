@@ -2,12 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+from types import SimpleNamespace
 
 import duckdb
 import pytest
 import yaml
 
-from data_collection.pulse_duckdb.dev_activity import _dev_activity_events_branch_sql
+from data_collection.pulse_duckdb import dev_activity as dev_activity_module
+from data_collection.pulse_duckdb.dev_activity import (
+    _dev_activity_events_branch_sql,
+    build_fact_dev_activity_events,
+)
 
 ALLOWED_CLASSES = {
     "meaningful_action",
@@ -313,6 +318,53 @@ def test_activity_classes_are_from_supported_set(classification_rows):
         _slug(str(row.get("activity_class") or "")) for row in classification_rows
     }
     assert actual <= ALLOWED_CLASSES
+
+
+def test_build_fact_dev_activity_events_module_loop_reaches_insert(monkeypatch, tmp_path):
+    class NoCloseConnection:
+        def __init__(self, inner: duckdb.DuckDBPyConnection):
+            self.inner = inner
+
+        def execute(self, *args, **kwargs):
+            return self.inner.execute(*args, **kwargs)
+
+        def sql(self, *args, **kwargs):
+            return self.inner.sql(*args, **kwargs)
+
+        def close(self) -> None:
+            return None
+
+    connection = duckdb.connect(str(tmp_path / "dev_activity.duckdb"))
+    module_setup = SimpleNamespace(conn=NoCloseConnection(connection))
+
+    def create_module_view(module_conn, *, ctx, module, view_name):
+        assert module == "coding"
+        assert view_name == "v_event_mapping__coding"
+        _create_coding_event_mapping_view_for_origin_test(module_conn)
+        return view_name
+
+    monkeypatch.setattr(dev_activity_module, "load_dev_toolbox_modules", lambda _base_dir: ["coding"])
+    monkeypatch.setattr(dev_activity_module, "prepare_duckdb", lambda **_kwargs: module_setup)
+    monkeypatch.setattr(dev_activity_module, "_create_event_mapping_module_view", create_module_view)
+
+    try:
+        result = build_fact_dev_activity_events(
+            connection,
+            ctx=SimpleNamespace(),
+            base_dir=Path("unused"),
+        )
+
+        columns = {
+            row[0]
+            for row in connection.execute("DESCRIBE fact_dev_activity_events").fetchall()
+        }
+        row_count = connection.execute("SELECT COUNT(*) FROM fact_dev_activity_events").fetchone()[0]
+    finally:
+        connection.close()
+
+    assert result == "fact_dev_activity_events"
+    assert row_count == 5
+    assert "extras" not in columns
 
 
 def test_packaged_fact_schema_has_no_extras():

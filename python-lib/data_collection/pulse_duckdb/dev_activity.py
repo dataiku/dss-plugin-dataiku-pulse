@@ -377,7 +377,6 @@ def build_fact_dev_activity_events(
                 inserted_any = True
                 branch_sql = _dev_activity_events_branch_sql(
                     module_setup.conn,
-                    module=module_name,
                     view_name=view_name,
                 )
                 insert_sql = f"INSERT INTO fact_dev_activity_events {branch_sql}"  # nosec B608 (view_name is generated from curated toolbox modules and internal slugging; it is not user-controlled)
