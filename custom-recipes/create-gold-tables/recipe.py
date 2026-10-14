@@ -56,6 +56,7 @@ IMPACT_LABELS = {
     2: "Degraded",
     3: "Critical",
 }
+FAILURE_SUMMARY_ERROR_MAX_CHARS = 240
 
 
 class CreateGoldBestEffortError(RuntimeError):
@@ -110,12 +111,32 @@ def _record_failure(
 
 def _failure_summary(failure_records: list[dict[str, Any]]) -> str:
     highest = max((int(record.get("severity") or 1) for record in failure_records), default=1)
-    affected = ", ".join(str(record.get("target") or "unknown") for record in failure_records)
     plural = "failure" if len(failure_records) == 1 else "failures"
-    return (
-        f"GOLD completed best-effort with {len(failure_records)} {plural}; "
-        f"highest impact: {highest} ({IMPACT_LABELS[highest]}); affected: {affected}"
-    )
+    lines = [
+        (
+            f"GOLD completed best-effort with {len(failure_records)} {plural}; "
+            f"highest impact: {highest} ({IMPACT_LABELS[highest]})."
+        ),
+        "Failures:",
+    ]
+    for record in failure_records:
+        error_parts = []
+        if record.get("error_type"):
+            error_parts.append(str(record["error_type"]))
+        if record.get("error_message"):
+            message = " ".join(str(record["error_message"]).split())
+            if len(message) > FAILURE_SUMMARY_ERROR_MAX_CHARS:
+                message = message[: FAILURE_SUMMARY_ERROR_MAX_CHARS - 3].rstrip() + "..."
+            error_parts.append(message)
+        error_text = ": ".join(error_parts) if error_parts else "n/a"
+        lines.append(
+            "- "
+            f"target={record.get('target') or 'unknown'} "
+            f"stage={record.get('stage') or 'unknown'} "
+            f"impact={record.get('severity') or 1} ({record.get('impact') or IMPACT_LABELS[1]}) "
+            f"error={error_text}"
+        )
+    return "\n".join(lines)
 
 
 def _format_gib(memory_bytes: int) -> str | None:

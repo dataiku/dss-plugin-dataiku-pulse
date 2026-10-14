@@ -344,7 +344,9 @@ def test_recipe_raises_once_after_later_build_and_unload_attempts(
     monkeypatch.setattr(
         recipe_module,
         "build_fact_user_activity_daily",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("daily failed")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("daily failed\n" + ("schema drift detail " * 40))
+        ),
     )
 
     def unload_with_details(*_args, **_kwargs):
@@ -372,8 +374,14 @@ def test_recipe_raises_once_after_later_build_and_unload_attempts(
     message = str(exc_info.value)
     assert "GOLD completed best-effort with 2 failures" in message
     assert "highest impact: 3 (Critical)" in message
-    assert "fact_user_activity_daily" in message
+    assert "target=fact_user_activity_daily stage=build" in message
+    assert "target=fact_user_activity_daily stage=unload" in message
+    assert "error=RuntimeError: daily failed schema drift detail" in message
+    assert "error=OSError: upload failed" in message
+    assert "\nschema drift detail" not in message
+    assert len(message.split("error=RuntimeError: ", 1)[1].split("\n", 1)[0]) <= 260
     assert exc_info.value.result["has_failures"] is True
+    assert "\n" in exc_info.value.result["failure_records"][0]["error_message"]
     assert exc_info.value.result["failed_tables"] == ["fact_user_activity_daily"]
 
 
