@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import tempfile
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 
 import duckdb
@@ -21,6 +22,13 @@ from data_collection.pulse_duckdb.manifest import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class UnloadFailure:
+    table: str
+    error_type: str
+    error_message: str
 
 FACT_TIME_COLUMNS: dict[str, str] = {
     "fact_user_activity_daily": "day",
@@ -743,8 +751,33 @@ def unload_gold_tables(
     incremental_enabled: bool = False,
     lookback_days: int = 0,
 ) -> tuple[list[str], list[str]]:
+    unloaded_tables, failed_tables, _failure_details = unload_gold_tables_with_details(
+        conn,
+        gold_ctx=gold_ctx,
+        gold_folder_lookup=gold_folder_lookup,
+        table_names=table_names,
+        unload_behavior=unload_behavior,
+        manifest=manifest,
+        incremental_enabled=incremental_enabled,
+        lookback_days=lookback_days,
+    )
+    return unloaded_tables, failed_tables
+
+
+def unload_gold_tables_with_details(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    gold_ctx,
+    gold_folder_lookup: str,
+    table_names: Iterable[str],
+    unload_behavior: str,
+    manifest: dict[str, object] | None = None,
+    incremental_enabled: bool = False,
+    lookback_days: int = 0,
+) -> tuple[list[str], list[str], list[UnloadFailure]]:
     unloaded_tables: list[str] = []
     failed_tables: list[str] = []
+    failure_details: list[UnloadFailure] = []
 
     for table_name in table_names:
         try:
@@ -759,8 +792,15 @@ def unload_gold_tables(
                 lookback_days=lookback_days,
             )
             unloaded_tables.append(table_name)
-        except Exception:
+        except Exception as exc:
             logger.exception("Failed GOLD unload: table=%s", table_name)
             failed_tables.append(table_name)
+            failure_details.append(
+                UnloadFailure(
+                    table=table_name,
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                )
+            )
 
-    return unloaded_tables, failed_tables
+    return unloaded_tables, failed_tables, failure_details
