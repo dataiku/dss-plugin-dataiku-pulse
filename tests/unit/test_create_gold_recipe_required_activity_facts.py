@@ -114,7 +114,7 @@ def test_recipe_builds_required_activity_facts_unconditionally(monkeypatch, reci
     monkeypatch.setattr(recipe_module, 'load_dev_toolbox_modules', lambda *_args, **_kwargs: ['module_a'])
     monkeypatch.setattr(recipe_module, 'load_object_activity_modules', lambda *_args, **_kwargs: ['module_b'])
     monkeypatch.setattr(recipe_module, '_create_event_mapping_module_view', lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(recipe_module, 'unload_gold_tables', lambda *_args, **_kwargs: (['fact_dev_activity_events', 'fact_object_activity_events'], []))
+    monkeypatch.setattr(recipe_module, 'unload_gold_tables_with_details', lambda *_args, **_kwargs: (['fact_dev_activity_events', 'fact_object_activity_events'], [], []))
 
     result = recipe_module.run()
 
@@ -235,7 +235,7 @@ def _install_recipe_boundary_test_stubs(monkeypatch, recipe_module, *, config, m
     monkeypatch.setattr(recipe_module, 'load_dev_toolbox_modules', lambda *_args, **_kwargs: [])
     monkeypatch.setattr(recipe_module, 'load_object_activity_modules', lambda *_args, **_kwargs: [])
     monkeypatch.setattr(recipe_module, '_create_event_mapping_module_view', lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(recipe_module, 'unload_gold_tables', lambda *_args, **_kwargs: (['fact_user_activity_daily', 'fact_user_activity_project_daily'], []))
+    monkeypatch.setattr(recipe_module, 'unload_gold_tables_with_details', lambda *_args, **_kwargs: (['fact_user_activity_daily', 'fact_user_activity_project_daily'], [], []))
     return events, user_boundaries
 
 
