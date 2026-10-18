@@ -64,6 +64,7 @@ def test_queue_populates_incrementally_and_preserves_path_alignment(monkeypatch)
         assert summary.total_matched_paths == 5
         assert summary.filtered_matching_paths == 4
         assert summary.skipped_compact_outputs == 1
+        assert summary.included_compact_outputs == 0
         assert summary.excluded_recent_paths == 1
         assert summary.eligible_paths == 3
         assert summary.eligible_partition_count == 2
@@ -82,6 +83,46 @@ def test_queue_populates_incrementally_and_preserves_path_alignment(monkeypatch)
         assert partition.full_paths == [
             "bucket/root/silver/category=event_mapping/module=administration/instance_name=alpha/year=2026/month=08/day=23/source-a.parquet",
             "bucket/root/silver/category=event_mapping/module=administration/instance_name=alpha/year=2026/month=08/day=23/source-b.parquet",
+        ]
+    finally:
+        queue.close()
+
+
+def test_queue_can_include_compact_outputs_only_when_explicit(monkeypatch):
+    import data_collection.audit_logs_modules.compact_silver_queue as queue_module
+
+    monkeypatch.setattr(
+        queue_module,
+        "iter_managed_folder_paths",
+        lambda *args, **kwargs: iter(
+            [
+                "/silver/category=event_mapping/module=mlops/instance_name=alpha/year=2026/month=06/day=11/compact_silver-1790966945713-0001.parquet",
+                "/silver/category=event_mapping/module=mlops/instance_name=alpha/year=2026/month=06/day=11/audit_logs-1-0001.parquet",
+            ]
+        ),
+    )
+    ctx = _Ctx(connection_type="EC2", folder_root="root", bucket_or_container="bucket")
+
+    queue = CompactSilverQueue.create()
+    try:
+        summary = queue.populate_from_discovery(
+            storage_ctx=ctx,
+            relative_prefix="silver/category=event_mapping/module=mlops/",
+            suffix=".parquet",
+            partition_filters={"category": "event_mapping", "module": "mlops"},
+            minimum_age_days=1,
+            include_compact_outputs=True,
+            utc_today=date(2026, 6, 20),
+        )
+
+        assert summary.skipped_compact_outputs == 0
+        assert summary.included_compact_outputs == 1
+        assert summary.filtered_matching_paths == 2
+        assert summary.eligible_paths == 2
+        batch = queue.next_partition_batch(batch_size=1)
+        assert batch.selected_partitions[0].relative_paths == [
+            "/silver/category=event_mapping/module=mlops/instance_name=alpha/year=2026/month=06/day=11/audit_logs-1-0001.parquet",
+            "/silver/category=event_mapping/module=mlops/instance_name=alpha/year=2026/month=06/day=11/compact_silver-1790966945713-0001.parquet",
         ]
     finally:
         queue.close()

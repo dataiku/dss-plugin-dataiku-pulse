@@ -44,6 +44,13 @@
             "defaultValue": true
         },
         {
+            "name": "reprocess_compacted_files",
+            "label": "Reprocess existing compacted SILVER files",
+            "description": "Explicit repair mode: include existing compact_silver-*.parquet files in the selected module/partition scope. Requires Replay Normalizer and Silver checks.",
+            "type": "BOOLEAN",
+            "defaultValue": false
+        },
+        {
             "type": "SELECT",
             "name": "module_filter",
             "label": "Filter on am Event Mapping module",

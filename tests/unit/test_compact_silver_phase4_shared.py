@@ -3,8 +3,11 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
+import io
 
+import duckdb
 import pandas as pd
+import pyarrow.parquet as pq
 import pytest
 
 from data_collection.audit_logs_modules import event_mapping_replay as replay
@@ -13,6 +16,19 @@ import shared_storage_discovery as discovery
 
 class _Ctx(SimpleNamespace):
     pass
+
+
+class _MemoryFolder:
+    def __init__(self):
+        self.files: dict[str, bytes] = {}
+        self.deleted: list[str] = []
+
+    def get_download_stream(self, path: str):
+        return io.BytesIO(self.files[path])
+
+    def delete_path(self, path: str) -> None:
+        self.deleted.append(path)
+        self.files.pop(path, None)
 
 
 def _selected_records() -> list[discovery.SelectedPathRecord]:
@@ -149,6 +165,128 @@ def test_event_mapping_mode_rehydrates_maps_normalizes_and_reports_shapes(monkey
     assert summary.mapper_groups == 1
     assert len(plans) == 1
     assert str(plans[0].output_path).endswith("/compact_silver-1786510805000-0001.parquet")
+
+
+def test_staged_normalized_chunks_preserve_all_null_string_schema(monkeypatch, tmp_path):
+    database_path = tmp_path / "partition.duckdb"
+    con = duckdb.connect(str(database_path))
+    con.execute(
+        """
+        CREATE TABLE dedup_stage AS
+        SELECT * FROM (VALUES
+            (0, '2026-06-11T00:00:00Z', 'null-project'),
+            (1, '2026-06-11T01:00:00Z', 'populated-project')
+        ) AS t(__compact_row_order, timestamp, marker)
+        """.strip()
+    )
+    con.close()
+
+    def fake_mapper(df):
+        return pd.DataFrame(
+            [
+                {
+                    "dataiku_category": "mlops",
+                    "timestamp": row.timestamp,
+                    "project_key": pd.NA if row.marker == "null-project" else "PROJECT_A",
+                    "event_type": row.marker,
+                }
+                for row in df.itertuples(index=False)
+            ]
+        )
+
+    folder = _MemoryFolder()
+
+    def fake_upload(**kwargs):
+        buf = io.BytesIO()
+        kwargs["df"].to_parquet(buf, index=False, engine="pyarrow", compression="snappy")
+        folder.files[f"/{str(kwargs['output_path']).lstrip('/')}"] = buf.getvalue()
+        return True
+
+    monkeypatch.setattr(replay.event_mapping, "main", fake_mapper)
+    monkeypatch.setattr(replay, "get_managed_folder_handle", lambda target: folder)
+    monkeypatch.setattr(replay, "upload_parquet", fake_upload)
+
+    result = replay.process_staged_compact_partition(
+        target=object(),
+        selected_records=[
+            discovery.SelectedPathRecord(
+                relative_path="/silver/category=event_mapping/module=mlops/instance_name=alpha/year=2026/month=06/day=11/compact_silver-1-0001.parquet",
+                full_path="bucket/root/silver/category=event_mapping/module=mlops/instance_name=alpha/year=2026/month=06/day=11/compact_silver-1-0001.parquet",
+                base_name="compact_silver-1-0001.parquet",
+                layer="silver",
+                category="event_mapping",
+                module="mlops",
+                instance_name="alpha",
+                year="2026",
+                month="06",
+                day="11",
+            )
+        ],
+        source_relative_paths=["/silver/category=event_mapping/module=mlops/instance_name=alpha/year=2026/month=06/day=11/compact_silver-1-0001.parquet"],
+        database_path=database_path,
+        normalize_silver_mode=True,
+        run_epoch_ms=1790966945713,
+        output_chunk_size=1,
+    )
+
+    assert result.apply_result.status == "succeeded"
+    written_payloads = [folder.files[path] for path in result.apply_result.written_paths]
+    assert len(written_payloads) == 2
+    schemas = [pq.read_schema(io.BytesIO(payload)) for payload in written_payloads]
+    assert [str(schema.field("project_key").type) for schema in schemas] == [
+        "string",
+        "string",
+    ]
+    assert all(str(schema.field("timestamp").type).startswith("timestamp") for schema in schemas)
+
+    read_paths = []
+    for index, payload in enumerate(written_payloads, start=1):
+        parquet_path = tmp_path / f"out-{index}.parquet"
+        parquet_path.write_bytes(payload)
+        read_paths.append(str(parquet_path))
+    rows = duckdb.connect(":memory:").execute(
+        "SELECT project_key, extras FROM read_parquet(?) ORDER BY extras",
+        [read_paths],
+    ).fetchall()
+    assert rows == [
+        (None, '{"event_type": "null-project"}'),
+        ("PROJECT_A", '{"event_type": "populated-project"}'),
+    ]
+
+
+def test_wrong_schema_replacement_fails_verification_before_source_delete(monkeypatch):
+    folder = _MemoryFolder()
+    output_path = "/silver/category=event_mapping/module=mlops/instance_name=alpha/year=2026/month=06/day=11/compact_silver-1-0001.parquet"
+    wrong_df = pd.DataFrame({"project_key": [None], "run_ts": pd.to_datetime(["2026-06-11T00:00:00Z"], utc=True)})
+    buf = io.BytesIO()
+    wrong_df.to_parquet(buf, index=False, engine="pyarrow")
+    folder.files[output_path] = buf.getvalue()
+
+    monkeypatch.setattr(replay, "upload_parquet", lambda **kwargs: True)
+    monkeypatch.setattr(replay, "delete_managed_folder_file", lambda folder, path: folder.delete_path(path))
+
+    apply_result, plan_count, _metrics = replay.apply_compact_replacement_plan_iterator(
+        target=object(),
+        folder=folder,
+        source_relative_paths=["/silver/category=event_mapping/module=mlops/instance_name=alpha/year=2026/month=06/day=11/source.parquet"],
+        plans=iter(
+            [
+                replay.ReplayWritePlan(
+                    output_path=Path(output_path),
+                    silver_df=pd.DataFrame({"project_key": pd.Series([pd.NA], dtype="string"), "run_ts": pd.to_datetime(["2026-06-11T00:00:00Z"], utc=True)}),
+                    dq=replay.DQResult(ok=True, errors=[]),
+                    module_name="mlops",
+                    event_date=date(2026, 6, 11),
+                    expected_duckdb_types={"project_key": "VARCHAR", "run_ts": "TIMESTAMP WITH TIME ZONE"},
+                )
+            ]
+        ),
+    )
+
+    assert plan_count == 1
+    assert apply_result.status == "verification_failed_cleaned"
+    assert apply_result.deleted_source_paths == ()
+    assert folder.deleted == [output_path]
 
 
 def test_zero_mapped_output_retains_all_sources_without_uploads_or_deletes(monkeypatch):

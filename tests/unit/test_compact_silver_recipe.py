@@ -54,6 +54,7 @@ def _stream_result() -> SimpleNamespace:
             total_matched_paths=11,
             filtered_matching_paths=8,
             skipped_compact_outputs=1,
+            included_compact_outputs=0,
             excluded_recent_paths=3,
             eligible_paths=4,
             eligible_partition_count=2,
@@ -380,6 +381,42 @@ def test_recipe_invalid_module_filter_fails_before_discovery_or_audit_mutation(
         recipe_module.run()
 
 
+def test_recipe_reprocess_compacted_requires_normalize_before_mutation(
+    monkeypatch, recipe_module
+):
+    monkeypatch.setattr(
+        recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT"
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_plugin_config",
+        lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data"}},
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_recipe_config",
+        lambda: {"normalize_silver": False, "reprocess_compacted_files": True},
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_output_names_for_role",
+        lambda role: pytest.fail("output role resolution must not run"),
+    )
+    monkeypatch.setattr(
+        recipe_module.dataiku,
+        "Dataset",
+        lambda name: pytest.fail("audit dataset must not open"),
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "run_compact_silver_streaming",
+        lambda *args, **kwargs: pytest.fail("source discovery must not run"),
+    )
+
+    with pytest.raises(ValueError, match="requires normalize_silver=true"):
+        recipe_module.run()
+
+
 def test_recipe_resolves_preset_from_plugin_config_and_mode_from_recipe_config(
     monkeypatch, recipe_module
 ):
@@ -432,6 +469,7 @@ def test_recipe_resolves_preset_from_plugin_config_and_mode_from_recipe_config(
 
     assert seen["config"].folder_lookup == "configured_partitioned_data"
     assert seen["config"].normalize_silver_mode is True
+    assert seen["config"].reprocess_compacted_files is False
     assert seen["config"].param_set == {
         "pulse_partitioned_data": "configured_partitioned_data",
         "do_parallel": False,
@@ -445,6 +483,54 @@ def test_recipe_resolves_preset_from_plugin_config_and_mode_from_recipe_config(
     assert seen["dataset_name"] == "audit_dataset_name"
     assert result["source_folder_lookup"] == "configured_partitioned_data"
     assert result["audit_dataset"] == "audit_dataset_name"
+
+
+def test_recipe_passes_reprocess_compacted_files_to_streaming_config(
+    monkeypatch, recipe_module
+):
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT"
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_plugin_config",
+        lambda: {
+            "pulse_primary": {
+                "pulse_partitioned_data": "configured_partitioned_data",
+                "do_parallel": False,
+                "cores": 1,
+                "batch_size": 11,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_recipe_config",
+        lambda: {
+            "normalize_silver": True,
+            "module_filter": "mlops",
+            "reprocess_compacted_files": True,
+        },
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_output_names_for_role", lambda role: ["audit_dataset_name"]
+    )
+    monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "local")
+    monkeypatch.setattr(recipe_module.dataiku, "Dataset", _make_streaming_dataset(seen))
+
+    def fake_run_compact(config, *, on_outcomes):
+        seen["config"] = config
+        return _stream_result()
+
+    monkeypatch.setattr(recipe_module, "run_compact_silver_streaming", fake_run_compact)
+
+    recipe_module.run()
+
+    assert seen["config"].partition_filters == {"category": "event_mapping", "module": "mlops"}
+    assert seen["config"].normalize_silver_mode is True
+    assert seen["config"].reprocess_compacted_files is True
 
 
 def test_recipe_uses_default_partitioned_data_lookup_when_preset_value_missing(

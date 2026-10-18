@@ -51,6 +51,7 @@ class CompactRunConfig:
         "latest_up_to_capacity"
     )
     excluded_modules: tuple[str, ...] = ()
+    reprocess_compacted_files: bool = False
 
 
 @dataclass(frozen=True)
@@ -262,6 +263,8 @@ def _add_queue_summaries(left: QueueSummary, right: QueueSummary) -> QueueSummar
         + right.filtered_matching_paths,
         skipped_compact_outputs=left.skipped_compact_outputs
         + right.skipped_compact_outputs,
+        included_compact_outputs=getattr(left, "included_compact_outputs", 0)
+        + getattr(right, "included_compact_outputs", 0),
         excluded_recent_paths=left.excluded_recent_paths + right.excluded_recent_paths,
         eligible_paths=left.eligible_paths + right.eligible_paths,
         eligible_partition_count=left.eligible_partition_count
@@ -324,6 +327,10 @@ def run_compact_silver_streaming(
         raise ValueError(
             f"Streaming compact execution does not support selection_mode={config.selection_mode!r}"
         )
+    if config.reprocess_compacted_files and not config.normalize_silver_mode:
+        raise ValueError(
+            "reprocess_compacted_files requires normalize_silver_mode=True"
+        )
 
     queue = CompactSilverQueue.create()
     try:
@@ -366,6 +373,7 @@ def run_compact_silver_streaming(
             total_matched_paths=0,
             filtered_matching_paths=0,
             skipped_compact_outputs=0,
+            included_compact_outputs=0,
             excluded_recent_paths=0,
             eligible_paths=0,
             eligible_partition_count=0,
@@ -405,6 +413,7 @@ def run_compact_silver_streaming(
                     "module": module_entry.module,
                 },
                 minimum_age_days=config.minimum_age_days,
+                include_compact_outputs=config.reprocess_compacted_files,
                 utc_today=utc_today,
                 raise_on_empty=False,
             )

@@ -173,6 +173,10 @@ def _filter_scope_for_module_filter(
     return f"{PHASE3_FILTER_SCOPE}; module={module_filter}"
 
 
+def _resolve_reprocess_compacted_files(recipe_config: dict[str, Any]) -> bool:
+    return bool(recipe_config.get("reprocess_compacted_files", False))
+
+
 def _format_selected_partition_preview(selected_partitions: list[Any], *, total_selected_count: int | None = None) -> str | None:
     scopes = [str(getattr(item, "partition_scope", "")).strip() for item in selected_partitions]
     scopes = [scope for scope in scopes if scope]
@@ -346,6 +350,7 @@ def _build_summary_row(
             f"mode={stream_result.execution_mode}; scanned={stream_result.queue_summary.total_matched_paths}; "
             f"filtered={stream_result.queue_summary.filtered_matching_paths}; eligible={stream_result.queue_summary.eligible_paths}; "
             f"eligible_partitions={stream_result.queue_summary.eligible_partition_count}; skipped_compact_outputs={stream_result.queue_summary.skipped_compact_outputs}; "
+            f"included_compact_outputs={getattr(stream_result.queue_summary, 'included_compact_outputs', 0)}; "
             f"queue_memory_limit={stream_result.queue_memory_limit_setting or 'unset'}; requested_workers={stream_result.worker_resolution.resolved_n_jobs}"
         ),
     }
@@ -451,6 +456,11 @@ def run():
     recipe_config = get_recipe_config() or {}
     param_set = plugin_config.get("pulse_primary", {}) or {}
     normalize_silver_mode = bool(recipe_config.get("normalize_silver", False))
+    reprocess_compacted_files = _resolve_reprocess_compacted_files(recipe_config)
+    if reprocess_compacted_files and not normalize_silver_mode:
+        raise ValueError(
+            "Compact SILVER reprocess_compacted_files requires normalize_silver=true"
+        )
     module_filter = _resolve_module_filter(recipe_config)
     excluded_modules = _resolve_excluded_modules(
         recipe_config, module_filter=module_filter
@@ -497,6 +507,7 @@ def run():
                 batch_size=batch_size,
                 excluded_modules=excluded_modules,
                 selection_mode="all_eligible_filtered",
+                reprocess_compacted_files=reprocess_compacted_files,
             ),
             on_outcomes=lambda stream_result, selected_partitions, outcomes: _stream_audit_batch(
                 writer=writer,

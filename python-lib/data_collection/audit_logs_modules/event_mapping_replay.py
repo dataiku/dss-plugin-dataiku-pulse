@@ -15,6 +15,7 @@ from typing import Any
 
 import duckdb
 import pandas as pd
+import pyarrow.parquet as pq
 
 from data_collection.audit_logs_modules.compact_silver_queue import _compact_queue_memory_limit_bytes
 from data_collection.audit_logs_modules import event_mapping
@@ -67,6 +68,7 @@ class ReplayWritePlan:
     dq: DQResult
     module_name: str
     event_date: date
+    expected_duckdb_types: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -662,6 +664,93 @@ def _iter_table_chunks(
         offset += len(chunk_df)
 
 
+def _duckdb_column_type_map(
+    con: duckdb.DuckDBPyConnection, table_name: str, *, exclude_columns: set[str] | None = None
+) -> dict[str, str]:
+    exclude_columns = exclude_columns or set()
+    return {
+        str(column_name): str(column_type).upper()
+        for column_name, column_type, *_ in con.execute(
+            f"DESCRIBE {_quote_duckdb_identifier(table_name)}"
+        ).fetchall()
+        if str(column_name) not in exclude_columns
+    }
+
+
+def _restore_dataframe_types_from_duckdb_schema(
+    df: pd.DataFrame, expected_duckdb_types: dict[str, str] | None
+) -> pd.DataFrame:
+    if not expected_duckdb_types:
+        return df
+    out = df.copy()
+    for column_name, duckdb_type in expected_duckdb_types.items():
+        if column_name not in out.columns:
+            continue
+        normalized_type = duckdb_type.upper()
+        if normalized_type in {"VARCHAR", "TEXT", "STRING"}:
+            out[column_name] = out[column_name].astype("string")
+        elif normalized_type.startswith("TIMESTAMP"):
+            out[column_name] = pd.to_datetime(out[column_name], utc=True, errors="coerce")
+        elif normalized_type == "BOOLEAN":
+            out[column_name] = out[column_name].astype("boolean")
+        elif normalized_type in {"TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT"}:
+            out[column_name] = pd.to_numeric(out[column_name], errors="coerce").astype("Int64")
+        elif normalized_type in {"FLOAT", "DOUBLE", "REAL"}:
+            out[column_name] = pd.to_numeric(out[column_name], errors="coerce").astype("Float64")
+    return out
+
+
+def _parquet_physical_type_for_duckdb_type(duckdb_type: str) -> str | None:
+    normalized_type = duckdb_type.upper()
+    if normalized_type in {"VARCHAR", "TEXT", "STRING"}:
+        return "string"
+    if normalized_type.startswith("TIMESTAMP"):
+        return "timestamp"
+    if normalized_type == "BOOLEAN":
+        return "bool"
+    if normalized_type in {"TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT"}:
+        return "integer"
+    if normalized_type in {"FLOAT", "DOUBLE", "REAL"}:
+        return "floating"
+    return None
+
+
+def _verify_parquet_schema_matches_expected(
+    *, schema: Any, expected_duckdb_types: dict[str, str] | None, path: str
+) -> None:
+    if not expected_duckdb_types:
+        return
+    schema_names = set(schema.names)
+    for column_name, duckdb_type in expected_duckdb_types.items():
+        if column_name not in schema_names:
+            raise RuntimeError(f"Replacement parquet {path} is missing column {column_name!r}")
+        expected_type = _parquet_physical_type_for_duckdb_type(duckdb_type)
+        if expected_type is None:
+            continue
+        actual_type = schema.field(column_name).type
+        actual_type_name = str(actual_type)
+        if expected_type == "string" and actual_type_name != "string":
+            raise RuntimeError(
+                f"Replacement parquet {path} column {column_name!r} has type {actual_type_name!r}, expected 'string'"
+            )
+        if expected_type == "timestamp" and not actual_type_name.startswith("timestamp"):
+            raise RuntimeError(
+                f"Replacement parquet {path} column {column_name!r} has type {actual_type_name!r}, expected timestamp"
+            )
+        if expected_type == "bool" and actual_type_name != "bool":
+            raise RuntimeError(
+                f"Replacement parquet {path} column {column_name!r} has type {actual_type_name!r}, expected 'bool'"
+            )
+        if expected_type == "integer" and not actual_type_name.startswith("int"):
+            raise RuntimeError(
+                f"Replacement parquet {path} column {column_name!r} has type {actual_type_name!r}, expected integer"
+            )
+        if expected_type == "floating" and actual_type_name not in {"float", "double"}:
+            raise RuntimeError(
+                f"Replacement parquet {path} column {column_name!r} has type {actual_type_name!r}, expected floating point"
+            )
+
+
 def _iter_record_batches(records: list[SelectedPathRecord], *, batch_size: int) -> Iterator[list[SelectedPathRecord]]:
     if batch_size <= 0:
         raise ValueError(f"S3 parquet read batch size must be positive, got {batch_size}")
@@ -892,12 +981,18 @@ def _chunked_plan_iterator(
         for mapped_module_name in sorted(module_tables):
             table_name = module_tables[mapped_module_name]
             event_date = _table_event_date(con, table_name=table_name, fallback_date=selected_event_date)
+            expected_duckdb_types = _duckdb_column_type_map(
+                con, table_name, exclude_columns={_STAGE_ORDER_COLUMN}
+            )
             for silver_df in _iter_table_chunks(
                 con,
                 table_name=table_name,
                 chunk_size=output_chunk_size,
                 exclude_columns={_STAGE_ORDER_COLUMN},
             ):
+                silver_df = _restore_dataframe_types_from_duckdb_schema(
+                    silver_df, expected_duckdb_types
+                )
                 yield ReplayWritePlan(
                     output_path=build_compact_output_path(
                         category="event_mapping",
@@ -911,6 +1006,7 @@ def _chunked_plan_iterator(
                     dq=check_silver_dq(silver_df),
                     module_name=mapped_module_name,
                     event_date=event_date,
+                    expected_duckdb_types=expected_duckdb_types,
                 )
                 sequence_number += 1
 
@@ -925,6 +1021,7 @@ def apply_compact_replacement_plan_iterator(
     plans: Iterator[ReplayWritePlan],
 ) -> tuple[CompactApplyResult, int, tuple[CompactPlanMetric, ...]]:
     written_paths: list[str] = []
+    written_expected_types: list[dict[str, str] | None] = []
     plan_count = 0
     dq_errors: list[str] = []
     metric_rows: dict[str, int] = {}
@@ -946,10 +1043,13 @@ def apply_compact_replacement_plan_iterator(
                 target=target,
                 output_path=Path(str(plan.output_path)),
                 output_base_dir=Path("/"),
-                df=plan.silver_df,
+                df=_restore_dataframe_types_from_duckdb_schema(
+                    plan.silver_df, plan.expected_duckdb_types
+                ),
                 compression="snappy",
             )
             written_paths.append(str(plan.output_path))
+            written_expected_types.append(plan.expected_duckdb_types)
             logger.info(
                 "Compact SILVER replacement uploaded output_sequence=%s written_count=%s rows=%s elapsed_seconds=%.3f rss_mb=%s",
                 plan_count,
@@ -1004,12 +1104,17 @@ def apply_compact_replacement_plan_iterator(
                 "Current event-mapping replay produced no replacement output; "
                 f"written=0, verified=0, deleted=0, retained={len(source_relative_paths)}"
             ),
-        ), plan_count
+        ), plan_count, _compact_plan_metrics(metric_rows, metric_columns, metric_dq_ok, metric_dq_errors)
 
     verified_paths: list[str] = []
     try:
-        for written_path in written_paths:
-            verify_managed_folder_file(folder, written_path)
+        for written_path, expected_duckdb_types in zip(written_paths, written_expected_types, strict=True):
+            if expected_duckdb_types:
+                verify_managed_folder_file(
+                    folder, written_path, expected_duckdb_types=expected_duckdb_types
+                )
+            else:
+                verify_managed_folder_file(folder, written_path)
             verified_paths.append(written_path)
     except Exception as exc:
         cleaned_paths, cleanup_errors = cleanup_written_replacements(folder=folder, paths=written_paths)
@@ -1238,16 +1343,30 @@ def plan_compact_selected_day(
     )
 
 
-def verify_managed_folder_file(folder: Any, path: str) -> None:
+def verify_managed_folder_file(
+    folder: Any, path: str, *, expected_duckdb_types: dict[str, str] | None = None
+) -> None:
     cleaned = clean_managed_folder_path(path)
     if hasattr(folder, "get_download_stream"):
         with folder.get_download_stream(cleaned) as stream:
-            stream.read(1)
+            data = stream.read() if expected_duckdb_types else stream.read(1)
+        if expected_duckdb_types:
+            _verify_parquet_schema_matches_expected(
+                schema=pq.read_schema(io.BytesIO(data)),
+                expected_duckdb_types=expected_duckdb_types,
+                path=path,
+            )
         return
     if hasattr(folder, "get_file"):
         payload = folder.get_file(cleaned)
         if hasattr(payload, "read"):
-            payload.read(1)
+            data = payload.read() if expected_duckdb_types else payload.read(1)
+            if expected_duckdb_types:
+                _verify_parquet_schema_matches_expected(
+                    schema=pq.read_schema(io.BytesIO(data)),
+                    expected_duckdb_types=expected_duckdb_types,
+                    path=path,
+                )
         return
     raise TypeError(f"Unsupported folder handle type for verification: {type(folder)!r}")
 
