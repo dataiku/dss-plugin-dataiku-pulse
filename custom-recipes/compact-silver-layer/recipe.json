@@ -52,15 +52,16 @@
             "defaultValue": false
         },
         {
-            "type": "SELECT",
             "name": "category_filter",
+            "label": "Filter on a Category"
+            "type": "SELECT",
             "getChoicesFromPython": true,
             "disableAutoReload": true
         },
         {
             "type": "SELECT",
             "name": "module_filter",
-            "label": "Filter on am Event Mapping module",
+            "label": "Filter on an Event Mapping module",
             "selectChoices": [
                 { "value": "all", "label": "All Modules" },
                 { "value": "administration", "label": "Administration" },
