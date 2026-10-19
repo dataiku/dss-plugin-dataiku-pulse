@@ -455,7 +455,7 @@ def run():
     plugin_config = get_plugin_config() or {}
     recipe_config = get_recipe_config() or {}
     
-    raise Exception(plugin_config)
+    raise Exception(recipe_config)
     
     param_set = plugin_config.get("pulse_primary", {}) or {}
     normalize_silver_mode = bool(recipe_config.get("normalize_silver", False))
