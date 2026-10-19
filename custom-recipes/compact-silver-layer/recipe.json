@@ -54,6 +54,7 @@
         {
             "name": "category_filter",
             "label": "Filter on a Category",
+            "description": "",
             "type": "SELECT",
             "getChoicesFromPython": true,
             "disableAutoReload": true
