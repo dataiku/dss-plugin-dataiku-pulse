@@ -91,7 +91,8 @@
                 { "value": "webapps", "label": "Webapps" },
                 { "value": "wiki_artical_discussions", "label": "Wiki Artical Discussions" }
             ],
-            "defaultValue": "all"
+            "defaultValue": "all",
+            "visibilityCondition": "!model.category_filter == 'event_mapping'"
         },
         {
             "type": "MULTISELECT",
