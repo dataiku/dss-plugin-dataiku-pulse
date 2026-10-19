@@ -1,31 +1,46 @@
+import boto3
 import dataiku
-api = dataiku.api_client()
-project = api.get_project("DATAIKU_PULSE_DASHBOARD")
-folder = dataiku.Folder("DATAIKU_PULSE_DASHBOARD.partitioned_data")
 
-def _folder_s3_source(folder):
-    """Resolve location and fresh connection credentials; never print secrets."""
-    import boto3
-    import dataiku
 
+def _folder_s3_source(folder, *, api, project):
+    """Resolve location and connection credentials without printing secrets."""
     access = folder.get_info().get("accessInfo") or {}
     bucket = access.get("bucket")
+
     if not bucket or "root" not in access:
-        raise ValueError("Selected folder must expose S3 accessInfo.bucket and root")
+        raise ValueError(
+            "Selected folder must expose S3 accessInfo.bucket and root"
+        )
+
     root = str(access["root"] or "").strip("/")
 
-    settings = project.get_managed_folder(folder.get_id()).get_settings().get_raw()
+    settings = (
+        project.get_managed_folder(folder.get_id())
+        .get_settings()
+        .get_raw()
+    )
+
     connection = (settings.get("params") or {}).get("connection")
     if not connection:
-        connection = ((settings.get("settings") or {}).get("params") or {}).get("connection")
+        connection = (
+            (settings.get("settings") or {}).get("params") or {}
+        ).get("connection")
+
     if not connection:
-        raise ValueError("Selected folder's DSS connection could not be resolved")
+        raise ValueError(
+            "Selected folder's DSS connection could not be resolved"
+        )
 
     info = api.get_connection(connection).get_info()
+
     if info.get("type") != "EC2":
-        raise ValueError("Selected folder must use a DSS S3 (EC2) connection")
+        raise ValueError(
+            "Selected folder must use a DSS S3 (EC2) connection"
+        )
+
     params = info.get("params") or {}
     mode = params.get("credentialsMode")
+
     if mode == "KEYPAIR":
         credentials = {
             "aws_access_key_id": params["accessKey"],
@@ -39,19 +54,45 @@ def _folder_s3_source(folder):
             "aws_session_token": resolved["sessionToken"],
         }
     else:
-        raise ValueError(f"Unsupported DSS S3 credentials mode: {mode}")
+        raise ValueError(
+            f"Unsupported DSS S3 credentials mode: {mode}"
+        )
+
     client = boto3.client(
-        "s3", region_name=params.get("regionOrEndpoint") or None, **credentials
+        "s3",
+        region_name=params.get("regionOrEndpoint") or None,
+        **credentials,
     )
+
     return client, bucket, root
 
 
-
 def do(payload, config, plugin_config, inputs):
-    client, bucket, root = _folder_s3_source(folder)
+    primary = plugin_config.get("pulse_primary") or {}
+    project_key = str(primary.get("pulse_project_key") or "").strip()
+
+    if not project_key:
+        raise ValueError(
+            "Missing pulse_primary.pulse_project_key in plugin_config"
+        )
+
+    api = dataiku.api_client()
+    project = api.get_project(project_key)
+
+    folder = dataiku.Folder(
+        lookup="partitioned_data",
+        project_key=project_key,
+        ignore_flow=True,
+    )
+
+    client, bucket, root = _folder_s3_source(
+        folder,
+        api=api,
+        project=project,
+    )
 
     silver_prefix = "/".join(
-        part for part in (root.strip("/"), "silver") if part
+        part for part in (root, "silver") if part
     ) + "/"
 
     categories = set()
@@ -77,4 +118,3 @@ def do(payload, config, plugin_config, inputs):
             for category in sorted(categories)
         ]
     }
-
