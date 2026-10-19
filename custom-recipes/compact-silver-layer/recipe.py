@@ -454,6 +454,9 @@ def run():
     project_key = dataiku.default_project_key()
     plugin_config = get_plugin_config() or {}
     recipe_config = get_recipe_config() or {}
+    
+    raise Exception(plugin_config)
+    
     param_set = plugin_config.get("pulse_primary", {}) or {}
     normalize_silver_mode = bool(recipe_config.get("normalize_silver", False))
     reprocess_compacted_files = _resolve_reprocess_compacted_files(recipe_config)
