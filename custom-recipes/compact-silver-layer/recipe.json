@@ -17,6 +17,7 @@
             "acceptsDataset": true
         }
     ],
+    "paramsPythonSetup": "list_categories.py",
     "params": [
         {
             "name": "warning",
@@ -50,6 +51,7 @@
             "type": "BOOLEAN",
             "defaultValue": false
         },
+        
         {
             "type": "SELECT",
             "name": "module_filter",
