@@ -53,7 +53,7 @@
         },
         {
             "name": "category_filter",
-            "label": "Filter on a Category"
+            "label": "Filter on a Category",
             "type": "SELECT",
             "getChoicesFromPython": true,
             "disableAutoReload": true
