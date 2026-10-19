@@ -51,7 +51,12 @@
             "type": "BOOLEAN",
             "defaultValue": false
         },
-        
+        {
+            "type": "SELECT",
+            "name": "category_filter",
+            "getChoicesFromPython": true,
+            "disableAutoReload": true
+        },
         {
             "type": "SELECT",
             "name": "module_filter",
