@@ -45,25 +45,36 @@ def _folder_s3_source(folder):
     )
     return client, bucket, root
 
-client, bucket, root = _folder_s3_source(folder)
 
-silver_prefix = "/".join(
-    part for part in (root.strip("/"), "silver") if part
-) + "/"
 
-categories = set()
+def do(payload, config, plugin_config, inputs):
+    client, bucket, root = _folder_s3_source(folder)
 
-for page in client.get_paginator("list_objects_v2").paginate(
-    Bucket=bucket,
-    Prefix=silver_prefix,
-    Delimiter="/",
-):
-    for entry in page.get("CommonPrefixes", []):
-        category_folder = entry["Prefix"][len(silver_prefix):].rstrip("/")
+    silver_prefix = "/".join(
+        part for part in (root.strip("/"), "silver") if part
+    ) + "/"
 
-        if category_folder.startswith("category="):
-            categories.add(category_folder)
+    categories = set()
 
-print(f"SILVER categories: {len(categories)}")
-for category in sorted(categories):
-    print(category)
+    for page in client.get_paginator("list_objects_v2").paginate(
+        Bucket=bucket,
+        Prefix=silver_prefix,
+        Delimiter="/",
+    ):
+        for entry in page.get("CommonPrefixes", []):
+            category_folder = entry["Prefix"][
+                len(silver_prefix):
+            ].rstrip("/")
+
+            if category_folder.startswith("category="):
+                category = category_folder.split("=", 1)[1]
+                if category:
+                    categories.add(category)
+
+    return {
+        "choices": [
+            {"value": category, "label": category}
+            for category in sorted(categories)
+        ]
+    }
+
