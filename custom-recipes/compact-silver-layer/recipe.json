@@ -17,7 +17,7 @@
             "acceptsDataset": true
         }
     ],
-    "paramsPythonSetup": "list_categories.py",
+    "paramsPythonSetup": "compact-silver-layer/list_categories.py",
     "params": [
         {
             "name": "warning",
