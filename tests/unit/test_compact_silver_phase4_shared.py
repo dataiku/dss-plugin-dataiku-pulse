@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 import io
 
 import duckdb
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
@@ -1208,7 +1209,7 @@ def test_users_instance_metadata_module_contract_adds_missing_string_fields_and_
         "users_last_commit_date",
     ]:
         assert str(schema.field(column).type) == "string"
-    assert str(schema.field("run_ts").type).startswith("timestamp")
+    assert schema.field("run_ts").type == pa.timestamp("ns", tz="UTC")
 
 
 def test_users_user_activity_module_contract_preserves_activity_fields_and_dataiku_category():
@@ -1246,6 +1247,11 @@ def test_users_user_activity_module_contract_preserves_activity_fields_and_datai
     assert row["dataiku_category"] == "user_activity"
     assert row["run_ts"].isoformat() == "2026-06-11T02:00:00+00:00"
     assert row["extras"] == '{"retained": "yes"}'
+    parquet_buffer = io.BytesIO()
+    plans[0].silver_df.to_parquet(parquet_buffer, index=False, engine="pyarrow")
+    schema = pq.read_schema(io.BytesIO(parquet_buffer.getvalue()))
+    assert schema.field("timestamp").type == pa.timestamp("ns", tz="UTC")
+    assert schema.field("run_ts").type == pa.timestamp("ns", tz="UTC")
 
 
 def test_module_contract_normalization_rejects_missing_contract_and_conflicting_extras():
@@ -1406,6 +1412,66 @@ def test_staged_noncontract_extras_conflict_retains_sources_without_upload_or_de
     assert uploads == []
     assert deletes == []
 
+
+@pytest.mark.parametrize(
+    ("actual_arrow_type", "expected_type"),
+    [
+        (pa.timestamp("us", tz="UTC"), "timestamp[us, tz=UTC]"),
+        (pa.timestamp("ns"), "timestamp[ns]"),
+        (pa.timestamp("ns", tz="Europe/Paris"), "timestamp[ns, tz=Europe/Paris]"),
+    ],
+)
+def test_wrong_timestamp_arrow_schema_fails_verification_before_source_delete(monkeypatch, actual_arrow_type, expected_type):
+    folder = _MemoryFolder()
+    output_path = "/silver/category=users/module=instance_metadata/instance_name=alpha/year=2026/month=06/day=11/compact_silver-1-0001.parquet"
+    source_path = "/silver/category=users/module=instance_metadata/instance_name=alpha/year=2026/month=06/day=11/source.parquet"
+    wrong_table = pa.table(
+        {
+            "run_ts": pa.array(
+                [datetime(2026, 6, 11, tzinfo=timezone.utc)],
+                type=actual_arrow_type,
+            )
+        }
+    )
+    buffer = io.BytesIO()
+    pq.write_table(wrong_table, buffer)
+    folder.files[output_path] = buffer.getvalue()
+
+    monkeypatch.setattr(replay, "upload_parquet", lambda **kwargs: True)
+    monkeypatch.setattr(replay, "delete_managed_folder_file", lambda folder, path: folder.delete_path(path))
+
+    apply_result, plan_count, _metrics = replay.apply_compact_replacement_plan_iterator(
+        target=object(),
+        folder=folder,
+        source_relative_paths=[source_path],
+        plans=iter(
+            [
+                replay.ReplayWritePlan(
+                    output_path=Path(output_path),
+                    silver_df=pd.DataFrame(
+                        {
+                            "run_ts": pd.Series(
+                                pd.to_datetime(["2026-06-11T00:00:00Z"], utc=True),
+                                dtype=pd.DatetimeTZDtype(unit="ns", tz="UTC"),
+                            )
+                        }
+                    ),
+                    dq=replay.DQResult(ok=True, errors=[]),
+                    module_name="instance_metadata",
+                    event_date=date(2026, 6, 11),
+                    expected_arrow_types={"run_ts": pa.timestamp("ns", tz="UTC")},
+                )
+            ]
+        ),
+    )
+
+    assert plan_count == 1
+    assert apply_result.status == "verification_failed_cleaned"
+    assert apply_result.deleted_source_paths == ()
+    assert folder.deleted == [output_path]
+    assert expected_type in apply_result.message
+    assert "timestamp[ns, tz=UTC]" in apply_result.message
+
     with pytest.raises(replay.ReplaySkipError, match="Conflicting non-null values"):
         replay.plan_compact_selected_day(
             selected_records=_users_selected_records(module="instance_metadata"),
@@ -1432,7 +1498,8 @@ def test_staged_users_instance_metadata_normalization_writes_verified_schema_and
         """
         CREATE TABLE dedup_stage AS
         SELECT * FROM (VALUES
-            (0, 'alpha', '2026-06-11T01:02:03Z', 'older', NULL)
+            (0, 'alpha', '2026-06-11T01:02:03.987654321Z', 'older', NULL),
+            (1, 'alpha', '2026-06-11T04:05:06.123456789Z', 'populated', '2026-02-03T04:05:06Z')
         ) AS t(__compact_row_order, instance_name, run_ts, users_login, users_lastsuccessfullogin)
         """.strip()
     )
@@ -1459,7 +1526,7 @@ def test_staged_users_instance_metadata_normalization_writes_verified_schema_and
         normalize_silver_mode=True,
         processing_mode="module_contract_normalization",
         run_epoch_ms=1790966945713,
-        output_chunk_size=100,
+        output_chunk_size=1,
     )
 
     assert result.plan_summary.mode == "module_contract_normalization"
@@ -1467,9 +1534,8 @@ def test_staged_users_instance_metadata_normalization_writes_verified_schema_and
     assert result.apply_result.deleted_source_paths == (source_path,)
     assert folder.deleted == [source_path]
     written_payloads = [folder.files[path] for path in result.apply_result.written_paths]
-    assert len(written_payloads) == 1
-    schema = pq.read_schema(io.BytesIO(written_payloads[0]))
-    assert schema.names == [
+    assert len(written_payloads) == 2
+    expected_schema_names = [
         "instance_name",
         "users_login",
         "users_enabled",
@@ -1494,6 +1560,14 @@ def test_staged_users_instance_metadata_normalization_writes_verified_schema_and
         "run_ts",
         "extras",
     ]
+    readback_paths = []
+    for index, payload in enumerate(written_payloads, start=1):
+        schema = pq.read_schema(io.BytesIO(payload))
+        assert schema.names == expected_schema_names
+        assert schema.field("run_ts").type == pa.timestamp("ns", tz="UTC")
+        readback_path = tmp_path / f"users-instance-{index}.parquet"
+        readback_path.write_bytes(payload)
+        readback_paths.append(str(readback_path))
     for column in [
         "users_lastsuccessfullogin",
         "users_lastfailedlogin",
@@ -1501,4 +1575,29 @@ def test_staged_users_instance_metadata_normalization_writes_verified_schema_and
         "users_first_commit_date",
         "users_last_commit_date",
     ]:
-        assert str(schema.field(column).type) == "string"
+        assert all(str(pq.read_schema(path).field(column).type) == "string" for path in readback_paths)
+    rows = duckdb.connect(":memory:").execute(
+        "SELECT users_login, epoch_ns(run_ts) FROM read_parquet(?) ORDER BY users_login",
+        [readback_paths],
+    ).fetchall()
+    expected_df = replay.normalize_module_contract_silver(
+        df=pd.DataFrame(
+            [
+                {
+                    "instance_name": "alpha",
+                    "run_ts": "2026-06-11T01:02:03.987654321Z",
+                    "users_login": "older",
+                },
+                {
+                    "instance_name": "alpha",
+                    "run_ts": "2026-06-11T04:05:06.123456789Z",
+                    "users_login": "populated",
+                    "users_lastsuccessfullogin": "2026-02-03T04:05:06Z",
+                },
+            ]
+        ),
+        category="users",
+        module_name="instance_metadata",
+        instance_name="alpha",
+    ).sort_values("users_login")
+    assert rows == list(zip(expected_df["users_login"], expected_df["run_ts"].astype("int64")))

@@ -15,6 +15,7 @@ from typing import Any
 
 import duckdb
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 from data_collection.audit_logs_modules.compact_silver_queue import _compact_queue_memory_limit_bytes
@@ -75,6 +76,7 @@ class ReplayWritePlan:
     module_name: str
     event_date: date
     expected_duckdb_types: dict[str, str] | None = None
+    expected_arrow_types: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -405,6 +407,29 @@ def _output_columns_for_module_contract(*, category: str, module_name: str) -> l
     return ["instance_name", *required_without_globals, "run_ts", "extras"]
 
 
+def _canonical_arrow_types_for_module_contract(*, category: str, module_name: str) -> dict[str, Any]:
+    empty_source = pd.DataFrame(columns=_output_columns_for_module_contract(category=category, module_name=module_name))
+    normalized = normalize_module_contract_silver(
+        df=empty_source,
+        category=category,
+        module_name=module_name,
+        instance_name="__compact_schema_probe__",
+    )
+    schema = pa.Schema.from_pandas(normalized, preserve_index=False)
+    return {field.name: field.type for field in schema}
+
+
+def _expected_arrow_types_for_module_contract(*, category: str, module_name: str) -> dict[str, Any]:
+    canonical_types = _canonical_arrow_types_for_module_contract(
+        category=category, module_name=module_name
+    )
+    return {
+        column_name: arrow_type
+        for column_name, arrow_type in canonical_types.items()
+        if pa.types.is_timestamp(arrow_type)
+    }
+
+
 def _is_nullish(value: Any) -> bool:
     if value is None:
         return True
@@ -425,6 +450,8 @@ def _values_are_equivalent(left: Any, right: Any) -> bool:
 def _merge_existing_extras_into_source(df: pd.DataFrame, *, required_columns: list[str]) -> pd.DataFrame:
     if "extras" not in df.columns:
         return df
+    if df.empty:
+        return df.drop(columns=["extras"])
 
     source_rows = df.to_dict(orient="records")
     merged_rows: list[dict[str, Any]] = []
@@ -829,6 +856,25 @@ def _restore_dataframe_types_from_duckdb_schema(
     return out
 
 
+def _restore_dataframe_types_from_arrow_schema(
+    df: pd.DataFrame, expected_arrow_types: dict[str, Any] | None
+) -> pd.DataFrame:
+    if not expected_arrow_types:
+        return df
+    out = df.copy()
+    for column_name, arrow_type in expected_arrow_types.items():
+        if column_name not in out.columns:
+            continue
+        if pa.types.is_timestamp(arrow_type):
+            timezone_name = arrow_type.tz
+            if timezone_name:
+                dtype = pd.DatetimeTZDtype(unit=arrow_type.unit, tz=timezone_name)
+                out[column_name] = pd.to_datetime(out[column_name], utc=True, errors="coerce").astype(dtype)
+            else:
+                out[column_name] = pd.to_datetime(out[column_name], errors="coerce").astype(f"datetime64[{arrow_type.unit}]")
+    return out
+
+
 def _parquet_physical_type_for_duckdb_type(duckdb_type: str) -> str | None:
     normalized_type = duckdb_type.upper()
     if normalized_type in {"VARCHAR", "TEXT", "STRING"}:
@@ -845,9 +891,24 @@ def _parquet_physical_type_for_duckdb_type(duckdb_type: str) -> str | None:
 
 
 def _verify_parquet_schema_matches_expected(
-    *, schema: Any, expected_duckdb_types: dict[str, str] | None, path: str
+    *,
+    schema: Any,
+    expected_duckdb_types: dict[str, str] | None,
+    path: str,
+    expected_arrow_types: dict[str, Any] | None = None,
 ) -> None:
     if not expected_duckdb_types:
+        if not expected_arrow_types:
+            return
+        schema_names = set(schema.names)
+        for column_name, expected_arrow_type in expected_arrow_types.items():
+            if column_name not in schema_names:
+                raise RuntimeError(f"Replacement parquet {path} is missing column {column_name!r}")
+            actual_arrow_type = schema.field(column_name).type
+            if actual_arrow_type != expected_arrow_type:
+                raise RuntimeError(
+                    f"Replacement parquet {path} column {column_name!r} has type {actual_arrow_type!r}, expected {expected_arrow_type!r}"
+                )
         return
     schema_names = set(schema.names)
     for column_name, duckdb_type in expected_duckdb_types.items():
@@ -877,6 +938,16 @@ def _verify_parquet_schema_matches_expected(
         if expected_type == "floating" and actual_type_name not in {"float", "double"}:
             raise RuntimeError(
                 f"Replacement parquet {path} column {column_name!r} has type {actual_type_name!r}, expected floating point"
+            )
+    if not expected_arrow_types:
+        return
+    for column_name, expected_arrow_type in expected_arrow_types.items():
+        if column_name not in schema_names:
+            raise RuntimeError(f"Replacement parquet {path} is missing column {column_name!r}")
+        actual_arrow_type = schema.field(column_name).type
+        if actual_arrow_type != expected_arrow_type:
+            raise RuntimeError(
+                f"Replacement parquet {path} column {column_name!r} has type {actual_arrow_type!r}, expected {expected_arrow_type!r}"
             )
 
 
@@ -1189,6 +1260,9 @@ def _chunked_plan_iterator(
         expected_duckdb_types = _duckdb_column_type_map(
             con, table_name, exclude_columns={_STAGE_ORDER_COLUMN}
         )
+        expected_arrow_types = _expected_arrow_types_for_module_contract(
+            category=category, module_name=module_name
+        )
 
         def iter_module_contract_plans() -> Iterator[ReplayWritePlan]:
             for sequence_number, silver_df in enumerate(
@@ -1217,6 +1291,7 @@ def _chunked_plan_iterator(
                     module_name=module_name,
                     event_date=selected_event_date,
                     expected_duckdb_types=expected_duckdb_types,
+                    expected_arrow_types=expected_arrow_types,
                 )
 
         return iter_module_contract_plans(), plan_summary
@@ -1284,6 +1359,7 @@ def apply_compact_replacement_plan_iterator(
 ) -> tuple[CompactApplyResult, int, tuple[CompactPlanMetric, ...]]:
     written_paths: list[str] = []
     written_expected_types: list[dict[str, str] | None] = []
+    written_expected_arrow_types: list[dict[str, Any] | None] = []
     plan_count = 0
     dq_errors: list[str] = []
     metric_rows: dict[str, int] = {}
@@ -1305,13 +1381,17 @@ def apply_compact_replacement_plan_iterator(
                 target=target,
                 output_path=Path(str(plan.output_path)),
                 output_base_dir=Path("/"),
-                df=_restore_dataframe_types_from_duckdb_schema(
-                    plan.silver_df, plan.expected_duckdb_types
+                df=_restore_dataframe_types_from_arrow_schema(
+                    _restore_dataframe_types_from_duckdb_schema(
+                        plan.silver_df, plan.expected_duckdb_types
+                    ),
+                    plan.expected_arrow_types,
                 ),
                 compression="snappy",
             )
             written_paths.append(str(plan.output_path))
             written_expected_types.append(plan.expected_duckdb_types)
+            written_expected_arrow_types.append(plan.expected_arrow_types)
             logger.info(
                 "Compact SILVER replacement uploaded output_sequence=%s written_count=%s rows=%s elapsed_seconds=%.3f rss_mb=%s",
                 plan_count,
@@ -1370,10 +1450,18 @@ def apply_compact_replacement_plan_iterator(
 
     verified_paths: list[str] = []
     try:
-        for written_path, expected_duckdb_types in zip(written_paths, written_expected_types, strict=True):
-            if expected_duckdb_types:
+        for written_path, expected_duckdb_types, expected_arrow_types in zip(
+            written_paths,
+            written_expected_types,
+            written_expected_arrow_types,
+            strict=True,
+        ):
+            if expected_duckdb_types or expected_arrow_types:
                 verify_managed_folder_file(
-                    folder, written_path, expected_duckdb_types=expected_duckdb_types
+                    folder,
+                    written_path,
+                    expected_duckdb_types=expected_duckdb_types,
+                    expected_arrow_types=expected_arrow_types,
                 )
             else:
                 verify_managed_folder_file(folder, written_path)
@@ -1563,6 +1651,9 @@ def plan_compact_selected_day(
                 dq=dq,
                 module_name=module_name,
                 event_date=selected_event_date,
+                expected_arrow_types=_expected_arrow_types_for_module_contract(
+                    category=category, module_name=module_name
+                ),
             )
         ]
         _validate_output_paths_do_not_overlap_sources(plans=plans, selected_records=selected_records)
@@ -1666,27 +1757,34 @@ def plan_compact_selected_day(
 
 
 def verify_managed_folder_file(
-    folder: Any, path: str, *, expected_duckdb_types: dict[str, str] | None = None
+    folder: Any,
+    path: str,
+    *,
+    expected_duckdb_types: dict[str, str] | None = None,
+    expected_arrow_types: dict[str, Any] | None = None,
 ) -> None:
     cleaned = clean_managed_folder_path(path)
+    read_full_payload = bool(expected_duckdb_types or expected_arrow_types)
     if hasattr(folder, "get_download_stream"):
         with folder.get_download_stream(cleaned) as stream:
-            data = stream.read() if expected_duckdb_types else stream.read(1)
-        if expected_duckdb_types:
+            data = stream.read() if read_full_payload else stream.read(1)
+        if read_full_payload:
             _verify_parquet_schema_matches_expected(
                 schema=pq.read_schema(io.BytesIO(data)),
                 expected_duckdb_types=expected_duckdb_types,
+                expected_arrow_types=expected_arrow_types,
                 path=path,
             )
         return
     if hasattr(folder, "get_file"):
         payload = folder.get_file(cleaned)
         if hasattr(payload, "read"):
-            data = payload.read() if expected_duckdb_types else payload.read(1)
-            if expected_duckdb_types:
+            data = payload.read() if read_full_payload else payload.read(1)
+            if read_full_payload:
                 _verify_parquet_schema_matches_expected(
                     schema=pq.read_schema(io.BytesIO(data)),
                     expected_duckdb_types=expected_duckdb_types,
+                    expected_arrow_types=expected_arrow_types,
                     path=path,
                 )
         return
