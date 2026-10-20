@@ -1105,3 +1105,252 @@ def test_upload_cleanup_failure_message_uses_bounded_replacement_evidence(monkey
     assert paths[6] not in result.message
     assert "written_sample_omitted_count=1" in result.message
     assert "cleanup failed for 6 replacement(s)" in result.message
+
+
+def _users_selected_records(*, module: str, source_name: str = "source.parquet") -> list[discovery.SelectedPathRecord]:
+    relative_path = f"/silver/category=users/module={module}/instance_name=alpha/year=2026/month=06/day=11/{source_name}"
+    return [
+        discovery.SelectedPathRecord(
+            relative_path=relative_path,
+            full_path=f"bucket/root{relative_path}",
+            base_name=source_name,
+            layer="silver",
+            category="users",
+            module=module,
+            instance_name="alpha",
+            year="2026",
+            month="06",
+            day="11",
+        )
+    ]
+
+
+def test_users_instance_metadata_module_contract_adds_missing_string_fields_and_preserves_values(tmp_path):
+    source_df = pd.DataFrame(
+        [
+            {
+                "instance_name": "alpha",
+                "run_ts": "2026-06-11T01:02:03Z",
+                "users_login": "older",
+                "users_enabled": "true",
+                "extras": '{"legacy_field":"kept","users_lastsuccessfullogin":"2026-01-02T03:04:05Z"}',
+            },
+            {
+                "instance_name": "alpha",
+                "run_ts": "2026-06-11T04:05:06Z",
+                "users_login": "populated",
+                "users_enabled": "true",
+                "users_lastsuccessfullogin": "2026-02-03T04:05:06Z",
+                "users_lastfailedlogin": "2026-02-04T04:05:06Z",
+                "users_lastsessionactivity": "2026-02-05T04:05:06Z",
+                "users_first_commit_date": "2026-02-06T04:05:06Z",
+                "users_last_commit_date": "2026-02-07T04:05:06Z",
+                "unknown_top_level": "preserved",
+            },
+        ]
+    )
+
+    plans, summary = replay.plan_compact_selected_day(
+        selected_records=_users_selected_records(module="instance_metadata"),
+        selected_df=source_df,
+        normalize_silver_mode=True,
+        processing_mode="module_contract_normalization",
+        run_epoch_ms=1790966945713,
+    )
+
+    assert summary.mode == "module_contract_normalization"
+    assert len(plans) == 1
+    plan = plans[0]
+    assert str(plan.output_path) == "/silver/category=users/module=instance_metadata/instance_name=alpha/year=2026/month=06/day=11/compact_silver-1790966945713-0001.parquet"
+    expected_columns = [
+        "instance_name",
+        "users_login",
+        "users_enabled",
+        "users_sourcetype",
+        "users_displayname",
+        "users_email",
+        "users_groups",
+        "users_userprofile",
+        "users_resultinguserprofile",
+        "users_creationdate",
+        "users_lastsuccessfullogin",
+        "users_lastfailedlogin",
+        "users_lastsessionactivity",
+        "users_first_commit_date",
+        "users_last_commit_date",
+        "users_trialstatus_exists",
+        "users_trialstatus_expired",
+        "users_trialstatus_illegal",
+        "users_trialstatus_valid",
+        "users_trialstatus_grantedon",
+        "users_trialstatus_expireson",
+        "run_ts",
+        "extras",
+    ]
+    assert list(plan.silver_df.columns) == expected_columns
+    assert plan.silver_df.loc[0, "users_lastsuccessfullogin"] == "2026-01-02T03:04:05Z"
+    assert plan.silver_df.loc[1, "users_lastsuccessfullogin"] == "2026-02-03T04:05:06Z"
+    assert list(plan.silver_df["run_ts"].astype(str)) == [
+        "2026-06-11 01:02:03+00:00",
+        "2026-06-11 04:05:06+00:00",
+    ]
+    assert plan.silver_df.loc[0, "extras"] == '{"legacy_field": "kept"}'
+    assert plan.silver_df.loc[1, "extras"] == '{"unknown_top_level": "preserved"}'
+
+    parquet_path = tmp_path / "users_instance_metadata.parquet"
+    plan.silver_df.to_parquet(parquet_path, index=False, engine="pyarrow")
+    schema = pq.read_schema(parquet_path)
+    for column in [
+        "users_lastsuccessfullogin",
+        "users_lastfailedlogin",
+        "users_lastsessionactivity",
+        "users_first_commit_date",
+        "users_last_commit_date",
+    ]:
+        assert str(schema.field(column).type) == "string"
+    assert str(schema.field("run_ts").type).startswith("timestamp")
+
+
+def test_users_user_activity_module_contract_preserves_activity_fields_and_dataiku_category():
+    source_df = pd.DataFrame(
+        [
+            {
+                "instance_name": "alpha",
+                "timestamp": "2026-06-11T01:00:00Z",
+                "login": "alice",
+                "project_key": "PROJECT_A",
+                "viewing_actions_count": 2,
+                "developing_actions_count": 3,
+                "dataiku_category": "user_activity",
+                "run_ts": "2026-06-11T02:00:00Z",
+                "extras": '{"retained":"yes"}',
+            }
+        ]
+    )
+
+    plans, summary = replay.plan_compact_selected_day(
+        selected_records=_users_selected_records(module="user_activity"),
+        selected_df=source_df,
+        normalize_silver_mode=True,
+        processing_mode="module_contract_normalization",
+        run_epoch_ms=1790966945713,
+    )
+
+    assert summary.mode == "module_contract_normalization"
+    row = plans[0].silver_df.iloc[0]
+    assert row["timestamp"].isoformat() == "2026-06-11T01:00:00+00:00"
+    assert row["login"] == "alice"
+    assert row["project_key"] == "PROJECT_A"
+    assert row["viewing_actions_count"] == 2
+    assert row["developing_actions_count"] == 3
+    assert row["dataiku_category"] == "user_activity"
+    assert row["run_ts"].isoformat() == "2026-06-11T02:00:00+00:00"
+    assert row["extras"] == '{"retained": "yes"}'
+
+
+def test_module_contract_normalization_rejects_missing_contract_and_conflicting_extras():
+    with pytest.raises(replay.ReplaySkipError, match="missing canonical contract"):
+        replay.plan_compact_selected_day(
+            selected_records=_users_selected_records(module="unknown_module"),
+            selected_df=pd.DataFrame([{"instance_name": "alpha", "run_ts": "2026-06-11T00:00:00Z"}]),
+            normalize_silver_mode=True,
+            processing_mode="module_contract_normalization",
+            run_epoch_ms=1790966945713,
+        )
+
+    with pytest.raises(replay.ReplaySkipError, match="Conflicting non-null values"):
+        replay.plan_compact_selected_day(
+            selected_records=_users_selected_records(module="instance_metadata"),
+            selected_df=pd.DataFrame(
+                [
+                    {
+                        "instance_name": "alpha",
+                        "run_ts": "2026-06-11T00:00:00Z",
+                        "users_login": "top-level",
+                        "extras": '{"users_login":"extras-value"}',
+                    }
+                ]
+            ),
+            normalize_silver_mode=True,
+            processing_mode="module_contract_normalization",
+            run_epoch_ms=1790966945713,
+        )
+
+
+def test_staged_users_instance_metadata_normalization_writes_verified_schema_and_deletes_sources(monkeypatch, tmp_path):
+    database_path = tmp_path / "users_partition.duckdb"
+    con = duckdb.connect(str(database_path))
+    con.execute(
+        """
+        CREATE TABLE dedup_stage AS
+        SELECT * FROM (VALUES
+            (0, 'alpha', '2026-06-11T01:02:03Z', 'older', NULL)
+        ) AS t(__compact_row_order, instance_name, run_ts, users_login, users_lastsuccessfullogin)
+        """.strip()
+    )
+    con.close()
+
+    folder = _MemoryFolder()
+    source_path = "/silver/category=users/module=instance_metadata/instance_name=alpha/year=2026/month=06/day=11/source.parquet"
+    folder.files[source_path] = b"source"
+
+    def fake_upload(**kwargs):
+        buf = io.BytesIO()
+        kwargs["df"].to_parquet(buf, index=False, engine="pyarrow", compression="snappy")
+        folder.files[f"/{str(kwargs['output_path']).lstrip('/')}"] = buf.getvalue()
+        return True
+
+    monkeypatch.setattr(replay, "get_managed_folder_handle", lambda target: folder)
+    monkeypatch.setattr(replay, "upload_parquet", fake_upload)
+
+    result = replay.process_staged_compact_partition(
+        target=object(),
+        selected_records=_users_selected_records(module="instance_metadata"),
+        source_relative_paths=[source_path],
+        database_path=database_path,
+        normalize_silver_mode=True,
+        processing_mode="module_contract_normalization",
+        run_epoch_ms=1790966945713,
+        output_chunk_size=100,
+    )
+
+    assert result.plan_summary.mode == "module_contract_normalization"
+    assert result.apply_result.status == "succeeded"
+    assert result.apply_result.deleted_source_paths == (source_path,)
+    assert folder.deleted == [source_path]
+    written_payloads = [folder.files[path] for path in result.apply_result.written_paths]
+    assert len(written_payloads) == 1
+    schema = pq.read_schema(io.BytesIO(written_payloads[0]))
+    assert schema.names == [
+        "instance_name",
+        "users_login",
+        "users_enabled",
+        "users_sourcetype",
+        "users_displayname",
+        "users_email",
+        "users_groups",
+        "users_userprofile",
+        "users_resultinguserprofile",
+        "users_creationdate",
+        "users_lastsuccessfullogin",
+        "users_lastfailedlogin",
+        "users_lastsessionactivity",
+        "users_first_commit_date",
+        "users_last_commit_date",
+        "users_trialstatus_exists",
+        "users_trialstatus_expired",
+        "users_trialstatus_illegal",
+        "users_trialstatus_valid",
+        "users_trialstatus_grantedon",
+        "users_trialstatus_expireson",
+        "run_ts",
+        "extras",
+    ]
+    for column in [
+        "users_lastsuccessfullogin",
+        "users_lastfailedlogin",
+        "users_lastsessionactivity",
+        "users_first_commit_date",
+        "users_last_commit_date",
+    ]:
+        assert str(schema.field(column).type) == "string"
