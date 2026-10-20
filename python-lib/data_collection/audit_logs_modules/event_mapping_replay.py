@@ -414,6 +414,14 @@ def _is_nullish(value: Any) -> bool:
         return False
 
 
+def _values_are_equivalent(left: Any, right: Any) -> bool:
+    if _is_nullish(left) and _is_nullish(right):
+        return True
+    if _is_nullish(left) or _is_nullish(right):
+        return False
+    return left == right
+
+
 def _merge_existing_extras_into_source(df: pd.DataFrame, *, required_columns: list[str]) -> pd.DataFrame:
     if "extras" not in df.columns:
         return df
@@ -424,18 +432,20 @@ def _merge_existing_extras_into_source(df: pd.DataFrame, *, required_columns: li
         merged = dict(source_row)
         extras_payload = _decode_extras_value(merged.get("extras"))
         for key, value in extras_payload.items():
-            if key in required_columns:
-                existing_value = merged.get(key)
-                existing_is_null = _is_nullish(existing_value)
-                extra_is_null = _is_nullish(value)
-                if existing_is_null and not extra_is_null:
-                    merged[key] = value
-                elif not existing_is_null and not extra_is_null and str(existing_value) != str(value):
-                    raise ReplaySkipError(
-                        f"Conflicting non-null values for contract column {key!r} between top-level field and extras"
-                    )
-            elif key not in merged or key == "extras":
+            if key == "extras":
+                raise ReplaySkipError(
+                    "Cannot safely merge nested extras payload key 'extras' during Compact SILVER normalization"
+                )
+            existing_value = merged.get(key)
+            existing_is_null = key not in merged or _is_nullish(existing_value)
+            extra_is_null = _is_nullish(value)
+            if existing_is_null and not extra_is_null:
                 merged[key] = value
+            elif not existing_is_null and not extra_is_null and not _values_are_equivalent(existing_value, value):
+                column_kind = "contract" if key in required_columns else "noncontract"
+                raise ReplaySkipError(
+                    f"Conflicting non-null values for {column_kind} column {key!r} between top-level field and extras"
+                )
         merged.pop("extras", None)
         merged_rows.append(merged)
     return pd.DataFrame(merged_rows)

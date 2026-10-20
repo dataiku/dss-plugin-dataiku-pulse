@@ -1258,6 +1258,154 @@ def test_module_contract_normalization_rejects_missing_contract_and_conflicting_
             run_epoch_ms=1790966945713,
         )
 
+
+def test_existing_extras_recover_noncontract_values_from_null_top_level_columns():
+    source_df = pd.DataFrame(
+        [
+            {
+                "users_login": "older",
+                "extras": '{"legacy_field":"must-survive"}',
+            },
+            {
+                "users_login": "newer",
+                "legacy_field": "top-level-value",
+                "extras": None,
+            },
+        ]
+    )
+
+    merged = replay._merge_existing_extras_into_source(
+        source_df,
+        required_columns=["instance_name", "run_ts", "users_login"],
+    )
+
+    assert merged.loc[0, "legacy_field"] == "must-survive"
+    assert merged.loc[1, "legacy_field"] == "top-level-value"
+    assert "extras" not in merged.columns
+
+
+def test_existing_extras_reconcile_noncontract_absent_null_equal_and_conflicting_values():
+    source_df = pd.DataFrame(
+        [
+            {"users_login": "absent", "extras": '{"absent_field":"extra-value"}'},
+            {"users_login": "null", "nullable_field": pd.NA, "extras": '{"nullable_field":"extra-value"}'},
+            {"users_login": "top", "top_field": "top-value", "extras": '{"other":"kept"}'},
+            {"users_login": "equal", "equal_field": "same", "extras": '{"equal_field":"same"}'},
+        ]
+    )
+
+    merged = replay._merge_existing_extras_into_source(
+        source_df,
+        required_columns=["instance_name", "run_ts", "users_login"],
+    )
+
+    assert merged.loc[0, "absent_field"] == "extra-value"
+    assert merged.loc[1, "nullable_field"] == "extra-value"
+    assert merged.loc[2, "top_field"] == "top-value"
+    assert merged.loc[2, "other"] == "kept"
+    assert merged.loc[3, "equal_field"] == "same"
+
+    with pytest.raises(replay.ReplaySkipError, match="noncontract column 'legacy_field'"):
+        replay._merge_existing_extras_into_source(
+            pd.DataFrame(
+                [
+                    {
+                        "users_login": "user",
+                        "legacy_field": "top-value",
+                        "extras": '{"legacy_field":"different-extra-value"}',
+                    }
+                ]
+            ),
+            required_columns=["instance_name", "run_ts", "users_login"],
+        )
+
+    with pytest.raises(replay.ReplaySkipError, match="nested extras payload key"):
+        replay._merge_existing_extras_into_source(
+            pd.DataFrame([{"users_login": "user", "extras": '{"extras":{"nested":"unsafe"}}'}]),
+            required_columns=["instance_name", "run_ts", "users_login"],
+        )
+
+
+def test_users_instance_metadata_preserves_noncontract_extras_through_parquet_readback(tmp_path):
+    source_df = pd.DataFrame(
+        [
+            {
+                "instance_name": "alpha",
+                "run_ts": "2026-06-11T01:02:03Z",
+                "users_login": "older",
+                "legacy_field": pd.NA,
+                "extras": '{"legacy_field":"must-survive"}',
+            },
+            {
+                "instance_name": "alpha",
+                "run_ts": "2026-06-11T04:05:06Z",
+                "users_login": "newer",
+                "legacy_field": "top-level-value",
+                "extras": None,
+            },
+        ]
+    )
+
+    plans, summary = replay.plan_compact_selected_day(
+        selected_records=_users_selected_records(module="instance_metadata"),
+        selected_df=source_df,
+        normalize_silver_mode=True,
+        processing_mode="module_contract_normalization",
+        run_epoch_ms=1790966945713,
+    )
+
+    assert summary.mode == "module_contract_normalization"
+    parquet_path = tmp_path / "users_instance_metadata_extras.parquet"
+    plans[0].silver_df.to_parquet(parquet_path, index=False, engine="pyarrow")
+    rows = duckdb.connect(":memory:").execute(
+        "SELECT users_login, run_ts, extras FROM read_parquet(?) ORDER BY users_login",
+        [str(parquet_path)],
+    ).fetchall()
+
+    assert rows == [
+        ("newer", rows[0][1], '{"legacy_field": "top-level-value"}'),
+        ("older", rows[1][1], '{"legacy_field": "must-survive"}'),
+    ]
+    assert str(rows[0][1]).startswith("2026-06-11 04:05:06")
+    assert str(rows[1][1]).startswith("2026-06-11 01:02:03")
+
+
+def test_staged_noncontract_extras_conflict_retains_sources_without_upload_or_delete(monkeypatch, tmp_path):
+    database_path = tmp_path / "users_conflict.duckdb"
+    con = duckdb.connect(str(database_path))
+    con.execute(
+        """
+        CREATE TABLE dedup_stage AS
+        SELECT * FROM (VALUES
+            (0, 'alpha', '2026-06-11T01:02:03Z', 'user', 'top-value', '{"legacy_field":"different-extra-value"}')
+        ) AS t(__compact_row_order, instance_name, run_ts, users_login, legacy_field, extras)
+        """.strip()
+    )
+    con.close()
+
+    source_path = "/silver/category=users/module=instance_metadata/instance_name=alpha/year=2026/month=06/day=11/source.parquet"
+    uploads: list[dict[str, object]] = []
+    deletes: list[str] = []
+
+    monkeypatch.setattr(replay, "get_managed_folder_handle", lambda target: object())
+    monkeypatch.setattr(replay, "upload_parquet", lambda **kwargs: uploads.append(kwargs))
+    monkeypatch.setattr(replay, "delete_managed_folder_file", lambda folder, path: deletes.append(path))
+
+    with pytest.raises(replay.ReplaySkipError, match="noncontract column 'legacy_field'"):
+        replay.process_staged_compact_partition(
+            target=object(),
+            selected_records=_users_selected_records(module="instance_metadata"),
+            source_relative_paths=[source_path],
+            database_path=database_path,
+            normalize_silver_mode=True,
+            processing_mode="module_contract_normalization",
+            run_epoch_ms=1790966945713,
+            output_chunk_size=100,
+        )
+
+    assert uploads == []
+    assert deletes == []
+
     with pytest.raises(replay.ReplaySkipError, match="Conflicting non-null values"):
         replay.plan_compact_selected_day(
             selected_records=_users_selected_records(module="instance_metadata"),
