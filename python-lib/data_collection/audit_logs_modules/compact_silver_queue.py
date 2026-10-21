@@ -66,6 +66,7 @@ class QueueSummary:
     eligible_partition_count: int
     cutoff_date: date
     minimum_age_days: int
+    included_compact_outputs: int = 0
 
 
 @dataclass(frozen=True)
@@ -123,6 +124,7 @@ class CompactSilverQueue:
                 total_matched_paths BIGINT NOT NULL,
                 filtered_matching_paths BIGINT NOT NULL,
                 skipped_compact_outputs BIGINT NOT NULL,
+                included_compact_outputs BIGINT NOT NULL,
                 excluded_recent_paths BIGINT NOT NULL,
                 eligible_paths BIGINT NOT NULL,
                 cutoff_date VARCHAR NOT NULL,
@@ -168,6 +170,7 @@ class CompactSilverQueue:
         suffix: str,
         partition_filters: dict[str, str],
         minimum_age_days: int,
+        include_compact_outputs: bool = False,
         utc_today: date | None = None,
         insert_batch_size: int = 10_000,
         raise_on_empty: bool = True,
@@ -187,6 +190,7 @@ class CompactSilverQueue:
         total_matched_paths = 0
         filtered_matching_paths = 0
         skipped_compact_outputs = 0
+        included_compact_outputs = 0
         excluded_recent_paths = 0
         eligible_paths = 0
         pending_rows: list[tuple[str, str, str, str, str, str, str, str, str]] = []
@@ -202,8 +206,11 @@ class CompactSilverQueue:
             ):
                 continue
             if is_compact_output_record(record):
-                skipped_compact_outputs += 1
-                continue
+                if include_compact_outputs:
+                    included_compact_outputs += 1
+                else:
+                    skipped_compact_outputs += 1
+                    continue
 
             filtered_matching_paths += 1
             if partition_date_from_record(record) >= cutoff_date:
@@ -246,11 +253,12 @@ class CompactSilverQueue:
 
         self.conn.execute("DELETE FROM counters")
         self.conn.execute(
-            "INSERT INTO counters VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO counters VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 total_matched_paths,
                 filtered_matching_paths,
                 skipped_compact_outputs,
+                included_compact_outputs,
                 excluded_recent_paths,
                 eligible_paths,
                 cutoff_date.isoformat(),
@@ -269,6 +277,7 @@ class CompactSilverQueue:
             total_matched_paths=total_matched_paths,
             filtered_matching_paths=filtered_matching_paths,
             skipped_compact_outputs=skipped_compact_outputs,
+            included_compact_outputs=included_compact_outputs,
             excluded_recent_paths=excluded_recent_paths,
             eligible_paths=eligible_paths,
             eligible_partition_count=eligible_partition_count,

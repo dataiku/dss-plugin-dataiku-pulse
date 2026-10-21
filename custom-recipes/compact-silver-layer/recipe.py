@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -13,12 +14,14 @@ from data_collection.audit_logs_modules.event_mapping_replay import CompactParti
 from shared_runtime_logging import suppress_inherited_provider_debug_logging
 
 
-EVENT_MAPPING_PREFIX = "silver/category=event_mapping/"
+SILVER_PREFIX = "silver/"
+EVENT_MAPPING_CATEGORY = "event_mapping"
+EVENT_MAPPING_PREFIX = f"{SILVER_PREFIX}category={EVENT_MAPPING_CATEGORY}/"
 MINIMUM_AGE_DAYS = 1
 PHASE3_FILTERS = {
-    "category": "event_mapping",
+    "category": EVENT_MAPPING_CATEGORY,
 }
-PHASE3_FILTER_SCOPE = "category=event_mapping"
+PHASE3_FILTER_SCOPE = f"category={EVENT_MAPPING_CATEGORY}"
 MODULE_FILTER_CHOICES = {
     "all",
     "administration",
@@ -47,6 +50,7 @@ MODULE_FILTER_CHOICES = {
     "webapps",
     "wiki_artical_discussions",
 }
+SAFE_PARTITION_VALUE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 OUTPUT_ROLE = "compact_silver_audit"
 SELECTED_SCOPE_PREVIEW_LIMIT = 5
 FAILED_SCOPE_SAMPLE_LIMIT = 5
@@ -117,6 +121,23 @@ def _resolve_batch_size(param_set: dict[str, Any]) -> int:
     return int(param_set.get("batch_size", 25))
 
 
+def _resolve_category_filter(recipe_config: dict[str, Any]) -> tuple[str, bool]:
+    if "category_filter" not in recipe_config:
+        return EVENT_MAPPING_CATEGORY, True
+    category_filter = str(recipe_config.get("category_filter") or "").strip()
+    if not category_filter:
+        raise ValueError("Invalid compact SILVER category_filter: expected one safe nonempty partition value")
+    if not SAFE_PARTITION_VALUE_PATTERN.fullmatch(category_filter):
+        raise ValueError(
+            f"Invalid compact SILVER category_filter={category_filter!r}; expected one safe partition value"
+        )
+    return category_filter, False
+
+
+def _relative_prefix_for_category(category_filter: str) -> str:
+    return f"{SILVER_PREFIX}category={category_filter}/"
+
+
 def _resolve_module_filter(recipe_config: dict[str, Any]) -> str:
     module_filter = str(recipe_config.get("module_filter") or "all").strip()
     if not module_filter:
@@ -161,6 +182,12 @@ def _partition_filters_for_module_filter(module_filter: str) -> dict[str, str]:
     return {**PHASE3_FILTERS, "module": module_filter}
 
 
+def _partition_filters_for_scope(*, category_filter: str, module_filter: str) -> dict[str, str]:
+    if category_filter != EVENT_MAPPING_CATEGORY:
+        return {"category": category_filter}
+    return _partition_filters_for_module_filter(module_filter)
+
+
 def _filter_scope_for_module_filter(
     module_filter: str, *, excluded_modules: tuple[str, ...] = ()
 ) -> str:
@@ -171,6 +198,26 @@ def _filter_scope_for_module_filter(
             )
         return PHASE3_FILTER_SCOPE
     return f"{PHASE3_FILTER_SCOPE}; module={module_filter}"
+
+
+def _filter_scope_for_scope(
+    *, category_filter: str, module_filter: str, excluded_modules: tuple[str, ...] = ()
+) -> str:
+    if category_filter != EVENT_MAPPING_CATEGORY:
+        return f"category={category_filter}"
+    return _filter_scope_for_module_filter(module_filter, excluded_modules=excluded_modules)
+
+
+def _processing_mode_for_scope(*, category_filter: str, normalize_silver_mode: bool) -> str:
+    if not normalize_silver_mode:
+        return "generic_compaction"
+    if category_filter == EVENT_MAPPING_CATEGORY:
+        return "event_mapping_replay"
+    return "module_contract_normalization"
+
+
+def _resolve_reprocess_compacted_files(recipe_config: dict[str, Any]) -> bool:
+    return bool(recipe_config.get("reprocess_compacted_files", False))
 
 
 def _format_selected_partition_preview(selected_partitions: list[Any], *, total_selected_count: int | None = None) -> str | None:
@@ -293,7 +340,7 @@ def _build_summary_row(
     execution_environment: str,
     stream_result: CompactStreamRunResult,
     filter_scope: str,
-    normalize_silver_mode: bool,
+    replay_mode: str,
     processed_partition_count: int,
     aggregate_counts: dict[str, int],
     preview_partitions: list[Any],
@@ -324,7 +371,7 @@ def _build_summary_row(
                 processed_partition_count,
             ),
         ),
-        "replay_mode": "event_mapping_replay" if normalize_silver_mode else "generic_compaction",
+        "replay_mode": replay_mode,
         "terminal_status": "success" if aggregate_counts["failed_outcomes"] == 0 else "partial",
         "files_read": None,
         "raw_rows": None,
@@ -346,6 +393,7 @@ def _build_summary_row(
             f"mode={stream_result.execution_mode}; scanned={stream_result.queue_summary.total_matched_paths}; "
             f"filtered={stream_result.queue_summary.filtered_matching_paths}; eligible={stream_result.queue_summary.eligible_paths}; "
             f"eligible_partitions={stream_result.queue_summary.eligible_partition_count}; skipped_compact_outputs={stream_result.queue_summary.skipped_compact_outputs}; "
+            f"included_compact_outputs={getattr(stream_result.queue_summary, 'included_compact_outputs', 0)}; "
             f"queue_memory_limit={stream_result.queue_memory_limit_setting or 'unset'}; requested_workers={stream_result.worker_resolution.resolved_n_jobs}"
         ),
     }
@@ -449,15 +497,33 @@ def run():
     project_key = dataiku.default_project_key()
     plugin_config = get_plugin_config() or {}
     recipe_config = get_recipe_config() or {}
+
     param_set = plugin_config.get("pulse_primary", {}) or {}
+    category_filter, legacy_event_mapping_scope = _resolve_category_filter(recipe_config)
     normalize_silver_mode = bool(recipe_config.get("normalize_silver", False))
-    module_filter = _resolve_module_filter(recipe_config)
-    excluded_modules = _resolve_excluded_modules(
-        recipe_config, module_filter=module_filter
+    reprocess_compacted_files = _resolve_reprocess_compacted_files(recipe_config)
+    if reprocess_compacted_files and not normalize_silver_mode:
+        raise ValueError(
+            "Compact SILVER reprocess_compacted_files requires normalize_silver=true"
+        )
+    if category_filter == EVENT_MAPPING_CATEGORY:
+        module_filter = _resolve_module_filter(recipe_config)
+        excluded_modules = _resolve_excluded_modules(
+            recipe_config, module_filter=module_filter
+        )
+    else:
+        module_filter = "all"
+        excluded_modules = ()
+    partition_filters = _partition_filters_for_scope(
+        category_filter=category_filter, module_filter=module_filter
     )
-    partition_filters = _partition_filters_for_module_filter(module_filter)
-    filter_scope = _filter_scope_for_module_filter(
-        module_filter, excluded_modules=excluded_modules
+    filter_scope = _filter_scope_for_scope(
+        category_filter=category_filter,
+        module_filter=module_filter,
+        excluded_modules=excluded_modules,
+    )
+    processing_mode = _processing_mode_for_scope(
+        category_filter=category_filter, normalize_silver_mode=normalize_silver_mode
     )
 
     source_folder_lookup = str(param_set.get("pulse_partitioned_data") or "partitioned_data")
@@ -488,15 +554,17 @@ def run():
             CompactRunConfig(
                 project_key=project_key,
                 folder_lookup=source_folder_lookup,
-                relative_prefix=EVENT_MAPPING_PREFIX,
+                relative_prefix=_relative_prefix_for_category(category_filter),
                 partition_filters=partition_filters,
                 minimum_age_days=MINIMUM_AGE_DAYS,
                 normalize_silver_mode=normalize_silver_mode,
+                processing_mode=processing_mode,
                 param_set=param_set,
                 execution_environment=execution_environment,
                 batch_size=batch_size,
                 excluded_modules=excluded_modules,
                 selection_mode="all_eligible_filtered",
+                reprocess_compacted_files=reprocess_compacted_files,
             ),
             on_outcomes=lambda stream_result, selected_partitions, outcomes: _stream_audit_batch(
                 writer=writer,
@@ -523,7 +591,7 @@ def run():
                     execution_environment=execution_environment,
                     stream_result=stream_result,
                     filter_scope=filter_scope,
-                    normalize_silver_mode=normalize_silver_mode,
+                    replay_mode=processing_mode,
                     processed_partition_count=aggregate_counts["processed_partition_count"],
                     aggregate_counts=aggregate_counts,
                     preview_partitions=preview_partitions,
@@ -558,7 +626,10 @@ def run():
         "partition_cap": stream_result.worker_resolution.partition_cap,
         "dispatch_batch_size": stream_result.dispatch_batch_size,
         "queue_memory_limit": stream_result.queue_memory_limit_setting,
+        "category_filter": category_filter,
+        "legacy_event_mapping_scope": legacy_event_mapping_scope,
         "normalize_silver": normalize_silver_mode,
+        "processing_mode": processing_mode,
         "connection_type": stream_result.storage_ctx.connection_type,
         "connection_name": stream_result.storage_ctx.connection_name,
     }

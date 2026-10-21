@@ -8,6 +8,7 @@ import yaml
 
 from data_collection.data_normalizer.flatten_config import _slug
 from data_collection.pulse_duckdb.sql_utils import canonical_norm_sql, log_table_stats
+from data_collection.pulse_duckdb.views import is_missing_parquet_error
 
 
 logger = logging.getLogger(__name__)
@@ -106,7 +107,7 @@ def _create_event_mapping_module_view(
     """Create a DuckDB view over SILVER event_mapping parquet for one module.
 
     Note: This intentionally does not rely on `create_silver_view()` because this
-    helper also enables `union_by_name` for event_mapping parquet.
+    helper targets the event_mapping SILVER path directly.
     """
 
     if not ctx.bucket_or_container:
@@ -129,12 +130,14 @@ def _create_event_mapping_module_view(
     SELECT
       *,
       make_date(CAST(year AS INTEGER), CAST(month AS INTEGER), CAST(day AS INTEGER)) AS partition_date
-    FROM read_parquet('{glob}', hive_partitioning = true, union_by_name = true);
+    FROM read_parquet('{glob}', hive_partitioning = true);
     """.strip()  # nosec B608 (view_name is plugin-controlled; glob is derived from storage context)
 
     try:
         conn.execute(sql)
-    except duckdb.IOException:
+    except duckdb.IOException as exc:
+        if not is_missing_parquet_error(exc):
+            raise
         # No parquet yet for this module; skip.
         return ""
 

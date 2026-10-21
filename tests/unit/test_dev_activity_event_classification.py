@@ -2,11 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+from types import SimpleNamespace
 
 import duckdb
 import pytest
 import yaml
 
+from data_collection.pulse_duckdb import dev_activity as dev_activity_module
+from data_collection.pulse_duckdb.dev_activity import (
+    _dev_activity_events_branch_sql,
+    build_fact_dev_activity_events,
+)
 
 ALLOWED_CLASSES = {
     "meaningful_action",
@@ -33,9 +39,10 @@ def _sql_slug_expr(column: str) -> str:
     )
 
 
-def _build_dim_dev_activity_event_classification_for_test(conn: duckdb.DuckDBPyConnection, rows: list[dict]) -> str:
-    conn.execute(
-        """
+def _build_dim_dev_activity_event_classification_for_test(
+    conn: duckdb.DuckDBPyConnection, rows: list[dict]
+) -> str:
+    conn.execute("""
         CREATE OR REPLACE TABLE dim_dev_activity_event_classification AS
         SELECT
           CAST(NULL AS VARCHAR) AS msgtype,
@@ -43,16 +50,18 @@ def _build_dim_dev_activity_event_classification_for_test(conn: duckdb.DuckDBPyC
           CAST(NULL AS BOOLEAN) AS is_meaningful_activity,
           CAST(NULL AS VARCHAR) AS description
         WHERE 1=0;
-        """.strip()
-    )
+        """.strip())
     if not rows:
         return "dim_dev_activity_event_classification"
 
     normalized_msgtypes = [_slug(str(r.get("msgtype") or "")) for r in rows]
-    duplicate_msgtypes = sorted({m for m in normalized_msgtypes if m and normalized_msgtypes.count(m) > 1})
+    duplicate_msgtypes = sorted(
+        {m for m in normalized_msgtypes if m and normalized_msgtypes.count(m) > 1}
+    )
     if duplicate_msgtypes:
         raise ValueError(
-            "Duplicate normalized msgtype values in event_classification.yaml: " + ", ".join(duplicate_msgtypes)
+            "Duplicate normalized msgtype values in event_classification.yaml: "
+            + ", ".join(duplicate_msgtypes)
         )
 
     insert_rows = [
@@ -74,6 +83,56 @@ def _build_dim_dev_activity_event_classification_for_test(conn: duckdb.DuckDBPyC
     return "dim_dev_activity_event_classification"
 
 
+def _create_event_mapping_view_for_origin_test(conn: duckdb.DuckDBPyConnection) -> None:
+    conn.execute("""
+        CREATE OR REPLACE TABLE source_event_mapping AS
+        SELECT * FROM (
+          VALUES
+            (1, TIMESTAMP '2026-01-01 10:00:00', 'inst1', 'alice', 'recipe-save', 'recipe', 'visual_recipes', 'FIN', '/projects/FIN', NULL, 'USER_FROM_UI', NULL, NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
+            (2, TIMESTAMP '2026-01-01 11:00:00', 'inst1', 'alice', 'recipe-save', 'recipe', 'visual_recipes', 'FIN', '/projects/FIN', NULL, 'USER_FROM_UI', 'scenario-run:FIN.SCENARIO', NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
+            (3, TIMESTAMP '2026-01-01 12:00:00', 'inst1', 'alice', 'recipe-save', 'recipe', 'visual_recipes', 'FIN', '/projects/FIN', NULL, 'USER_FROM_UI', 'ticket:job:FIN.JOB', NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
+            (4, TIMESTAMP '2026-01-01 13:00:00', 'inst1', 'alice', 'recipe-save', 'recipe', 'visual_recipes', 'FIN', '/projects/FIN', NULL, 'PERSONAL_API_KEY', NULL, NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
+            (5, TIMESTAMP '2026-01-01 14:00:00', 'inst1', 'alice', 'recipe-save', 'recipe', 'visual_recipes', 'FIN', '/projects/FIN', NULL, 'USER_FROM_UI', 'ticket:macro:FIN.MACRO', NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
+            (6, TIMESTAMP '2026-01-01 15:00:00', 'inst1', 'alice', 'recipe-save', 'recipe', 'visual_recipes', 'FIN', '/projects/FIN', '{"message_jobId":"job-from-extras"}', 'PERSONAL_API_KEY', NULL, NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
+            (7, TIMESTAMP '2026-01-01 16:00:00', 'inst1', 'alice', 'recipe-save', 'recipe', 'visual_recipes', 'FIN', '/projects/FIN', NULL, 'USER_FROM_UI', 'scenario=FIN.SCENARIO', NULL, 'job-flat', TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
+            (8, TIMESTAMP '2026-01-01 17:00:00', 'inst1', 'alice', 'recipe-save', 'recipe', 'visual_recipes', 'FIN', '/projects/FIN', '{bad', 'USER_FROM_UI', NULL, NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
+            (9, TIMESTAMP '2026-01-01 18:00:00', 'inst1', 'alice', 'recipe-save', 'recipe', 'visual_recipes', 'FIN', '/projects/FIN', NULL, 'PERSONAL_API_KEY', 'ticket:macro:FIN.MACRO', NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
+            (10, TIMESTAMP '2026-01-01 19:00:00', 'inst1', 'alice', 'code-studio-object-state', 'code-studio', 'code_studio', 'FIN', '/projects/FIN', NULL, 'USER_FROM_UI', 'ticket:Code Studio FIN.session', NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1)
+        ) AS t(row_id, timestamp, instance_name, authuser, msgtype, msgtypebase, dataiku_category, project_key, callpath, extras, authsource, authvia, scenarioid, jobid, run_ts, year, month, day)
+        """.strip())
+    conn.execute(
+        "CREATE OR REPLACE VIEW v_event_mapping__visual_recipes AS SELECT * FROM source_event_mapping"
+    )
+
+
+def _create_origin_fact_for_test(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    view_name: str = "v_event_mapping__visual_recipes",
+) -> None:
+    branch_sql = _dev_activity_events_branch_sql(
+        conn, view_name=view_name
+    )
+    conn.execute(f"CREATE OR REPLACE TABLE fact_dev_activity_events AS {branch_sql}")
+
+
+def _create_coding_event_mapping_view_for_origin_test(conn: duckdb.DuckDBPyConnection) -> None:
+    conn.execute("""
+        CREATE OR REPLACE TABLE source_coding_event_mapping AS
+        SELECT * FROM (
+          VALUES
+            (1, TIMESTAMP '2026-01-01 10:00:00', 'inst1', 'alice', 'code-studio-action-create', 'code-studio', 'coding', 'FIN', '/projects/FIN', '{"scenarioId":"scenario-from-extras"}', 'USER_FROM_UI', NULL, NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
+            (2, TIMESTAMP '2026-01-01 11:00:00', 'inst1', 'alice', 'code-studio-action-create', 'code-studio', 'coding', 'FIN', '/projects/FIN', '{"message_jobId":"job-from-extras"}', 'PERSONAL_API_KEY', NULL, NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
+            (3, TIMESTAMP '2026-01-01 12:00:00', 'inst1', 'alice', 'code-studio-action-create', 'code-studio', 'coding', 'FIN', '/projects/FIN', NULL, 'USER_FROM_UI', 'scenario-run:FIN.SCENARIO', NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
+            (4, TIMESTAMP '2026-01-01 13:00:00', 'inst1', 'alice', 'code-studio-action-create', 'code-studio', 'coding', 'FIN', '/projects/FIN', NULL, 'USER_FROM_UI', 'ticket:job:FIN.JOB', NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1),
+            (5, TIMESTAMP '2026-01-01 14:00:00', 'inst1', 'alice', 'code-studio-action-create', 'code-studio', 'coding', 'FIN', '/projects/FIN', '{bad', 'USER_FROM_UI', NULL, NULL, NULL, TIMESTAMP '2026-01-02 00:00:00', 2026, 1, 1)
+        ) AS t(row_id, timestamp, instance_name, authuser, msgtype, msgtypebase, dataiku_category, project_key, callpath, extras, authsource, authvia, scenarioid, jobid, run_ts, year, month, day)
+        """.strip())
+    conn.execute(
+        "CREATE OR REPLACE VIEW v_event_mapping__coding AS SELECT * FROM source_coding_event_mapping"
+    )
+
+
 @pytest.fixture()
 def conn():
     connection = duckdb.connect(database=":memory:")
@@ -85,15 +144,16 @@ def conn():
 
 @pytest.fixture()
 def classification_rows():
-    path = Path("python-lib/data_collection/pulse_duckdb/gold_specs/dataiku_dev_tools/event_classification.yaml")
+    path = Path(
+        "python-lib/data_collection/pulse_duckdb/gold_specs/dataiku_dev_tools/event_classification.yaml"
+    )
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
 @pytest.fixture()
 def classified_conn(conn, classification_rows):
     _build_dim_dev_activity_event_classification_for_test(conn, classification_rows)
-    conn.execute(
-        """
+    conn.execute("""
         CREATE OR REPLACE TABLE fact_dev_activity_events AS
         SELECT * FROM (
           VALUES
@@ -105,10 +165,8 @@ def classified_conn(conn, classification_rows):
             ('inst1', TIMESTAMP '2026-01-01 15:00:00', 'erin', 'RECIPE SAVE', 'Visual Recipes', 'data_engineering', TIMESTAMP '2026-01-02 00:00:00'),
             ('inst1', TIMESTAMP '2026-01-01 16:00:00', '', 'code-studio-object-state', 'Code Studio', 'data_science', TIMESTAMP '2026-01-02 00:00:00')
         ) AS t(instance_name, timestamp, login, msgtype, dataiku_category, capability, run_timestamp)
-        """.strip()
-    )
-    conn.execute(
-        """
+        """.strip())
+    conn.execute("""
         CREATE OR REPLACE TABLE dim_category_to_capability AS
         SELECT * FROM (
           VALUES
@@ -118,8 +176,7 @@ def classified_conn(conn, classification_rows):
             ('notebooks', 'data_science', 2, 2, 'Data Science', 'Notebooks', TRUE),
             ('other', 'uncategorized', 9, 9, 'Uncategorized', 'Other', TRUE)
         ) AS t(dataiku_category, capability, capability_order, category_order, capability_display_name, category_display_name, is_dev_activity)
-        """.strip()
-    )
+        """.strip())
 
     msgtype_norm_sql = _sql_slug_expr("e.msgtype")
     category_norm_sql = _sql_slug_expr("e.dataiku_category")
@@ -167,7 +224,9 @@ def test_classification_yaml_has_unique_normalized_msgtypes(classification_rows)
         ("unknown-new-event", "unclassified", False),
     ],
 )
-def test_known_and_unknown_msgtypes_classify_as_expected(classification_rows, msgtype, expected_class, expected_flag):
+def test_known_and_unknown_msgtypes_classify_as_expected(
+    classification_rows, msgtype, expected_class, expected_flag
+):
     lookup = {_slug(str(row["msgtype"])): row for row in classification_rows}
     row = lookup.get(_slug(msgtype))
     if row is None:
@@ -195,67 +254,373 @@ def test_duplicate_normalized_msgtypes_raise_clear_error(conn):
             "description": "b",
         },
     ]
-    with pytest.raises(ValueError, match="Duplicate normalized msgtype values.*recipe_save"):
+    with pytest.raises(
+        ValueError, match="Duplicate normalized msgtype values.*recipe_save"
+    ):
         _build_dim_dev_activity_event_classification_for_test(conn, rows)
 
 
 def test_final_view_preserves_all_raw_fact_rows(classified_conn):
-    raw_count = classified_conn.execute("SELECT COUNT(*) FROM fact_dev_activity_events").fetchone()[0]
-    final_count = classified_conn.execute("SELECT COUNT(*) FROM final_build_development_activity_events").fetchone()[0]
+    raw_count = classified_conn.execute(
+        "SELECT COUNT(*) FROM fact_dev_activity_events"
+    ).fetchone()[0]
+    final_count = classified_conn.execute(
+        "SELECT COUNT(*) FROM final_build_development_activity_events"
+    ).fetchone()[0]
     assert final_count == raw_count
 
 
 def test_known_variants_join_to_classification(classified_conn):
-    rows = classified_conn.execute(
-        """
+    rows = classified_conn.execute("""
         SELECT msgtype, activity_class, is_meaningful_activity
         FROM final_build_development_activity_events
         WHERE msgtype IN (' recipe-save ', 'SQL_QUERY_START', 'RECIPE SAVE')
         ORDER BY timestamp
-        """.strip()
-    ).fetchall()
+        """.strip()).fetchall()
     assert rows == [
-        (' recipe-save ', 'meaningful_action', True),
-        ('SQL_QUERY_START', 'meaningful_action', True),
-        ('RECIPE SAVE', 'meaningful_action', True),
+        (" recipe-save ", "meaningful_action", True),
+        ("SQL_QUERY_START", "meaningful_action", True),
+        ("RECIPE SAVE", "meaningful_action", True),
     ]
 
 
 def test_unknown_msgtypes_remain_unclassified_and_not_meaningful(classified_conn):
-    row = classified_conn.execute(
-        """
+    row = classified_conn.execute("""
         SELECT activity_class, is_meaningful_activity
         FROM final_build_development_activity_events
         WHERE msgtype = 'mystery-event'
-        """.strip()
-    ).fetchone()
-    assert row == ('unclassified', False)
+        """.strip()).fetchone()
+    assert row == ("unclassified", False)
 
 
 def test_polling_events_are_excluded_from_user_facing_counts(classified_conn):
-    count = classified_conn.execute(
-        """
+    count = classified_conn.execute("""
         SELECT COUNT(*)
         FROM final_build_development_activity_events
         WHERE is_meaningful_activity IS TRUE
-        """.strip()
-    ).fetchone()[0]
+        """.strip()).fetchone()[0]
     assert count == 3
 
 
 def test_null_or_blank_login_does_not_count_as_active_user(classified_conn):
-    count = classified_conn.execute(
-        """
+    count = classified_conn.execute("""
         SELECT COUNT(DISTINCT login)
         FROM final_build_development_activity_events
         WHERE is_meaningful_activity IS TRUE
           AND login IS NOT NULL
           AND length(trim(login)) > 0
-        """.strip()
-    ).fetchone()[0]
+        """.strip()).fetchone()[0]
     assert count == 3
 
 
 def test_activity_classes_are_from_supported_set(classification_rows):
-    actual = {_slug(str(row.get("activity_class") or "")) for row in classification_rows}
+    actual = {
+        _slug(str(row.get("activity_class") or "")) for row in classification_rows
+    }
     assert actual <= ALLOWED_CLASSES
+
+
+def test_build_fact_dev_activity_events_module_loop_reaches_insert(monkeypatch, tmp_path):
+    class NoCloseConnection:
+        def __init__(self, inner: duckdb.DuckDBPyConnection):
+            self.inner = inner
+
+        def execute(self, *args, **kwargs):
+            return self.inner.execute(*args, **kwargs)
+
+        def sql(self, *args, **kwargs):
+            return self.inner.sql(*args, **kwargs)
+
+        def close(self) -> None:
+            return None
+
+    connection = duckdb.connect(str(tmp_path / "dev_activity.duckdb"))
+    module_setup = SimpleNamespace(conn=NoCloseConnection(connection))
+
+    def create_module_view(module_conn, *, ctx, module, view_name):
+        assert module == "coding"
+        assert view_name == "v_event_mapping__coding"
+        _create_coding_event_mapping_view_for_origin_test(module_conn)
+        return view_name
+
+    monkeypatch.setattr(dev_activity_module, "load_dev_toolbox_modules", lambda _base_dir: ["coding"])
+    monkeypatch.setattr(dev_activity_module, "prepare_duckdb", lambda **_kwargs: module_setup)
+    monkeypatch.setattr(dev_activity_module, "_create_event_mapping_module_view", create_module_view)
+
+    try:
+        result = build_fact_dev_activity_events(
+            connection,
+            ctx=SimpleNamespace(),
+            base_dir=Path("unused"),
+        )
+
+        columns = {
+            row[0]
+            for row in connection.execute("DESCRIBE fact_dev_activity_events").fetchall()
+        }
+        row_count = connection.execute("SELECT COUNT(*) FROM fact_dev_activity_events").fetchone()[0]
+    finally:
+        connection.close()
+
+    assert result == "fact_dev_activity_events"
+    assert row_count == 5
+    assert "extras" not in columns
+
+
+def test_packaged_fact_schema_has_no_extras():
+    fact_sql = yaml.safe_load(
+        Path(
+            "python-lib/pulse_dashboard/pulse_duckdb/datasets/base/fact_dev_activity_events.yaml"
+        ).read_text(encoding="utf-8")
+    )["fact_dev_activity_events"]
+
+    assert "extras" not in fact_sql["sql"].lower()
+    assert "extras" not in fact_sql["example_data"].lower()
+
+
+def test_actor_origin_sql_references_no_extras_or_json_for_coding_and_non_coding(conn):
+    _create_event_mapping_view_for_origin_test(conn)
+    _create_coding_event_mapping_view_for_origin_test(conn)
+
+    for view_name in (
+        "v_event_mapping__coding",
+        "v_event_mapping__visual_recipes",
+    ):
+        branch_sql = _dev_activity_events_branch_sql(conn, view_name=view_name)
+        lowered_sql = branch_sql.lower()
+
+        assert "extras" not in lowered_sql
+        assert "json_extract" not in lowered_sql
+        assert "json_type" not in lowered_sql
+        assert " as json" not in lowered_sql
+
+
+def test_origin_ignores_scenario_and_job_candidates_only_in_extras(conn):
+    _create_event_mapping_view_for_origin_test(conn)
+    _create_origin_fact_for_test(conn)
+
+    rows = conn.execute("""
+        SELECT
+          strftime(timestamp, '%H:%M') AS event_time,
+          activity_origin,
+          authsource,
+          has_scenario_marker,
+          has_job_marker,
+          activity_origin_evidence
+        FROM fact_dev_activity_events
+        WHERE event_time IN ('15:00', '17:00')
+        ORDER BY timestamp
+        """.strip()).fetchall()
+
+    assert rows == [
+        ("15:00", "api_activity", "PERSONAL_API_KEY", False, False, "personal_api_key"),
+        ("17:00", "direct_ui_user", "USER_FROM_UI", False, False, "ui_no_automation_marker"),
+    ]
+
+
+def test_coding_origin_recognizes_authvia_scenario_and_job_patterns(conn):
+    _create_coding_event_mapping_view_for_origin_test(conn)
+    _create_origin_fact_for_test(conn, view_name="v_event_mapping__coding")
+
+    rows = conn.execute("""
+        SELECT
+          strftime(timestamp, '%H:%M') AS event_time,
+          activity_origin,
+          has_scenario_marker,
+          has_job_marker,
+          activity_origin_evidence
+        FROM fact_dev_activity_events
+        WHERE event_time IN ('12:00', '13:00')
+        ORDER BY timestamp
+        """.strip()).fetchall()
+
+    assert rows == [
+        ("12:00", "scenario_automation", True, False, "authvia_scenario"),
+        ("13:00", "job_automation", False, True, "authvia_ticket_job"),
+    ]
+
+
+def test_origin_fact_schema_has_no_extras_and_preserves_one_row_per_event(conn):
+    _create_coding_event_mapping_view_for_origin_test(conn)
+    _create_origin_fact_for_test(conn, view_name="v_event_mapping__coding")
+
+    columns = {row[0] for row in conn.execute("DESCRIBE fact_dev_activity_events").fetchall()}
+    row_count, distinct_timestamp_count = conn.execute("""
+        SELECT COUNT(*), COUNT(DISTINCT timestamp)
+        FROM fact_dev_activity_events
+        """.strip()).fetchone()
+    malformed_row = conn.execute("""
+        SELECT activity_origin, has_scenario_marker, has_job_marker, activity_origin_evidence
+        FROM fact_dev_activity_events
+        WHERE strftime(timestamp, '%H:%M') = '14:00'
+        """.strip()).fetchone()
+
+    assert "extras" not in columns
+    assert row_count == 5
+    assert distinct_timestamp_count == 5
+    assert malformed_row == (
+        "direct_ui_user",
+        False,
+        False,
+        "ui_no_automation_marker",
+    )
+
+
+def test_actor_origin_classification_rules_are_precedence_ordered(conn):
+    _create_event_mapping_view_for_origin_test(conn)
+    _create_origin_fact_for_test(conn)
+
+    rows = conn.execute("""
+        SELECT
+          strftime(timestamp, '%H:%M') AS event_time,
+          activity_origin,
+          authsource,
+          has_scenario_marker,
+          has_job_marker,
+          activity_origin_evidence
+        FROM fact_dev_activity_events
+        ORDER BY timestamp
+        """.strip()).fetchall()
+
+    assert rows == [
+        (
+            "10:00",
+            "direct_ui_user",
+            "USER_FROM_UI",
+            False,
+            False,
+            "ui_no_automation_marker",
+        ),
+        (
+            "11:00",
+            "scenario_automation",
+            "USER_FROM_UI",
+            True,
+            False,
+            "authvia_scenario",
+        ),
+        ("12:00", "job_automation", "USER_FROM_UI", False, True, "authvia_ticket_job"),
+        ("13:00", "api_activity", "PERSONAL_API_KEY", False, False, "personal_api_key"),
+        ("14:00", "unknown_or_other", "USER_FROM_UI", False, False, "unclassified"),
+        (
+            "15:00",
+            "api_activity",
+            "PERSONAL_API_KEY",
+            False,
+            False,
+            "personal_api_key",
+        ),
+        (
+            "16:00",
+            "scenario_automation",
+            "USER_FROM_UI",
+            True,
+            True,
+            "authvia_scenario",
+        ),
+        (
+            "17:00",
+            "direct_ui_user",
+            "USER_FROM_UI",
+            False,
+            False,
+            "ui_no_automation_marker",
+        ),
+        ("18:00", "unknown_or_other", "PERSONAL_API_KEY", False, False, "unclassified"),
+        (
+            "19:00",
+            "direct_ui_user",
+            "USER_FROM_UI",
+            False,
+            False,
+            "ui_no_automation_marker",
+        ),
+    ]
+
+
+def test_origin_fact_retains_existing_values_and_one_row_per_event(conn):
+    _create_event_mapping_view_for_origin_test(conn)
+    _create_origin_fact_for_test(conn)
+
+    expected = conn.execute("""
+        SELECT timestamp, instance_name, authuser, msgtype, msgtypebase, dataiku_category, project_key, callpath, run_ts, year, month, day
+        FROM v_event_mapping__visual_recipes
+        ORDER BY timestamp
+        """.strip()).fetchall()
+    actual = conn.execute("""
+        SELECT timestamp, instance_name, login, msgtype, msgtypebase, dataiku_category, project_key, callpath, run_timestamp, year, month, day
+        FROM fact_dev_activity_events
+        ORDER BY timestamp
+        """.strip()).fetchall()
+    columns = {row[0] for row in conn.execute("DESCRIBE fact_dev_activity_events").fetchall()}
+
+    assert "extras" not in columns
+    assert actual == expected
+    assert (
+        conn.execute("SELECT COUNT(*) FROM fact_dev_activity_events").fetchone()[0]
+        == 10
+    )
+    assert (
+        conn.execute(
+            "SELECT COUNT(DISTINCT timestamp) FROM fact_dev_activity_events"
+        ).fetchone()[0]
+        == 10
+    )
+
+
+def test_final_view_exposes_actor_origin_without_changing_user_attribution(conn):
+    _build_dim_dev_activity_event_classification_for_test(
+        conn,
+        [
+            {
+                "msgtype": "recipe-save",
+                "activity_class": "meaningful_action",
+                "is_meaningful_activity": True,
+                "description": "Recipe save",
+            }
+        ],
+    )
+    conn.execute("""
+        CREATE OR REPLACE TABLE dim_category_to_capability AS
+        SELECT * FROM (
+          VALUES ('visual_recipes', 'data_engineering', 1, 1, 'Data Engineering', 'Visual Recipes', TRUE)
+        ) AS t(dataiku_category, capability, capability_order, category_order, capability_display_name, category_display_name, is_dev_activity)
+        """.strip())
+    _create_event_mapping_view_for_origin_test(conn)
+    _create_origin_fact_for_test(conn)
+
+    final_view_sql = yaml.safe_load(
+        Path(
+            "python-lib/pulse_dashboard/pulse_duckdb/datasets/base/views/final_build_development_activity_events.yaml"
+        ).read_text(encoding="utf-8")
+    )["final_build_development_activity_events"]["sql"]
+    conn.execute(final_view_sql)
+
+    columns = {
+        row[0]
+        for row in conn.execute(
+            "DESCRIBE final_build_development_activity_events"
+        ).fetchall()
+    }
+    assert "extras" not in columns
+    assert {
+        "activity_origin",
+        "authsource",
+        "has_scenario_marker",
+        "has_job_marker",
+        "activity_origin_evidence",
+    } <= columns
+
+    row_count, user_attributed_count = conn.execute("""
+        SELECT COUNT(*), SUM(CASE WHEN is_user_attributed THEN 1 ELSE 0 END)
+        FROM final_build_development_activity_events
+        """.strip()).fetchone()
+    assert row_count == 10
+    assert user_attributed_count == 10
+
+    scenario_row = conn.execute("""
+        SELECT activity_origin, has_scenario_marker, has_job_marker, is_user_attributed
+        FROM final_build_development_activity_events
+        WHERE activity_origin = 'scenario_automation' AND has_job_marker IS TRUE
+        """.strip()).fetchone()
+    assert scenario_row == ("scenario_automation", True, True, True)
