@@ -1246,6 +1246,12 @@
   stroke-width: 2;
 }
 
+.PulseMonthlyChartUnavailableMark {
+  fill: var(--pulse-text-muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .PulseMonthlyChartFocusBand {
   fill: transparent;
   outline: none;

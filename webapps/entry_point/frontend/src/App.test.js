@@ -145,12 +145,57 @@ describe('MonthlyObservedActorsChart', () => {
     );
     expect(screen.getByText('Select a series to display.')).toBeInTheDocument();
   });
+
+  test('keeps valid zero distinct from unavailable observations', () => {
+    const periods = [
+      { periodStart: '2026-10-01', label: 'Oct' },
+      { periodStart: '2026-11-01', label: 'Nov' },
+      { periodStart: '2026-12-01', label: 'Dec' },
+      { periodStart: '2027-01-01', label: 'Jan' },
+      { periodStart: '2027-02-01', label: 'Feb' },
+      { periodStart: '2027-03-01', label: 'Mar' },
+    ];
+    render(
+      <MonthlyObservedActorsChart
+        title="Adoption trend"
+        periods={periods}
+        series={[
+          {
+            key: 'all',
+            label: 'All instances',
+            color: '#111827',
+            visible: true,
+            points: [
+              { periodStart: '2026-10-01', value: 0 },
+              { periodStart: '2026-11-01', value: null },
+              { periodStart: '2026-12-01', value: '' },
+              { periodStart: '2027-01-01', value: 'bad' },
+              { periodStart: '2027-02-01', value: -1 },
+              { periodStart: '2027-03-01', value: '5' },
+            ],
+          },
+        ]}
+        showLegend
+        xAxisLabel="Month"
+        yAxisLabel="Users"
+        ariaLabel="Adoption trend chart"
+      />
+    );
+
+    const chart = screen.getByLabelText('Adoption trend chart');
+    expect(chart.querySelectorAll('circle')).toHaveLength(2);
+    expect(chart.querySelector('.PulseMonthlyChartLine').getAttribute('d')).toMatch(/^M [^ ]+ [^ ]+ M /);
+    expect(screen.getByRole('img', { name: /Oct\. All instances: 0/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Nov\. All instances: Unavailable/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Feb\. All instances: Unavailable/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Mar\. All instances: 5/ })).toBeInTheDocument();
+  });
 });
 
 describe('UsersActivityPage adoption trends request state', () => {
   const originalFetch = global.fetch;
 
-  const adoptionPayload = ({ period = 'monthly', formalAvailable = true, activeUsers = 2 } = {}) => ({
+  const adoptionPayload = ({ period = 'monthly', formalAvailable = true, activeUsers = 2, instances = ['inst-a', 'inst-b'], includeMalformedCounts = false } = {}) => ({
     ok: true,
     period,
     reportingDateConvention: 'Test reporting clock.',
@@ -162,35 +207,29 @@ describe('UsersActivityPage adoption trends request state', () => {
     observed: {
       aggregate: [
         { label: 'Aug 2026', periodStart: '2026-08-01', active_users: 1 },
-        { label: 'Sep 2026', periodStart: '2026-09-01', active_users: 0 },
+        { label: 'Sep 2026', periodStart: '2026-09-01', active_users: includeMalformedCounts ? null : 0 },
         { label: 'Oct 2026', periodStart: '2026-10-01', active_users: activeUsers, isCurrentPeriod: true, isPartialPeriod: true },
       ],
-      byInstance: [
-        { label: 'Oct 2026', periodStart: '2026-10-01', instance_name: 'inst-b', active_users: 0 },
-        { label: 'Aug 2026', periodStart: '2026-08-01', instance_name: 'inst-a', active_users: 1 },
-        { label: 'Sep 2026', periodStart: '2026-09-01', instance_name: 'inst-a', active_users: 0 },
-        { label: 'Oct 2026', periodStart: '2026-10-01', instance_name: 'inst-a', active_users: activeUsers },
-        { label: 'Aug 2026', periodStart: '2026-08-01', instance_name: 'inst-b', active_users: 0 },
-        { label: 'Sep 2026', periodStart: '2026-09-01', instance_name: 'inst-b', active_users: 0 },
-      ],
+      byInstance: instances.flatMap((instanceName, index) => [
+        { label: 'Oct 2026', periodStart: '2026-10-01', instance_name: instanceName, active_users: index === 0 ? activeUsers : 0 },
+        { label: 'Aug 2026', periodStart: '2026-08-01', instance_name: instanceName, active_users: index === 0 ? 1 : 0 },
+        { label: 'Sep 2026', periodStart: '2026-09-01', instance_name: instanceName, active_users: includeMalformedCounts && index === 0 ? 'bad' : 0 },
+      ]),
       history: { firstObservation: '2026-10-01 00:00:00', lastObservation: '2026-10-21 00:00:00' },
     },
     formal: formalAvailable
       ? {
           available: true,
           aggregate: [
-            { label: 'Aug 2026', periodStart: '2026-08-01', active_users: 0 },
+            { label: 'Aug 2026', periodStart: '2026-08-01', active_users: includeMalformedCounts ? undefined : 0 },
             { label: 'Sep 2026', periodStart: '2026-09-01', active_users: 1 },
             { label: 'Oct 2026', periodStart: '2026-10-01', active_users: activeUsers, isCurrentPeriod: true, isPartialPeriod: true },
           ],
-          byInstance: [
-            { label: 'Aug 2026', periodStart: '2026-08-01', instance_name: 'inst-a', active_users: 0 },
-            { label: 'Sep 2026', periodStart: '2026-09-01', instance_name: 'inst-a', active_users: 1 },
-            { label: 'Oct 2026', periodStart: '2026-10-01', instance_name: 'inst-a', active_users: activeUsers },
-            { label: 'Aug 2026', periodStart: '2026-08-01', instance_name: 'inst-b', active_users: 0 },
-            { label: 'Sep 2026', periodStart: '2026-09-01', instance_name: 'inst-b', active_users: 0 },
-            { label: 'Oct 2026', periodStart: '2026-10-01', instance_name: 'inst-b', active_users: 0 },
-          ],
+          byInstance: instances.flatMap((instanceName, index) => [
+            { label: 'Aug 2026', periodStart: '2026-08-01', instance_name: instanceName, active_users: 0 },
+            { label: 'Sep 2026', periodStart: '2026-09-01', instance_name: instanceName, active_users: index === 0 ? 1 : 0 },
+            { label: 'Oct 2026', periodStart: '2026-10-01', instance_name: instanceName, active_users: index === 0 ? activeUsers : 0 },
+          ]),
           byProfile: [{ license_group: 'Creator Licenses', userProfile: 'DESIGNER', active_users: activeUsers }],
           byInstanceProfile: [{ instance_name: 'inst-a', license_group: 'Creator Licenses', userProfile: 'DESIGNER', active_users: activeUsers }],
           currentPeriod: { label: 'Oct 2026', periodStart: '2026-10-01', active_users: activeUsers, isCurrentPeriod: true },
@@ -202,7 +241,7 @@ describe('UsersActivityPage adoption trends request state', () => {
     global.fetch = jest.fn((url, options = {}) => {
       const target = String(url);
       if (target.includes('/api/build/users/adoption-trends')) return adoptionHandler(url, options);
-      if (target.includes('/api/build/users/facets')) return jsonResponse({ ok: true, instances: [] });
+      if (target.includes('/api/build/users/facets')) return jsonResponse({ ok: true, instances: ['aardvark', 'alpha', 'mazzei_pulse', 'zulu'] });
       if (target.includes('/api/build/users/kpis')) return jsonResponse({ ok: true, kpis: {}, byInstance: [] });
       if (target.includes('/api/build/users/segments')) return jsonResponse({ ok: true, rows: [], totals: {} });
       if (target.includes('/api/build/users/stickiness')) return jsonResponse({ ok: true, series: [], latest: null });
@@ -299,6 +338,48 @@ describe('UsersActivityPage adoption trends request state', () => {
     fireEvent.click(within(legendGroups[1]).getByRole('button', { name: 'All instances' }));
     expect(screen.getAllByLabelText('Monthly Calendar qualifying formal users line chart')[0].querySelectorAll('.PulseMonthlyChartLine')).toHaveLength(2);
     expect(global.fetch.mock.calls.filter(([url]) => String(url).includes('/api/build/users/adoption-trends'))).toHaveLength(adoptionCallsBeforeToggle);
+  });
+
+  test('keeps instance colors stable across filtered response scopes', async () => {
+    const responses = [
+      adoptionPayload({ instances: ['alpha', 'mazzei_pulse', 'zulu'] }),
+      adoptionPayload({ instances: ['mazzei_pulse'] }),
+      adoptionPayload({ instances: ['aardvark', 'alpha', 'mazzei_pulse', 'zulu'] }),
+    ];
+    installFetch({ adoptionHandler: () => jsonResponse(responses.shift() || adoptionPayload()) });
+
+    render(<UsersActivityPage apiBase="" />);
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    const legendGroups = () => screen.getAllByLabelText(/series controls/);
+    const swatchColor = (legendGroup, name) => within(legendGroup).getByRole('button', { name }).querySelector('.PulseChartLegendSwatch').style.backgroundColor;
+    const initialObservedColor = swatchColor(legendGroups()[0], 'mazzei_pulse');
+    const initialFormalColor = swatchColor(legendGroups()[1], 'mazzei_pulse');
+    expect(initialObservedColor).toBe(initialFormalColor);
+
+    fireEvent.change(screen.getByLabelText('Instance'), { target: { value: 'mazzei_pulse' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(swatchColor(legendGroups()[0], 'mazzei_pulse')).toBe(initialObservedColor);
+    expect(swatchColor(legendGroups()[1], 'mazzei_pulse')).toBe(initialObservedColor);
+
+    fireEvent.change(screen.getByLabelText('Instance'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(swatchColor(legendGroups()[0], 'mazzei_pulse')).toBe(initialObservedColor);
+    expect(swatchColor(legendGroups()[0], 'aardvark')).toBeTruthy();
+  });
+
+  test('does not turn missing or invalid API counts into zeros before charting', async () => {
+    installFetch({ adoptionHandler: () => jsonResponse(adoptionPayload({ includeMalformedCounts: true, activeUsers: 4 })) });
+
+    render(<UsersActivityPage apiBase="" />);
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+
+    expect(screen.getByRole('img', { name: /Sep 2026\. All instances: Unavailable/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Sep 2026\. All instances: 1/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Sep 2026\..*inst-a: Unavailable/ })).toBeInTheDocument();
+    expect(screen.getAllByRole('img', { name: /Sep 2026\..*inst-b: 0/ }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('img', { name: /Oct 2026 \(in progress\)\. All instances: 4/ }).length).toBeGreaterThan(0);
   });
 });
 

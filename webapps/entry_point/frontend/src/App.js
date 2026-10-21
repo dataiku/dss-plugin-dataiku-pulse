@@ -41,6 +41,14 @@ function appendScopeParams(path, extraParams) {
   return hashPart == null ? scopedPath : `${scopedPath}#${hashPart}`;
 }
 
+function parseNonnegativeFiniteCount(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+  const numericValue = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numericValue) || numericValue < 0) return null;
+  return numericValue;
+}
+
 function resolveSelfScopedRequestParams(requestParams, authState) {
   if (!requestParams || requestParams.scope !== 'self') return requestParams;
   const login = authState?.data?.user?.login || '';
@@ -2547,6 +2555,7 @@ export function UsersActivityPage({ apiBase }) {
   const adoptionRequestIdRef = useRef(0);
   const [observedSeriesVisibility, setObservedSeriesVisibility] = useState({});
   const [formalSeriesVisibility, setFormalSeriesVisibility] = useState({});
+  const instanceColorRegistryRef = useRef({});
   const [userSegments, setUserSegments] = useState([]);
   const [userSegmentTotals, setUserSegmentTotals] = useState(null);
   const [stickinessSeries, setStickinessSeries] = useState([]);
@@ -2820,7 +2829,7 @@ export function UsersActivityPage({ apiBase }) {
       periodStart: String(r.periodStart || r.month || r.label || ''),
       periodEnd: r.periodEnd || '',
       label: r.label || String(r.periodStart || r.month || '').slice(0, 10),
-      value: Number(r.active_users ?? r.activeUsers ?? 0),
+      value: parseNonnegativeFiniteCount(r.active_users ?? r.activeUsers),
       isPartialPeriod: Boolean(r.isPartialPeriod),
     }));
   };
@@ -2836,14 +2845,18 @@ export function UsersActivityPage({ apiBase }) {
 
   const instanceColorMap = useMemo(() => {
     const palette = ['#7c3aed', '#059669', '#dc2626', '#ca8a04', '#0891b2', '#db2777', '#4f46e5', '#65a30d', '#ea580c', '#0f766e'];
+    const registry = instanceColorRegistryRef.current;
     const names = Array.from(new Set([
       ...((monthlyActiveByInstance || []).map((row) => row.instance_name || row.instanceName).filter(Boolean)),
       ...((formalMauByInstance || []).map((row) => row.instance_name || row.instanceName).filter(Boolean)),
     ])).sort((left, right) => String(left).localeCompare(String(right)));
-    return names.reduce((acc, name, index) => {
-      acc[name] = palette[index % palette.length];
-      return acc;
-    }, {});
+    names.forEach((name) => {
+      if (!registry[name]) {
+        const assignedCount = Object.keys(registry).length;
+        registry[name] = palette[assignedCount % palette.length];
+      }
+    });
+    return { ...registry };
   }, [formalMauByInstance, monthlyActiveByInstance]);
 
   const buildAdoptionSeries = useCallback((aggregateRows, byInstanceRows, visibility, aggregateLabel) => {
@@ -6690,10 +6703,13 @@ export function MonthlyObservedActorsChart({
           ...item,
           visible: item.visible !== false,
           points: sourcePeriods.map((period) => {
+            const hasPoint = pointsByPeriod.has(period.periodStart) || pointsByPeriod.has(period.label);
             const point = pointsByPeriod.get(period.periodStart) || pointsByPeriod.get(period.label) || {};
+            const parsedValue = parseNonnegativeFiniteCount(point.value ?? point.active_users ?? point.activeUsers);
             return {
               ...period,
-              value: Math.max(0, Number(point.value ?? point.active_users ?? point.activeUsers ?? 0) || 0),
+              value: parsedValue,
+              available: hasPoint && parsedValue !== null,
             };
           }),
         };
@@ -6729,7 +6745,8 @@ export function MonthlyObservedActorsChart({
     const innerHeight = height - marginTop - marginBottom;
     const yAxisX = marginLeft;
     const xAxisY = marginTop + innerHeight;
-    const maxY = Math.max(1, ...visibleSeries.flatMap((item) => item.points.map((point) => point.value)));
+    const validVisibleValues = visibleSeries.flatMap((item) => item.points.filter((point) => point.available).map((point) => point.value));
+    const maxY = Math.max(1, ...validVisibleValues);
     const yTickCount = maxY <= 4 ? maxY : 4;
     const yStep = Math.max(1, Math.ceil(maxY / Math.max(1, yTickCount)));
     const yMax = Math.max(yStep, Math.ceil(maxY / yStep) * yStep);
@@ -6744,6 +6761,19 @@ export function MonthlyObservedActorsChart({
 
     const yForValue = (value) => marginTop + innerHeight - (innerHeight * value) / yMax;
 
+    const linePathForCoords = (coords) => {
+      let segmentOpen = false;
+      return coords.reduce((path, point) => {
+        if (!point.available) {
+          segmentOpen = false;
+          return path;
+        }
+        const command = segmentOpen ? 'L' : 'M';
+        segmentOpen = true;
+        return `${path}${path ? ' ' : ''}${command} ${point.cx} ${point.cy}`;
+      }, '');
+    };
+
     const chartSeries = visibleSeries.map((item) => {
       const coords = item.points.map((point, index) => ({
         ...point,
@@ -6751,12 +6781,12 @@ export function MonthlyObservedActorsChart({
         seriesLabel: item.label,
         color: item.color,
         cx: xForIndex(index),
-        cy: yForValue(point.value),
+        cy: point.available ? yForValue(point.value) : null,
       }));
       return {
         ...item,
         coords,
-        linePath: coords.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.cx} ${point.cy}`).join(' '),
+        linePath: linePathForCoords(coords),
       };
     });
 
@@ -6785,7 +6815,8 @@ export function MonthlyObservedActorsChart({
       const bandRight = index === sourcePeriods.length - 1 ? marginLeft + innerWidth : (x + nextX) / 2;
       const values = chartSeries.map((item) => {
         const point = item.coords[index];
-        return `${item.label}: ${Number(point?.value || 0).toLocaleString()}`;
+        if (!point?.available) return `${item.label}: Unavailable`;
+        return `${item.label}: ${Number(point.value).toLocaleString()}`;
       });
       const periodLabel = `${period.label}${period.isPartialPeriod ? ' (in progress)' : ''}`;
       return {
@@ -6879,12 +6910,14 @@ export function MonthlyObservedActorsChart({
 
             {chart.chartSeries.map((item) => (
               <g key={item.key}>
-                <path
-                  className="PulseMonthlyChartLine"
-                  d={item.linePath}
-                  style={{ stroke: item.color, strokeWidth: item.isAggregate ? 3.6 : 2.2 }}
-                />
-                {item.coords.map((point) => (
+                {item.linePath ? (
+                  <path
+                    className="PulseMonthlyChartLine"
+                    d={item.linePath}
+                    style={{ stroke: item.color, strokeWidth: item.isAggregate ? 3.6 : 2.2 }}
+                  />
+                ) : null}
+                {item.coords.filter((point) => point.available).map((point) => (
                   <g key={`${item.key}-${point.periodStart}`}>
                     <title>{`${point.seriesLabel} — ${point.label}${point.isPartialPeriod ? ' (in progress)' : ''}: ${point.value.toLocaleString()}`}</title>
                     <circle
@@ -6898,6 +6931,19 @@ export function MonthlyObservedActorsChart({
                 ))}
               </g>
             ))}
+
+            {chart.chartSeries.flatMap((item) => item.coords.filter((point) => !point.available).map((point) => (
+              <text
+                key={`missing-${item.key}-${point.periodStart}`}
+                className="PulseMonthlyChartUnavailableMark"
+                x={point.cx}
+                y={chart.marginTop + 12}
+                textAnchor="middle"
+              >
+                ×
+                <title>{`${point.seriesLabel} — ${point.label}${point.isPartialPeriod ? ' (in progress)' : ''}: Unavailable`}</title>
+              </text>
+            )))}
 
             {chart.periodReadouts.map((period) => (
               <rect
