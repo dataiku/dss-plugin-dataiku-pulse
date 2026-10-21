@@ -1,7 +1,7 @@
 {
     "meta": {
         "label": "Compact Silver Layer",
-        "description": "Compact the Silver layer. Reduces the number of parquet files, option filters and replay options (BETA). *Currently only does category=event_mapping",
+        "description": "Compact the Silver layer. Reduces the number of parquet files and can optionally normalize selected supported SILVER categories (BETA).",
         "icon": "fas fa-sync-alt",
         "iconColor": "blue"
     },
@@ -17,6 +17,7 @@
             "acceptsDataset": true
         }
     ],
+    "paramsPythonSetup": "compact-silver-layer/list_categories.py",
     "params": [
         {
             "name": "warning",
@@ -39,14 +40,29 @@
         },
         {
             "name": "normalize_silver",
-            "label": "Replay Normalizer and Silver checks",
+            "label": "Normalize SILVER and run Silver checks",
             "type": "BOOLEAN",
             "defaultValue": true
         },
         {
+            "name": "reprocess_compacted_files",
+            "label": "Reprocess existing compacted SILVER files",
+            "description": "Explicit repair mode: include existing compact_silver-*.parquet files in the selected module/partition scope. Requires Normalize SILVER and run Silver checks.",
+            "type": "BOOLEAN",
+            "defaultValue": false
+        },
+        {
+            "name": "category_filter",
+            "label": "Filter on a Category",
+            "description": "",
+            "type": "SELECT",
+            "getChoicesFromPython": true,
+            "disableAutoReload": true
+        },
+        {
             "type": "SELECT",
             "name": "module_filter",
-            "label": "Filter on am Event Mapping module",
+            "label": "Filter on an Event Mapping module",
             "selectChoices": [
                 { "value": "all", "label": "All Modules" },
                 { "value": "administration", "label": "Administration" },
@@ -75,7 +91,8 @@
                 { "value": "webapps", "label": "Webapps" },
                 { "value": "wiki_artical_discussions", "label": "Wiki Artical Discussions" }
             ],
-            "defaultValue": "all"
+            "defaultValue": "",
+            "visibilityCondition": "model.category_filter == 'event_mapping'"
         },
         {
             "type": "MULTISELECT",
@@ -108,7 +125,8 @@
                 { "value": "webapps", "label": "Webapps" },
                 { "value": "wiki_artical_discussions", "label": "Wiki Artical Discussions" }
             ],
-            "visibilityCondition": "'all' in !model.module_filter"
+            "defaultValue": "",
+            "visibilityCondition": "model.category_filter == 'event_mapping' && model.module_filter == 'all'"
         }
     ],
     "resourceKeys": []

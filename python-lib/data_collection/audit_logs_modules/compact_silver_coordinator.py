@@ -47,10 +47,12 @@ class CompactRunConfig:
     param_set: dict[str, Any]
     execution_environment: str
     batch_size: int
+    processing_mode: str = "generic_compaction"
     selection_mode: Literal["latest_up_to_capacity", "all_eligible_filtered"] = (
         "latest_up_to_capacity"
     )
     excluded_modules: tuple[str, ...] = ()
+    reprocess_compacted_files: bool = False
 
 
 @dataclass(frozen=True)
@@ -156,6 +158,7 @@ def _process_partition_job(
     target: DSSFolderTarget,
     selected_partition: SelectedPartitionPaths,
     normalize_silver_mode: bool,
+    processing_mode: str,
 ) -> CompactPartitionOutcome:
     try:
         return process_compact_selected_partition(
@@ -164,6 +167,7 @@ def _process_partition_job(
             target=target,
             selected_partition=selected_partition,
             normalize_silver_mode=normalize_silver_mode,
+            processing_mode=processing_mode,
         )
     except Exception as exc:
         logger.exception(
@@ -175,9 +179,9 @@ def _process_partition_job(
             month=selected_partition.month,
             day=selected_partition.day,
             replay_mode=(
-                "event_mapping_replay"
-                if normalize_silver_mode
-                else "generic_compaction"
+                processing_mode
+                if processing_mode
+                else "event_mapping_replay" if normalize_silver_mode else "generic_compaction"
             ),
             status="failed",
             message=repr(exc),
@@ -200,6 +204,7 @@ def run_partition_jobs(
     target: DSSFolderTarget,
     selected_partitions: list[SelectedPartitionPaths],
     normalize_silver_mode: bool,
+    processing_mode: str = "generic_compaction",
     do_parallel: bool,
     n_jobs: int,
     batch_size: int,
@@ -217,6 +222,7 @@ def run_partition_jobs(
                     target=target,
                     selected_partition=selected_partition,
                     normalize_silver_mode=normalize_silver_mode,
+                    processing_mode=processing_mode,
                 )
                 for selected_partition in partition_batch
             ]
@@ -228,6 +234,7 @@ def run_partition_jobs(
                     target=target,
                     selected_partition=selected_partition,
                     normalize_silver_mode=normalize_silver_mode,
+                    processing_mode=processing_mode,
                 )
                 for selected_partition in partition_batch
             )
@@ -262,6 +269,8 @@ def _add_queue_summaries(left: QueueSummary, right: QueueSummary) -> QueueSummar
         + right.filtered_matching_paths,
         skipped_compact_outputs=left.skipped_compact_outputs
         + right.skipped_compact_outputs,
+        included_compact_outputs=getattr(left, "included_compact_outputs", 0)
+        + getattr(right, "included_compact_outputs", 0),
         excluded_recent_paths=left.excluded_recent_paths + right.excluded_recent_paths,
         eligible_paths=left.eligible_paths + right.eligible_paths,
         eligible_partition_count=left.eligible_partition_count
@@ -324,6 +333,10 @@ def run_compact_silver_streaming(
         raise ValueError(
             f"Streaming compact execution does not support selection_mode={config.selection_mode!r}"
         )
+    if config.reprocess_compacted_files and not config.normalize_silver_mode:
+        raise ValueError(
+            "reprocess_compacted_files requires normalize_silver_mode=True"
+        )
 
     queue = CompactSilverQueue.create()
     try:
@@ -366,6 +379,7 @@ def run_compact_silver_streaming(
             total_matched_paths=0,
             filtered_matching_paths=0,
             skipped_compact_outputs=0,
+            included_compact_outputs=0,
             excluded_recent_paths=0,
             eligible_paths=0,
             eligible_partition_count=0,
@@ -405,6 +419,7 @@ def run_compact_silver_streaming(
                     "module": module_entry.module,
                 },
                 minimum_age_days=config.minimum_age_days,
+                include_compact_outputs=config.reprocess_compacted_files,
                 utc_today=utc_today,
                 raise_on_empty=False,
             )
@@ -474,6 +489,7 @@ def run_compact_silver_streaming(
                     target=target,
                     selected_partitions=queue_batch.selected_partitions,
                     normalize_silver_mode=config.normalize_silver_mode,
+                    processing_mode=config.processing_mode,
                     do_parallel=worker_resolution.parallel_enabled,
                     n_jobs=worker_resolution.resolved_n_jobs,
                     batch_size=dispatch_batch_size,
@@ -603,6 +619,7 @@ def run_compact_silver(config: CompactRunConfig) -> CompactRunResult:
         target=target,
         selected_partitions=selected_batch.selected_partitions,
         normalize_silver_mode=config.normalize_silver_mode,
+        processing_mode=config.processing_mode,
         do_parallel=worker_resolution.parallel_enabled,
         n_jobs=worker_resolution.resolved_n_jobs,
         batch_size=dispatch_batch_size,

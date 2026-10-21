@@ -54,6 +54,7 @@ def _stream_result() -> SimpleNamespace:
             total_matched_paths=11,
             filtered_matching_paths=8,
             skipped_compact_outputs=1,
+            included_compact_outputs=0,
             excluded_recent_paths=3,
             eligible_paths=4,
             eligible_partition_count=2,
@@ -168,40 +169,11 @@ def test_recipe_manifest_uses_pulse_primary_and_explicit_flow_roles():
         "parameterSetId": "params-dashboard-instance",
         "mandatory": True,
     } in payload["params"]
-    assert {
-        "type": "SELECT",
-        "name": "module_filter",
-        "label": "Filter on a module",
-        "selectChoices": [
-            {"value": "all", "label": "All Modules"},
-            {"value": "administration", "label": "Administration"},
-            {"value": "apis", "label": "Apis"},
-            {"value": "application_designer", "label": "Application Designer"},
-            {"value": "automation", "label": "Automation"},
-            {"value": "charts_dashboard", "label": "Charts Dashboard"},
-            {"value": "coding", "label": "Coding"},
-            {"value": "containers", "label": "Containers"},
-            {"value": "dataset", "label": "Dataset"},
-            {"value": "deployer", "label": "Deployer"},
-            {"value": "flow", "label": "Flow"},
-            {"value": "folders", "label": "Folders"},
-            {"value": "genai_llm", "label": "GenAI LLM"},
-            {"value": "misc_recipes", "label": "Misc Recipes"},
-            {"value": "mlops", "label": "MLOps"},
-            {"value": "other", "label": "Other"},
-            {"value": "plugins", "label": "Plugins"},
-            {"value": "projects", "label": "Projects"},
-            {"value": "reading_listing", "label": "Reading Listing"},
-            {"value": "scenarios", "label": "Scenarios"},
-            {"value": "statistic_analytics", "label": "Statistic Analytics"},
-            {"value": "unclassified", "label": "Unclassified"},
-            {"value": "user_maintenance", "label": "User Maintenance"},
-            {"value": "visual_recipes", "label": "Visual Recipes"},
-            {"value": "webapps", "label": "Webapps"},
-            {"value": "wiki_artical_discussions", "label": "Wiki Artical Discussions"},
-        ],
-        "defaultValue": "all",
-    } in payload["params"]
+    module_param = next(param for param in payload["params"] if param.get("name") == "module_filter")
+    assert module_param["label"] == "Filter on an Event Mapping module"
+    assert module_param["defaultValue"] == ""
+    assert module_param["visibilityCondition"] == "model.category_filter == 'event_mapping'"
+
 
 
 @pytest.mark.parametrize(
@@ -300,6 +272,88 @@ def test_recipe_module_filter_resolves_effective_filters_and_audit_scope(
 
 
 @pytest.mark.parametrize(
+    (
+        "recipe_config",
+        "expected_filters",
+        "expected_scope",
+        "expected_excluded_modules",
+        "expected_mode",
+        "expected_prefix",
+    ),
+    [
+        (
+            {"category_filter": "users", "module_filter": "all", "exclude_filter": []},
+            {"category": "users"},
+            "category=users",
+            (),
+            "module_contract_normalization",
+            "silver/category=users/",
+        ),
+        (
+            {"category_filter": "users", "module_filter": "folders", "exclude_filter": ["missing"]},
+            {"category": "users"},
+            "category=users",
+            (),
+            "module_contract_normalization",
+            "silver/category=users/",
+        ),
+        (
+            {"category_filter": "event_mapping", "module_filter": "all", "exclude_filter": ["folders"]},
+            {"category": "event_mapping"},
+            "category=event_mapping; exclude_modules=folders",
+            ("folders",),
+            "event_mapping_replay",
+            "silver/category=event_mapping/",
+        ),
+        (
+            {"category_filter": "event_mapping", "module_filter": "folders", "exclude_filter": ["folders"]},
+            {"category": "event_mapping", "module": "folders"},
+            "category=event_mapping; module=folders",
+            (),
+            "event_mapping_replay",
+            "silver/category=event_mapping/",
+        ),
+    ],
+)
+def test_recipe_category_scope_resolves_effective_controls(
+    monkeypatch,
+    recipe_module,
+    recipe_config,
+    expected_filters,
+    expected_scope,
+    expected_excluded_modules,
+    expected_mode,
+    expected_prefix,
+):
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT")
+    monkeypatch.setattr(recipe_module, "get_plugin_config", lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data"}})
+    monkeypatch.setattr(recipe_module, "get_recipe_config", lambda: {"normalize_silver": True, **recipe_config})
+    monkeypatch.setattr(recipe_module, "get_output_names_for_role", lambda role: ["compact_silver_audit_ds"])
+    monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "local")
+    monkeypatch.setattr(recipe_module.dataiku, "Dataset", _make_streaming_dataset(seen))
+
+    def fake_run_compact(config, *, on_outcomes):
+        seen["config"] = config
+        stream_result = _stream_result()
+        on_outcomes(stream_result, [_selected_partition(module="folders", instance_name="alpha", day="23")], [_outcome(day="23")])
+        return stream_result
+
+    monkeypatch.setattr(recipe_module, "run_compact_silver_streaming", fake_run_compact)
+
+    result = recipe_module.run()
+
+    assert seen["config"].partition_filters == expected_filters
+    assert seen["config"].excluded_modules == expected_excluded_modules
+    assert seen["config"].processing_mode == expected_mode
+    assert seen["config"].relative_prefix == expected_prefix
+    assert result["category_filter"] == recipe_config["category_filter"]
+    assert result["processing_mode"] == expected_mode
+    audit_df = pd.concat(seen["batches"], ignore_index=True)
+    assert set(audit_df["filter_scope"]) == {expected_scope}
+
+
+@pytest.mark.parametrize(
     "recipe_config",
     [
         {"module_filter": "all", "exclude_filter": "folders"},
@@ -380,6 +434,78 @@ def test_recipe_invalid_module_filter_fails_before_discovery_or_audit_mutation(
         recipe_module.run()
 
 
+def test_recipe_invalid_category_filter_fails_before_discovery_or_audit_mutation(
+    monkeypatch, recipe_module
+):
+    monkeypatch.setattr(
+        recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT"
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_plugin_config",
+        lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data"}},
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_recipe_config",
+        lambda: {"normalize_silver": True, "category_filter": "../users"},
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_output_names_for_role",
+        lambda role: pytest.fail("output role resolution must not run"),
+    )
+    monkeypatch.setattr(
+        recipe_module.dataiku,
+        "Dataset",
+        lambda name: pytest.fail("audit dataset must not open"),
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "run_compact_silver_streaming",
+        lambda *args, **kwargs: pytest.fail("source discovery must not run"),
+    )
+
+    with pytest.raises(ValueError, match="Invalid compact SILVER category_filter"):
+        recipe_module.run()
+
+
+def test_recipe_reprocess_compacted_requires_normalize_before_mutation(
+    monkeypatch, recipe_module
+):
+    monkeypatch.setattr(
+        recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT"
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_plugin_config",
+        lambda: {"pulse_primary": {"pulse_partitioned_data": "partitioned_data"}},
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_recipe_config",
+        lambda: {"normalize_silver": False, "reprocess_compacted_files": True},
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_output_names_for_role",
+        lambda role: pytest.fail("output role resolution must not run"),
+    )
+    monkeypatch.setattr(
+        recipe_module.dataiku,
+        "Dataset",
+        lambda name: pytest.fail("audit dataset must not open"),
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "run_compact_silver_streaming",
+        lambda *args, **kwargs: pytest.fail("source discovery must not run"),
+    )
+
+    with pytest.raises(ValueError, match="requires normalize_silver=true"):
+        recipe_module.run()
+
+
 def test_recipe_resolves_preset_from_plugin_config_and_mode_from_recipe_config(
     monkeypatch, recipe_module
 ):
@@ -432,6 +558,8 @@ def test_recipe_resolves_preset_from_plugin_config_and_mode_from_recipe_config(
 
     assert seen["config"].folder_lookup == "configured_partitioned_data"
     assert seen["config"].normalize_silver_mode is True
+    assert seen["config"].processing_mode == "event_mapping_replay"
+    assert seen["config"].reprocess_compacted_files is False
     assert seen["config"].param_set == {
         "pulse_partitioned_data": "configured_partitioned_data",
         "do_parallel": False,
@@ -445,6 +573,55 @@ def test_recipe_resolves_preset_from_plugin_config_and_mode_from_recipe_config(
     assert seen["dataset_name"] == "audit_dataset_name"
     assert result["source_folder_lookup"] == "configured_partitioned_data"
     assert result["audit_dataset"] == "audit_dataset_name"
+    assert result["legacy_event_mapping_scope"] is True
+
+
+def test_recipe_passes_reprocess_compacted_files_to_streaming_config(
+    monkeypatch, recipe_module
+):
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        recipe_module.dataiku, "default_project_key", lambda: "TEST_PROJECT"
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_plugin_config",
+        lambda: {
+            "pulse_primary": {
+                "pulse_partitioned_data": "configured_partitioned_data",
+                "do_parallel": False,
+                "cores": 1,
+                "batch_size": 11,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        recipe_module,
+        "get_recipe_config",
+        lambda: {
+            "normalize_silver": True,
+            "module_filter": "mlops",
+            "reprocess_compacted_files": True,
+        },
+    )
+    monkeypatch.setattr(
+        recipe_module, "get_output_names_for_role", lambda role: ["audit_dataset_name"]
+    )
+    monkeypatch.setattr(recipe_module, "get_dss_execution_environment", lambda: "local")
+    monkeypatch.setattr(recipe_module.dataiku, "Dataset", _make_streaming_dataset(seen))
+
+    def fake_run_compact(config, *, on_outcomes):
+        seen["config"] = config
+        return _stream_result()
+
+    monkeypatch.setattr(recipe_module, "run_compact_silver_streaming", fake_run_compact)
+
+    recipe_module.run()
+
+    assert seen["config"].partition_filters == {"category": "event_mapping", "module": "mlops"}
+    assert seen["config"].normalize_silver_mode is True
+    assert seen["config"].reprocess_compacted_files is True
 
 
 def test_recipe_uses_default_partitioned_data_lookup_when_preset_value_missing(

@@ -15,10 +15,15 @@ from typing import Any
 
 import duckdb
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from data_collection.audit_logs_modules.compact_silver_queue import _compact_queue_memory_limit_bytes
 from data_collection.audit_logs_modules import event_mapping
 from data_collection.data_normalizer import DQResult, check_silver_dq, normalize_silver
+from data_collection.data_normalizer.extras import extras_to_json
+from data_collection.data_normalizer.flatten_config import load_flatten_config
+from data_collection.data_normalizer.schema_config import flatten_columns_search_dirs, normalize_column_names
 from data_collection.helper import DSSFolderTarget, get_managed_folder_handle, upload_parquet
 from shared_duckdb.create_conn import _duckdb_memory_limit_setting, _effective_memory_limit_bytes
 from shared_storage_discovery import SelectedPartitionPaths, SelectedPathRecord
@@ -35,6 +40,9 @@ _COMPACT_SAVE_EPOCH_LOCK = threading.Lock()
 COMPACT_SILVER_OUTPUT_ROW_CHUNK_SIZE = 100_000
 REPLACEMENT_EVIDENCE_SAMPLE_SIZE = 5
 _STAGE_ORDER_COLUMN = "__compact_row_order"
+COMPACT_PROCESSING_MODE_GENERIC = "generic_compaction"
+COMPACT_PROCESSING_MODE_EVENT_MAPPING = "event_mapping_replay"
+COMPACT_PROCESSING_MODE_MODULE_CONTRACT = "module_contract_normalization"
 
 
 @dataclass(frozen=True)
@@ -67,6 +75,8 @@ class ReplayWritePlan:
     dq: DQResult
     module_name: str
     event_date: date
+    expected_duckdb_types: dict[str, str] | None = None
+    expected_arrow_types: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -346,6 +356,154 @@ def resolve_event_mapping_normalize_args(*, module_name: str) -> dict[str, Any]:
         "flatten_base": ("audit_dataiku_usage", "audit_metadata"),
         "flatten_variant": module_name,
     }
+
+
+def _todo_section_for_compact_contract(*, category: str, module_name: str) -> str:
+    if category == "users" and module_name == "instance_metadata":
+        return "instance"
+    if category == "users" and module_name == "user_activity":
+        return "audit"
+    if "instance" in module_name:
+        return "instance"
+    if "audit" in module_name or module_name.endswith("_activity"):
+        return "audit"
+    return "project"
+
+
+def _required_columns_for_module_contract(*, category: str, module_name: str) -> list[str]:
+    todo_section = _todo_section_for_compact_contract(category=category, module_name=module_name)
+    contract_filename = f"{category}_{module_name}.yaml"
+    contract_path = None
+    for search_dir in flatten_columns_search_dirs():
+        candidate = search_dir / contract_filename
+        if candidate.exists():
+            contract_path = candidate
+            break
+    if contract_path is None:
+        raise ReplaySkipError(
+            f"Unsupported compact SILVER normalization scope: missing canonical contract for category={category!r} module={module_name!r}"
+        )
+    cfg = load_flatten_config(
+        category=category,
+        module=module_name,
+        flatten_columns_dir=contract_path.parent,
+        todo_section=todo_section,
+    )
+    if cfg is None or not cfg.required_columns:
+        raise ReplaySkipError(
+            f"Unsupported compact SILVER normalization scope: missing canonical contract for category={category!r} module={module_name!r}"
+        )
+    required = [column for column in normalize_column_names(cfg.required_columns) if column not in {"instance_name", "run_ts"}]
+    return ["instance_name", "run_ts", *required]
+
+
+def _output_columns_for_module_contract(*, category: str, module_name: str) -> list[str]:
+    required_columns = _required_columns_for_module_contract(
+        category=category, module_name=module_name
+    )
+    required_without_globals = [
+        column for column in required_columns if column not in {"instance_name", "run_ts"}
+    ]
+    return ["instance_name", *required_without_globals, "run_ts", "extras"]
+
+
+def _canonical_arrow_types_for_module_contract(*, category: str, module_name: str) -> dict[str, Any]:
+    empty_source = pd.DataFrame(columns=_output_columns_for_module_contract(category=category, module_name=module_name))
+    normalized = normalize_module_contract_silver(
+        df=empty_source,
+        category=category,
+        module_name=module_name,
+        instance_name="__compact_schema_probe__",
+    )
+    schema = pa.Schema.from_pandas(normalized, preserve_index=False)
+    return {field.name: field.type for field in schema}
+
+
+def _expected_arrow_types_for_module_contract(*, category: str, module_name: str) -> dict[str, Any]:
+    canonical_types = _canonical_arrow_types_for_module_contract(
+        category=category, module_name=module_name
+    )
+    return {
+        column_name: arrow_type
+        for column_name, arrow_type in canonical_types.items()
+        if pa.types.is_timestamp(arrow_type)
+    }
+
+
+def _is_nullish(value: Any) -> bool:
+    if value is None:
+        return True
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _values_are_equivalent(left: Any, right: Any) -> bool:
+    if _is_nullish(left) and _is_nullish(right):
+        return True
+    if _is_nullish(left) or _is_nullish(right):
+        return False
+    return left == right
+
+
+def _merge_existing_extras_into_source(df: pd.DataFrame, *, required_columns: list[str]) -> pd.DataFrame:
+    if "extras" not in df.columns:
+        return df
+    if df.empty:
+        return df.drop(columns=["extras"])
+
+    source_rows = df.to_dict(orient="records")
+    merged_rows: list[dict[str, Any]] = []
+    for source_row in source_rows:
+        merged = dict(source_row)
+        extras_payload = _decode_extras_value(merged.get("extras"))
+        for key, value in extras_payload.items():
+            if key == "extras":
+                raise ReplaySkipError(
+                    "Cannot safely merge nested extras payload key 'extras' during Compact SILVER normalization"
+                )
+            existing_value = merged.get(key)
+            existing_is_null = key not in merged or _is_nullish(existing_value)
+            extra_is_null = _is_nullish(value)
+            if existing_is_null and not extra_is_null:
+                merged[key] = value
+            elif not existing_is_null and not extra_is_null and not _values_are_equivalent(existing_value, value):
+                column_kind = "contract" if key in required_columns else "noncontract"
+                raise ReplaySkipError(
+                    f"Conflicting non-null values for {column_kind} column {key!r} between top-level field and extras"
+                )
+        merged.pop("extras", None)
+        merged_rows.append(merged)
+    return pd.DataFrame(merged_rows)
+
+
+def normalize_module_contract_silver(
+    *, df: pd.DataFrame, category: str, module_name: str, instance_name: str
+) -> pd.DataFrame:
+    required_columns = _required_columns_for_module_contract(
+        category=category, module_name=module_name
+    )
+    source_df = _merge_existing_extras_into_source(df.copy(), required_columns=required_columns)
+    if "run_ts" not in source_df.columns:
+        raise ReplaySkipError(
+            f"Unsupported compact SILVER normalization scope: source category={category!r} module={module_name!r} is missing run_ts"
+        )
+    silver_df = normalize_silver(
+        df=source_df,
+        instance_name=instance_name,
+        run_ts=None,
+        category=category,
+        module=module_name,
+        todo_section=_todo_section_for_compact_contract(category=category, module_name=module_name),
+    )
+    if category == "users" and module_name == "user_activity" and "dataiku_category" in source_df.columns:
+        silver_df = silver_df.copy()
+        silver_df["dataiku_category"] = source_df["dataiku_category"].reset_index(drop=True)
+    if "extras" in silver_df.columns:
+        silver_df = silver_df.copy()
+        silver_df["extras"] = silver_df["extras"].map(extras_to_json)
+    return silver_df
 
 
 def resolve_replay_event_date(*, silver_df: pd.DataFrame, fallback_date: date) -> date:
@@ -662,6 +820,137 @@ def _iter_table_chunks(
         offset += len(chunk_df)
 
 
+def _duckdb_column_type_map(
+    con: duckdb.DuckDBPyConnection, table_name: str, *, exclude_columns: set[str] | None = None
+) -> dict[str, str]:
+    exclude_columns = exclude_columns or set()
+    return {
+        str(column_name): str(column_type).upper()
+        for column_name, column_type, *_ in con.execute(
+            f"DESCRIBE {_quote_duckdb_identifier(table_name)}"
+        ).fetchall()
+        if str(column_name) not in exclude_columns
+    }
+
+
+def _restore_dataframe_types_from_duckdb_schema(
+    df: pd.DataFrame, expected_duckdb_types: dict[str, str] | None
+) -> pd.DataFrame:
+    if not expected_duckdb_types:
+        return df
+    out = df.copy()
+    for column_name, duckdb_type in expected_duckdb_types.items():
+        if column_name not in out.columns:
+            continue
+        normalized_type = duckdb_type.upper()
+        if normalized_type in {"VARCHAR", "TEXT", "STRING"}:
+            out[column_name] = out[column_name].astype("string")
+        elif normalized_type.startswith("TIMESTAMP"):
+            out[column_name] = pd.to_datetime(out[column_name], utc=True, errors="coerce")
+        elif normalized_type == "BOOLEAN":
+            out[column_name] = out[column_name].astype("boolean")
+        elif normalized_type in {"TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT"}:
+            out[column_name] = pd.to_numeric(out[column_name], errors="coerce").astype("Int64")
+        elif normalized_type in {"FLOAT", "DOUBLE", "REAL"}:
+            out[column_name] = pd.to_numeric(out[column_name], errors="coerce").astype("Float64")
+    return out
+
+
+def _restore_dataframe_types_from_arrow_schema(
+    df: pd.DataFrame, expected_arrow_types: dict[str, Any] | None
+) -> pd.DataFrame:
+    if not expected_arrow_types:
+        return df
+    out = df.copy()
+    for column_name, arrow_type in expected_arrow_types.items():
+        if column_name not in out.columns:
+            continue
+        if pa.types.is_timestamp(arrow_type):
+            timezone_name = arrow_type.tz
+            if timezone_name:
+                dtype = pd.DatetimeTZDtype(unit=arrow_type.unit, tz=timezone_name)
+                out[column_name] = pd.to_datetime(out[column_name], utc=True, errors="coerce").astype(dtype)
+            else:
+                out[column_name] = pd.to_datetime(out[column_name], errors="coerce").astype(f"datetime64[{arrow_type.unit}]")
+    return out
+
+
+def _parquet_physical_type_for_duckdb_type(duckdb_type: str) -> str | None:
+    normalized_type = duckdb_type.upper()
+    if normalized_type in {"VARCHAR", "TEXT", "STRING"}:
+        return "string"
+    if normalized_type.startswith("TIMESTAMP"):
+        return "timestamp"
+    if normalized_type == "BOOLEAN":
+        return "bool"
+    if normalized_type in {"TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT"}:
+        return "integer"
+    if normalized_type in {"FLOAT", "DOUBLE", "REAL"}:
+        return "floating"
+    return None
+
+
+def _verify_parquet_schema_matches_expected(
+    *,
+    schema: Any,
+    expected_duckdb_types: dict[str, str] | None,
+    path: str,
+    expected_arrow_types: dict[str, Any] | None = None,
+) -> None:
+    if not expected_duckdb_types:
+        if not expected_arrow_types:
+            return
+        schema_names = set(schema.names)
+        for column_name, expected_arrow_type in expected_arrow_types.items():
+            if column_name not in schema_names:
+                raise RuntimeError(f"Replacement parquet {path} is missing column {column_name!r}")
+            actual_arrow_type = schema.field(column_name).type
+            if actual_arrow_type != expected_arrow_type:
+                raise RuntimeError(
+                    f"Replacement parquet {path} column {column_name!r} has type {actual_arrow_type!r}, expected {expected_arrow_type!r}"
+                )
+        return
+    schema_names = set(schema.names)
+    for column_name, duckdb_type in expected_duckdb_types.items():
+        if column_name not in schema_names:
+            raise RuntimeError(f"Replacement parquet {path} is missing column {column_name!r}")
+        expected_type = _parquet_physical_type_for_duckdb_type(duckdb_type)
+        if expected_type is None:
+            continue
+        actual_type = schema.field(column_name).type
+        actual_type_name = str(actual_type)
+        if expected_type == "string" and actual_type_name != "string":
+            raise RuntimeError(
+                f"Replacement parquet {path} column {column_name!r} has type {actual_type_name!r}, expected 'string'"
+            )
+        if expected_type == "timestamp" and not actual_type_name.startswith("timestamp"):
+            raise RuntimeError(
+                f"Replacement parquet {path} column {column_name!r} has type {actual_type_name!r}, expected timestamp"
+            )
+        if expected_type == "bool" and actual_type_name != "bool":
+            raise RuntimeError(
+                f"Replacement parquet {path} column {column_name!r} has type {actual_type_name!r}, expected 'bool'"
+            )
+        if expected_type == "integer" and not actual_type_name.startswith("int"):
+            raise RuntimeError(
+                f"Replacement parquet {path} column {column_name!r} has type {actual_type_name!r}, expected integer"
+            )
+        if expected_type == "floating" and actual_type_name not in {"float", "double"}:
+            raise RuntimeError(
+                f"Replacement parquet {path} column {column_name!r} has type {actual_type_name!r}, expected floating point"
+            )
+    if not expected_arrow_types:
+        return
+    for column_name, expected_arrow_type in expected_arrow_types.items():
+        if column_name not in schema_names:
+            raise RuntimeError(f"Replacement parquet {path} is missing column {column_name!r}")
+        actual_arrow_type = schema.field(column_name).type
+        if actual_arrow_type != expected_arrow_type:
+            raise RuntimeError(
+                f"Replacement parquet {path} column {column_name!r} has type {actual_arrow_type!r}, expected {expected_arrow_type!r}"
+            )
+
+
 def _iter_record_batches(records: list[SelectedPathRecord], *, batch_size: int) -> Iterator[list[SelectedPathRecord]]:
     if batch_size <= 0:
         raise ValueError(f"S3 parquet read batch size must be positive, got {batch_size}")
@@ -808,6 +1097,81 @@ def _stage_normalized_event_mapping_chunks(
     )
 
 
+def _stage_normalized_module_contract_chunks(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    category: str,
+    module_name: str,
+    selected_event_date: date,
+    instance_name: str,
+    run_epoch_ms: int,
+    output_chunk_size: int,
+) -> tuple[str, CompactPlanSummary]:
+    _required_columns_for_module_contract(category=category, module_name=module_name)
+    table_name = "silver_stage_1"
+    total_rows = int(con.execute("SELECT COUNT(*) FROM dedup_stage").fetchone()[0])
+    input_columns = len([column for column in _duckdb_columns(con, "dedup_stage") if column != _STAGE_ORDER_COLUMN])
+    silver_row_order = 0
+    output_rows = 0
+    output_columns = 0
+
+    for chunk_df in _iter_table_chunks(
+        con,
+        table_name="dedup_stage",
+        chunk_size=output_chunk_size,
+        exclude_columns={_STAGE_ORDER_COLUMN},
+    ):
+        silver_df = normalize_module_contract_silver(
+            df=chunk_df,
+            category=category,
+            module_name=module_name,
+            instance_name=instance_name,
+        )
+        if silver_df.empty:
+            continue
+        silver_df = silver_df.copy()
+        silver_df[_STAGE_ORDER_COLUMN] = range(silver_row_order, silver_row_order + len(silver_df))
+        silver_row_order += len(silver_df)
+        output_rows += int(silver_df.shape[0])
+        output_columns = max(output_columns, int(silver_df.shape[1] - 1))
+        _append_dataframe_to_table(con, table_name=table_name, df=silver_df)
+        del chunk_df
+        del silver_df
+
+    if output_rows <= 0:
+        raise ReplaySkipError(
+            f"Module contract normalization produced no rows for category={category!r} module={module_name!r}"
+        )
+
+    expected_duckdb_types = _duckdb_column_type_map(
+        con, table_name, exclude_columns={_STAGE_ORDER_COLUMN}
+    )
+    actual_columns = [column for column in _duckdb_columns(con, table_name) if column != _STAGE_ORDER_COLUMN]
+    expected_order = _output_columns_for_module_contract(
+        category=category, module_name=module_name
+    )
+    if actual_columns != expected_order:
+        raise ReplaySkipError(
+            f"Module contract normalization produced unexpected schema for category={category!r} module={module_name!r}: {actual_columns!r}"
+        )
+
+    return table_name, CompactPlanSummary(
+        mode=COMPACT_PROCESSING_MODE_MODULE_CONTRACT,
+        run_epoch_ms=run_epoch_ms,
+        input_rows=total_rows,
+        input_columns=input_columns,
+        metrics=(
+            CompactPlanMetric(
+                module_name=module_name,
+                rows=output_rows,
+                columns=output_columns,
+                dq_ok=True,
+                dq_errors=(),
+            ),
+        ),
+    )
+
+
 def _table_event_date(con: duckdb.DuckDBPyConnection, *, table_name: str, fallback_date: date) -> date:
     if "timestamp" not in _duckdb_columns(con, table_name):
         return fallback_date
@@ -824,6 +1188,7 @@ def _chunked_plan_iterator(
     con: duckdb.DuckDBPyConnection,
     selected_records: list[SelectedPathRecord],
     normalize_silver_mode: bool,
+    processing_mode: str,
     run_epoch_ms: int,
     output_chunk_size: int,
 ) -> tuple[Iterator[ReplayWritePlan], CompactPlanSummary]:
@@ -832,7 +1197,11 @@ def _chunked_plan_iterator(
     if (f"{selected_event_date.year:04d}", f"{selected_event_date.month:02d}", f"{selected_event_date.day:02d}") != (event_year, event_month, event_day):
         raise ReplaySkipError("Selected source records contain inconsistent logical partition dates")
 
-    if not normalize_silver_mode:
+    effective_processing_mode = processing_mode or (
+        COMPACT_PROCESSING_MODE_EVENT_MAPPING if normalize_silver_mode else COMPACT_PROCESSING_MODE_GENERIC
+    )
+
+    if effective_processing_mode == COMPACT_PROCESSING_MODE_GENERIC:
         total_rows = int(con.execute("SELECT COUNT(*) FROM dedup_stage").fetchone()[0])
         input_columns = len([column for column in _duckdb_columns(con, "dedup_stage") if column != _STAGE_ORDER_COLUMN])
         chunk_count = int((total_rows + output_chunk_size - 1) // output_chunk_size)
@@ -863,7 +1232,7 @@ def _chunked_plan_iterator(
                 )
 
         return iter_generic_plans(), CompactPlanSummary(
-            mode="generic_compaction",
+            mode=COMPACT_PROCESSING_MODE_GENERIC,
             run_epoch_ms=run_epoch_ms,
             input_rows=total_rows,
             input_columns=input_columns,
@@ -876,6 +1245,63 @@ def _chunked_plan_iterator(
                     dq_errors=(),
                 ),
             ) if chunk_count else (),
+        )
+
+    if effective_processing_mode == COMPACT_PROCESSING_MODE_MODULE_CONTRACT:
+        table_name, plan_summary = _stage_normalized_module_contract_chunks(
+            con,
+            category=category,
+            module_name=module_name,
+            selected_event_date=selected_event_date,
+            instance_name=instance_name,
+            run_epoch_ms=run_epoch_ms,
+            output_chunk_size=output_chunk_size,
+        )
+        expected_duckdb_types = _duckdb_column_type_map(
+            con, table_name, exclude_columns={_STAGE_ORDER_COLUMN}
+        )
+        expected_arrow_types = _expected_arrow_types_for_module_contract(
+            category=category, module_name=module_name
+        )
+
+        def iter_module_contract_plans() -> Iterator[ReplayWritePlan]:
+            for sequence_number, silver_df in enumerate(
+                _iter_table_chunks(
+                    con,
+                    table_name=table_name,
+                    chunk_size=output_chunk_size,
+                    exclude_columns={_STAGE_ORDER_COLUMN},
+                ),
+                start=1,
+            ):
+                silver_df = _restore_dataframe_types_from_duckdb_schema(
+                    silver_df, expected_duckdb_types
+                )
+                yield ReplayWritePlan(
+                    output_path=build_compact_output_path(
+                        category=category,
+                        module_name=module_name,
+                        instance_name=instance_name,
+                        event_date=selected_event_date,
+                        run_epoch_ms=run_epoch_ms,
+                        sequence_number=sequence_number,
+                    ),
+                    silver_df=silver_df,
+                    dq=check_silver_dq(silver_df),
+                    module_name=module_name,
+                    event_date=selected_event_date,
+                    expected_duckdb_types=expected_duckdb_types,
+                    expected_arrow_types=expected_arrow_types,
+                )
+
+        return iter_module_contract_plans(), plan_summary
+
+    if effective_processing_mode != COMPACT_PROCESSING_MODE_EVENT_MAPPING:
+        raise ReplaySkipError(f"Unsupported compact SILVER processing mode: {effective_processing_mode!r}")
+
+    if category != "event_mapping":
+        raise ReplaySkipError(
+            f"Event Mapping replay cannot process category={category!r} module={module_name!r}"
         )
 
     module_tables, plan_summary = _stage_normalized_event_mapping_chunks(
@@ -892,12 +1318,18 @@ def _chunked_plan_iterator(
         for mapped_module_name in sorted(module_tables):
             table_name = module_tables[mapped_module_name]
             event_date = _table_event_date(con, table_name=table_name, fallback_date=selected_event_date)
+            expected_duckdb_types = _duckdb_column_type_map(
+                con, table_name, exclude_columns={_STAGE_ORDER_COLUMN}
+            )
             for silver_df in _iter_table_chunks(
                 con,
                 table_name=table_name,
                 chunk_size=output_chunk_size,
                 exclude_columns={_STAGE_ORDER_COLUMN},
             ):
+                silver_df = _restore_dataframe_types_from_duckdb_schema(
+                    silver_df, expected_duckdb_types
+                )
                 yield ReplayWritePlan(
                     output_path=build_compact_output_path(
                         category="event_mapping",
@@ -911,6 +1343,7 @@ def _chunked_plan_iterator(
                     dq=check_silver_dq(silver_df),
                     module_name=mapped_module_name,
                     event_date=event_date,
+                    expected_duckdb_types=expected_duckdb_types,
                 )
                 sequence_number += 1
 
@@ -925,6 +1358,8 @@ def apply_compact_replacement_plan_iterator(
     plans: Iterator[ReplayWritePlan],
 ) -> tuple[CompactApplyResult, int, tuple[CompactPlanMetric, ...]]:
     written_paths: list[str] = []
+    written_expected_types: list[dict[str, str] | None] = []
+    written_expected_arrow_types: list[dict[str, Any] | None] = []
     plan_count = 0
     dq_errors: list[str] = []
     metric_rows: dict[str, int] = {}
@@ -946,10 +1381,17 @@ def apply_compact_replacement_plan_iterator(
                 target=target,
                 output_path=Path(str(plan.output_path)),
                 output_base_dir=Path("/"),
-                df=plan.silver_df,
+                df=_restore_dataframe_types_from_arrow_schema(
+                    _restore_dataframe_types_from_duckdb_schema(
+                        plan.silver_df, plan.expected_duckdb_types
+                    ),
+                    plan.expected_arrow_types,
+                ),
                 compression="snappy",
             )
             written_paths.append(str(plan.output_path))
+            written_expected_types.append(plan.expected_duckdb_types)
+            written_expected_arrow_types.append(plan.expected_arrow_types)
             logger.info(
                 "Compact SILVER replacement uploaded output_sequence=%s written_count=%s rows=%s elapsed_seconds=%.3f rss_mb=%s",
                 plan_count,
@@ -1001,15 +1443,28 @@ def apply_compact_replacement_plan_iterator(
             status="no_mapped_output_retained",
             retained_source_paths=tuple(source_relative_paths),
             message=(
-                "Current event-mapping replay produced no replacement output; "
+                "Compact SILVER processing produced no replacement output; "
                 f"written=0, verified=0, deleted=0, retained={len(source_relative_paths)}"
             ),
-        ), plan_count
+        ), plan_count, _compact_plan_metrics(metric_rows, metric_columns, metric_dq_ok, metric_dq_errors)
 
     verified_paths: list[str] = []
     try:
-        for written_path in written_paths:
-            verify_managed_folder_file(folder, written_path)
+        for written_path, expected_duckdb_types, expected_arrow_types in zip(
+            written_paths,
+            written_expected_types,
+            written_expected_arrow_types,
+            strict=True,
+        ):
+            if expected_duckdb_types or expected_arrow_types:
+                verify_managed_folder_file(
+                    folder,
+                    written_path,
+                    expected_duckdb_types=expected_duckdb_types,
+                    expected_arrow_types=expected_arrow_types,
+                )
+            else:
+                verify_managed_folder_file(folder, written_path)
             verified_paths.append(written_path)
     except Exception as exc:
         cleaned_paths, cleanup_errors = cleanup_written_replacements(folder=folder, paths=written_paths)
@@ -1081,6 +1536,7 @@ def process_staged_compact_partition(
     source_relative_paths: list[str],
     database_path: Path,
     normalize_silver_mode: bool,
+    processing_mode: str | None = None,
     run_epoch_ms: int,
     output_chunk_size: int = COMPACT_SILVER_OUTPUT_ROW_CHUNK_SIZE,
 ) -> CompactProcessingResult:
@@ -1090,6 +1546,11 @@ def process_staged_compact_partition(
             con=con,
             selected_records=selected_records,
             normalize_silver_mode=normalize_silver_mode,
+            processing_mode=processing_mode or (
+                COMPACT_PROCESSING_MODE_EVENT_MAPPING
+                if normalize_silver_mode
+                else COMPACT_PROCESSING_MODE_GENERIC
+            ),
             run_epoch_ms=run_epoch_ms,
             output_chunk_size=output_chunk_size,
         )
@@ -1115,6 +1576,7 @@ def plan_compact_selected_day(
     selected_df: pd.DataFrame,
     normalize_silver_mode: bool,
     run_epoch_ms: int,
+    processing_mode: str | None = None,
 ) -> tuple[list[ReplayWritePlan], CompactPlanSummary]:
     if not isinstance(selected_df, pd.DataFrame):
         raise ReplaySkipError("Selected parquet payload did not load as a dataframe")
@@ -1128,7 +1590,11 @@ def plan_compact_selected_day(
     if (f"{selected_event_date.year:04d}", f"{selected_event_date.month:02d}", f"{selected_event_date.day:02d}") != (event_year, event_month, event_day):
         raise ReplaySkipError("Selected source records contain inconsistent logical partition dates")
 
-    if not normalize_silver_mode:
+    effective_processing_mode = processing_mode or (
+        COMPACT_PROCESSING_MODE_EVENT_MAPPING if normalize_silver_mode else COMPACT_PROCESSING_MODE_GENERIC
+    )
+
+    if effective_processing_mode == COMPACT_PROCESSING_MODE_GENERIC:
         output_path = build_compact_output_path(
             category=category,
             module_name=module_name,
@@ -1147,7 +1613,7 @@ def plan_compact_selected_day(
         plans = [plan]
         _validate_output_paths_do_not_overlap_sources(plans=plans, selected_records=selected_records)
         return plans, CompactPlanSummary(
-            mode="generic_compaction",
+            mode=COMPACT_PROCESSING_MODE_GENERIC,
             run_epoch_ms=run_epoch_ms,
             input_rows=int(selected_df.shape[0]),
             input_columns=int(selected_df.shape[1]),
@@ -1160,6 +1626,58 @@ def plan_compact_selected_day(
                     dq_errors=tuple(str(error) for error in plan.dq.errors),
                 ),
             ),
+        )
+
+    if effective_processing_mode == COMPACT_PROCESSING_MODE_MODULE_CONTRACT:
+        silver_df = normalize_module_contract_silver(
+            df=selected_df,
+            category=category,
+            module_name=module_name,
+            instance_name=instance_name,
+        )
+        dq = check_silver_dq(silver_df)
+        output_path = build_compact_output_path(
+            category=category,
+            module_name=module_name,
+            instance_name=instance_name,
+            event_date=selected_event_date,
+            run_epoch_ms=run_epoch_ms,
+            sequence_number=1,
+        )
+        plans = [
+            ReplayWritePlan(
+                output_path=output_path,
+                silver_df=silver_df,
+                dq=dq,
+                module_name=module_name,
+                event_date=selected_event_date,
+                expected_arrow_types=_expected_arrow_types_for_module_contract(
+                    category=category, module_name=module_name
+                ),
+            )
+        ]
+        _validate_output_paths_do_not_overlap_sources(plans=plans, selected_records=selected_records)
+        return plans, CompactPlanSummary(
+            mode=COMPACT_PROCESSING_MODE_MODULE_CONTRACT,
+            run_epoch_ms=run_epoch_ms,
+            input_rows=int(selected_df.shape[0]),
+            input_columns=int(selected_df.shape[1]),
+            metrics=(
+                CompactPlanMetric(
+                    module_name=module_name,
+                    rows=int(silver_df.shape[0]),
+                    columns=int(silver_df.shape[1]),
+                    dq_ok=bool(dq.ok),
+                    dq_errors=tuple(str(error) for error in dq.errors),
+                ),
+            ),
+        )
+
+    if effective_processing_mode != COMPACT_PROCESSING_MODE_EVENT_MAPPING:
+        raise ReplaySkipError(f"Unsupported compact SILVER processing mode: {effective_processing_mode!r}")
+    if category != "event_mapping":
+        raise ReplaySkipError(
+            f"Event Mapping replay cannot process category={category!r} module={module_name!r}"
         )
 
     rehydrated = rehydrate_event_mapping_source(selected_df)
@@ -1238,16 +1756,37 @@ def plan_compact_selected_day(
     )
 
 
-def verify_managed_folder_file(folder: Any, path: str) -> None:
+def verify_managed_folder_file(
+    folder: Any,
+    path: str,
+    *,
+    expected_duckdb_types: dict[str, str] | None = None,
+    expected_arrow_types: dict[str, Any] | None = None,
+) -> None:
     cleaned = clean_managed_folder_path(path)
+    read_full_payload = bool(expected_duckdb_types or expected_arrow_types)
     if hasattr(folder, "get_download_stream"):
         with folder.get_download_stream(cleaned) as stream:
-            stream.read(1)
+            data = stream.read() if read_full_payload else stream.read(1)
+        if read_full_payload:
+            _verify_parquet_schema_matches_expected(
+                schema=pq.read_schema(io.BytesIO(data)),
+                expected_duckdb_types=expected_duckdb_types,
+                expected_arrow_types=expected_arrow_types,
+                path=path,
+            )
         return
     if hasattr(folder, "get_file"):
         payload = folder.get_file(cleaned)
         if hasattr(payload, "read"):
-            payload.read(1)
+            data = payload.read() if read_full_payload else payload.read(1)
+            if read_full_payload:
+                _verify_parquet_schema_matches_expected(
+                    schema=pq.read_schema(io.BytesIO(data)),
+                    expected_duckdb_types=expected_duckdb_types,
+                    expected_arrow_types=expected_arrow_types,
+                    path=path,
+                )
         return
     raise TypeError(f"Unsupported folder handle type for verification: {type(folder)!r}")
 
@@ -1341,10 +1880,15 @@ def process_compact_selected_partition(
     target: DSSFolderTarget,
     selected_partition: SelectedPartitionPaths,
     normalize_silver_mode: bool,
+    processing_mode: str | None = None,
     s3_read_batch_size: int = COMPACT_SILVER_S3_READ_BATCH_SIZE,
     output_chunk_size: int = COMPACT_SILVER_OUTPUT_ROW_CHUNK_SIZE,
 ) -> CompactPartitionOutcome:
-    replay_mode = "event_mapping_replay" if normalize_silver_mode else "generic_compaction"
+    replay_mode = processing_mode or (
+        COMPACT_PROCESSING_MODE_EVENT_MAPPING
+        if normalize_silver_mode
+        else COMPACT_PROCESSING_MODE_GENERIC
+    )
     run_epoch_ms = next_compact_save_epoch_ms()
     with tempfile.TemporaryDirectory(prefix="compact-silver-") as stage_dir:
         stage_result = _stage_compact_s3_partition(
@@ -1360,6 +1904,7 @@ def process_compact_selected_partition(
             source_relative_paths=selected_partition.relative_paths,
             database_path=stage_result.database_path,
             normalize_silver_mode=normalize_silver_mode,
+            processing_mode=replay_mode,
             run_epoch_ms=run_epoch_ms,
             output_chunk_size=output_chunk_size,
         )
