@@ -55,9 +55,68 @@ _USERS_FACETS_INSTANCES_SQL = (
     "ORDER BY instance_name;"
 )
 
+_ADOPTION_PERIODS: dict[str, dict[str, Any]] = {
+    "weekly": {
+        "count": 12,
+        "unit": "week",
+        "step": "1 WEEK",
+        "lookback": "11 WEEK",
+        "label_sql": "strftime(period_start, '%Y-%m-%d') || ' – ' || strftime(period_start + INTERVAL 6 DAY, '%Y-%m-%d')",
+    },
+    "monthly": {
+        "count": 3,
+        "unit": "month",
+        "step": "1 MONTH",
+        "lookback": "2 MONTH",
+        "label_sql": "strftime(period_start, '%b %Y')",
+    },
+    "quarterly": {
+        "count": 4,
+        "unit": "quarter",
+        "step": "3 MONTH",
+        "lookback": "9 MONTH",
+        "label_sql": "'Q' || CAST(quarter(period_start) AS VARCHAR) || ' ' || CAST(year(period_start) AS VARCHAR)",
+    },
+}
+
 
 def _users_facets_instances_sql() -> str:
     return _USERS_FACETS_INSTANCES_SQL
+
+
+def _parse_adoption_period(value: str | None) -> str:
+    period = str(value or "monthly").strip().lower()
+    if period not in _ADOPTION_PERIODS:
+        allowed = ", ".join(sorted(_ADOPTION_PERIODS))
+        raise RequestValidationError(f"Invalid adoption period={period!r}; expected one of: {allowed}")
+    return period
+
+
+def _adoption_period_config(period: str) -> dict[str, Any]:
+    return _ADOPTION_PERIODS[period]
+
+
+def _adoption_periods_cte_sql(period: str) -> str:
+    config = _adoption_period_config(period)
+    unit = config["unit"]
+    step = config["step"]
+    lookback = config["lookback"]
+    label_sql = config["label_sql"]
+    return (
+        "periods AS (\n"
+        "  SELECT\n"
+        "    period_start::DATE AS period_start,\n"
+        f"    (period_start + INTERVAL {step})::DATE AS period_end,\n"
+        f"    {label_sql} AS period_label,\n"
+        "    period_start <= current_date AND current_date < (period_start + INTERVAL " + step + ") AS is_current_period,\n"
+        "    period_start <= current_date AND current_date < (period_start + INTERVAL " + step + ") AS is_partial_period\n"
+        "  FROM generate_series(\n"
+        f"    (date_trunc('{unit}', current_date) - INTERVAL {lookback})::DATE,\n"
+        f"    date_trunc('{unit}', current_date)::DATE,\n"
+        f"    INTERVAL {step}\n"
+        "  ) AS t(period_start)\n"
+        ")"
+    )
 
 
 def register_routes(bp: Blueprint) -> None:
@@ -1660,6 +1719,350 @@ def register_routes(bp: Blueprint) -> None:
 
         except Exception as e:
             logger.exception("users active monthly failed")
+            return _err(str(e), status=500)
+
+    @bp.route("/api/build/users/adoption-trends")
+    def build_users_adoption_trends():
+        """Period-aware adoption trends for the User Insights UI container.
+
+        This route intentionally does not replace the legacy monthly endpoints used
+        by report export. Supported periods are fixed calendar buckets:
+        weekly, monthly, and quarterly.
+        """
+
+        try:
+            _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+            _ensure_ready_if_enabled()
+
+            period = _parse_adoption_period(request.args.get("period"))
+            period_config = _adoption_period_config(period)
+            periods_cte = _adoption_periods_cte_sql(period)
+            activity_filter = _parse_activity_filter(request.args.get("activityFilter"))
+            instance_name = _parse_instance_name(request.args.get("instance_name"))
+
+            standard = _read_standard_project_variables()
+            excluded_profiles = _read_user_profile_exclude_consumer(standard)
+            filter_sql_template, filter_params = _resolve_license_filter_clause(activity_filter)
+            exclude_sql = _format_license_filter_clause(filter_sql_template, profile_expr="u.users_userprofile")
+            exclude_params: list[Any] = list(filter_params)
+
+            instance_sql_observed = ""
+            instance_sql_formal = ""
+            instances_filter_sql = ""
+            instance_params_one: list[Any] = []
+            instance_params_two: list[Any] = []
+            if instance_name:
+                instance_sql_observed = " AND a.instance_name = ?"
+                instance_sql_formal = " AND f.instance_name = ?"
+                instances_filter_sql = " AND instance_name = ?"
+                instance_params_one = [instance_name]
+                instance_params_two = [instance_name, instance_name]
+
+            latest_users_cte = (
+                "latest_users AS (\n"
+                "  SELECT\n"
+                "    instance_name,\n"
+                "    lower(trim(users_login)) AS login_norm,\n"
+                "    users_enabled,\n"
+                "    users_userprofile,\n"
+                "    ROW_NUMBER() OVER (\n"
+                "      PARTITION BY instance_name, lower(trim(users_login))\n"
+                "      ORDER BY run_ts DESC\n"
+                "    ) AS rn\n"
+                "  FROM base_users_instance_metadata\n"
+                "  WHERE users_login IS NOT NULL\n"
+                "    AND length(trim(users_login)) > 0\n"
+                ")"
+            )
+
+            periods_df = _query_df(
+                (
+                    f"WITH {periods_cte}\n"
+                    "SELECT\n"
+                    "  CAST(period_start AS VARCHAR) AS periodStart,\n"
+                    "  CAST(period_end AS VARCHAR) AS periodEnd,\n"
+                    "  period_label AS label,\n"
+                    "  is_current_period AS isCurrentPeriod,\n"
+                    "  is_partial_period AS isPartialPeriod\n"
+                    "FROM periods\n"
+                    "ORDER BY period_start;"
+                )
+            )
+
+            observed_common_cte = (
+                f"WITH {periods_cte},\n"
+                f"{latest_users_cte},\n"
+                "activity AS (\n"
+                "  SELECT\n"
+                "    p.period_start,\n"
+                "    a.instance_name,\n"
+                "    a.login_norm\n"
+                "  FROM periods p\n"
+                "  JOIN fact_user_activity_daily a\n"
+                "    ON a.last_activity_at >= p.period_start\n"
+                "   AND a.last_activity_at < least(p.period_end, (current_date + INTERVAL 1 DAY)::DATE)\n"
+                "  JOIN latest_users u\n"
+                "    ON u.instance_name = a.instance_name\n"
+                "   AND u.login_norm = a.login_norm\n"
+                "  WHERE u.rn = 1\n"
+                "    AND u.users_enabled = 'True'\n"
+                f"    {exclude_sql}\n"
+                f"    {instance_sql_observed}\n"
+                ")"
+            )
+
+            observed_aggregate_df = _query_df(
+                (
+                    f"{observed_common_cte},\n"
+                    "agg AS (\n"
+                    "  SELECT\n"
+                    "    period_start,\n"
+                    "    COUNT(DISTINCT concat(instance_name, '::', login_norm)) AS active_users\n"
+                    "  FROM activity\n"
+                    "  GROUP BY 1\n"
+                    ")\n"
+                    "SELECT\n"
+                    "  CAST(p.period_start AS VARCHAR) AS periodStart,\n"
+                    "  CAST(p.period_end AS VARCHAR) AS periodEnd,\n"
+                    "  p.period_label AS label,\n"
+                    "  p.is_current_period AS isCurrentPeriod,\n"
+                    "  p.is_partial_period AS isPartialPeriod,\n"
+                    "  COALESCE(a.active_users, 0) AS active_users\n"
+                    "FROM periods p\n"
+                    "LEFT JOIN agg a ON a.period_start = p.period_start\n"
+                    "ORDER BY p.period_start;"
+                ),
+                [*exclude_params, *instance_params_one],
+            )
+
+            observed_by_instance_df = _query_df(
+                (
+                    f"{observed_common_cte},\n"
+                    "agg AS (\n"
+                    "  SELECT\n"
+                    "    period_start,\n"
+                    "    instance_name,\n"
+                    "    COUNT(DISTINCT login_norm) AS active_users\n"
+                    "  FROM activity\n"
+                    "  GROUP BY 1, 2\n"
+                    ")\n"
+                    "SELECT\n"
+                    "  CAST(p.period_start AS VARCHAR) AS periodStart,\n"
+                    "  CAST(p.period_end AS VARCHAR) AS periodEnd,\n"
+                    "  p.period_label AS label,\n"
+                    "  p.is_current_period AS isCurrentPeriod,\n"
+                    "  p.is_partial_period AS isPartialPeriod,\n"
+                    "  i.instance_name,\n"
+                    "  COALESCE(a.active_users, 0) AS active_users\n"
+                    "FROM periods p\n"
+                    "CROSS JOIN (\n"
+                    "  SELECT DISTINCT instance_name\n"
+                    "  FROM base_users_instance_metadata\n"
+                    "  WHERE instance_name IS NOT NULL\n"
+                    f"  {instances_filter_sql}\n"
+                    ") i\n"
+                    "LEFT JOIN agg a ON a.period_start = p.period_start AND a.instance_name = i.instance_name\n"
+                    "ORDER BY p.period_start, i.instance_name;"
+                ),
+                [*exclude_params, *instance_params_one, *instance_params_one],
+            )
+
+            observed_extent_df = _query_df(
+                (
+                    "SELECT\n"
+                    "  CAST(MIN(last_activity_at) AS VARCHAR) AS firstObservation,\n"
+                    "  CAST(MAX(last_activity_at) AS VARCHAR) AS lastObservation\n"
+                    "FROM fact_user_activity_daily\n"
+                    "WHERE last_activity_at < (current_date + INTERVAL 1 DAY)::DATE"
+                    f"{(' AND instance_name = ?') if instance_name else ''};"
+                ),
+                instance_params_one,
+            )
+
+            formal_available = _duckdb_relation_exists(_query_df, "final_build_formal_mau_daily")
+            formal_payload: dict[str, Any]
+            if not formal_available:
+                formal_payload = {
+                    "available": False,
+                    "reason": "formal_mau_view_missing",
+                    "aggregate": [],
+                    "byInstance": [],
+                    "byProfile": [],
+                    "byInstanceProfile": [],
+                    "currentPeriod": None,
+                }
+            else:
+                formal_common_cte = (
+                    f"WITH {periods_cte},\n"
+                    "activity AS (\n"
+                    "  SELECT\n"
+                    "    p.period_start,\n"
+                    "    f.instance_name,\n"
+                    "    f.login_norm\n"
+                    "  FROM periods p\n"
+                    "  JOIN final_build_formal_mau_daily f\n"
+                    "    ON f.last_application_open_at >= p.period_start\n"
+                    "   AND f.last_application_open_at < least(p.period_end, (current_date + INTERVAL 1 DAY)::DATE)\n"
+                    f"  WHERE 1 = 1{instance_sql_formal}\n"
+                    ")"
+                )
+                formal_aggregate_df = _query_df(
+                    (
+                        f"{formal_common_cte},\n"
+                        "agg AS (\n"
+                        "  SELECT\n"
+                        "    period_start,\n"
+                        "    COUNT(DISTINCT concat(instance_name, '::', login_norm)) AS active_users\n"
+                        "  FROM activity\n"
+                        "  GROUP BY 1\n"
+                        ")\n"
+                        "SELECT\n"
+                        "  CAST(p.period_start AS VARCHAR) AS periodStart,\n"
+                        "  CAST(p.period_end AS VARCHAR) AS periodEnd,\n"
+                        "  p.period_label AS label,\n"
+                        "  p.is_current_period AS isCurrentPeriod,\n"
+                        "  p.is_partial_period AS isPartialPeriod,\n"
+                        "  COALESCE(a.active_users, 0) AS active_users\n"
+                        "FROM periods p\n"
+                        "LEFT JOIN agg a ON a.period_start = p.period_start\n"
+                        "ORDER BY p.period_start;"
+                    ),
+                    instance_params_one,
+                )
+                formal_by_instance_df = _query_df(
+                    (
+                        f"{formal_common_cte},\n"
+                        "agg AS (\n"
+                        "  SELECT\n"
+                        "    period_start,\n"
+                        "    instance_name,\n"
+                        "    COUNT(DISTINCT login_norm) AS active_users\n"
+                        "  FROM activity\n"
+                        "  GROUP BY 1, 2\n"
+                        ")\n"
+                        "SELECT\n"
+                        "  CAST(p.period_start AS VARCHAR) AS periodStart,\n"
+                        "  CAST(p.period_end AS VARCHAR) AS periodEnd,\n"
+                        "  p.period_label AS label,\n"
+                        "  p.is_current_period AS isCurrentPeriod,\n"
+                        "  p.is_partial_period AS isPartialPeriod,\n"
+                        "  i.instance_name,\n"
+                        "  COALESCE(a.active_users, 0) AS active_users\n"
+                        "FROM periods p\n"
+                        "CROSS JOIN (\n"
+                        "  SELECT DISTINCT instance_name\n"
+                        "  FROM base_users_instance_metadata\n"
+                        "  WHERE instance_name IS NOT NULL\n"
+                        f"  {instances_filter_sql}\n"
+                        ") i\n"
+                        "LEFT JOIN agg a ON a.period_start = p.period_start AND a.instance_name = i.instance_name\n"
+                        "ORDER BY p.period_start, i.instance_name;"
+                    ),
+                    [*instance_params_one, *instance_params_one],
+                )
+
+                license_group_case_sql = _license_group_case_sql("user_profile")
+                current_profile_cte = (
+                    f"WITH {periods_cte},\n"
+                    "current_period AS (\n"
+                    "  SELECT period_start, period_end\n"
+                    "  FROM periods\n"
+                    "  WHERE is_current_period\n"
+                    "),\n"
+                    "latest_users AS (\n"
+                    "  SELECT\n"
+                    "    instance_name,\n"
+                    "    lower(trim(users_login)) AS login_norm,\n"
+                    "    coalesce(nullif(trim(users_userprofile), ''), 'UNKNOWN') AS user_profile,\n"
+                    "    ROW_NUMBER() OVER (\n"
+                    "      PARTITION BY instance_name, lower(trim(users_login))\n"
+                    "      ORDER BY run_ts DESC\n"
+                    "    ) AS rn\n"
+                    "  FROM base_users_instance_metadata\n"
+                    "  WHERE users_login IS NOT NULL\n"
+                    "    AND length(trim(users_login)) > 0\n"
+                    "),\n"
+                    "latest_activity AS (\n"
+                    "  SELECT\n"
+                    "    f.instance_name,\n"
+                    "    f.login_norm,\n"
+                    "    u.user_profile\n"
+                    "  FROM current_period p\n"
+                    "  JOIN final_build_formal_mau_daily f\n"
+                    "    ON f.last_application_open_at >= p.period_start\n"
+                    "   AND f.last_application_open_at < least(p.period_end, (current_date + INTERVAL 1 DAY)::DATE)\n"
+                    "  JOIN latest_users u\n"
+                    "    ON u.instance_name = f.instance_name\n"
+                    "   AND u.login_norm = f.login_norm\n"
+                    "   AND u.rn = 1\n"
+                    f"  WHERE 1 = 1{instance_sql_formal}\n"
+                    ")"
+                )
+                formal_by_profile_df = _query_df(  # nosec B608
+                    (
+                        f"{current_profile_cte}\n"
+                        "SELECT\n"
+                        f"  {license_group_case_sql} AS license_group,\n"
+                        "  user_profile AS userProfile,\n"
+                        "  COUNT(DISTINCT concat(instance_name, '::', login_norm)) AS active_users\n"
+                        "FROM latest_activity\n"
+                        "GROUP BY 1, 2\n"
+                        "ORDER BY active_users DESC, license_group, userProfile;"
+                    ),
+                    instance_params_one,
+                )
+                formal_by_instance_profile_df = _query_df(  # nosec B608
+                    (
+                        f"{current_profile_cte}\n"
+                        "SELECT\n"
+                        "  instance_name,\n"
+                        f"  {license_group_case_sql} AS license_group,\n"
+                        "  user_profile AS userProfile,\n"
+                        "  COUNT(DISTINCT login_norm) AS active_users\n"
+                        "FROM latest_activity\n"
+                        "GROUP BY 1, 2, 3\n"
+                        "ORDER BY instance_name, active_users DESC, license_group, userProfile;"
+                    ),
+                    instance_params_one,
+                )
+                formal_aggregate_rows = _df_records(formal_aggregate_df)
+                formal_payload = {
+                    "available": True,
+                    "aggregate": formal_aggregate_rows,
+                    "byInstance": _df_records(formal_by_instance_df),
+                    "byProfile": _df_records(formal_by_profile_df),
+                    "byInstanceProfile": _df_records(formal_by_instance_profile_df),
+                    "currentPeriod": next((row for row in formal_aggregate_rows if row.get("isCurrentPeriod")), formal_aggregate_rows[-1] if formal_aggregate_rows else None),
+                }
+
+            period_rows = _df_records(periods_df)
+            observed_aggregate_rows = _df_records(observed_aggregate_df)
+            return _ok(
+                {
+                    "period": period,
+                    "periodCount": period_config["count"],
+                    "instanceName": instance_name,
+                    "activityFilter": activity_filter,
+                    "reportingDateConvention": "DuckDB current_date calendar buckets; current periods include observations before tomorrow's current_date boundary.",
+                    "periods": period_rows,
+                    "observed": {
+                        "aggregate": observed_aggregate_rows,
+                        "byInstance": _df_records(observed_by_instance_df),
+                        "currentPeriod": next((row for row in observed_aggregate_rows if row.get("isCurrentPeriod")), observed_aggregate_rows[-1] if observed_aggregate_rows else None),
+                        "history": (_df_records(observed_extent_df)[0] if not observed_extent_df.empty else {}),
+                        "meta": {
+                            "excludedProfiles": excluded_profiles if activity_filter == "license_consumer" else [],
+                            "excludedProfilesSource": "pulse_dashboard.configs.terminology_yaml.license_groups.license_consumer",
+                        },
+                    },
+                    "formal": formal_payload,
+                }
+            )
+
+        except RequestValidationError as e:
+            return _err(str(e), status=400)
+        except Exception as e:
+            logger.exception("users adoption trends failed")
             return _err(str(e), status=500)
 
     @bp.route("/api/build/users/segments")

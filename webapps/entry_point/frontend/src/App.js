@@ -2503,7 +2503,13 @@ function LlmMeshPlaceholderPage({ title, description }) {
 }
 
 function UsersActivityPage({ apiBase }) {
+  const ADOPTION_PERIOD_TABS = [
+    { key: 'weekly', label: 'Weekly', observedLabel: 'Weekly active users', formalLabel: 'Qualifying weekly active users', axisLabel: 'Week' },
+    { key: 'monthly', label: 'Monthly Calendar', observedLabel: 'Monthly active users', formalLabel: 'Formal monthly active users (MAU)', axisLabel: 'Month' },
+    { key: 'quarterly', label: 'Quarterly', observedLabel: 'Quarterly active users', formalLabel: 'Qualifying quarterly active users', axisLabel: 'Quarter' },
+  ];
   const [windowKind, setWindowKind] = useState('last_3_months');
+  const [adoptionPeriod, setAdoptionPeriod] = useState('monthly');
   const [selectedInstance, setSelectedInstance] = useState('');
   const [activityFilter, setActivityFilter] = useState('license_creator');
   const [showInstanceBreakdown, setShowInstanceBreakdown] = useState(true);
@@ -2534,6 +2540,9 @@ function UsersActivityPage({ apiBase }) {
   const [formalMauByInstanceProfile, setFormalMauByInstanceProfile] = useState([]);
   const [formalMauLatestMonth, setFormalMauLatestMonth] = useState(null);
   const [formalMauAvailable, setFormalMauAvailable] = useState(true);
+  const [adoptionPeriods, setAdoptionPeriods] = useState([]);
+  const [adoptionReportingConvention, setAdoptionReportingConvention] = useState('');
+  const [adoptionObservedHistory, setAdoptionObservedHistory] = useState({});
   const [userSegments, setUserSegments] = useState([]);
   const [userSegmentTotals, setUserSegmentTotals] = useState(null);
   const [stickinessSeries, setStickinessSeries] = useState([]);
@@ -2672,51 +2681,42 @@ function UsersActivityPage({ apiBase }) {
   useEffect(() => {
     const controller = new AbortController();
     const params = new URLSearchParams();
-    params.set('window', windowParam.window);
-    if (selectedInstance) params.set('instance_name', selectedInstance);
-
-    clearRequestError();
-    beginLoad('formalMauMonthly');
-
-    fetchJson('/api/build/users/formal-mau-monthly', { params, signal: controller.signal })
-      .then((data) => {
-        setFormalMauAggregate(data.aggregate || []);
-        setFormalMauByInstance(data.byInstance || []);
-        setFormalMauByProfile(data.byProfile || []);
-        setFormalMauByInstanceProfile(data.byInstanceProfile || []);
-        setFormalMauLatestMonth(data.latestMonth || null);
-        setFormalMauAvailable(data.available !== false);
-      })
-      .catch((e) => {
-        if (!isAbortError(e)) setRequestError(e.message);
-      })
-      .finally(() => endLoad('formalMauMonthly'));
-
-    return () => controller.abort();
-  }, [beginLoad, clearRequestError, endLoad, fetchJson, selectedInstance, setRequestError, windowParam]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const params = new URLSearchParams();
-    params.set('window', windowParam.window);
+    params.set('period', adoptionPeriod);
     params.set('activityFilter', activityFilter);
     if (selectedInstance) params.set('instance_name', selectedInstance);
 
     clearRequestError();
-    beginLoad('activeMonthly');
+    beginLoad('adoptionTrends');
+    setMonthlyActiveAggregate([]);
+    setMonthlyActiveByInstance([]);
+    setFormalMauAggregate([]);
+    setFormalMauByInstance([]);
+    setFormalMauByProfile([]);
+    setFormalMauByInstanceProfile([]);
+    setFormalMauLatestMonth(null);
+    setAdoptionPeriods([]);
 
-    fetchJson('/api/build/users/active-monthly', { params, signal: controller.signal })
+    fetchJson('/api/build/users/adoption-trends', { params, signal: controller.signal })
       .then((data) => {
-        setMonthlyActiveAggregate(data.aggregate || []);
-        setMonthlyActiveByInstance(data.byInstance || []);
+        setAdoptionPeriods(data.periods || []);
+        setAdoptionReportingConvention(data.reportingDateConvention || '');
+        setAdoptionObservedHistory(data.observed?.history || {});
+        setMonthlyActiveAggregate(data.observed?.aggregate || []);
+        setMonthlyActiveByInstance(data.observed?.byInstance || []);
+        setFormalMauAggregate(data.formal?.aggregate || []);
+        setFormalMauByInstance(data.formal?.byInstance || []);
+        setFormalMauByProfile(data.formal?.byProfile || []);
+        setFormalMauByInstanceProfile(data.formal?.byInstanceProfile || []);
+        setFormalMauLatestMonth(data.formal?.currentPeriod || null);
+        setFormalMauAvailable(data.formal?.available !== false);
       })
       .catch((e) => {
         if (!isAbortError(e)) setRequestError(e.message);
       })
-      .finally(() => endLoad('activeMonthly'));
+      .finally(() => endLoad('adoptionTrends'));
 
     return () => controller.abort();
-  }, [activityFilter, beginLoad, clearRequestError, endLoad, fetchJson, selectedInstance, setRequestError, windowParam]);
+  }, [activityFilter, adoptionPeriod, beginLoad, clearRequestError, endLoad, fetchJson, selectedInstance, setRequestError]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -2800,64 +2800,40 @@ function UsersActivityPage({ apiBase }) {
     setSelectedLogin(login);
   };
 
-  const toMonthlyPoints = (rows) => {
+  const adoptionPeriodConfig = ADOPTION_PERIOD_TABS.find((tab) => tab.key === adoptionPeriod) || ADOPTION_PERIOD_TABS[1];
+  const adoptionCurrentPeriod = useMemo(() => {
+    return (adoptionPeriods || []).find((period) => period.isCurrentPeriod) || (adoptionPeriods || [])[Math.max(0, (adoptionPeriods || []).length - 1)] || null;
+  }, [adoptionPeriods]);
+  const adoptionCurrentPeriodStart = adoptionCurrentPeriod?.periodStart || '';
+  const adoptionCurrentPeriodLabel = adoptionCurrentPeriod?.label || '';
+  const lastMonthLabel = adoptionCurrentPeriodLabel;
+  const adoptionCurrentPeriodNote = adoptionCurrentPeriod?.isPartialPeriod ? 'In progress' : '';
+
+  const toPeriodPoints = (rows) => {
     return (rows || []).map((r) => ({
-      label: String(r.month || '').slice(0, 7),
+      label: r.label || String(r.periodStart || r.month || '').slice(0, 10),
       value: Number(r.active_users ?? r.activeUsers ?? 0),
+      isPartialPeriod: Boolean(r.isPartialPeriod),
     }));
   };
 
-  const lastMonthLabel = useMemo(() => {
-    const latestWithActivity = (monthlyActiveByInstance || [])
-      .map((r) => ({
-        label: String(r.month || '').slice(0, 7),
-        value: Number(r.active_users ?? 0),
-      }))
-      .filter((r) => r.label && r.value > 0)
-      .map((r) => r.label)
-      .sort()
-      .pop();
-
-    if (latestWithActivity) return latestWithActivity;
-
-    const pts = toMonthlyPoints(monthlyActiveAggregate);
-    return pts.length ? pts[pts.length - 1].label : '';
-  }, [monthlyActiveAggregate, monthlyActiveByInstance]);
-
   const latestMonthByInstanceRows = useMemo(() => {
     return (monthlyActiveByInstance || [])
-      .filter((r) => String(r.month || '').slice(0, 7) === lastMonthLabel)
+      .filter((r) => String(r.periodStart || '') === adoptionCurrentPeriodStart)
       .map((r) => ({
         label: r.instance_name || r.instanceName,
         value: Number(r.active_users ?? 0),
       }));
-  }, [monthlyActiveByInstance, lastMonthLabel]);
-
-  const formalMauLastMonthLabel = useMemo(() => {
-    const latestWithActivity = (formalMauByInstance || [])
-      .map((r) => ({
-        label: String(r.month || '').slice(0, 7),
-        value: Number(r.active_users ?? 0),
-      }))
-      .filter((r) => r.label && r.value > 0)
-      .map((r) => r.label)
-      .sort()
-      .pop();
-
-    if (latestWithActivity) return latestWithActivity;
-
-    const pts = toMonthlyPoints(formalMauAggregate);
-    return pts.length ? pts[pts.length - 1].label : '';
-  }, [formalMauAggregate, formalMauByInstance]);
+  }, [monthlyActiveByInstance, adoptionCurrentPeriodStart]);
 
   const formalMauLatestMonthByInstanceRows = useMemo(() => {
     return (formalMauByInstance || [])
-      .filter((r) => String(r.month || '').slice(0, 7) === formalMauLastMonthLabel)
+      .filter((r) => String(r.periodStart || '') === adoptionCurrentPeriodStart)
       .map((r) => ({
         label: r.instance_name || r.instanceName,
         value: Number(r.active_users ?? 0),
       }));
-  }, [formalMauByInstance, formalMauLastMonthLabel]);
+  }, [formalMauByInstance, adoptionCurrentPeriodStart]);
 
   const formalMauByProfileRows = useMemo(() => {
     return (formalMauByProfile || []).map((r) => ({
@@ -3131,56 +3107,95 @@ function UsersActivityPage({ apiBase }) {
       </div>
 
       <div className="PulseCard">
-        <h2>Monthly Adoption Trends</h2>
+        <h2>Adoption Trends</h2>
         <div className="PulseMuted" style={{ marginBottom: 10 }}>
-          Compare two monthly user measures over time: active users based on recorded activity, and formal monthly active users (MAU) used for reporting.
+          Compare observed activity and qualifying formal activity in fixed calendar periods. This container uses its own tabbed range and does not change the page reporting window.
+          {adoptionReportingConvention ? ` ${adoptionReportingConvention}` : ''}
         </div>
+        <div className="PulseTabs" role="tablist" aria-label="Adoption trend period" style={{ margin: '0 0 16px' }}>
+          {ADOPTION_PERIOD_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              aria-selected={adoptionPeriod === tab.key}
+              className={adoptionPeriod === tab.key ? 'PulseTab PulseTabActive' : 'PulseTab'}
+              onClick={() => setAdoptionPeriod(tab.key)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        {adoptionCurrentPeriodLabel ? (
+          <div className="PulseMuted" style={{ marginBottom: 12 }}>
+            Current {adoptionPeriodConfig.axisLabel.toLowerCase()}: {adoptionCurrentPeriodLabel}{adoptionCurrentPeriodNote ? ` — ${adoptionCurrentPeriodNote}` : ''}. Summary tiles and breakdowns use this current period, even when counts are zero.
+          </div>
+        ) : null}
+        {adoptionObservedHistory?.firstObservation ? (
+          <div className="PulseMuted" style={{ marginBottom: 12 }}>
+            Observed activity history starts {String(adoptionObservedHistory.firstObservation).slice(0, 10)}; earlier zero buckets may reflect limited loaded history rather than confirmed inactivity.
+          </div>
+        ) : null}
         <div className="PulseVizGrid">
-          <MonthlyObservedActorsChart title="All instances (users counted once)" points={toMonthlyPoints(monthlyActiveAggregate)} />
+          <MonthlyObservedActorsChart
+            title="All instances — users counted per instance"
+            points={toPeriodPoints(monthlyActiveAggregate)}
+            xAxisLabel={adoptionPeriodConfig.axisLabel}
+            yAxisLabel="Observed users"
+            emptyLabel={`No observed activity data available for this ${adoptionPeriodConfig.axisLabel.toLowerCase()} view.`}
+            ariaLabel={`${adoptionPeriodConfig.label} observed users line chart`}
+          />
           {showInstanceBreakdown ? (
             <BarList
-              title={`By instance (${lastMonthLabel || 'latest month'})`}
+              title={`By instance (${adoptionCurrentPeriodLabel || 'current period'})`}
               rows={latestMonthByInstanceRows}
               maxRows={12}
             />
           ) : null}
         </div>
         <div className="PulseMuted" style={{ marginTop: 14, marginBottom: 10 }}>
-          Formal MAU is a stricter measure than active users. It counts users with qualifying sign-in activity and applies reporting eligibility rules.
+          Observed users are counted as distinct instance/login pairs; the same login on different instances may contribute more than once. Formal activity uses the same qualifying application-open and eligibility rules in every tab and is not affected by the activity-type filter.
         </div>
         {formalMauAvailable ? (
           <>
             <div className="PulseSummaryGrid" style={{ marginBottom: 14 }}>
               <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact">
                 <div className="PulseSummaryCount">{Number(formalMauLatestMonth?.active_users ?? 0).toLocaleString()}</div>
-                <div className="PulseSummaryLabel">Formal monthly active users</div>
+                <div className="PulseSummaryLabel">{adoptionPeriodConfig.formalLabel}</div>
                 <div className="PulseSummaryDetail">
-                  {formalMauLatestMonth?.month ? `Latest month (${String(formalMauLatestMonth.month).slice(0, 7)}) based on qualifying sign-in activity.` : 'Latest month based on qualifying sign-in activity.'}
+                  {adoptionCurrentPeriodLabel ? `${adoptionCurrentPeriodLabel}${adoptionCurrentPeriodNote ? ` — ${adoptionCurrentPeriodNote}` : ''} based on qualifying application-open activity.` : 'Current period based on qualifying application-open activity.'}
                 </div>
               </div>
             </div>
             <div className="PulseVizGrid">
-              <MonthlyObservedActorsChart title="Formal monthly active users" points={toMonthlyPoints(formalMauAggregate)} />
+              <MonthlyObservedActorsChart
+                title={adoptionPeriodConfig.formalLabel}
+                points={toPeriodPoints(formalMauAggregate)}
+                xAxisLabel={adoptionPeriodConfig.axisLabel}
+                yAxisLabel="Qualifying users"
+                emptyLabel={`No qualifying formal activity data available for this ${adoptionPeriodConfig.axisLabel.toLowerCase()} view.`}
+                ariaLabel={`${adoptionPeriodConfig.label} qualifying formal users line chart`}
+              />
               {showInstanceBreakdown ? (
                 <BarList
-                  title={`Formal monthly active users by instance (${formalMauLastMonthLabel || 'latest month'})`}
+                  title={`${adoptionPeriodConfig.formalLabel} by instance (${adoptionCurrentPeriodLabel || 'current period'})`}
                   rows={formalMauLatestMonthByInstanceRows}
                   maxRows={12}
                 />
               ) : null}
             </div>
             <div className="PulseMuted" style={{ marginTop: 14, marginBottom: 10 }}>
-              Formal MAU is also grouped by license type so you can compare creator, viewer, admin, and other user groups. In the all-instance view, each user is counted once. In the instance view, a user can appear once per active instance.
+              Formal monthly active users (MAU) remains the monthly reporting measure. Weekly and quarterly tabs show distinct qualifying users for those calendar periods using the same rules.
             </div>
             <div className="PulseVizGrid">
               <BarList
-                title={`Formal monthly active users by license type (${formalMauLastMonthLabel || 'latest month'})`}
+                title={`${adoptionPeriodConfig.formalLabel} by license type (${adoptionCurrentPeriodLabel || 'current period'})`}
                 rows={formalMauByProfileRows}
                 maxRows={12}
               />
               {showInstanceBreakdown ? (
                 <BarList
-                  title={`Formal monthly active users by instance and license type (${formalMauLastMonthLabel || 'latest month'})`}
+                  title={`${adoptionPeriodConfig.formalLabel} by instance and license type (${adoptionCurrentPeriodLabel || 'current period'})`}
                   rows={formalMauByInstanceProfileRows}
                   maxRows={12}
                 />
@@ -3189,9 +3204,9 @@ function UsersActivityPage({ apiBase }) {
           </>
         ) : (
           <div className="PulseSummaryTile PulseSummaryTileStatic" style={{ marginTop: 4 }}>
-            <div className="PulseSummaryLabel">Formal Admin MAU</div>
+            <div className="PulseSummaryLabel">Qualifying formal activity</div>
             <div className="PulseSummaryDetail" style={{ marginTop: 8 }}>
-              Formal monthly active user data is not available in this environment.
+              Formal active user data is not available in this environment.
             </div>
           </div>
         )}
@@ -6534,7 +6549,14 @@ function LineChart({ title, points }) {
   );
 }
 
-function MonthlyObservedActorsChart({ title, points }) {
+function MonthlyObservedActorsChart({
+  title,
+  points,
+  xAxisLabel = 'Month',
+  yAxisLabel = 'Observed actors',
+  emptyLabel = 'No monthly data available.',
+  ariaLabel,
+}) {
   const chart = useMemo(() => {
     const safePoints = (points || []).filter((point) => point && point.label);
 
@@ -6628,7 +6650,7 @@ function MonthlyObservedActorsChart({ title, points }) {
     <div className="PulseChartCard">
       <div className="PulseChartTitle">{title}</div>
       {!points.length ? (
-        <div className="PulseMuted">No monthly data available.</div>
+        <div className="PulseMuted">{emptyLabel}</div>
       ) : (
         <div className="PulseMonthlyChartWrap">
           <svg
@@ -6636,7 +6658,7 @@ function MonthlyObservedActorsChart({ title, points }) {
             viewBox={`0 0 ${chart.width} ${chart.height}`}
             preserveAspectRatio="xMidYMid meet"
             role="img"
-            aria-label={`${title} monthly observed actors line chart`}
+            aria-label={ariaLabel || `${title} line chart`}
           >
             {chart.yTicks.map((tick) => {
               const y = chart.marginTop + chart.innerHeight - (chart.innerHeight * tick) / Math.max(...chart.yTicks, 1);
@@ -6669,7 +6691,7 @@ function MonthlyObservedActorsChart({ title, points }) {
 
             {chart.coords.map((point) => (
               <g key={point.label}>
-                <title>{`${point.label}: ${point.value}`}</title>
+                <title>{`${point.label}${point.isPartialPeriod ? ' (in progress)' : ''}: ${point.value}`}</title>
                 <circle className="PulseMonthlyChartPoint" cx={point.cx} cy={point.cy} r="4" />
               </g>
             ))}
@@ -6689,7 +6711,7 @@ function MonthlyObservedActorsChart({ title, points }) {
               y={chart.height - 10}
               textAnchor="middle"
             >
-              Month
+              {xAxisLabel}
             </text>
             <text
               className="PulseMonthlyChartAxisLabel"
@@ -6698,7 +6720,7 @@ function MonthlyObservedActorsChart({ title, points }) {
               textAnchor="middle"
               transform={`rotate(-90 18 ${chart.marginTop + chart.innerHeight / 2})`}
             >
-              Observed actors
+              {yAxisLabel}
             </text>
           </svg>
         </div>

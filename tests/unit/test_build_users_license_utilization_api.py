@@ -566,3 +566,173 @@ def test_user_leaderboard_consumer_filter_preserves_instance_parameter_order(
     assert "mixed_a" in developing_by_login
     assert viewing_by_login["viewer_a"]["instances"] == 1
     assert developing_by_login["mixed_a"]["instances"] == 1
+
+
+def _create_adoption_tables(conn):
+    conn.execute(
+        """
+        CREATE TABLE base_users_instance_metadata (
+            instance_name VARCHAR,
+            users_login VARCHAR,
+            users_displayname VARCHAR,
+            users_email VARCHAR,
+            users_enabled VARCHAR,
+            users_userprofile VARCHAR,
+            users_groups VARCHAR,
+            run_ts TIMESTAMP
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE fact_user_activity_daily (
+            instance_name VARCHAR,
+            login_norm VARCHAR,
+            viewing_actions_count INTEGER,
+            developing_actions_count INTEGER,
+            last_activity_at TIMESTAMP
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE final_build_formal_mau_daily (
+            instance_name VARCHAR,
+            login_norm VARCHAR,
+            application_open_count INTEGER,
+            last_application_open_at TIMESTAMP
+        );
+        """
+    )
+
+
+def _insert_adoption_rows(conn):
+    conn.executemany(
+        "INSERT INTO base_users_instance_metadata VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            ("inst-a", "alice", "Alice", "alice@example.com", "True", "DESIGNER", None, "2026-10-21 00:00:00"),
+            ("inst-a", "bob", "Bob", "bob@example.com", "True", "READER", None, "2026-10-21 00:00:00"),
+            ("inst-a", "disabled", "Disabled", "disabled@example.com", "False", "DESIGNER", None, "2026-10-21 00:00:00"),
+            ("inst-b", "alice", "Alice", "alice-b@example.com", "True", "DESIGNER", None, "2026-10-21 00:00:00"),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO fact_user_activity_daily VALUES (?, ?, ?, ?, ?)",
+        [
+            ("inst-a", "alice", 1, 0, "2026-10-19 09:00:00"),
+            ("inst-a", "alice", 2, 0, "2026-10-20 09:00:00"),
+            ("inst-b", "alice", 1, 0, "2026-10-20 10:00:00"),
+            ("inst-a", "bob", 1, 0, "2026-10-01 09:00:00"),
+            ("inst-a", "disabled", 1, 0, "2026-10-20 12:00:00"),
+            ("inst-a", "alice", 1, 0, "2026-11-01 12:00:00"),
+            ("inst-a", "alice", 1, 0, "2026-07-04 12:00:00"),
+            ("inst-a", "alice", 1, 0, "2026-02-28 12:00:00"),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO final_build_formal_mau_daily VALUES (?, ?, ?, ?)",
+        [
+            ("inst-a", "alice", 1, "2026-10-19 11:00:00"),
+            ("inst-a", "alice", 1, "2026-10-20 11:00:00"),
+            ("inst-b", "alice", 1, "2026-10-20 11:00:00"),
+            ("inst-a", "bob", 1, "2026-10-01 11:00:00"),
+            ("inst-a", "alice", 1, "2026-07-04 11:00:00"),
+            ("inst-a", "alice", 1, "2026-11-01 11:00:00"),
+        ],
+    )
+
+
+def test_users_adoption_trends_weekly_buckets_and_distinct_counts(monkeypatch, license_api_app):
+    app, conn = license_api_app
+    module = importlib.import_module("pulse_dashboard.webapp_backend.routes.build_users")
+    monkeypatch.setattr(module, "_read_user_profile_exclude_consumer", lambda _standard: ["READER"])
+    _create_adoption_tables(conn)
+    _insert_adoption_rows(conn)
+
+    response = app.test_client().get("/api/build/users/adoption-trends?period=weekly")
+    payload = response.get_json()
+
+    assert response.status_code == 200, payload
+    assert payload["period"] == "weekly"
+    assert len(payload["periods"]) == 12
+    assert payload["periods"][-1]["periodStart"] == "2026-10-19"
+    assert payload["periods"][-1]["periodEnd"] == "2026-10-26"
+    assert payload["periods"][-1]["isCurrentPeriod"] is True
+    assert payload["periods"][-1]["isPartialPeriod"] is True
+    assert payload["observed"]["aggregate"][-1]["active_users"] == 2
+    assert payload["formal"]["aggregate"][-1]["active_users"] == 2
+    assert payload["observed"]["history"]["lastObservation"].startswith("2026-10-20")
+
+
+def test_users_adoption_trends_quarterly_counts_whole_period_distincts_and_current_breakdowns(
+    monkeypatch, license_api_app
+):
+    app, conn = license_api_app
+    module = importlib.import_module("pulse_dashboard.webapp_backend.routes.build_users")
+    monkeypatch.setattr(module, "_read_user_profile_exclude_consumer", lambda _standard: ["READER"])
+    _create_adoption_tables(conn)
+    _insert_adoption_rows(conn)
+
+    response = app.test_client().get("/api/build/users/adoption-trends?period=quarterly&activityFilter=license_creator")
+    payload = response.get_json()
+
+    assert response.status_code == 200, payload
+    assert len(payload["periods"]) == 4
+    assert [row["label"] for row in payload["periods"]] == ["Q1 2026", "Q2 2026", "Q3 2026", "Q4 2026"]
+    by_label = {row["label"]: row["active_users"] for row in payload["observed"]["aggregate"]}
+    assert by_label["Q3 2026"] == 1
+    assert by_label["Q4 2026"] == 2
+    assert payload["observed"]["currentPeriod"]["label"] == "Q4 2026"
+    assert payload["formal"]["currentPeriod"]["active_users"] == 3
+    profile_rows = {(row["license_group"], row["userProfile"]): row["active_users"] for row in payload["formal"]["byProfile"]}
+    assert profile_rows[("Creator Licenses", "DESIGNER")] == 2
+    assert profile_rows[("Consumer Licenses", "READER")] == 1
+
+
+def test_users_adoption_trends_monthly_calendar_and_formal_missing(monkeypatch, license_api_app):
+    app, conn = license_api_app
+    module = importlib.import_module("pulse_dashboard.webapp_backend.routes.build_users")
+    monkeypatch.setattr(module, "_read_user_profile_exclude_consumer", lambda _standard: ["READER"])
+    conn.execute(
+        """
+        CREATE TABLE base_users_instance_metadata (
+            instance_name VARCHAR,
+            users_login VARCHAR,
+            users_displayname VARCHAR,
+            users_email VARCHAR,
+            users_enabled VARCHAR,
+            users_userprofile VARCHAR,
+            users_groups VARCHAR,
+            run_ts TIMESTAMP
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE fact_user_activity_daily (
+            instance_name VARCHAR,
+            login_norm VARCHAR,
+            viewing_actions_count INTEGER,
+            developing_actions_count INTEGER,
+            last_activity_at TIMESTAMP
+        );
+        """
+    )
+
+    response = app.test_client().get("/api/build/users/adoption-trends?period=monthly")
+    payload = response.get_json()
+
+    assert response.status_code == 200, payload
+    assert [row["periodStart"] for row in payload["periods"]] == ["2026-08-01", "2026-09-01", "2026-10-01"]
+    assert payload["formal"]["available"] is False
+    assert payload["formal"]["reason"] == "formal_mau_view_missing"
+
+
+def test_users_adoption_trends_rejects_invalid_period(license_api_app):
+    app, conn = license_api_app
+    _create_adoption_tables(conn)
+    response = app.test_client().get("/api/build/users/adoption-trends?period=rolling")
+    payload = response.get_json()
+
+    assert response.status_code == 400
+    assert payload["ok"] is False
