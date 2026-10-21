@@ -642,12 +642,21 @@ def _insert_adoption_rows(conn):
     )
 
 
+def _set_adoption_reporting_date(monkeypatch, module, reporting_date: str):
+    monkeypatch.setattr(module, "_ADOPTION_REPORTING_DATE_SQL", f"DATE '{reporting_date}'")
+
+
 def test_users_adoption_trends_weekly_buckets_and_distinct_counts(monkeypatch, license_api_app):
     app, conn = license_api_app
     module = importlib.import_module("pulse_dashboard.webapp_backend.routes.build_users")
+    _set_adoption_reporting_date(monkeypatch, module, "2026-10-21")
     monkeypatch.setattr(module, "_read_user_profile_exclude_consumer", lambda _standard: ["READER"])
     _create_adoption_tables(conn)
     _insert_adoption_rows(conn)
+    conn.execute(
+        "INSERT INTO fact_user_activity_daily VALUES (?, ?, ?, ?, ?)",
+        ("inst-a", "alice", 1, 0, "2026-10-18 23:59:59"),
+    )
 
     response = app.test_client().get("/api/build/users/adoption-trends?period=weekly")
     payload = response.get_json()
@@ -661,6 +670,8 @@ def test_users_adoption_trends_weekly_buckets_and_distinct_counts(monkeypatch, l
     assert payload["periods"][-1]["isPartialPeriod"] is True
     assert payload["observed"]["aggregate"][-1]["active_users"] == 2
     assert payload["formal"]["aggregate"][-1]["active_users"] == 2
+    by_start = {row["periodStart"]: row["active_users"] for row in payload["observed"]["aggregate"]}
+    assert by_start["2026-10-12"] == 1
     assert payload["observed"]["history"]["lastObservation"].startswith("2026-10-20")
 
 
@@ -669,6 +680,7 @@ def test_users_adoption_trends_quarterly_counts_whole_period_distincts_and_curre
 ):
     app, conn = license_api_app
     module = importlib.import_module("pulse_dashboard.webapp_backend.routes.build_users")
+    _set_adoption_reporting_date(monkeypatch, module, "2026-10-21")
     monkeypatch.setattr(module, "_read_user_profile_exclude_consumer", lambda _standard: ["READER"])
     _create_adoption_tables(conn)
     _insert_adoption_rows(conn)
@@ -689,9 +701,45 @@ def test_users_adoption_trends_quarterly_counts_whole_period_distincts_and_curre
     assert profile_rows[("Consumer Licenses", "READER")] == 1
 
 
+def test_users_adoption_trends_controlled_date_crosses_year_quarter_and_leap_day(
+    monkeypatch, license_api_app
+):
+    app, conn = license_api_app
+    module = importlib.import_module("pulse_dashboard.webapp_backend.routes.build_users")
+    _set_adoption_reporting_date(monkeypatch, module, "2027-01-01")
+    monkeypatch.setattr(module, "_read_user_profile_exclude_consumer", lambda _standard: ["READER"])
+    _create_adoption_tables(conn)
+    _insert_adoption_rows(conn)
+
+    response = app.test_client().get("/api/build/users/adoption-trends?period=quarterly&activityFilter=license_creator")
+    payload = response.get_json()
+
+    assert response.status_code == 200, payload
+    assert [row["label"] for row in payload["periods"]] == ["Q2 2026", "Q3 2026", "Q4 2026", "Q1 2027"]
+    assert payload["periods"][-1]["isCurrentPeriod"] is True
+    by_label = {row["label"]: row["active_users"] for row in payload["observed"]["aggregate"]}
+    assert by_label["Q4 2026"] == 2
+    assert by_label["Q1 2027"] == 0
+    assert payload["formal"]["currentPeriod"]["active_users"] == 0
+
+    _set_adoption_reporting_date(monkeypatch, module, "2024-03-01")
+    conn.execute(
+        "INSERT INTO fact_user_activity_daily VALUES (?, ?, ?, ?, ?)",
+        ("inst-a", "alice", 1, 0, "2024-02-29 12:00:00"),
+    )
+    weekly_response = app.test_client().get("/api/build/users/adoption-trends?period=weekly&activityFilter=license_creator")
+    weekly_payload = weekly_response.get_json()
+
+    assert weekly_response.status_code == 200, weekly_payload
+    assert weekly_payload["periods"][-1]["periodStart"] == "2024-02-26"
+    assert weekly_payload["periods"][-1]["periodEnd"] == "2024-03-04"
+    assert weekly_payload["observed"]["aggregate"][-1]["active_users"] == 1
+
+
 def test_users_adoption_trends_monthly_calendar_and_formal_missing(monkeypatch, license_api_app):
     app, conn = license_api_app
     module = importlib.import_module("pulse_dashboard.webapp_backend.routes.build_users")
+    _set_adoption_reporting_date(monkeypatch, module, "2026-10-21")
     monkeypatch.setattr(module, "_read_user_profile_exclude_consumer", lambda _standard: ["READER"])
     conn.execute(
         """

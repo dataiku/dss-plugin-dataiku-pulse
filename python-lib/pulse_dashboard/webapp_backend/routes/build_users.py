@@ -78,6 +78,7 @@ _ADOPTION_PERIODS: dict[str, dict[str, Any]] = {
         "label_sql": "'Q' || CAST(quarter(period_start) AS VARCHAR) || ' ' || CAST(year(period_start) AS VARCHAR)",
     },
 }
+_ADOPTION_REPORTING_DATE_SQL = "current_date"
 
 
 def _users_facets_instances_sql() -> str:
@@ -96,7 +97,7 @@ def _adoption_period_config(period: str) -> dict[str, Any]:
     return _ADOPTION_PERIODS[period]
 
 
-def _adoption_periods_cte_sql(period: str) -> str:
+def _adoption_periods_cte_sql(period: str, reporting_date_sql: str = _ADOPTION_REPORTING_DATE_SQL) -> str:
     config = _adoption_period_config(period)
     unit = config["unit"]
     step = config["step"]
@@ -108,11 +109,11 @@ def _adoption_periods_cte_sql(period: str) -> str:
         "    period_start::DATE AS period_start,\n"
         f"    (period_start + INTERVAL {step})::DATE AS period_end,\n"
         f"    {label_sql} AS period_label,\n"
-        "    period_start <= current_date AND current_date < (period_start + INTERVAL " + step + ") AS is_current_period,\n"
-        "    period_start <= current_date AND current_date < (period_start + INTERVAL " + step + ") AS is_partial_period\n"
+        "    period_start <= " + reporting_date_sql + " AND " + reporting_date_sql + " < (period_start + INTERVAL " + step + ") AS is_current_period,\n"
+        "    period_start <= " + reporting_date_sql + " AND " + reporting_date_sql + " < (period_start + INTERVAL " + step + ") AS is_partial_period\n"
         "  FROM generate_series(\n"
-        f"    (date_trunc('{unit}', current_date) - INTERVAL {lookback})::DATE,\n"
-        f"    date_trunc('{unit}', current_date)::DATE,\n"
+        f"    (date_trunc('{unit}', {reporting_date_sql}) - INTERVAL {lookback})::DATE,\n"
+        f"    date_trunc('{unit}', {reporting_date_sql})::DATE,\n"
         f"    INTERVAL {step}\n"
         "  ) AS t(period_start)\n"
         ")"
@@ -1736,7 +1737,9 @@ def register_routes(bp: Blueprint) -> None:
 
             period = _parse_adoption_period(request.args.get("period"))
             period_config = _adoption_period_config(period)
-            periods_cte = _adoption_periods_cte_sql(period)
+            reporting_date_sql = _ADOPTION_REPORTING_DATE_SQL
+            reporting_cutoff_sql = f"({reporting_date_sql} + INTERVAL 1 DAY)::DATE"
+            periods_cte = _adoption_periods_cte_sql(period, reporting_date_sql=reporting_date_sql)
             activity_filter = _parse_activity_filter(request.args.get("activityFilter"))
             instance_name = _parse_instance_name(request.args.get("instance_name"))
 
@@ -1800,7 +1803,7 @@ def register_routes(bp: Blueprint) -> None:
                 "  FROM periods p\n"
                 "  JOIN fact_user_activity_daily a\n"
                 "    ON a.last_activity_at >= p.period_start\n"
-                "   AND a.last_activity_at < least(p.period_end, (current_date + INTERVAL 1 DAY)::DATE)\n"
+                f"   AND a.last_activity_at < least(p.period_end, {reporting_cutoff_sql})\n"
                 "  JOIN latest_users u\n"
                 "    ON u.instance_name = a.instance_name\n"
                 "   AND u.login_norm = a.login_norm\n"
@@ -1873,7 +1876,7 @@ def register_routes(bp: Blueprint) -> None:
                     "  CAST(MIN(last_activity_at) AS VARCHAR) AS firstObservation,\n"
                     "  CAST(MAX(last_activity_at) AS VARCHAR) AS lastObservation\n"
                     "FROM fact_user_activity_daily\n"
-                    "WHERE last_activity_at < (current_date + INTERVAL 1 DAY)::DATE"
+                    f"WHERE last_activity_at < {reporting_cutoff_sql}"
                     f"{(' AND instance_name = ?') if instance_name else ''};"
                 ),
                 instance_params_one,
@@ -1902,7 +1905,7 @@ def register_routes(bp: Blueprint) -> None:
                     "  FROM periods p\n"
                     "  JOIN final_build_formal_mau_daily f\n"
                     "    ON f.last_application_open_at >= p.period_start\n"
-                    "   AND f.last_application_open_at < least(p.period_end, (current_date + INTERVAL 1 DAY)::DATE)\n"
+                    f"   AND f.last_application_open_at < least(p.period_end, {reporting_cutoff_sql})\n"
                     f"  WHERE 1 = 1{instance_sql_formal}\n"
                     ")"
                 )
@@ -1990,7 +1993,7 @@ def register_routes(bp: Blueprint) -> None:
                     "  FROM current_period p\n"
                     "  JOIN final_build_formal_mau_daily f\n"
                     "    ON f.last_application_open_at >= p.period_start\n"
-                    "   AND f.last_application_open_at < least(p.period_end, (current_date + INTERVAL 1 DAY)::DATE)\n"
+                    f"   AND f.last_application_open_at < least(p.period_end, {reporting_cutoff_sql})\n"
                     "  JOIN latest_users u\n"
                     "    ON u.instance_name = f.instance_name\n"
                     "   AND u.login_norm = f.login_norm\n"

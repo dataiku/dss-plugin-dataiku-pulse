@@ -2502,7 +2502,7 @@ function LlmMeshPlaceholderPage({ title, description }) {
   );
 }
 
-function UsersActivityPage({ apiBase }) {
+export function UsersActivityPage({ apiBase }) {
   const ADOPTION_PERIOD_TABS = [
     { key: 'weekly', label: 'Weekly', observedLabel: 'Weekly active users', formalLabel: 'Qualifying weekly active users', axisLabel: 'Week' },
     { key: 'monthly', label: 'Monthly Calendar', observedLabel: 'Monthly active users', formalLabel: 'Formal monthly active users (MAU)', axisLabel: 'Month' },
@@ -2543,6 +2543,8 @@ function UsersActivityPage({ apiBase }) {
   const [adoptionPeriods, setAdoptionPeriods] = useState([]);
   const [adoptionReportingConvention, setAdoptionReportingConvention] = useState('');
   const [adoptionObservedHistory, setAdoptionObservedHistory] = useState({});
+  const [adoptionRequestState, setAdoptionRequestState] = useState({ status: 'idle', error: '' });
+  const adoptionRequestIdRef = useRef(0);
   const [userSegments, setUserSegments] = useState([]);
   const [userSegmentTotals, setUserSegmentTotals] = useState(null);
   const [stickinessSeries, setStickinessSeries] = useState([]);
@@ -2680,24 +2682,19 @@ function UsersActivityPage({ apiBase }) {
 
   useEffect(() => {
     const controller = new AbortController();
+    const requestId = adoptionRequestIdRef.current + 1;
+    adoptionRequestIdRef.current = requestId;
     const params = new URLSearchParams();
     params.set('period', adoptionPeriod);
     params.set('activityFilter', activityFilter);
     if (selectedInstance) params.set('instance_name', selectedInstance);
 
-    clearRequestError();
     beginLoad('adoptionTrends');
-    setMonthlyActiveAggregate([]);
-    setMonthlyActiveByInstance([]);
-    setFormalMauAggregate([]);
-    setFormalMauByInstance([]);
-    setFormalMauByProfile([]);
-    setFormalMauByInstanceProfile([]);
-    setFormalMauLatestMonth(null);
-    setAdoptionPeriods([]);
+    setAdoptionRequestState({ status: 'loading', error: '' });
 
     fetchJson('/api/build/users/adoption-trends', { params, signal: controller.signal })
       .then((data) => {
+        if (adoptionRequestIdRef.current !== requestId) return;
         setAdoptionPeriods(data.periods || []);
         setAdoptionReportingConvention(data.reportingDateConvention || '');
         setAdoptionObservedHistory(data.observed?.history || {});
@@ -2709,14 +2706,18 @@ function UsersActivityPage({ apiBase }) {
         setFormalMauByInstanceProfile(data.formal?.byInstanceProfile || []);
         setFormalMauLatestMonth(data.formal?.currentPeriod || null);
         setFormalMauAvailable(data.formal?.available !== false);
+        setAdoptionRequestState({ status: 'success', error: '' });
       })
       .catch((e) => {
-        if (!isAbortError(e)) setRequestError(e.message);
+        if (isAbortError(e) || adoptionRequestIdRef.current !== requestId) return;
+        setAdoptionRequestState({ status: 'error', error: e.message || 'Failed loading adoption trends' });
       })
-      .finally(() => endLoad('adoptionTrends'));
+      .finally(() => {
+        if (adoptionRequestIdRef.current === requestId) endLoad('adoptionTrends');
+      });
 
     return () => controller.abort();
-  }, [activityFilter, adoptionPeriod, beginLoad, clearRequestError, endLoad, fetchJson, selectedInstance, setRequestError]);
+  }, [activityFilter, adoptionPeriod, beginLoad, endLoad, fetchJson, selectedInstance]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -2801,6 +2802,9 @@ function UsersActivityPage({ apiBase }) {
   };
 
   const adoptionPeriodConfig = ADOPTION_PERIOD_TABS.find((tab) => tab.key === adoptionPeriod) || ADOPTION_PERIOD_TABS[1];
+  const adoptionReady = adoptionRequestState.status === 'success';
+  const adoptionLoading = adoptionRequestState.status === 'loading';
+  const adoptionFailed = adoptionRequestState.status === 'error';
   const adoptionCurrentPeriod = useMemo(() => {
     return (adoptionPeriods || []).find((period) => period.isCurrentPeriod) || (adoptionPeriods || [])[Math.max(0, (adoptionPeriods || []).length - 1)] || null;
   }, [adoptionPeriods]);
@@ -3110,7 +3114,7 @@ function UsersActivityPage({ apiBase }) {
         <h2>Adoption Trends</h2>
         <div className="PulseMuted" style={{ marginBottom: 10 }}>
           Compare observed activity and qualifying formal activity in fixed calendar periods. This container uses its own tabbed range and does not change the page reporting window.
-          {adoptionReportingConvention ? ` ${adoptionReportingConvention}` : ''}
+          {adoptionReady && adoptionReportingConvention ? ` ${adoptionReportingConvention}` : ''}
         </div>
         <div className="PulseTabs" role="tablist" aria-label="Adoption trend period" style={{ margin: '0 0 16px' }}>
           {ADOPTION_PERIOD_TABS.map((tab) => (
@@ -3126,90 +3130,104 @@ function UsersActivityPage({ apiBase }) {
             </button>
           ))}
         </div>
-        {adoptionCurrentPeriodLabel ? (
+        {adoptionLoading ? (
+          <div className="PulseMuted" role="status" style={{ marginBottom: 12 }}>
+            Loading adoption trends for {adoptionPeriodConfig.label.toLowerCase()}…
+          </div>
+        ) : null}
+        {adoptionFailed ? (
+          <div className="PulseError" role="alert" style={{ marginBottom: 12 }}>
+            {adoptionRequestState.error || 'Failed loading adoption trends.'}
+          </div>
+        ) : null}
+        {adoptionReady && adoptionCurrentPeriodLabel ? (
           <div className="PulseMuted" style={{ marginBottom: 12 }}>
             Current {adoptionPeriodConfig.axisLabel.toLowerCase()}: {adoptionCurrentPeriodLabel}{adoptionCurrentPeriodNote ? ` — ${adoptionCurrentPeriodNote}` : ''}. Summary tiles and breakdowns use this current period, even when counts are zero.
           </div>
         ) : null}
-        {adoptionObservedHistory?.firstObservation ? (
+        {adoptionReady && adoptionObservedHistory?.firstObservation ? (
           <div className="PulseMuted" style={{ marginBottom: 12 }}>
             Observed activity history starts {String(adoptionObservedHistory.firstObservation).slice(0, 10)}; earlier zero buckets may reflect limited loaded history rather than confirmed inactivity.
           </div>
         ) : null}
-        <div className="PulseVizGrid">
-          <MonthlyObservedActorsChart
-            title="All instances — users counted per instance"
-            points={toPeriodPoints(monthlyActiveAggregate)}
-            xAxisLabel={adoptionPeriodConfig.axisLabel}
-            yAxisLabel="Observed users"
-            emptyLabel={`No observed activity data available for this ${adoptionPeriodConfig.axisLabel.toLowerCase()} view.`}
-            ariaLabel={`${adoptionPeriodConfig.label} observed users line chart`}
-          />
-          {showInstanceBreakdown ? (
-            <BarList
-              title={`By instance (${adoptionCurrentPeriodLabel || 'current period'})`}
-              rows={latestMonthByInstanceRows}
-              maxRows={12}
-            />
-          ) : null}
-        </div>
-        <div className="PulseMuted" style={{ marginTop: 14, marginBottom: 10 }}>
-          Observed users are counted as distinct instance/login pairs; the same login on different instances may contribute more than once. Formal activity uses the same qualifying application-open and eligibility rules in every tab and is not affected by the activity-type filter.
-        </div>
-        {formalMauAvailable ? (
+        {adoptionReady ? (
           <>
-            <div className="PulseSummaryGrid" style={{ marginBottom: 14 }}>
-              <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact">
-                <div className="PulseSummaryCount">{Number(formalMauLatestMonth?.active_users ?? 0).toLocaleString()}</div>
-                <div className="PulseSummaryLabel">{adoptionPeriodConfig.formalLabel}</div>
-                <div className="PulseSummaryDetail">
-                  {adoptionCurrentPeriodLabel ? `${adoptionCurrentPeriodLabel}${adoptionCurrentPeriodNote ? ` — ${adoptionCurrentPeriodNote}` : ''} based on qualifying application-open activity.` : 'Current period based on qualifying application-open activity.'}
-                </div>
-              </div>
-            </div>
             <div className="PulseVizGrid">
               <MonthlyObservedActorsChart
-                title={adoptionPeriodConfig.formalLabel}
-                points={toPeriodPoints(formalMauAggregate)}
+                title="All instances — users counted per instance"
+                points={toPeriodPoints(monthlyActiveAggregate)}
                 xAxisLabel={adoptionPeriodConfig.axisLabel}
-                yAxisLabel="Qualifying users"
-                emptyLabel={`No qualifying formal activity data available for this ${adoptionPeriodConfig.axisLabel.toLowerCase()} view.`}
-                ariaLabel={`${adoptionPeriodConfig.label} qualifying formal users line chart`}
+                yAxisLabel="Observed users"
+                emptyLabel={`No observed activity data available for this ${adoptionPeriodConfig.axisLabel.toLowerCase()} view.`}
+                ariaLabel={`${adoptionPeriodConfig.label} observed users line chart`}
               />
               {showInstanceBreakdown ? (
                 <BarList
-                  title={`${adoptionPeriodConfig.formalLabel} by instance (${adoptionCurrentPeriodLabel || 'current period'})`}
-                  rows={formalMauLatestMonthByInstanceRows}
+                  title={`By instance (${adoptionCurrentPeriodLabel || 'current period'})`}
+                  rows={latestMonthByInstanceRows}
                   maxRows={12}
                 />
               ) : null}
             </div>
             <div className="PulseMuted" style={{ marginTop: 14, marginBottom: 10 }}>
-              Formal monthly active users (MAU) remains the monthly reporting measure. Weekly and quarterly tabs show distinct qualifying users for those calendar periods using the same rules.
+              Observed users are counted as distinct instance/login pairs; the same login on different instances may contribute more than once. Formal activity uses the same qualifying application-open and eligibility rules in every tab and is not affected by the activity-type filter.
             </div>
-            <div className="PulseVizGrid">
-              <BarList
-                title={`${adoptionPeriodConfig.formalLabel} by license type (${adoptionCurrentPeriodLabel || 'current period'})`}
-                rows={formalMauByProfileRows}
-                maxRows={12}
-              />
-              {showInstanceBreakdown ? (
-                <BarList
-                  title={`${adoptionPeriodConfig.formalLabel} by instance and license type (${adoptionCurrentPeriodLabel || 'current period'})`}
-                  rows={formalMauByInstanceProfileRows}
-                  maxRows={12}
-                />
-              ) : null}
-            </div>
+            {formalMauAvailable ? (
+              <>
+                <div className="PulseSummaryGrid" style={{ marginBottom: 14 }}>
+                  <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact">
+                    <div className="PulseSummaryCount">{Number(formalMauLatestMonth?.active_users ?? 0).toLocaleString()}</div>
+                    <div className="PulseSummaryLabel">{adoptionPeriodConfig.formalLabel}</div>
+                    <div className="PulseSummaryDetail">
+                      {adoptionCurrentPeriodLabel ? `${adoptionCurrentPeriodLabel}${adoptionCurrentPeriodNote ? ` — ${adoptionCurrentPeriodNote}` : ''} based on qualifying application-open activity.` : 'Current period based on qualifying application-open activity.'}
+                    </div>
+                  </div>
+                </div>
+                <div className="PulseVizGrid">
+                  <MonthlyObservedActorsChart
+                    title={adoptionPeriodConfig.formalLabel}
+                    points={toPeriodPoints(formalMauAggregate)}
+                    xAxisLabel={adoptionPeriodConfig.axisLabel}
+                    yAxisLabel="Qualifying users"
+                    emptyLabel={`No qualifying formal activity data available for this ${adoptionPeriodConfig.axisLabel.toLowerCase()} view.`}
+                    ariaLabel={`${adoptionPeriodConfig.label} qualifying formal users line chart`}
+                  />
+                  {showInstanceBreakdown ? (
+                    <BarList
+                      title={`${adoptionPeriodConfig.formalLabel} by instance (${adoptionCurrentPeriodLabel || 'current period'})`}
+                      rows={formalMauLatestMonthByInstanceRows}
+                      maxRows={12}
+                    />
+                  ) : null}
+                </div>
+                <div className="PulseMuted" style={{ marginTop: 14, marginBottom: 10 }}>
+                  Formal monthly active users (MAU) remains the monthly reporting measure. Weekly and quarterly tabs show distinct qualifying users for those calendar periods using the same rules.
+                </div>
+                <div className="PulseVizGrid">
+                  <BarList
+                    title={`${adoptionPeriodConfig.formalLabel} by license type (${adoptionCurrentPeriodLabel || 'current period'})`}
+                    rows={formalMauByProfileRows}
+                    maxRows={12}
+                  />
+                  {showInstanceBreakdown ? (
+                    <BarList
+                      title={`${adoptionPeriodConfig.formalLabel} by instance and license type (${adoptionCurrentPeriodLabel || 'current period'})`}
+                      rows={formalMauByInstanceProfileRows}
+                      maxRows={12}
+                    />
+                  ) : null}
+                </div>
+              </>
+            ) : (
+              <div className="PulseSummaryTile PulseSummaryTileStatic" style={{ marginTop: 4 }}>
+                <div className="PulseSummaryLabel">Qualifying formal activity</div>
+                <div className="PulseSummaryDetail" style={{ marginTop: 8 }}>
+                  Formal active user data is not available in this environment.
+                </div>
+              </div>
+            )}
           </>
-        ) : (
-          <div className="PulseSummaryTile PulseSummaryTileStatic" style={{ marginTop: 4 }}>
-            <div className="PulseSummaryLabel">Qualifying formal activity</div>
-            <div className="PulseSummaryDetail" style={{ marginTop: 8 }}>
-              Formal active user data is not available in this environment.
-            </div>
-          </div>
-        )}
+        ) : null}
       </div>
 
       <div className="PulseCard">
@@ -6549,7 +6567,7 @@ function LineChart({ title, points }) {
   );
 }
 
-function MonthlyObservedActorsChart({
+export function MonthlyObservedActorsChart({
   title,
   points,
   xAxisLabel = 'Month',
@@ -6613,13 +6631,14 @@ function MonthlyObservedActorsChart({
     const linePath = coords.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.cx} ${point.cy}`).join(' ');
 
     const maxTickCount = 6;
+    const tickCount = Math.min(safePoints.length, maxTickCount);
     const tickIndexes = Array.from(
       new Set(
-        safePoints.map((_, index) => {
+        Array.from({ length: tickCount }, (_, index) => {
           if (safePoints.length <= maxTickCount) {
             return index;
           }
-          return Math.round((index * (safePoints.length - 1)) / (maxTickCount - 1));
+          return Math.round((index * (safePoints.length - 1)) / (tickCount - 1));
         })
       )
     );

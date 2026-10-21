@@ -2,6 +2,8 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App, {
   LicensePerformanceSection,
+  MonthlyObservedActorsChart,
+  UsersActivityPage,
   buildObservedActivityWindowDisplay,
   buildSecondaryActivityTiles,
   buildLicenseUtilizationTrendSeries,
@@ -10,6 +12,192 @@ import App, {
   checkPagePermission,
   validatePageRegistry,
 } from './App';
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
+function jsonResponse(payload) {
+  return Promise.resolve({ ok: true, json: async () => payload });
+}
+
+describe('MonthlyObservedActorsChart', () => {
+  const renderChart = (points) => render(
+    <MonthlyObservedActorsChart
+      title="Adoption trend"
+      points={points}
+      xAxisLabel="Week"
+      yAxisLabel="Users"
+      emptyLabel="No adoption data."
+      ariaLabel="Adoption trend chart"
+    />
+  );
+
+  test('renders twelve weekly points with bounded valid tick labels', () => {
+    const points = Array.from({ length: 12 }, (_, index) => ({
+      label: `Week ${index + 1}`,
+      value: 0,
+    }));
+
+    renderChart(points);
+
+    const chart = screen.getByLabelText('Adoption trend chart');
+    expect(chart.querySelectorAll('circle')).toHaveLength(12);
+    expect(chart.querySelectorAll('.PulseMonthlyChartTickLabel:not(.PulseMonthlyChartTickLabelY)')).toHaveLength(6);
+    expect(screen.getByText('Week 1')).toBeInTheDocument();
+    expect(screen.getByText('Week 12')).toBeInTheDocument();
+  });
+
+  test('renders short monthly, quarterly, one-point, and empty series safely', () => {
+    const { unmount } = renderChart([
+      { label: 'Aug 2026', value: 1 },
+      { label: 'Sep 2026', value: 2 },
+      { label: 'Oct 2026', value: 3 },
+    ]);
+    expect(screen.getByLabelText('Adoption trend chart').querySelectorAll('circle')).toHaveLength(3);
+    expect(screen.getByText('Aug 2026')).toBeInTheDocument();
+    expect(screen.getByText('Oct 2026')).toBeInTheDocument();
+    unmount();
+
+    const quarterly = renderChart([
+      { label: 'Q1 2026', value: 0 },
+      { label: 'Q2 2026', value: 0 },
+      { label: 'Q3 2026', value: 0 },
+      { label: 'Q4 2026', value: 0 },
+    ]);
+    expect(screen.getByLabelText('Adoption trend chart').querySelectorAll('circle')).toHaveLength(4);
+    quarterly.unmount();
+
+    const single = renderChart([{ label: 'Only week', value: 0 }]);
+    expect(screen.getByLabelText('Adoption trend chart').querySelectorAll('circle')).toHaveLength(1);
+    single.unmount();
+
+    renderChart([]);
+    expect(screen.getByText('No adoption data.')).toBeInTheDocument();
+  });
+});
+
+describe('UsersActivityPage adoption trends request state', () => {
+  const originalFetch = global.fetch;
+
+  const adoptionPayload = ({ period = 'monthly', formalAvailable = true, activeUsers = 2 } = {}) => ({
+    ok: true,
+    period,
+    reportingDateConvention: 'Test reporting clock.',
+    periods: [
+      {
+        periodStart: '2026-10-01',
+        periodEnd: '2026-11-01',
+        label: period === 'weekly' ? 'Oct 19–25, 2026' : period === 'quarterly' ? 'Q4 2026' : 'Oct 2026',
+        isCurrentPeriod: true,
+        isPartialPeriod: true,
+      },
+    ],
+    observed: {
+      aggregate: [{ label: 'Oct 2026', periodStart: '2026-10-01', active_users: activeUsers, isCurrentPeriod: true }],
+      byInstance: [{ label: 'Oct 2026', periodStart: '2026-10-01', instance_name: 'inst-a', active_users: activeUsers }],
+      history: { firstObservation: '2026-10-01 00:00:00', lastObservation: '2026-10-21 00:00:00' },
+    },
+    formal: formalAvailable
+      ? {
+          available: true,
+          aggregate: [{ label: 'Oct 2026', periodStart: '2026-10-01', active_users: activeUsers, isCurrentPeriod: true }],
+          byInstance: [{ label: 'Oct 2026', periodStart: '2026-10-01', instance_name: 'inst-a', active_users: activeUsers }],
+          byProfile: [{ license_group: 'Creator Licenses', userProfile: 'DESIGNER', active_users: activeUsers }],
+          byInstanceProfile: [{ instance_name: 'inst-a', license_group: 'Creator Licenses', userProfile: 'DESIGNER', active_users: activeUsers }],
+          currentPeriod: { label: 'Oct 2026', periodStart: '2026-10-01', active_users: activeUsers, isCurrentPeriod: true },
+        }
+      : { available: false, reason: 'formal_mau_view_missing' },
+  });
+
+  const installFetch = ({ adoptionHandler }) => {
+    global.fetch = jest.fn((url, options = {}) => {
+      const target = String(url);
+      if (target.includes('/api/build/users/adoption-trends')) return adoptionHandler(url, options);
+      if (target.includes('/api/build/users/facets')) return jsonResponse({ ok: true, instances: [] });
+      if (target.includes('/api/build/users/kpis')) return jsonResponse({ ok: true, kpis: {}, byInstance: [] });
+      if (target.includes('/api/build/users/segments')) return jsonResponse({ ok: true, rows: [], totals: {} });
+      if (target.includes('/api/build/users/stickiness')) return jsonResponse({ ok: true, series: [], latest: null });
+      if (target.includes('/api/build/users/leaderboard')) return jsonResponse({ ok: true, viewing: [], developing: [] });
+      return jsonResponse({ ok: true });
+    });
+  };
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  test('shows local loading, success zero, formal unavailable, and failure states', async () => {
+    const first = deferred();
+    let responseMode = 'pending';
+    installFetch({
+      adoptionHandler: () => {
+        if (responseMode === 'pending') return first.promise;
+        if (responseMode === 'formalUnavailable') return jsonResponse(adoptionPayload({ formalAvailable: false, activeUsers: 0 }));
+        return Promise.resolve({ ok: true, json: async () => ({ ok: false, error: 'adoption failed' }) });
+      },
+    });
+
+    render(<UsersActivityPage apiBase="" />);
+    await waitFor(() => expect(global.fetch.mock.calls.some(([url]) => String(url).includes('/api/build/users/adoption-trends'))).toBe(true));
+    expect(await screen.findByRole('status')).toHaveTextContent('Loading adoption trends');
+    expect(screen.queryByText('Formal monthly active users (MAU)')).not.toBeInTheDocument();
+
+    await act(async () => {
+      first.resolve({ ok: true, json: async () => adoptionPayload({ activeUsers: 0 }) });
+    });
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(screen.getAllByText('Formal monthly active users (MAU)').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Oct 2026 — In progress/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('0').length).toBeGreaterThan(0);
+
+    responseMode = 'formalUnavailable';
+    fireEvent.click(screen.getByRole('tab', { name: 'Weekly' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Loading adoption trends');
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(screen.getByText('Formal active user data is not available in this environment.')).toBeInTheDocument();
+
+    responseMode = 'failure';
+    fireEvent.click(screen.getByRole('tab', { name: 'Quarterly' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('adoption failed');
+    expect(screen.queryByText('Qualifying quarterly active users')).not.toBeInTheDocument();
+  });
+
+  test('ignores stale adoption responses during rapid tab changes', async () => {
+    const requests = [];
+    installFetch({
+      adoptionHandler: (url) => {
+        const pending = deferred();
+        requests.push({ url: String(url), ...pending });
+        return pending.promise;
+      },
+    });
+
+    render(<UsersActivityPage apiBase="" />);
+    await waitFor(() => expect(requests).toHaveLength(1));
+    fireEvent.click(screen.getByRole('tab', { name: 'Weekly' }));
+    await waitFor(() => expect(requests).toHaveLength(2));
+
+    await act(async () => {
+      requests[0].resolve({ ok: true, json: async () => adoptionPayload({ period: 'monthly', activeUsers: 9 }) });
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('Loading adoption trends for weekly');
+    expect(screen.queryByText('Formal monthly active users (MAU)')).not.toBeInTheDocument();
+
+    await act(async () => {
+      requests[1].resolve({ ok: true, json: async () => adoptionPayload({ period: 'weekly', activeUsers: 3 }) });
+    });
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(screen.getAllByText('Qualifying weekly active users').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+});
 
 describe('user activity observed windows', () => {
   const formatNumber = (value) => Number(value ?? 0).toLocaleString();
