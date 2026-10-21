@@ -81,6 +81,70 @@ describe('MonthlyObservedActorsChart', () => {
     renderChart([]);
     expect(screen.getByText('No adoption data.')).toBeInTheDocument();
   });
+
+  test('renders aligned multi-series lines and all-hidden state', () => {
+    const periods = [
+      { periodStart: '2026-10-05', label: 'Week 1' },
+      { periodStart: '2026-10-12', label: 'Week 2' },
+      { periodStart: '2026-10-19', label: 'Week 3', isPartialPeriod: true },
+    ];
+    const series = [
+      {
+        key: 'all',
+        label: 'All instances',
+        color: '#111827',
+        isAggregate: true,
+        visible: true,
+        points: [
+          { periodStart: '2026-10-19', value: 3 },
+          { periodStart: '2026-10-05', value: 1 },
+          { periodStart: '2026-10-12', value: 2 },
+        ],
+      },
+      {
+        key: 'instance:inst-a',
+        label: 'inst-a',
+        color: '#7c3aed',
+        visible: true,
+        points: [
+          { periodStart: '2026-10-05', value: 0 },
+          { periodStart: '2026-10-12', value: 2 },
+          { periodStart: '2026-10-19', value: 0 },
+        ],
+      },
+    ];
+
+    const { rerender } = render(
+      <MonthlyObservedActorsChart
+        title="Adoption trend"
+        periods={periods}
+        series={series}
+        showLegend
+        xAxisLabel="Week"
+        yAxisLabel="Users"
+        ariaLabel="Adoption trend chart"
+      />
+    );
+
+    const chart = screen.getByLabelText('Adoption trend chart');
+    expect(chart.querySelectorAll('.PulseMonthlyChartLine')).toHaveLength(2);
+    expect(chart.querySelectorAll('circle')).toHaveLength(6);
+    expect(screen.getByRole('button', { name: 'All instances' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('img', { name: /Week 3 \(in progress\).*All instances: 3.*inst-a: 0/ })).toBeInTheDocument();
+
+    rerender(
+      <MonthlyObservedActorsChart
+        title="Adoption trend"
+        periods={periods}
+        series={series.map((item) => ({ ...item, visible: false }))}
+        showLegend
+        xAxisLabel="Week"
+        yAxisLabel="Users"
+        ariaLabel="Adoption trend chart"
+      />
+    );
+    expect(screen.getByText('Select a series to display.')).toBeInTheDocument();
+  });
 });
 
 describe('UsersActivityPage adoption trends request state', () => {
@@ -91,24 +155,42 @@ describe('UsersActivityPage adoption trends request state', () => {
     period,
     reportingDateConvention: 'Test reporting clock.',
     periods: [
-      {
-        periodStart: '2026-10-01',
-        periodEnd: '2026-11-01',
-        label: period === 'weekly' ? 'Oct 19–25, 2026' : period === 'quarterly' ? 'Q4 2026' : 'Oct 2026',
-        isCurrentPeriod: true,
-        isPartialPeriod: true,
-      },
+      { periodStart: '2026-08-01', periodEnd: '2026-09-01', label: period === 'weekly' ? 'Week 1' : period === 'quarterly' ? 'Q2 2026' : 'Aug 2026', isCurrentPeriod: false, isPartialPeriod: false },
+      { periodStart: '2026-09-01', periodEnd: '2026-10-01', label: period === 'weekly' ? 'Week 2' : period === 'quarterly' ? 'Q3 2026' : 'Sep 2026', isCurrentPeriod: false, isPartialPeriod: false },
+      { periodStart: '2026-10-01', periodEnd: '2026-11-01', label: period === 'weekly' ? 'Oct 19–25, 2026' : period === 'quarterly' ? 'Q4 2026' : 'Oct 2026', isCurrentPeriod: true, isPartialPeriod: true },
     ],
     observed: {
-      aggregate: [{ label: 'Oct 2026', periodStart: '2026-10-01', active_users: activeUsers, isCurrentPeriod: true }],
-      byInstance: [{ label: 'Oct 2026', periodStart: '2026-10-01', instance_name: 'inst-a', active_users: activeUsers }],
+      aggregate: [
+        { label: 'Aug 2026', periodStart: '2026-08-01', active_users: 1 },
+        { label: 'Sep 2026', periodStart: '2026-09-01', active_users: 0 },
+        { label: 'Oct 2026', periodStart: '2026-10-01', active_users: activeUsers, isCurrentPeriod: true, isPartialPeriod: true },
+      ],
+      byInstance: [
+        { label: 'Oct 2026', periodStart: '2026-10-01', instance_name: 'inst-b', active_users: 0 },
+        { label: 'Aug 2026', periodStart: '2026-08-01', instance_name: 'inst-a', active_users: 1 },
+        { label: 'Sep 2026', periodStart: '2026-09-01', instance_name: 'inst-a', active_users: 0 },
+        { label: 'Oct 2026', periodStart: '2026-10-01', instance_name: 'inst-a', active_users: activeUsers },
+        { label: 'Aug 2026', periodStart: '2026-08-01', instance_name: 'inst-b', active_users: 0 },
+        { label: 'Sep 2026', periodStart: '2026-09-01', instance_name: 'inst-b', active_users: 0 },
+      ],
       history: { firstObservation: '2026-10-01 00:00:00', lastObservation: '2026-10-21 00:00:00' },
     },
     formal: formalAvailable
       ? {
           available: true,
-          aggregate: [{ label: 'Oct 2026', periodStart: '2026-10-01', active_users: activeUsers, isCurrentPeriod: true }],
-          byInstance: [{ label: 'Oct 2026', periodStart: '2026-10-01', instance_name: 'inst-a', active_users: activeUsers }],
+          aggregate: [
+            { label: 'Aug 2026', periodStart: '2026-08-01', active_users: 0 },
+            { label: 'Sep 2026', periodStart: '2026-09-01', active_users: 1 },
+            { label: 'Oct 2026', periodStart: '2026-10-01', active_users: activeUsers, isCurrentPeriod: true, isPartialPeriod: true },
+          ],
+          byInstance: [
+            { label: 'Aug 2026', periodStart: '2026-08-01', instance_name: 'inst-a', active_users: 0 },
+            { label: 'Sep 2026', periodStart: '2026-09-01', instance_name: 'inst-a', active_users: 1 },
+            { label: 'Oct 2026', periodStart: '2026-10-01', instance_name: 'inst-a', active_users: activeUsers },
+            { label: 'Aug 2026', periodStart: '2026-08-01', instance_name: 'inst-b', active_users: 0 },
+            { label: 'Sep 2026', periodStart: '2026-09-01', instance_name: 'inst-b', active_users: 0 },
+            { label: 'Oct 2026', periodStart: '2026-10-01', instance_name: 'inst-b', active_users: 0 },
+          ],
           byProfile: [{ license_group: 'Creator Licenses', userProfile: 'DESIGNER', active_users: activeUsers }],
           byInstanceProfile: [{ instance_name: 'inst-a', license_group: 'Creator Licenses', userProfile: 'DESIGNER', active_users: activeUsers }],
           currentPeriod: { label: 'Oct 2026', periodStart: '2026-10-01', active_users: activeUsers, isCurrentPeriod: true },
@@ -196,6 +278,27 @@ describe('UsersActivityPage adoption trends request state', () => {
     await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
     expect(screen.getAllByText('Qualifying weekly active users').length).toBeGreaterThan(0);
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  test('toggles observed and formal instance lines independently without refetching', async () => {
+    installFetch({ adoptionHandler: () => jsonResponse(adoptionPayload({ activeUsers: 4 })) });
+
+    render(<UsersActivityPage apiBase="" />);
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    const adoptionCallsBeforeToggle = global.fetch.mock.calls.filter(([url]) => String(url).includes('/api/build/users/adoption-trends')).length;
+    const charts = screen.getAllByLabelText('Monthly Calendar observed users line chart');
+    const formalCharts = screen.getAllByLabelText('Monthly Calendar qualifying formal users line chart');
+    expect(charts[0].querySelectorAll('.PulseMonthlyChartLine')).toHaveLength(3);
+    expect(formalCharts[0].querySelectorAll('.PulseMonthlyChartLine')).toHaveLength(3);
+
+    const legendGroups = screen.getAllByLabelText(/series controls/);
+    fireEvent.click(within(legendGroups[0]).getByRole('button', { name: 'inst-a' }));
+    expect(screen.getAllByLabelText('Monthly Calendar observed users line chart')[0].querySelectorAll('.PulseMonthlyChartLine')).toHaveLength(2);
+    expect(screen.getAllByLabelText('Monthly Calendar qualifying formal users line chart')[0].querySelectorAll('.PulseMonthlyChartLine')).toHaveLength(3);
+
+    fireEvent.click(within(legendGroups[1]).getByRole('button', { name: 'All instances' }));
+    expect(screen.getAllByLabelText('Monthly Calendar qualifying formal users line chart')[0].querySelectorAll('.PulseMonthlyChartLine')).toHaveLength(2);
+    expect(global.fetch.mock.calls.filter(([url]) => String(url).includes('/api/build/users/adoption-trends'))).toHaveLength(adoptionCallsBeforeToggle);
   });
 });
 

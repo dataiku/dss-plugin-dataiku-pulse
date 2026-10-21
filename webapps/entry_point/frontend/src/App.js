@@ -2545,6 +2545,8 @@ export function UsersActivityPage({ apiBase }) {
   const [adoptionObservedHistory, setAdoptionObservedHistory] = useState({});
   const [adoptionRequestState, setAdoptionRequestState] = useState({ status: 'idle', error: '' });
   const adoptionRequestIdRef = useRef(0);
+  const [observedSeriesVisibility, setObservedSeriesVisibility] = useState({});
+  const [formalSeriesVisibility, setFormalSeriesVisibility] = useState({});
   const [userSegments, setUserSegments] = useState([]);
   const [userSegmentTotals, setUserSegmentTotals] = useState(null);
   const [stickinessSeries, setStickinessSeries] = useState([]);
@@ -2815,11 +2817,86 @@ export function UsersActivityPage({ apiBase }) {
 
   const toPeriodPoints = (rows) => {
     return (rows || []).map((r) => ({
+      periodStart: String(r.periodStart || r.month || r.label || ''),
+      periodEnd: r.periodEnd || '',
       label: r.label || String(r.periodStart || r.month || '').slice(0, 10),
       value: Number(r.active_users ?? r.activeUsers ?? 0),
       isPartialPeriod: Boolean(r.isPartialPeriod),
     }));
   };
+
+  const visibleAdoptionPeriods = useMemo(() => {
+    return (adoptionPeriods || []).map((period) => ({
+      periodStart: String(period.periodStart || period.label || ''),
+      periodEnd: period.periodEnd || '',
+      label: period.label || String(period.periodStart || '').slice(0, 10),
+      isPartialPeriod: Boolean(period.isPartialPeriod),
+    }));
+  }, [adoptionPeriods]);
+
+  const instanceColorMap = useMemo(() => {
+    const palette = ['#7c3aed', '#059669', '#dc2626', '#ca8a04', '#0891b2', '#db2777', '#4f46e5', '#65a30d', '#ea580c', '#0f766e'];
+    const names = Array.from(new Set([
+      ...((monthlyActiveByInstance || []).map((row) => row.instance_name || row.instanceName).filter(Boolean)),
+      ...((formalMauByInstance || []).map((row) => row.instance_name || row.instanceName).filter(Boolean)),
+    ])).sort((left, right) => String(left).localeCompare(String(right)));
+    return names.reduce((acc, name, index) => {
+      acc[name] = palette[index % palette.length];
+      return acc;
+    }, {});
+  }, [formalMauByInstance, monthlyActiveByInstance]);
+
+  const buildAdoptionSeries = useCallback((aggregateRows, byInstanceRows, visibility, aggregateLabel) => {
+    const periodKeys = new Set(visibleAdoptionPeriods.map((period) => period.periodStart));
+    const instances = Array.from(new Set(
+      (byInstanceRows || [])
+        .map((row) => row.instance_name || row.instanceName)
+        .filter(Boolean)
+    )).sort((left, right) => String(left).localeCompare(String(right)));
+
+    const allSeries = {
+      key: 'all',
+      label: aggregateLabel,
+      color: '#0f172a',
+      isAggregate: true,
+      visible: showInstanceBreakdown ? visibility.all !== false : true,
+      points: toPeriodPoints(aggregateRows).filter((point) => periodKeys.has(point.periodStart)),
+    };
+
+    if (!showInstanceBreakdown) return [allSeries];
+
+    return [
+      allSeries,
+      ...instances.map((instanceName) => ({
+        key: `instance:${instanceName}`,
+        label: String(instanceName),
+        color: instanceColorMap[instanceName] || '#64748b',
+        visible: visibility[`instance:${instanceName}`] !== false,
+        points: toPeriodPoints((byInstanceRows || []).filter((row) => (row.instance_name || row.instanceName) === instanceName))
+          .filter((point) => periodKeys.has(point.periodStart)),
+      })),
+    ];
+  }, [instanceColorMap, showInstanceBreakdown, visibleAdoptionPeriods]);
+
+  const aggregateSeriesLabel = selectedInstance ? `Selected instance total — ${selectedInstance}` : 'All instances';
+  const observedTrendSeries = useMemo(
+    () => buildAdoptionSeries(monthlyActiveAggregate, monthlyActiveByInstance, observedSeriesVisibility, aggregateSeriesLabel),
+    [aggregateSeriesLabel, buildAdoptionSeries, monthlyActiveAggregate, monthlyActiveByInstance, observedSeriesVisibility]
+  );
+  const formalTrendSeries = useMemo(
+    () => buildAdoptionSeries(formalMauAggregate, formalMauByInstance, formalSeriesVisibility, aggregateSeriesLabel),
+    [aggregateSeriesLabel, buildAdoptionSeries, formalMauAggregate, formalMauByInstance, formalSeriesVisibility]
+  );
+
+  const toggleObservedSeries = useCallback((key) => {
+    if (!showInstanceBreakdown) return;
+    setObservedSeriesVisibility((prev) => ({ ...prev, [key]: prev[key] === false }));
+  }, [showInstanceBreakdown]);
+
+  const toggleFormalSeries = useCallback((key) => {
+    if (!showInstanceBreakdown) return;
+    setFormalSeriesVisibility((prev) => ({ ...prev, [key]: prev[key] === false }));
+  }, [showInstanceBreakdown]);
 
   const latestMonthByInstanceRows = useMemo(() => {
     return (monthlyActiveByInstance || [])
@@ -3152,21 +3229,26 @@ export function UsersActivityPage({ apiBase }) {
         ) : null}
         {adoptionReady ? (
           <>
-            <div className="PulseVizGrid">
+            <div className="PulseAdoptionTrendStack">
               <MonthlyObservedActorsChart
-                title="All instances — users counted per instance"
-                points={toPeriodPoints(monthlyActiveAggregate)}
+                title={`${aggregateSeriesLabel} — users counted per instance`}
+                periods={visibleAdoptionPeriods}
+                series={observedTrendSeries}
+                showLegend={showInstanceBreakdown}
+                onToggleSeries={toggleObservedSeries}
                 xAxisLabel={adoptionPeriodConfig.axisLabel}
                 yAxisLabel="Observed users"
                 emptyLabel={`No observed activity data available for this ${adoptionPeriodConfig.axisLabel.toLowerCase()} view.`}
                 ariaLabel={`${adoptionPeriodConfig.label} observed users line chart`}
               />
               {showInstanceBreakdown ? (
-                <BarList
-                  title={`By instance (${adoptionCurrentPeriodLabel || 'current period'})`}
-                  rows={latestMonthByInstanceRows}
-                  maxRows={12}
-                />
+                <div className="PulseAdoptionBarsRow">
+                  <BarList
+                    title={`By instance (${adoptionCurrentPeriodLabel || 'current period'})`}
+                    rows={latestMonthByInstanceRows}
+                    maxRows={12}
+                  />
+                </div>
               ) : null}
             </div>
             <div className="PulseMuted" style={{ marginTop: 14, marginBottom: 10 }}>
@@ -3183,21 +3265,26 @@ export function UsersActivityPage({ apiBase }) {
                     </div>
                   </div>
                 </div>
-                <div className="PulseVizGrid">
+                <div className="PulseAdoptionTrendStack">
                   <MonthlyObservedActorsChart
                     title={adoptionPeriodConfig.formalLabel}
-                    points={toPeriodPoints(formalMauAggregate)}
+                    periods={visibleAdoptionPeriods}
+                    series={formalTrendSeries}
+                    showLegend={showInstanceBreakdown}
+                    onToggleSeries={toggleFormalSeries}
                     xAxisLabel={adoptionPeriodConfig.axisLabel}
                     yAxisLabel="Qualifying users"
                     emptyLabel={`No qualifying formal activity data available for this ${adoptionPeriodConfig.axisLabel.toLowerCase()} view.`}
                     ariaLabel={`${adoptionPeriodConfig.label} qualifying formal users line chart`}
                   />
                   {showInstanceBreakdown ? (
-                    <BarList
-                      title={`${adoptionPeriodConfig.formalLabel} by instance (${adoptionCurrentPeriodLabel || 'current period'})`}
-                      rows={formalMauLatestMonthByInstanceRows}
-                      maxRows={12}
-                    />
+                    <div className="PulseAdoptionBarsRow">
+                      <BarList
+                        title={`${adoptionPeriodConfig.formalLabel} by instance (${adoptionCurrentPeriodLabel || 'current period'})`}
+                        rows={formalMauLatestMonthByInstanceRows}
+                        maxRows={12}
+                      />
+                    </div>
                   ) : null}
                 </div>
                 <div className="PulseMuted" style={{ marginTop: 14, marginBottom: 10 }}>
@@ -6570,24 +6657,60 @@ function LineChart({ title, points }) {
 export function MonthlyObservedActorsChart({
   title,
   points,
+  periods,
+  series,
+  showLegend = false,
+  onToggleSeries,
   xAxisLabel = 'Month',
   yAxisLabel = 'Observed actors',
   emptyLabel = 'No monthly data available.',
   ariaLabel,
 }) {
   const chart = useMemo(() => {
-    const safePoints = (points || []).filter((point) => point && point.label);
+    const sourcePeriods = (periods && periods.length ? periods : points || [])
+      .filter((period) => period && (period.periodStart || period.label))
+      .map((period, index) => ({
+        periodStart: String(period.periodStart || period.label || index),
+        periodEnd: period.periodEnd || '',
+        label: period.label || String(period.periodStart || '').slice(0, 10),
+        isPartialPeriod: Boolean(period.isPartialPeriod),
+      }));
 
-    if (!safePoints.length) {
+    const rawSeries = (series && series.length)
+      ? series
+      : [{ key: '__single__', label: title, color: 'rgba(30, 136, 229, 1)', isAggregate: true, visible: true, points: points || [] }];
+
+    const safeSeries = rawSeries
+      .filter((item) => item && item.key && item.label)
+      .map((item) => {
+        const pointsByPeriod = new Map(
+          (item.points || []).map((point) => [String(point?.periodStart || point?.label || ''), point])
+        );
+        return {
+          ...item,
+          visible: item.visible !== false,
+          points: sourcePeriods.map((period) => {
+            const point = pointsByPeriod.get(period.periodStart) || pointsByPeriod.get(period.label) || {};
+            return {
+              ...period,
+              value: Math.max(0, Number(point.value ?? point.active_users ?? point.activeUsers ?? 0) || 0),
+            };
+          }),
+        };
+      });
+
+    const visibleSeries = safeSeries.filter((item) => item.visible);
+
+    if (!sourcePeriods.length || !safeSeries.length || !visibleSeries.length) {
       return {
-        coords: [],
-        linePath: '',
+        series: safeSeries,
         xTicks: [],
         yTicks: [0, 1],
+        periodReadouts: [],
         innerHeight: 0,
         xAxisY: 0,
         yAxisX: 0,
-        width: 760,
+        width: 920,
         height: 280,
         marginLeft: 56,
         marginRight: 20,
@@ -6596,63 +6719,90 @@ export function MonthlyObservedActorsChart({
       };
     }
 
-    const width = 760;
+    const width = 920;
     const height = 280;
     const marginTop = 16;
-    const marginRight = 20;
+    const marginRight = 28;
     const marginBottom = 52;
     const marginLeft = 56;
     const innerWidth = width - marginLeft - marginRight;
     const innerHeight = height - marginTop - marginBottom;
     const yAxisX = marginLeft;
     const xAxisY = marginTop + innerHeight;
-    const maxY = Math.max(1, ...safePoints.map((point) => Number(point.value) || 0));
+    const maxY = Math.max(1, ...visibleSeries.flatMap((item) => item.points.map((point) => point.value)));
     const yTickCount = maxY <= 4 ? maxY : 4;
     const yStep = Math.max(1, Math.ceil(maxY / Math.max(1, yTickCount)));
     const yMax = Math.max(yStep, Math.ceil(maxY / yStep) * yStep);
     const yTicks = Array.from({ length: Math.floor(yMax / yStep) + 1 }, (_, index) => index * yStep);
 
     const xForIndex = (index) => {
-      if (safePoints.length === 1) {
+      if (sourcePeriods.length === 1) {
         return marginLeft + innerWidth / 2;
       }
-      return marginLeft + (innerWidth * index) / (safePoints.length - 1);
+      return marginLeft + (innerWidth * index) / (sourcePeriods.length - 1);
     };
 
     const yForValue = (value) => marginTop + innerHeight - (innerHeight * value) / yMax;
 
-    const coords = safePoints.map((point, index) => ({
-      ...point,
-      value: Number(point.value) || 0,
-      cx: xForIndex(index),
-      cy: yForValue(Number(point.value) || 0),
-    }));
-
-    const linePath = coords.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.cx} ${point.cy}`).join(' ');
+    const chartSeries = visibleSeries.map((item) => {
+      const coords = item.points.map((point, index) => ({
+        ...point,
+        seriesKey: item.key,
+        seriesLabel: item.label,
+        color: item.color,
+        cx: xForIndex(index),
+        cy: yForValue(point.value),
+      }));
+      return {
+        ...item,
+        coords,
+        linePath: coords.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.cx} ${point.cy}`).join(' '),
+      };
+    });
 
     const maxTickCount = 6;
-    const tickCount = Math.min(safePoints.length, maxTickCount);
+    const tickCount = Math.min(sourcePeriods.length, maxTickCount);
     const tickIndexes = Array.from(
       new Set(
         Array.from({ length: tickCount }, (_, index) => {
-          if (safePoints.length <= maxTickCount) {
+          if (sourcePeriods.length <= maxTickCount) {
             return index;
           }
-          return Math.round((index * (safePoints.length - 1)) / (tickCount - 1));
+          return Math.round((index * (sourcePeriods.length - 1)) / (tickCount - 1));
         })
       )
     );
     const xTicks = tickIndexes.map((index) => ({
       index,
-      label: safePoints[index].label,
+      label: sourcePeriods[index].label,
       x: xForIndex(index),
     }));
+    const periodReadouts = sourcePeriods.map((period, index) => {
+      const x = xForIndex(index);
+      const previousX = index === 0 ? marginLeft : xForIndex(index - 1);
+      const nextX = index === sourcePeriods.length - 1 ? marginLeft + innerWidth : xForIndex(index + 1);
+      const bandLeft = index === 0 ? marginLeft : (previousX + x) / 2;
+      const bandRight = index === sourcePeriods.length - 1 ? marginLeft + innerWidth : (x + nextX) / 2;
+      const values = chartSeries.map((item) => {
+        const point = item.coords[index];
+        return `${item.label}: ${Number(point?.value || 0).toLocaleString()}`;
+      });
+      const periodLabel = `${period.label}${period.isPartialPeriod ? ' (in progress)' : ''}`;
+      return {
+        ...period,
+        x: bandLeft,
+        width: Math.max(1, bandRight - bandLeft),
+        label: periodLabel,
+        ariaLabel: `${periodLabel}. ${values.join('. ')}`,
+      };
+    });
 
     return {
-      coords,
-      linePath,
+      series: safeSeries,
+      chartSeries,
       xTicks,
       yTicks,
+      periodReadouts,
       innerHeight,
       xAxisY,
       yAxisX,
@@ -6663,13 +6813,34 @@ export function MonthlyObservedActorsChart({
       marginTop,
       marginBottom,
     };
-  }, [points]);
+  }, [periods, points, series, title]);
+
+  const hasSourceData = (periods && periods.length ? periods : points || []).length > 0;
+  const hasVisibleSeries = (chart.chartSeries || []).length > 0;
 
   return (
     <div className="PulseChartCard">
       <div className="PulseChartTitle">{title}</div>
-      {!points.length ? (
+      {showLegend && chart.series.length ? (
+        <div className="PulseChartLegend" aria-label={`${title} series controls`}>
+          {chart.series.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={item.visible ? 'PulseChartLegendButton PulseChartLegendButtonActive' : 'PulseChartLegendButton'}
+              aria-pressed={item.visible}
+              onClick={() => onToggleSeries?.(item.key)}
+            >
+              <span className="PulseChartLegendSwatch" style={{ backgroundColor: item.color || 'rgba(30, 136, 229, 1)' }} />
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {!hasSourceData ? (
         <div className="PulseMuted">{emptyLabel}</div>
+      ) : !hasVisibleSeries ? (
+        <div className="PulseMuted">Select a series to display.</div>
       ) : (
         <div className="PulseMonthlyChartWrap">
           <svg
@@ -6706,13 +6877,42 @@ export function MonthlyObservedActorsChart({
               y2={chart.xAxisY}
             />
 
-            <path className="PulseMonthlyChartLine" d={chart.linePath} />
-
-            {chart.coords.map((point) => (
-              <g key={point.label}>
-                <title>{`${point.label}${point.isPartialPeriod ? ' (in progress)' : ''}: ${point.value}`}</title>
-                <circle className="PulseMonthlyChartPoint" cx={point.cx} cy={point.cy} r="4" />
+            {chart.chartSeries.map((item) => (
+              <g key={item.key}>
+                <path
+                  className="PulseMonthlyChartLine"
+                  d={item.linePath}
+                  style={{ stroke: item.color, strokeWidth: item.isAggregate ? 3.6 : 2.2 }}
+                />
+                {item.coords.map((point) => (
+                  <g key={`${item.key}-${point.periodStart}`}>
+                    <title>{`${point.seriesLabel} — ${point.label}${point.isPartialPeriod ? ' (in progress)' : ''}: ${point.value.toLocaleString()}`}</title>
+                    <circle
+                      className="PulseMonthlyChartPoint"
+                      cx={point.cx}
+                      cy={point.cy}
+                      r={item.isAggregate ? 4.4 : 3.6}
+                      style={{ fill: item.color }}
+                    />
+                  </g>
+                ))}
               </g>
+            ))}
+
+            {chart.periodReadouts.map((period) => (
+              <rect
+                key={`period-${period.periodStart}`}
+                className="PulseMonthlyChartFocusBand"
+                x={period.x}
+                y={chart.marginTop}
+                width={period.width}
+                height={chart.innerHeight}
+                tabIndex="0"
+                role="img"
+                aria-label={period.ariaLabel}
+              >
+                <title>{period.ariaLabel}</title>
+              </rect>
             ))}
 
             {chart.xTicks.map((tick) => (

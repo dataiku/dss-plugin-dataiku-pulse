@@ -994,6 +994,64 @@
   margin-bottom: 10px;
 }
 
+.PulseAdoptionTrendStack {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.PulseAdoptionTrendStack + .PulseAdoptionTrendStack {
+  margin-top: 14px;
+}
+
+.PulseAdoptionTrendStack .PulseChartCard {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.PulseAdoptionBarsRow {
+  max-width: 760px;
+}
+
+.PulseChartLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.PulseChartLegendButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--pulse-border);
+  border-radius: 999px;
+  background: var(--pulse-bg-surface);
+  color: var(--pulse-text-muted);
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.PulseChartLegendButton:hover,
+.PulseChartLegendButton:focus-visible {
+  border-color: var(--pulse-accent);
+  color: var(--pulse-text);
+}
+
+.PulseChartLegendButtonActive {
+  color: var(--pulse-text);
+  background: var(--pulse-accent-soft);
+}
+
+.PulseChartLegendSwatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
 .PulseBarList {
   display: flex;
   flex-direction: column;
@@ -1186,6 +1244,16 @@
   fill: rgba(30, 136, 229, 1);
   stroke: var(--pulse-bg-surface);
   stroke-width: 2;
+}
+
+.PulseMonthlyChartFocusBand {
+  fill: transparent;
+  outline: none;
+}
+
+.PulseMonthlyChartFocusBand:hover,
+.PulseMonthlyChartFocusBand:focus-visible {
+  fill: rgba(30, 136, 229, 0.08);
 }
 
 .PulseMonthlyChartTickLabel {
