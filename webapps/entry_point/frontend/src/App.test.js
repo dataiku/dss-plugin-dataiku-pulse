@@ -154,7 +154,14 @@ describe('MonthlyObservedActorsChart', () => {
       { periodStart: '2027-01-01', label: 'Jan' },
       { periodStart: '2027-02-01', label: 'Feb' },
       { periodStart: '2027-03-01', label: 'Mar' },
+      { periodStart: '2027-04-01', label: 'Apr' },
+      { periodStart: '2027-05-01', label: 'May' },
+      { periodStart: '2027-06-01', label: 'Jun' },
+      { periodStart: '2027-07-01', label: 'Jul' },
+      { periodStart: '2027-08-01', label: 'Aug' },
+      { periodStart: '2027-09-01', label: 'Sep' },
     ];
+    const coercibleObject = { valueOf: () => 7 };
     render(
       <MonthlyObservedActorsChart
         title="Adoption trend"
@@ -172,6 +179,12 @@ describe('MonthlyObservedActorsChart', () => {
               { periodStart: '2027-01-01', value: 'bad' },
               { periodStart: '2027-02-01', value: -1 },
               { periodStart: '2027-03-01', value: '5' },
+              { periodStart: '2027-04-01', value: '0' },
+              { periodStart: '2027-05-01', value: false },
+              { periodStart: '2027-06-01', value: true },
+              { periodStart: '2027-07-01', value: [] },
+              { periodStart: '2027-08-01', value: [5] },
+              { periodStart: '2027-09-01', value: coercibleObject },
             ],
           },
         ]}
@@ -183,12 +196,18 @@ describe('MonthlyObservedActorsChart', () => {
     );
 
     const chart = screen.getByLabelText('Adoption trend chart');
-    expect(chart.querySelectorAll('circle')).toHaveLength(2);
+    expect(chart.querySelectorAll('circle')).toHaveLength(3);
     expect(chart.querySelector('.PulseMonthlyChartLine').getAttribute('d')).toMatch(/^M [^ ]+ [^ ]+ M /);
     expect(screen.getByRole('img', { name: /Oct\. All instances: 0/ })).toBeInTheDocument();
     expect(screen.getByRole('img', { name: /Nov\. All instances: Unavailable/ })).toBeInTheDocument();
     expect(screen.getByRole('img', { name: /Feb\. All instances: Unavailable/ })).toBeInTheDocument();
     expect(screen.getByRole('img', { name: /Mar\. All instances: 5/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Apr\. All instances: 0/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /May\. All instances: Unavailable/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Jun\. All instances: Unavailable/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Jul\. All instances: Unavailable/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Aug\. All instances: Unavailable/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Sep\. All instances: Unavailable/ })).toBeInTheDocument();
   });
 });
 

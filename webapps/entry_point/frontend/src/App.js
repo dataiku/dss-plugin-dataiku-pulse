@@ -43,6 +43,7 @@ function appendScopeParams(path, extraParams) {
 
 function parseNonnegativeFiniteCount(value) {
   if (value === null || value === undefined) return null;
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
   if (typeof value === 'string' && value.trim() === '') return null;
   const numericValue = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(numericValue) || numericValue < 0) return null;
