@@ -429,23 +429,25 @@ describe('UsersActivityPage adoption trends request state', () => {
 describe('UsersDirectoryPage', () => {
   const originalFetch = global.fetch;
 
-  afterEach(() => {
-    global.fetch = originalFetch;
+  const makeDirectoryRow = (index, overrides = {}) => ({
+    login: `user-${index}`,
+    representativeLogin: `user-${index}`,
+    displayName: `User ${index}`,
+    email: `user-${index}@example.com`,
+    instances: 'inst-a',
+    licenseProfiles: 'DESIGNER',
+    accountStatus: 'Enabled',
+    latestActivityAt: '2026-10-07 00:00:00',
+    ...overrides,
   });
 
-  test('lists collected users, applies filters, pages, and opens organization user card', async () => {
-    const directoryRows = [
-      {
-        login: 'alice', representativeLogin: 'Alice', displayName: 'Alice A', email: 'alice@example.com',
-        instances: 'inst-a, inst-b', licenseProfiles: 'DESIGNER, READER', accountStatus: 'Mixed', latestActivityAt: '2026-10-07 00:00:00',
-      },
-      {
-        login: 'bob', representativeLogin: 'bob', displayName: 'Bob Builder', email: 'bob@example.com',
-        instances: 'inst-a', licenseProfiles: 'READER', accountStatus: 'Disabled', latestActivityAt: null,
-      },
-    ];
+  const installDirectoryFetch = ({ total = 27, rowsForOffset, extraHandler } = {}) => {
     global.fetch = jest.fn((url) => {
       const target = String(url);
+      if (extraHandler) {
+        const response = extraHandler(target);
+        if (response) return response;
+      }
       if (target.includes('/api/build/users/directory/facets')) {
         return jsonResponse({
           ok: true,
@@ -454,12 +456,36 @@ describe('UsersDirectoryPage', () => {
         });
       }
       if (target.includes('/api/build/users/directory')) {
-        return jsonResponse({ ok: true, rows: directoryRows, total: 27, limit: 25, offset: 0 });
+        const parsed = new URL(target, 'http://test.local');
+        const limit = Number(parsed.searchParams.get('limit') || 25);
+        const offset = Number(parsed.searchParams.get('offset') || 0);
+        const rows = rowsForOffset
+          ? rowsForOffset(offset, limit)
+          : Array.from({ length: Math.max(0, Math.min(limit, total - offset)) }, (_, index) => makeDirectoryRow(offset + index + 1));
+        return jsonResponse({ ok: true, rows, total, limit, offset });
       }
       if (target.includes('/api/build/users/facets')) return jsonResponse({ ok: true, instances: ['inst-a', 'inst-b'] });
-      if (target.includes('/api/build/users/alice/top-projects')) return jsonResponse({ ok: true, rows: [] });
-      if (target.includes('/api/build/users/alice')) return jsonResponse({ ok: true, user: { login: 'alice', display_name: 'Alice A' }, instances: [], summary: null, activityDaily: [], activityMonthly: [] });
       return jsonResponse({ ok: true });
+    });
+  };
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  test('lists collected users, applies filters, pages, and opens organization user card', async () => {
+    installDirectoryFetch({
+      rowsForOffset: (offset) => offset === 0
+        ? [
+            makeDirectoryRow(1, { login: 'alice', representativeLogin: 'Alice', displayName: 'Alice A', email: 'alice@example.com', instances: 'inst-a, inst-b', licenseProfiles: 'DESIGNER, READER', accountStatus: 'Mixed' }),
+            makeDirectoryRow(2, { login: 'bob', representativeLogin: 'bob', displayName: 'Bob Builder', email: 'bob@example.com', licenseProfiles: 'READER', accountStatus: 'Disabled', latestActivityAt: null }),
+          ]
+        : [makeDirectoryRow(26), makeDirectoryRow(27)],
+      extraHandler: (target) => {
+        if (target.includes('/api/build/users/alice/top-projects')) return jsonResponse({ ok: true, rows: [] });
+        if (target.includes('/api/build/users/alice')) return jsonResponse({ ok: true, user: { login: 'alice', display_name: 'Alice A' }, instances: [], summary: null, activityDaily: [], activityMonthly: [] });
+        return null;
+      },
     });
 
     render(<UsersDirectoryPage apiBase="" />);
@@ -485,12 +511,49 @@ describe('UsersDirectoryPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     await waitFor(() => {
       const directoryCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('/api/build/users/directory?'));
-      expect(String(directoryCalls[directoryCalls.length - 1][0])).toContain('offset=2');
+      expect(String(directoryCalls[directoryCalls.length - 1][0])).toContain('offset=25');
     });
+    expect(await screen.findByText('User 26')).toBeInTheDocument();
+    expect(screen.getByText('User 27')).toBeInTheDocument();
+    expect(screen.queryByText('Alice A')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole('button', { name: 'View details' })[0]);
-    expect(await screen.findByText('alice user card')).toBeInTheDocument();
-    await waitFor(() => expect(global.fetch.mock.calls.some(([url]) => String(url).includes('/api/build/users/alice?window=last_3_months&instance_name=inst-a'))).toBe(true));
+    expect(await screen.findByText('user-26 user card')).toBeInTheDocument();
+    await waitFor(() => expect(global.fetch.mock.calls.some(([url]) => String(url).includes('/api/build/users/user-26?window=last_3_months&instance_name=inst-a'))).toBe(true));
+  });
+
+  test.each([
+    { total: 27, ranges: ['Showing 1–25 of 27 matching users', 'Showing 26–27 of 27 matching users'] },
+    { total: 60, ranges: ['Showing 1–25 of 60 matching users', 'Showing 26–50 of 60 matching users', 'Showing 51–60 of 60 matching users'] },
+    { total: 50, ranges: ['Showing 1–25 of 50 matching users', 'Showing 26–50 of 50 matching users'] },
+    { total: 1, ranges: ['Showing 1–1 of 1 matching users'] },
+    { total: 0, ranges: ['Showing 0–0 of 0 matching users'] },
+  ])('traverses non-overlapping directory pages for total=$total', async ({ total, ranges }) => {
+    installDirectoryFetch({ total });
+
+    render(<UsersDirectoryPage apiBase="" />);
+    expect(await screen.findByText(ranges[0])).toBeInTheDocument();
+    const seenDisplayNames = new Set(screen.queryAllByText(/^User \d+$/).map((node) => node.textContent));
+
+    for (let pageIndex = 1; pageIndex < ranges.length; pageIndex += 1) {
+      expect(screen.getByRole('button', { name: 'Next' })).not.toBeDisabled();
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+      expect(await screen.findByText(ranges[pageIndex])).toBeInTheDocument();
+      const expectedFirstRow = (pageIndex * 25) + 1;
+      expect(await screen.findByText(`User ${expectedFirstRow}`)).toBeInTheDocument();
+      screen.queryAllByText(/^User \d+$/).forEach((node) => {
+        expect(seenDisplayNames.has(node.textContent)).toBe(false);
+        seenDisplayNames.add(node.textContent);
+      });
+    }
+
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+    if (ranges.length > 1) {
+      fireEvent.click(screen.getByRole('button', { name: 'Prev' }));
+      expect(await screen.findByText(ranges[ranges.length - 2])).toBeInTheDocument();
+    } else {
+      expect(screen.getByRole('button', { name: 'Prev' })).toBeDisabled();
+    }
   });
 });
 

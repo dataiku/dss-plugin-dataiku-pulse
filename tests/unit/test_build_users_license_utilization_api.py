@@ -813,6 +813,19 @@ def _create_user_directory_tables(conn):
         );
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE fact_user_activity_project_daily (
+            instance_name VARCHAR,
+            login_norm VARCHAR,
+            project_key VARCHAR,
+            day DATE,
+            last_activity_at TIMESTAMP,
+            viewing_actions_count INTEGER,
+            developing_actions_count INTEGER
+        );
+        """
+    )
 
 
 def _insert_user_directory_rows(conn):
@@ -825,6 +838,10 @@ def _insert_user_directory_rows(conn):
             ("inst-a", "bob", "Bob Builder", "bob@example.com", "False", "READER", None, None, "2026-10-01", "2026-10-01"),
             ("inst-a", "carol", "Carol Creator", "carol@example.com", "True", "DESIGNER", None, None, "2026-10-01", "2026-10-01"),
             ("inst-b", "dana", "Dana Unknown", "dana@example.com", None, None, None, None, "2026-10-01", "2026-10-01"),
+            ("inst-a", "erin", "Erin Empty", "erin@example.com", "True", "DESIGNER", "", None, "2026-10-01", "2026-10-01"),
+            ("inst-a", "frank", "Frank Space", "frank@example.com", "True", "DESIGNER", "   ", None, "2026-10-01", "2026-10-01"),
+            ("inst-a", "grace", "Grace Override", "grace@example.com", "True", "DESIGNER", "READER", None, "2026-10-01", "2026-10-01"),
+            ("inst-a", "hank", "Hank Unknown", "hank@example.com", "True", None, None, None, "2026-10-01", "2026-10-01"),
             ("inst-b", "   ", "Blank", "blank@example.com", "True", "DESIGNER", None, None, "2026-10-01", "2026-10-01"),
         ],
     )
@@ -850,20 +867,47 @@ def test_user_directory_lists_metadata_users_with_filters_search_and_activity(mo
     payload = response.get_json()
 
     assert response.status_code == 200, payload
-    assert payload["total"] == 4
+    assert payload["total"] == 8
     rows_by_login = {row["login"]: row for row in payload["rows"]}
-    assert set(rows_by_login) == {"alice", "bob", "carol", "dana"}
+    assert set(rows_by_login) == {"alice", "bob", "carol", "dana", "erin", "frank", "grace", "hank"}
     assert rows_by_login["alice"]["instanceCount"] == 2
     assert rows_by_login["alice"]["accountStatus"] == "Mixed"
     assert rows_by_login["alice"]["latestActivityAt"].startswith("2026-10-07")
     assert rows_by_login["bob"]["latestActivityAt"] is None
     assert rows_by_login["bob"]["accountStatus"] == "Disabled"
     assert rows_by_login["dana"]["accountStatus"] == "Unknown"
+    assert rows_by_login["erin"]["licenseProfiles"] == "DESIGNER"
+    assert rows_by_login["frank"]["licenseProfiles"] == "DESIGNER"
+    assert rows_by_login["grace"]["licenseProfiles"] == "READER"
+    assert rows_by_login["hank"]["licenseProfiles"] == "UNKNOWN"
 
     disabled_response = app.test_client().get("/api/build/users/directory?account_status=disabled&license_group=Consumer%20Licenses")
     disabled_payload = disabled_response.get_json()
     assert disabled_response.status_code == 200, disabled_payload
     assert [row["login"] for row in disabled_payload["rows"]] == ["alice", "bob"]
+
+    creator_response = app.test_client().get("/api/build/users/directory?license_group=Creator%20Licenses&limit=20")
+    creator_payload = creator_response.get_json()
+    assert creator_response.status_code == 200, creator_payload
+    creator_logins = {row["login"] for row in creator_payload["rows"]}
+    assert {"erin", "frank"}.issubset(creator_logins)
+    assert "grace" not in creator_logins
+
+    profile_response = app.test_client().get("/api/build/users/directory?license_profile=DESIGNER&limit=20")
+    profile_payload = profile_response.get_json()
+    assert profile_response.status_code == 200, profile_payload
+    profile_logins = {row["login"] for row in profile_payload["rows"]}
+    assert {"erin", "frank"}.issubset(profile_logins)
+    assert "grace" not in profile_logins
+
+    facets_response = app.test_client().get("/api/build/users/directory/facets")
+    facets_payload = facets_response.get_json()
+    assert facets_response.status_code == 200, facets_payload
+    assert {row["value"] for row in facets_payload["licenseProfiles"]} >= {"DESIGNER", "READER", "UNKNOWN"}
+
+    services = importlib.import_module("pulse_dashboard.webapp_backend.services.users")
+    detail_record = services._normalize_user_directory_record({"users_resultinguserprofile": "", "users_userprofile": "DESIGNER"})
+    assert detail_record["user_profile"] == rows_by_login["erin"]["licenseProfiles"]
 
     instance_response = app.test_client().get("/api/build/users/directory?instance_name=inst-a&account_status=disabled&license_group=Consumer%20Licenses")
     instance_payload = instance_response.get_json()
@@ -886,8 +930,8 @@ def test_user_directory_paginates_sorts_validates_and_requires_org(monkeypatch, 
     page_response = app.test_client().get("/api/build/users/directory?limit=2&offset=1&sort=login_desc")
     page_payload = page_response.get_json()
     assert page_response.status_code == 200, page_payload
-    assert page_payload["total"] == 4
-    assert [row["login"] for row in page_payload["rows"]] == ["carol", "bob"]
+    assert page_payload["total"] == 8
+    assert [row["login"] for row in page_payload["rows"]] == ["grace", "frank"]
 
     bad_response = app.test_client().get("/api/build/users/directory?sort=bad_sql")
     assert bad_response.status_code == 400
@@ -897,3 +941,71 @@ def test_user_directory_paginates_sorts_validates_and_requires_org(monkeypatch, 
     assert denied_response.status_code == 403
     denied_facets_response = app.test_client().get("/api/build/users/directory/facets")
     assert denied_facets_response.status_code == 403
+
+
+def _install_real_directory_guard(monkeypatch, module, *, standard_vars, auth_groups, local_dev=False):
+    support = importlib.import_module("pulse_dashboard.webapp_backend.support")
+    monkeypatch.setattr("pulse_dashboard.webapp_backend.full_backend.is_local_dev", lambda: local_dev)
+    monkeypatch.setattr(support, "_current_user_auth_info", lambda: None if auth_groups is None else {"groups": auth_groups})
+    monkeypatch.setattr("pulse_dashboard.webapp_backend.services.users._read_standard_project_variables", lambda: standard_vars)
+    monkeypatch.setattr(module, "_require_organization_access", support._require_organization_access)
+
+
+def test_user_directory_real_guard_allows_admin_without_organization_owner(monkeypatch, license_api_app):
+    app, conn = license_api_app
+    module = importlib.import_module("pulse_dashboard.webapp_backend.routes.build_users")
+    _create_user_directory_tables(conn)
+    _insert_user_directory_rows(conn)
+    _install_real_directory_guard(
+        monkeypatch,
+        module,
+        standard_vars={"administration_owner": {"value": "admins"}},
+        auth_groups=["admins"],
+    )
+
+    response = app.test_client().get("/api/build/users/directory?limit=1")
+
+    assert response.status_code == 200, response.get_json()
+
+
+def test_user_directory_real_guard_allows_configured_organization_member(monkeypatch, license_api_app):
+    app, conn = license_api_app
+    module = importlib.import_module("pulse_dashboard.webapp_backend.routes.build_users")
+    _create_user_directory_tables(conn)
+    _insert_user_directory_rows(conn)
+    _install_real_directory_guard(
+        monkeypatch,
+        module,
+        standard_vars={"organization_owner": {"value": "org-users"}, "administration_owner": {"value": "admins"}},
+        auth_groups=["org-users"],
+    )
+
+    response = app.test_client().get("/api/build/users/directory/facets")
+
+    assert response.status_code == 200, response.get_json()
+
+
+@pytest.mark.parametrize("auth_groups", [[], None, ["other"]])
+def test_user_directory_real_guard_denies_without_org_or_admin_before_db(monkeypatch, auth_groups):
+    module = importlib.import_module("pulse_dashboard.webapp_backend.routes.build_users")
+    module = importlib.reload(module)
+    _install_real_directory_guard(
+        monkeypatch,
+        module,
+        standard_vars={"organization_owner": {"value": "org-users"}, "administration_owner": {"value": "admins"}},
+        auth_groups=auth_groups,
+    )
+    monkeypatch.setattr(
+        module,
+        "_require_duckdb_engine",
+        lambda: (_ for _ in ()).throw(AssertionError("database must not be accessed before authorization")),
+    )
+    monkeypatch.setattr(module, "_ensure_ready_if_enabled", lambda: None)
+    app = Flask(__name__)
+    module.register_routes(app)
+
+    response = app.test_client().get("/api/build/users/directory")
+    facets_response = app.test_client().get("/api/build/users/directory/facets")
+
+    assert response.status_code == 403
+    assert facets_response.status_code == 403

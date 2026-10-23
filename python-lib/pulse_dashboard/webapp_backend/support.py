@@ -181,6 +181,9 @@ def _has_organization_access() -> bool:
     if is_local_dev():
         return True
 
+    if _has_administration_access():
+        return True
+
     standard = _read_standard_project_variables() or {}
     organization_owner = standard.get("organization_owner")
     if isinstance(organization_owner, dict):

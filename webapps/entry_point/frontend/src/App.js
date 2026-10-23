@@ -7451,7 +7451,7 @@ export function UsersDirectoryPage({ apiBase }) {
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="PulseButton" type="button" onClick={() => setOffset(Math.max(0, offset - limit))} disabled={offset === 0}>Prev</button>
-              <button className="PulseButton" type="button" onClick={() => setOffset(Math.min(Math.max(0, total - limit), offset + limit))} disabled={offset + limit >= total}>Next</button>
+              <button className="PulseButton" type="button" onClick={() => setOffset(offset + limit)} disabled={offset + limit >= total}>Next</button>
             </div>
           </div>
           <div className="PulseTableWrap">

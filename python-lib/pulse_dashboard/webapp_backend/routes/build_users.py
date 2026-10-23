@@ -161,7 +161,7 @@ def _user_directory_base_ctes_sql() -> str:
         "    nullif(trim(users_displayname), '') AS display_name,\n"
         "    nullif(trim(users_email), '') AS email,\n"
         "    users_enabled = 'True' AS enabled,\n"
-        "    nullif(trim(coalesce(users_resultinguserprofile, users_userprofile)), '') AS user_profile,\n"
+        "    coalesce(nullif(trim(users_resultinguserprofile), ''), nullif(trim(users_userprofile), '')) AS user_profile,\n"
         "    run_ts,\n"
         "    partition_date,\n"
         "    users_lastsessionactivity,\n"
