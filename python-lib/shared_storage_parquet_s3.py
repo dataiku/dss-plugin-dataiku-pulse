@@ -49,8 +49,10 @@ def _iter_path_batches(full_paths: Sequence[str], *, batch_size: int) -> Iterato
 def read_s3_parquet_file_batch(storage_ctx: StorageContextLike, *, full_paths: Sequence[str]) -> pd.DataFrame:
     _validate_s3_read_request(storage_ctx, full_paths)
 
+    import pyarrow as pa
     from pyarrow import dataset as pa_dataset
     from pyarrow import fs as pa_fs
+    from pyarrow import parquet as pq
 
     aws_access = resolve_aws_access(storage_ctx)
     filesystem = pa_fs.S3FileSystem(
@@ -59,7 +61,8 @@ def read_s3_parquet_file_batch(storage_ctx: StorageContextLike, *, full_paths: S
         session_token=aws_access["session_token"],
         region=aws_access["region_name"],
     )
-    dataset = pa_dataset.dataset(full_paths, filesystem=filesystem, format="parquet")
+    schema = pa.unify_schemas([pq.ParquetFile(path, filesystem=filesystem).schema_arrow for path in full_paths])
+    dataset = pa_dataset.dataset(full_paths, filesystem=filesystem, format="parquet", schema=schema)
     return dataset.to_table().to_pandas()
 
 

@@ -844,6 +844,30 @@ def test_staging_second_batch_failure_retains_sources_and_writes_no_replacements
     assert [len(call) for call in calls] == [2, 1]
 
 
+def test_schema_read_failure_retains_sources_and_writes_no_replacements(monkeypatch):
+    partition = _partition_with_count(2)
+    events = []
+
+    def fail_schema_read(storage_ctx, *, full_paths):
+        events.append(("read", tuple(full_paths)))
+        raise RuntimeError("parquet schema read failed")
+
+    monkeypatch.setattr(replay, "read_s3_parquet_file_batch", fail_schema_read)
+    monkeypatch.setattr(replay, "upload_event_mapping_replacements", lambda **kwargs: events.append(("upload",)))
+    monkeypatch.setattr(replay, "delete_managed_folder_file", lambda folder, path: events.append(("delete", path)))
+
+    with pytest.raises(RuntimeError, match="parquet schema read failed"):
+        replay.process_compact_selected_partition(
+            storage_ctx=SimpleNamespace(connection_type="EC2"),
+            target=object(),
+            selected_partition=partition,
+            normalize_silver_mode=False,
+            s3_read_batch_size=2,
+        )
+
+    assert events == [("read", tuple(partition.full_paths))]
+
+
 def test_staged_processing_writes_verifies_all_outputs_before_deleting_sources(monkeypatch, tmp_path):
     partition = _partition_with_count(3)
     database_path = tmp_path / "stage.duckdb"
