@@ -4,6 +4,7 @@ import App, {
   LicensePerformanceSection,
   MonthlyObservedActorsChart,
   UsersActivityPage,
+  UsersDirectoryPage,
   buildObservedActivityWindowDisplay,
   buildSecondaryActivityTiles,
   buildLicenseUtilizationTrendSeries,
@@ -422,6 +423,74 @@ describe('UsersActivityPage adoption trends request state', () => {
     expect(screen.getByRole('img', { name: /Sep 2026\..*inst-a: Unavailable/ })).toBeInTheDocument();
     expect(screen.getAllByRole('img', { name: /Sep 2026\..*inst-b: 0/ }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('img', { name: /Oct 2026 \(in progress\)\. All instances: 4/ }).length).toBeGreaterThan(0);
+  });
+});
+
+describe('UsersDirectoryPage', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  test('lists collected users, applies filters, pages, and opens organization user card', async () => {
+    const directoryRows = [
+      {
+        login: 'alice', representativeLogin: 'Alice', displayName: 'Alice A', email: 'alice@example.com',
+        instances: 'inst-a, inst-b', licenseProfiles: 'DESIGNER, READER', accountStatus: 'Mixed', latestActivityAt: '2026-10-07 00:00:00',
+      },
+      {
+        login: 'bob', representativeLogin: 'bob', displayName: 'Bob Builder', email: 'bob@example.com',
+        instances: 'inst-a', licenseProfiles: 'READER', accountStatus: 'Disabled', latestActivityAt: null,
+      },
+    ];
+    global.fetch = jest.fn((url) => {
+      const target = String(url);
+      if (target.includes('/api/build/users/directory/facets')) {
+        return jsonResponse({
+          ok: true,
+          licenseGroups: [{ value: 'Creator Licenses', label: 'Creator Licenses' }, { value: 'Consumer Licenses', label: 'Consumer Licenses' }],
+          licenseProfiles: [{ value: 'DESIGNER', label: 'DESIGNER' }, { value: 'READER', label: 'READER' }],
+        });
+      }
+      if (target.includes('/api/build/users/directory')) {
+        return jsonResponse({ ok: true, rows: directoryRows, total: 27, limit: 25, offset: 0 });
+      }
+      if (target.includes('/api/build/users/facets')) return jsonResponse({ ok: true, instances: ['inst-a', 'inst-b'] });
+      if (target.includes('/api/build/users/alice/top-projects')) return jsonResponse({ ok: true, rows: [] });
+      if (target.includes('/api/build/users/alice')) return jsonResponse({ ok: true, user: { login: 'alice', display_name: 'Alice A' }, instances: [], summary: null, activityDaily: [], activityMonthly: [] });
+      return jsonResponse({ ok: true });
+    });
+
+    render(<UsersDirectoryPage apiBase="" />);
+    await waitFor(() => expect(screen.getByText('Alice A')).toBeInTheDocument());
+    expect(screen.getByText('Bob Builder')).toBeInTheDocument();
+    expect(screen.getByText('No recorded activity')).toBeInTheDocument();
+    expect(screen.getByText('Showing 1–25 of 27 matching users')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Search'), { target: { value: 'alice@example.com' } });
+    fireEvent.change(screen.getByLabelText('Instance'), { target: { value: 'inst-a' } });
+    fireEvent.change(screen.getByLabelText('Account status'), { target: { value: 'enabled' } });
+    fireEvent.change(screen.getByLabelText('License group'), { target: { value: 'Creator Licenses' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }));
+    await waitFor(() => {
+      const directoryCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('/api/build/users/directory?'));
+      expect(String(directoryCalls[directoryCalls.length - 1][0])).toContain('q=alice%40example.com');
+      expect(String(directoryCalls[directoryCalls.length - 1][0])).toContain('instance_name=inst-a');
+      expect(String(directoryCalls[directoryCalls.length - 1][0])).toContain('account_status=enabled');
+      expect(String(directoryCalls[directoryCalls.length - 1][0])).toContain('license_group=Creator+Licenses');
+    });
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Next' })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => {
+      const directoryCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('/api/build/users/directory?'));
+      expect(String(directoryCalls[directoryCalls.length - 1][0])).toContain('offset=2');
+    });
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'View details' })[0]);
+    expect(await screen.findByText('alice user card')).toBeInTheDocument();
+    await waitFor(() => expect(global.fetch.mock.calls.some(([url]) => String(url).includes('/api/build/users/alice?window=last_3_months&instance_name=inst-a'))).toBe(true));
   });
 });
 
@@ -1078,6 +1147,19 @@ describe('Pulse page registry', () => {
     const pages = build({ userActivityEnabled: false });
     expect(pages.some((page) => page.key === 'org-users')).toBe(false);
     expect(pages.some((page) => page.key === 'org-users-licenses')).toBe(false);
+    expect(pages.some((page) => page.key === 'org-users-directory')).toBe(false);
+  });
+
+  test('organization user pages live under Users group including directory', () => {
+    const pages = build();
+    const userPages = pages
+      .filter((page) => page.workspace === 'organization' && page.group === 'Users')
+      .map((page) => ({ key: page.key, label: page.label, route: page.route }));
+    expect(userPages).toEqual([
+      { key: 'org-users', label: 'Activity Performance', route: 'users' },
+      { key: 'org-users-licenses', label: 'License Performance', route: 'users/licenses' },
+      { key: 'org-users-directory', label: 'User Directory', route: 'users/directory' },
+    ]);
   });
 
   test('all visible pages pass capability checks in authorized context', () => {
@@ -1180,6 +1262,7 @@ describe('Pulse page registry', () => {
     const pages = build();
     expect(pages.find((page) => page.key === 'my-overview')?.group).toBe('My Information');
     expect(pages.find((page) => page.key === 'org-users')?.route).toBe('users');
+    expect(pages.find((page) => page.key === 'org-users')?.group).toBe('Users');
     expect(pages.find((page) => page.key === 'admin-overview')?.group).toBe('Administration');
   });
 

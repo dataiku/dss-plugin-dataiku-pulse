@@ -3436,7 +3436,10 @@ export function UsersActivityPage({ apiBase }) {
       <div className="PulseCard">
         <h2>Most Active Users</h2>
         <div className="PulseMuted" style={{ marginBottom: 10 }}>
-          Click a user to see their full activity details, including creation and viewing activity.
+          Click a user to see their full activity details, including creation and viewing activity. Use User Directory to find collected users who do not appear in these activity leaderboards.
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <a className="PulseButton" href="#users/directory">Open User Directory</a>
         </div>
         <div className="PulseVizGrid">
           <BarList
@@ -5559,7 +5562,7 @@ function getNavGroupIcon(label) {
   switch (label) {
     case 'Pulse':
       return '🏠';
-    case 'User Insights':
+    case 'Users':
       return '👥';
     case 'Product Lifecycle':
       return '🧩';
@@ -7232,6 +7235,274 @@ function ProductInventoryTab({ apiBase, authState, requestParams = null }) {
 
 
 
+export function UsersDirectoryPage({ apiBase }) {
+  const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [facets, setFacets] = useState({ instances: [], licenseGroups: [], licenseProfiles: [] });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const [q, setQ] = useState('');
+  const [selectedInstance, setSelectedInstance] = useState('');
+  const [accountStatus, setAccountStatus] = useState('all');
+  const [licenseGroup, setLicenseGroup] = useState('');
+  const [licenseProfile, setLicenseProfile] = useState('');
+  const [draftQ, setDraftQ] = useState('');
+  const [draftSelectedInstance, setDraftSelectedInstance] = useState('');
+  const [draftAccountStatus, setDraftAccountStatus] = useState('all');
+  const [draftLicenseGroup, setDraftLicenseGroup] = useState('');
+  const [draftLicenseProfile, setDraftLicenseProfile] = useState('');
+  const [sort, setSort] = useState('display_name_asc');
+  const [limit, setLimit] = useState(25);
+  const [offset, setOffset] = useState(0);
+  const [selectedLogin, setSelectedLogin] = useState(null);
+  const lastDetailsButtonRef = useRef(null);
+  const requestIdRef = useRef(0);
+
+  const fetchJson = useCallback(async (path, { params, signal } = {}) => {
+    const suffix = params ? `?${params.toString()}` : '';
+    const response = await fetch(apiUrl(apiBase, `${path}${suffix}`), { signal });
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.error || `Failed loading ${path}`);
+    return data;
+  }, [apiBase]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const params = new URLSearchParams();
+    if (selectedInstance) params.set('instance_name', selectedInstance);
+    fetchJson('/api/build/users/facets', { params, signal: controller.signal })
+      .then((data) => setFacets((prev) => ({ ...prev, instances: data.instances || [] })))
+      .catch(() => setFacets((prev) => ({ ...prev, instances: [] })));
+    return () => controller.abort();
+  }, [fetchJson, selectedInstance]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const params = new URLSearchParams();
+    if (selectedInstance) params.set('instance_name', selectedInstance);
+    fetchJson('/api/build/users/directory/facets', { params, signal: controller.signal })
+      .then((data) => setFacets((prev) => ({
+        ...prev,
+        licenseGroups: data.licenseGroups || [],
+        licenseProfiles: data.licenseProfiles || [],
+      })))
+      .catch(() => setFacets((prev) => ({ ...prev, licenseGroups: [], licenseProfiles: [] })));
+    return () => controller.abort();
+  }, [fetchJson, selectedInstance]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (selectedInstance) params.set('instance_name', selectedInstance);
+    if (accountStatus && accountStatus !== 'all') params.set('account_status', accountStatus);
+    if (licenseGroup) params.set('license_group', licenseGroup);
+    if (licenseProfile) params.set('license_profile', licenseProfile);
+    params.set('sort', sort);
+    params.set('limit', String(limit));
+    params.set('offset', String(offset));
+    setLoading(true);
+    setError('');
+    fetchJson('/api/build/users/directory', { params, signal: controller.signal })
+      .then((data) => {
+        if (requestIdRef.current !== requestId) return;
+        setRows(data.rows || []);
+        setTotal(Number(data.total || 0));
+      })
+      .catch((e) => {
+        if (e?.name === 'AbortError' || requestIdRef.current !== requestId) return;
+        setRows([]);
+        setTotal(0);
+        setError(e.message || 'Failed loading user directory');
+      })
+      .finally(() => {
+        if (requestIdRef.current === requestId) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [accountStatus, fetchJson, licenseGroup, licenseProfile, limit, offset, q, selectedInstance, sort]);
+
+  const applyFilters = () => {
+    setQ(draftQ.trim());
+    setSelectedInstance(draftSelectedInstance);
+    setAccountStatus(draftAccountStatus);
+    setLicenseGroup(draftLicenseGroup);
+    setLicenseProfile(draftLicenseProfile);
+    setOffset(0);
+  };
+
+  const resetFilters = () => {
+    setDraftQ('');
+    setDraftSelectedInstance('');
+    setDraftAccountStatus('all');
+    setDraftLicenseGroup('');
+    setDraftLicenseProfile('');
+    setQ('');
+    setSelectedInstance('');
+    setAccountStatus('all');
+    setLicenseGroup('');
+    setLicenseProfile('');
+    setOffset(0);
+  };
+
+  const openUser = (login, event) => {
+    lastDetailsButtonRef.current = event?.currentTarget || null;
+    setSelectedLogin(login);
+  };
+
+  const closeUser = () => {
+    setSelectedLogin(null);
+    setTimeout(() => lastDetailsButtonRef.current?.focus?.(), 0);
+  };
+
+  const startRow = total ? offset + 1 : 0;
+  const endRow = Math.min(offset + limit, total);
+
+  return (
+    <div>
+      <FilterPageLayout
+        filtersExpanded={filtersExpanded}
+        onOpenFilters={() => setFiltersExpanded(true)}
+        onCloseFilters={() => setFiltersExpanded(false)}
+        filterContent={(
+          <>
+            <div className="PulseMuted" style={{ marginTop: 8 }}>
+              Search collected user metadata, then click Apply filters to refresh the directory.
+            </div>
+            <div className="PulseFilterGrid">
+              <label className="PulseLabel">
+                Search
+                <input className="PulseInput" value={draftQ} onChange={(e) => setDraftQ(e.target.value)} placeholder="Name, login, or email" />
+              </label>
+              <label className="PulseLabel">
+                Instance
+                <select className="PulseSelect" value={draftSelectedInstance} onChange={(e) => setDraftSelectedInstance(e.target.value)}>
+                  <option value="">All instances</option>
+                  {facets.instances.map((instanceName) => <option key={instanceName} value={instanceName}>{instanceName}</option>)}
+                </select>
+              </label>
+              <label className="PulseLabel">
+                Account status
+                <select className="PulseSelect" value={draftAccountStatus} onChange={(e) => setDraftAccountStatus(e.target.value)}>
+                  <option value="all">All</option>
+                  <option value="enabled">Enabled</option>
+                  <option value="disabled">Disabled</option>
+                </select>
+              </label>
+              <label className="PulseLabel">
+                License group
+                <select className="PulseSelect" value={draftLicenseGroup} onChange={(e) => setDraftLicenseGroup(e.target.value)}>
+                  <option value="">All</option>
+                  {facets.licenseGroups.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select>
+              </label>
+              <label className="PulseLabel">
+                License profile
+                <select className="PulseSelect" value={draftLicenseProfile} onChange={(e) => setDraftLicenseProfile(e.target.value)}>
+                  <option value="">All</option>
+                  {facets.licenseProfiles.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select>
+              </label>
+              <label className="PulseLabel">
+                Sort
+                <select className="PulseSelect" value={sort} onChange={(e) => { setSort(e.target.value); setOffset(0); }}>
+                  <option value="display_name_asc">Display name (A→Z)</option>
+                  <option value="display_name_desc">Display name (Z→A)</option>
+                  <option value="login_asc">Login (A→Z)</option>
+                  <option value="login_desc">Login (Z→A)</option>
+                  <option value="activity_desc">Last observed activity (newest)</option>
+                  <option value="activity_asc">Last observed activity (oldest)</option>
+                </select>
+              </label>
+              <label className="PulseLabel">
+                Page size
+                <select className="PulseSelect" value={limit} onChange={(e) => { setLimit(Number(e.target.value)); setOffset(0); }}>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </label>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button className="PulseButton PulseButtonPrimary" type="button" onClick={applyFilters}>Apply filters</button>
+                <button className="PulseButton" type="button" onClick={resetFilters}>Reset</button>
+              </div>
+            </div>
+          </>
+        )}
+      >
+        <div className="PulseCard">
+          <h1>User Directory</h1>
+          <p className="PulseMuted">
+            Browse collected DSS user accounts, including users without recorded activity, and open the existing organization user activity card.
+          </p>
+          <div className="PulseMuted">
+            Rows are grouped by normalized login within the selected instance scope. Directory rows reflect collected metadata, not live account status.
+          </div>
+        </div>
+        <div className="PulseCard">
+          <div className="PulseResultsHeader">
+            <div>
+              <h2 style={{ marginBottom: 4 }}>Users</h2>
+              <div className="PulseMuted">Showing {startRow}–{endRow} of {total} matching users</div>
+              {loading ? <div className="PulseMuted">Loading…</div> : null}
+              {error ? <div className="PulseError">{error}</div> : null}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="PulseButton" type="button" onClick={() => setOffset(Math.max(0, offset - limit))} disabled={offset === 0}>Prev</button>
+              <button className="PulseButton" type="button" onClick={() => setOffset(Math.min(Math.max(0, total - limit), offset + limit))} disabled={offset + limit >= total}>Next</button>
+            </div>
+          </div>
+          <div className="PulseTableWrap">
+            <table className="PulseTable">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Login</th>
+                  <th>Instances</th>
+                  <th>License profiles</th>
+                  <th>Account status</th>
+                  <th>Last observed activity</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.login}>
+                    <td>
+                      <button type="button" className="PulseLinkButton" onClick={(event) => openUser(row.login, event)}>
+                        {row.displayName || row.representativeLogin || row.login}
+                      </button>
+                      {row.email ? <div className="PulseMuted">{row.email}</div> : null}
+                    </td>
+                    <td><Badge>{row.login}</Badge></td>
+                    <td>{row.instances || '-'}</td>
+                    <td>{row.licenseProfiles || 'UNKNOWN'}</td>
+                    <td><Badge>{row.accountStatus || 'Unknown'}</Badge></td>
+                    <td>{row.latestActivityAt ? formatDateTime(row.latestActivityAt) : 'No recorded activity'}</td>
+                    <td><button type="button" className="PulseButton" onClick={(event) => openUser(row.login, event)}>View details</button></td>
+                  </tr>
+                ))}
+                {!rows.length && !loading ? (
+                  <tr>
+                    <td colSpan="7" className="PulseMuted">No collected users match the current filters.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </FilterPageLayout>
+      {selectedLogin ? (
+        <Modal title={`${selectedLogin} user card`} onClose={closeUser}>
+          <UserDashboard apiBase={apiBase} login={selectedLogin} mode="organization" selectedInstance={selectedInstance} windowValue="last_3_months" showContextBadges={true} />
+        </Modal>
+      ) : null}
+    </div>
+  );
+}
+
 function UsersLicensePage({ apiBase }) {
   const [selectedInstance, setSelectedInstance] = useState('');
   const [licenseFilter, setLicenseFilter] = useState('all_enabled');
@@ -8243,16 +8514,22 @@ export function buildPageRegistry({ homeHref, userActivityEnabled, llmMeshEnable
       active: ({ workspace, myPage }) => workspace === 'me' && myPage === 'my-llm-overview',
     },
     {
-      key: 'org-users', workspace: 'organization', group: 'User Insights', label: 'Activity Performance', route: 'users', permission: 'organization', capability: 'userActivity',
+      key: 'org-users', workspace: 'organization', group: 'Users', label: 'Activity Performance', route: 'users', permission: 'organization', capability: 'userActivity',
       status: 'implemented', component: UsersActivityPage, isDefault: true,
       description: 'Explore observed activity, engagement, and behavior trends across DSS instances',
       active: ({ route, workspace }) => workspace === 'organization' && route === 'users',
     },
     {
-      key: 'org-users-licenses', workspace: 'organization', group: 'User Insights', label: 'License Performance', route: 'users/licenses', permission: 'organization', capability: 'userActivity',
+      key: 'org-users-licenses', workspace: 'organization', group: 'Users', label: 'License Performance', route: 'users/licenses', permission: 'organization', capability: 'userActivity',
       status: 'implemented', component: UsersLicensePage, isDefault: false,
       description: 'Review enabled users, license profiles, and entitlement coverage across DSS instances',
       active: ({ route, workspace }) => workspace === 'organization' && route === 'users/licenses',
+    },
+    {
+      key: 'org-users-directory', workspace: 'organization', group: 'Users', label: 'User Directory', route: 'users/directory', permission: 'organization', capability: 'userActivity',
+      status: 'implemented', component: UsersDirectoryPage, isDefault: false,
+      description: 'Browse collected user accounts and open individual activity cards',
+      active: ({ route, workspace }) => workspace === 'organization' && route === 'users/directory',
     },
     {
       key: 'org-assets', workspace: 'organization', group: 'Product Lifecycle', label: 'Assets', route: 'product-lifecycle/assets', permission: 'organization', capability: null,
@@ -8614,7 +8891,7 @@ function App() {
 
     const defaults = {
       me: { workspace: 'me', pageKey: 'my-overview', route: null, myPage: 'my-overview', adminPage: 'administration-overview', activeRailGroup: 'My Information' },
-      organization: { workspace: 'organization', pageKey: 'org-users', route: 'users', myPage: 'my-overview', adminPage: 'administration-overview', activeRailGroup: 'User Insights' },
+      organization: { workspace: 'organization', pageKey: 'org-users', route: 'users', myPage: 'my-overview', adminPage: 'administration-overview', activeRailGroup: 'Users' },
       administration: { workspace: 'administration', pageKey: 'admin-overview', route: null, myPage: 'my-overview', adminPage: 'administration-overview', activeRailGroup: 'Administration' },
     };
     const target = defaults[requestedWorkspace];

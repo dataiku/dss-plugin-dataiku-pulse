@@ -37,6 +37,7 @@ from pulse_dashboard.webapp_backend.support import (
     _ensure_ready_if_enabled,
     _err,
     _ok,
+    _require_organization_access,
     _require_duckdb_engine,
 )
 
@@ -54,6 +55,15 @@ _USERS_FACETS_INSTANCES_SQL = (
     "WHERE instance_name IS NOT NULL AND length(trim(instance_name)) > 0\n"
     "ORDER BY instance_name;"
 )
+
+_USER_DIRECTORY_SORT_SQL = {
+    "display_name_asc": "display_name_sort ASC, login_norm ASC",
+    "display_name_desc": "display_name_sort DESC, login_norm ASC",
+    "login_asc": "login_norm ASC",
+    "login_desc": "login_norm DESC",
+    "activity_desc": "latest_activity_at DESC NULLS LAST, display_name_sort ASC, login_norm ASC",
+    "activity_asc": "latest_activity_at ASC NULLS LAST, display_name_sort ASC, login_norm ASC",
+}
 
 _ADOPTION_PERIODS: dict[str, dict[str, Any]] = {
     "weekly": {
@@ -118,6 +128,109 @@ def _adoption_periods_cte_sql(period: str, reporting_date_sql: str = _ADOPTION_R
         "  ) AS t(period_start)\n"
         ")"
     )
+
+
+def _parse_user_directory_sort(value: str | None) -> str:
+    sort = str(value or "display_name_asc").strip().lower()
+    if sort not in _USER_DIRECTORY_SORT_SQL:
+        allowed = ", ".join(sorted(_USER_DIRECTORY_SORT_SQL))
+        raise RequestValidationError(f"Invalid sort={sort!r}; expected one of: {allowed}")
+    return sort
+
+
+def _parse_user_status_filter(value: str | None) -> str:
+    status = str(value or "all").strip().lower()
+    if status not in {"all", "enabled", "disabled"}:
+        raise RequestValidationError("Invalid account_status; expected one of: all, enabled, disabled")
+    return status
+
+
+def _parse_directory_text_filter(value: str | None) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _user_directory_base_ctes_sql() -> str:
+    license_group_sql = _license_group_case_sql("user_profile")
+    return (
+        "WITH latest_records AS (\n"
+        "  SELECT\n"
+        "    instance_name,\n"
+        "    trim(users_login) AS login,\n"
+        "    lower(trim(users_login)) AS login_norm,\n"
+        "    nullif(trim(users_displayname), '') AS display_name,\n"
+        "    nullif(trim(users_email), '') AS email,\n"
+        "    users_enabled = 'True' AS enabled,\n"
+        "    nullif(trim(coalesce(users_resultinguserprofile, users_userprofile)), '') AS user_profile,\n"
+        "    run_ts,\n"
+        "    partition_date,\n"
+        "    users_lastsessionactivity,\n"
+        "    ROW_NUMBER() OVER (\n"
+        "      PARTITION BY instance_name, lower(trim(users_login))\n"
+        "      ORDER BY run_ts DESC NULLS LAST, partition_date DESC NULLS LAST, users_lastsessionactivity DESC NULLS LAST, trim(users_login) ASC\n"
+        "    ) AS rn\n"
+        "  FROM base_users_instance_metadata\n"
+        "  WHERE users_login IS NOT NULL AND length(trim(users_login)) > 0\n"
+        "),\n"
+        "latest AS (\n"
+        "  SELECT\n"
+        "    instance_name,\n"
+        "    login,\n"
+        "    login_norm,\n"
+        "    display_name,\n"
+        "    email,\n"
+        "    enabled,\n"
+        "    user_profile,\n"
+        f"    {license_group_sql} AS license_group,\n"
+        "    run_ts\n"
+        "  FROM latest_records\n"
+        "  WHERE rn = 1\n"
+        "),\n"
+        "activity AS (\n"
+        "  SELECT\n"
+        "    lower(trim(login_norm)) AS login_norm,\n"
+        "    MAX(last_activity_at) AS latest_activity_at\n"
+        "  FROM fact_user_activity_daily\n"
+        "  WHERE login_norm IS NOT NULL AND length(trim(login_norm)) > 0\n"
+        "    AND (? IS NULL OR instance_name = ?)\n"
+        "  GROUP BY 1\n"
+        ")\n"
+    )
+
+
+def _directory_filter_sql(*, include_search: bool, account_status: str, has_license_group: bool, has_profile: bool) -> str:
+    clauses = ["(? IS NULL OR instance_name = ?)"]
+    if include_search:
+        clauses.append(
+            "(lower(coalesce(display_name, '')) LIKE ? OR lower(login_norm) LIKE ? OR lower(coalesce(email, '')) LIKE ?)"
+        )
+    if account_status == "enabled":
+        clauses.append("enabled IS TRUE")
+    elif account_status == "disabled":
+        clauses.append("enabled IS FALSE")
+    if has_license_group:
+        clauses.append("license_group = ?")
+    if has_profile:
+        clauses.append("coalesce(user_profile, 'UNKNOWN') = ?")
+    return " AND ".join(clauses)
+
+
+def _directory_filter_params(
+    *,
+    instance_name: str | None,
+    search: str | None,
+    license_group: str | None,
+    license_profile: str | None,
+) -> list[Any]:
+    params: list[Any] = [instance_name, instance_name]
+    if search:
+        pattern = f"%{search.lower()}%"
+        params.extend([pattern, pattern, pattern])
+    if license_group:
+        params.append(license_group)
+    if license_profile:
+        params.append(license_profile)
+    return params
 
 
 def register_routes(bp: Blueprint) -> None:
@@ -1368,6 +1481,163 @@ def register_routes(bp: Blueprint) -> None:
             return _err(str(exc), status=400)
         except Exception as e:
             logger.exception("users current license utilization failed")
+            return _err(str(e), status=500)
+
+    @bp.route("/api/build/users/directory/facets")
+    def build_users_directory_facets():
+        try:
+            _require_organization_access()
+            _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+            _ensure_ready_if_enabled()
+
+            instance_name = _parse_instance_name(request.args.get("instance_name"))
+            facets_df = _query_df(
+                (
+                    _user_directory_base_ctes_sql()
+                    + "SELECT\n"
+                    + "  'licenseGroup' AS facet_type,\n"
+                    + "  license_group AS value,\n"
+                    + "  license_group AS label\n"
+                    + "FROM latest\n"
+                    + "WHERE (? IS NULL OR instance_name = ?)\n"
+                    + "GROUP BY 1, 2, 3\n"
+                    + "UNION ALL\n"
+                    + "SELECT\n"
+                    + "  'licenseProfile' AS facet_type,\n"
+                    + "  coalesce(user_profile, 'UNKNOWN') AS value,\n"
+                    + "  coalesce(user_profile, 'UNKNOWN') AS label\n"
+                    + "FROM latest\n"
+                    + "WHERE (? IS NULL OR instance_name = ?)\n"
+                    + "GROUP BY 1, 2, 3\n"
+                    + "ORDER BY facet_type, label;"
+                ),
+                [instance_name, instance_name, instance_name, instance_name, instance_name, instance_name],
+            )
+            facet_rows = _df_records(facets_df)
+            return _ok(
+                {
+                    "instanceName": instance_name,
+                    "licenseGroups": [row for row in facet_rows if row.get("facet_type") == "licenseGroup"],
+                    "licenseProfiles": [row for row in facet_rows if row.get("facet_type") == "licenseProfile"],
+                }
+            )
+        except PermissionError as exc:
+            return _err(str(exc), status=403)
+        except Exception as e:
+            logger.exception("users directory facets failed")
+            return _err(str(e), status=500)
+
+    @bp.route("/api/build/users/directory")
+    def build_users_directory():
+        try:
+            _require_organization_access()
+            _query_df, _create_connection, _ensure_database_ready = _require_duckdb_engine()
+            _ensure_ready_if_enabled()
+
+            instance_name = _parse_instance_name(request.args.get("instance_name"))
+            search = _parse_directory_text_filter(request.args.get("q"))
+            account_status = _parse_user_status_filter(request.args.get("account_status"))
+            license_group = _parse_directory_text_filter(request.args.get("license_group"))
+            license_profile = _parse_directory_text_filter(request.args.get("license_profile"))
+            sort = _parse_user_directory_sort(request.args.get("sort"))
+            page_size = int(_parse_int_arg("limit", default=25, minimum=1, maximum=100) or 25)
+            offset = int(_parse_int_arg("offset", default=0, minimum=0, maximum=100_000) or 0)
+
+            filter_sql = _directory_filter_sql(
+                include_search=bool(search),
+                account_status=account_status,
+                has_license_group=bool(license_group),
+                has_profile=bool(license_profile),
+            )
+            filter_params = _directory_filter_params(
+                instance_name=instance_name,
+                search=search,
+                license_group=license_group,
+                license_profile=license_profile,
+            )
+            common_sql = (
+                _user_directory_base_ctes_sql()
+                + ",\nmatching_logins AS (\n"
+                + "  SELECT DISTINCT login_norm\n"
+                + "  FROM latest\n"
+                + f"  WHERE {filter_sql}\n"
+                + "),\n"
+                + "display_records AS (\n"
+                + "  SELECT latest.*\n"
+                + "  FROM latest\n"
+                + "  JOIN matching_logins USING (login_norm)\n"
+                + "  WHERE (? IS NULL OR instance_name = ?)\n"
+                + "),\n"
+                + "grouped AS (\n"
+                + "  SELECT\n"
+                + "    d.login_norm,\n"
+                + "    coalesce(max(d.display_name), max(d.login), d.login_norm) AS display_name,\n"
+                + "    max(d.login) AS login,\n"
+                + "    max(d.email) AS email,\n"
+                + "    count(DISTINCT d.instance_name) AS instance_count,\n"
+                + "    string_agg(DISTINCT d.instance_name, ', ' ORDER BY d.instance_name) AS instances,\n"
+                + "    string_agg(DISTINCT coalesce(d.user_profile, 'UNKNOWN'), ', ' ORDER BY coalesce(d.user_profile, 'UNKNOWN')) AS license_profiles,\n"
+                + "    string_agg(DISTINCT d.license_group, ', ' ORDER BY d.license_group) AS license_groups,\n"
+                + "    sum(CASE WHEN d.enabled IS TRUE THEN 1 ELSE 0 END) AS enabled_count,\n"
+                + "    sum(CASE WHEN d.enabled IS FALSE THEN 1 ELSE 0 END) AS disabled_count,\n"
+                + "    sum(CASE WHEN d.enabled IS NULL THEN 1 ELSE 0 END) AS unknown_status_count,\n"
+                + "    max(a.latest_activity_at) AS latest_activity_at\n"
+                + "  FROM display_records d\n"
+                + "  LEFT JOIN activity a ON a.login_norm = d.login_norm\n"
+                + "  GROUP BY d.login_norm\n"
+                + ")\n"
+            )
+            params = [instance_name, instance_name, *filter_params, instance_name, instance_name]
+            total_df = _query_df(common_sql + "SELECT COUNT(*) AS total_rows FROM grouped;", params)
+            rows_df = _query_df(
+                (
+                    common_sql
+                    + "SELECT\n"
+                    + "  login_norm AS login,\n"
+                    + "  login AS representativeLogin,\n"
+                    + "  display_name AS displayName,\n"
+                    + "  email,\n"
+                    + "  instance_count AS instanceCount,\n"
+                    + "  instances,\n"
+                    + "  license_profiles AS licenseProfiles,\n"
+                    + "  license_groups AS licenseGroups,\n"
+                    + "  CASE\n"
+                    + "    WHEN enabled_count > 0 AND disabled_count = 0 AND unknown_status_count = 0 THEN 'Enabled'\n"
+                    + "    WHEN disabled_count > 0 AND enabled_count = 0 AND unknown_status_count = 0 THEN 'Disabled'\n"
+                    + "    WHEN enabled_count = 0 AND disabled_count = 0 AND unknown_status_count > 0 THEN 'Unknown'\n"
+                    + "    ELSE 'Mixed'\n"
+                    + "  END AS accountStatus,\n"
+                    + "  CAST(latest_activity_at AS VARCHAR) AS latestActivityAt,\n"
+                    + "  lower(coalesce(display_name, login_norm)) AS display_name_sort\n"
+                    + "FROM grouped\n"
+                    + f"ORDER BY {_USER_DIRECTORY_SORT_SQL[sort]}\n"
+                    + "LIMIT ? OFFSET ?;"
+                ),
+                [*params, page_size, offset],
+            )
+            total = int((_df_records(total_df)[0] if len(total_df) else {}).get("total_rows") or 0)
+            return _ok(
+                {
+                    "rows": _df_records(rows_df),
+                    "total": total,
+                    "limit": page_size,
+                    "offset": offset,
+                    "sort": sort,
+                    "instanceName": instance_name,
+                    "filters": {
+                        "q": search or "",
+                        "accountStatus": account_status,
+                        "licenseGroup": license_group or "",
+                        "licenseProfile": license_profile or "",
+                    },
+                }
+            )
+        except RequestValidationError as exc:
+            return _err(str(exc), status=400)
+        except PermissionError as exc:
+            return _err(str(exc), status=403)
+        except Exception as e:
+            logger.exception("users directory failed")
             return _err(str(e), status=500)
 
     @bp.route("/api/build/users/<login>")

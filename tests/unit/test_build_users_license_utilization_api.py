@@ -784,3 +784,116 @@ def test_users_adoption_trends_rejects_invalid_period(license_api_app):
 
     assert response.status_code == 400
     assert payload["ok"] is False
+
+def _create_user_directory_tables(conn):
+    conn.execute(
+        """
+        CREATE TABLE base_users_instance_metadata (
+            instance_name VARCHAR,
+            users_login VARCHAR,
+            users_displayname VARCHAR,
+            users_email VARCHAR,
+            users_enabled VARCHAR,
+            users_userprofile VARCHAR,
+            users_resultinguserprofile VARCHAR,
+            users_lastsessionactivity TIMESTAMP,
+            run_ts TIMESTAMP,
+            partition_date DATE
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE fact_user_activity_daily (
+            instance_name VARCHAR,
+            login_norm VARCHAR,
+            last_activity_at TIMESTAMP,
+            viewing_actions_count INTEGER,
+            developing_actions_count INTEGER
+        );
+        """
+    )
+
+
+def _insert_user_directory_rows(conn):
+    conn.executemany(
+        "INSERT INTO base_users_instance_metadata VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            ("inst-a", " Alice ", "Old Alice", "old@example.com", "True", "READER", None, "2026-08-01", "2026-08-01", "2026-08-01"),
+            ("inst-a", "Alice", "Alice A", "alice@example.com", "True", "DESIGNER", None, "2026-10-01", "2026-10-01", "2026-10-01"),
+            ("inst-b", "ALICE", "Alice B", "alice-b@example.com", "False", "READER", None, "2026-10-02", "2026-10-02", "2026-10-02"),
+            ("inst-a", "bob", "Bob Builder", "bob@example.com", "False", "READER", None, None, "2026-10-01", "2026-10-01"),
+            ("inst-a", "carol", "Carol Creator", "carol@example.com", "True", "DESIGNER", None, None, "2026-10-01", "2026-10-01"),
+            ("inst-b", "dana", "Dana Unknown", "dana@example.com", None, None, None, None, "2026-10-01", "2026-10-01"),
+            ("inst-b", "   ", "Blank", "blank@example.com", "True", "DESIGNER", None, None, "2026-10-01", "2026-10-01"),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO fact_user_activity_daily VALUES (?, ?, ?, ?, ?)",
+        [
+            ("inst-a", "alice", "2026-10-05", 3, 1),
+            ("inst-b", "alice", "2026-10-07", 2, 0),
+            ("inst-b", "activity_only", "2026-10-09", 7, 0),
+            ("inst-a", "carol", "2026-10-03", 0, 5),
+        ],
+    )
+
+
+def test_user_directory_lists_metadata_users_with_filters_search_and_activity(monkeypatch, license_api_app):
+    app, conn = license_api_app
+    module = importlib.import_module("pulse_dashboard.webapp_backend.routes.build_users")
+    monkeypatch.setattr(module, "_require_organization_access", lambda: None)
+    _create_user_directory_tables(conn)
+    _insert_user_directory_rows(conn)
+
+    response = app.test_client().get("/api/build/users/directory?limit=10&sort=display_name_asc")
+    payload = response.get_json()
+
+    assert response.status_code == 200, payload
+    assert payload["total"] == 4
+    rows_by_login = {row["login"]: row for row in payload["rows"]}
+    assert set(rows_by_login) == {"alice", "bob", "carol", "dana"}
+    assert rows_by_login["alice"]["instanceCount"] == 2
+    assert rows_by_login["alice"]["accountStatus"] == "Mixed"
+    assert rows_by_login["alice"]["latestActivityAt"].startswith("2026-10-07")
+    assert rows_by_login["bob"]["latestActivityAt"] is None
+    assert rows_by_login["bob"]["accountStatus"] == "Disabled"
+    assert rows_by_login["dana"]["accountStatus"] == "Unknown"
+
+    disabled_response = app.test_client().get("/api/build/users/directory?account_status=disabled&license_group=Consumer%20Licenses")
+    disabled_payload = disabled_response.get_json()
+    assert disabled_response.status_code == 200, disabled_payload
+    assert [row["login"] for row in disabled_payload["rows"]] == ["alice", "bob"]
+
+    instance_response = app.test_client().get("/api/build/users/directory?instance_name=inst-a&account_status=disabled&license_group=Consumer%20Licenses")
+    instance_payload = instance_response.get_json()
+    assert instance_response.status_code == 200, instance_payload
+    assert [row["login"] for row in instance_payload["rows"]] == ["bob"]
+
+    search_response = app.test_client().get("/api/build/users/directory?q=alice-b")
+    search_payload = search_response.get_json()
+    assert search_response.status_code == 200, search_payload
+    assert [row["login"] for row in search_payload["rows"]] == ["alice"]
+
+
+def test_user_directory_paginates_sorts_validates_and_requires_org(monkeypatch, license_api_app):
+    app, conn = license_api_app
+    module = importlib.import_module("pulse_dashboard.webapp_backend.routes.build_users")
+    _create_user_directory_tables(conn)
+    _insert_user_directory_rows(conn)
+
+    monkeypatch.setattr(module, "_require_organization_access", lambda: None)
+    page_response = app.test_client().get("/api/build/users/directory?limit=2&offset=1&sort=login_desc")
+    page_payload = page_response.get_json()
+    assert page_response.status_code == 200, page_payload
+    assert page_payload["total"] == 4
+    assert [row["login"] for row in page_payload["rows"]] == ["carol", "bob"]
+
+    bad_response = app.test_client().get("/api/build/users/directory?sort=bad_sql")
+    assert bad_response.status_code == 400
+
+    monkeypatch.setattr(module, "_require_organization_access", lambda: (_ for _ in ()).throw(PermissionError("Organization access is required.")))
+    denied_response = app.test_client().get("/api/build/users/directory")
+    assert denied_response.status_code == 403
+    denied_facets_response = app.test_client().get("/api/build/users/directory/facets")
+    assert denied_facets_response.status_code == 403
