@@ -7361,7 +7361,16 @@ export function UsersDirectoryPage({ apiBase }) {
   const endRow = Math.min(offset + limit, total);
 
   return (
-    <div>
+    <div className="PulseWide">
+      <div className="PulseHero">
+        <h1>User Directory</h1>
+        <p>
+          Browse collected DSS user accounts, including users without recorded activity, and open the existing organization user activity card.
+        </p>
+        <div className="PulseMuted">
+          Rows are grouped by normalized login within the selected instance scope. Directory rows reflect collected metadata, not live account status.
+        </div>
+      </div>
       <FilterPageLayout
         filtersExpanded={filtersExpanded}
         onOpenFilters={() => setFiltersExpanded(true)}
@@ -7433,15 +7442,6 @@ export function UsersDirectoryPage({ apiBase }) {
         )}
       >
         <div className="PulseCard">
-          <h1>User Directory</h1>
-          <p className="PulseMuted">
-            Browse collected DSS user accounts, including users without recorded activity, and open the existing organization user activity card.
-          </p>
-          <div className="PulseMuted">
-            Rows are grouped by normalized login within the selected instance scope. Directory rows reflect collected metadata, not live account status.
-          </div>
-        </div>
-        <div className="PulseCard">
           <div className="PulseResultsHeader">
             <div>
               <h2 style={{ marginBottom: 4 }}>Users</h2>
@@ -7464,7 +7464,6 @@ export function UsersDirectoryPage({ apiBase }) {
                   <th>License profiles</th>
                   <th>Account status</th>
                   <th>Last observed activity</th>
-                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -7481,12 +7480,11 @@ export function UsersDirectoryPage({ apiBase }) {
                     <td>{row.licenseProfiles || 'UNKNOWN'}</td>
                     <td><Badge>{row.accountStatus || 'Unknown'}</Badge></td>
                     <td>{row.latestActivityAt ? formatDateTime(row.latestActivityAt) : 'No recorded activity'}</td>
-                    <td><button type="button" className="PulseButton" onClick={(event) => openUser(row.login, event)}>View details</button></td>
                   </tr>
                 ))}
                 {!rows.length && !loading ? (
                   <tr>
-                    <td colSpan="7" className="PulseMuted">No collected users match the current filters.</td>
+                    <td colSpan="6" className="PulseMuted">No collected users match the current filters.</td>
                   </tr>
                 ) : null}
               </tbody>

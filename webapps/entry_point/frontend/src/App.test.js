@@ -490,9 +490,13 @@ describe('UsersDirectoryPage', () => {
 
     render(<UsersDirectoryPage apiBase="" />);
     await waitFor(() => expect(screen.getByText('Alice A')).toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: 'User Directory' })).toBeInTheDocument();
     expect(screen.getByText('Bob Builder')).toBeInTheDocument();
     expect(screen.getByText('No recorded activity')).toBeInTheDocument();
     expect(screen.getByText('Showing 1–25 of 27 matching users')).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Action' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'View details' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('columnheader')).toHaveLength(6);
 
     fireEvent.change(screen.getByLabelText('Search'), { target: { value: 'alice@example.com' } });
     fireEvent.change(screen.getByLabelText('Instance'), { target: { value: 'inst-a' } });
@@ -517,9 +521,28 @@ describe('UsersDirectoryPage', () => {
     expect(screen.getByText('User 27')).toBeInTheDocument();
     expect(screen.queryByText('Alice A')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'View details' })[0]);
+    const userButton = screen.getByRole('button', { name: 'User 26' });
+    userButton.focus();
+    fireEvent.keyDown(userButton, { key: 'Enter', code: 'Enter' });
+    fireEvent.click(userButton);
     expect(await screen.findByText('user-26 user card')).toBeInTheDocument();
     await waitFor(() => expect(global.fetch.mock.calls.some(([url]) => String(url).includes('/api/build/users/user-26?window=last_3_months&instance_name=inst-a'))).toBe(true));
+    expect(screen.getByText('Showing 26–27 of 27 matching users')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByText('user-26 user card')).not.toBeInTheDocument());
+    await waitFor(() => expect(userButton).toHaveFocus());
+    expect(screen.getByText('Showing 26–27 of 27 matching users')).toBeInTheDocument();
+  });
+
+  test('empty directory keeps the six-column table structure', async () => {
+    installDirectoryFetch({ total: 0 });
+
+    const { container } = render(<UsersDirectoryPage apiBase="" />);
+
+    expect(await screen.findByText('No collected users match the current filters.')).toBeInTheDocument();
+    expect(screen.getAllByRole('columnheader')).toHaveLength(6);
+    expect(screen.queryByRole('columnheader', { name: 'Action' })).not.toBeInTheDocument();
+    expect(container.querySelector('td[colspan="6"]')).toHaveTextContent('No collected users match the current filters.');
   });
 
   test.each([
