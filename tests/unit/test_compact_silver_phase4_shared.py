@@ -13,6 +13,7 @@ import pytest
 
 from data_collection.audit_logs_modules import event_mapping_replay as replay
 import shared_storage_discovery as discovery
+import shared_storage_parquet_s3 as parquet_s3
 
 
 class _Ctx(SimpleNamespace):
@@ -59,6 +60,40 @@ def _selected_records() -> list[discovery.SelectedPathRecord]:
             day="23",
         ),
     ]
+
+
+def _selected_record_for_full_path(full_path: str, *, index: int) -> discovery.SelectedPathRecord:
+    return discovery.SelectedPathRecord(
+        relative_path=f"/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=10/day=20/source-{index}.parquet",
+        full_path=full_path,
+        base_name=f"source-{index}.parquet",
+        layer="silver",
+        category="event_mapping",
+        module="administration",
+        instance_name="mazzei_pulse",
+        year="2026",
+        month="10",
+        day="20",
+    )
+
+
+def _write_timestamp_unit_stage_file(path: Path, *, unit: str, row_id: int, timestamp: pd.Timestamp) -> None:
+    schema = pa.schema([
+        pa.field("row_id", pa.int64()),
+        pa.field("timestamp", pa.timestamp(unit, tz="UTC")),
+        pa.field("date", pa.timestamp(unit, tz="UTC")),
+        pa.field("run_ts", pa.timestamp(unit, tz="UTC")),
+        pa.field("dataiku_category", pa.string()),
+    ])
+    row = {
+        "row_id": row_id,
+        "timestamp": timestamp,
+        "date": timestamp,
+        "run_ts": timestamp,
+        "dataiku_category": "administration",
+    }
+    table = pa.table({field.name: pa.array([row[field.name]], type=field.type) for field in schema}, schema=schema)
+    pq.write_table(table, path)
 
 
 def test_selected_source_records_preserve_aligned_relative_and_full_paths(monkeypatch):
@@ -819,6 +854,69 @@ def test_staging_batches_s3_reads_refreshes_context_and_dedupes_across_batches(m
     assert "source-0.parquet" not in caplog.text
     assert "bucket/root" not in caplog.text
     assert "s3_read_batch_size=2" in caplog.text
+
+
+def test_staging_real_reader_preserves_mixed_timestamp_units_across_batches(monkeypatch, tmp_path):
+    import pyarrow.fs as pa_fs
+
+    source_specs = [
+        ("ns", pd.Timestamp("1969-12-31T23:59:59.123456Z")),
+        ("us", pd.Timestamp("2026-10-20T01:02:03.123456Z")),
+        ("ns", pd.Timestamp("2026-10-20T01:02:03.000789Z")),
+        ("us", pd.Timestamp("2026-10-20T01:02:04.654321Z")),
+    ]
+    records = []
+    expected_epoch_ns = []
+    for index, (unit, timestamp) in enumerate(source_specs, start=1):
+        path = tmp_path / f"source-{index}.parquet"
+        _write_timestamp_unit_stage_file(path, unit=unit, row_id=index, timestamp=timestamp)
+        records.append(_selected_record_for_full_path(str(path), index=index))
+        expected_epoch_ns.append(timestamp.value)
+    partition = discovery.SelectedPartitionPaths(
+        category="event_mapping",
+        module="administration",
+        instance_name="mazzei_pulse",
+        year="2026",
+        month="10",
+        day="20",
+        selected_records=records,
+    )
+
+    monkeypatch.setattr(
+        parquet_s3,
+        "resolve_aws_access",
+        lambda ctx: {
+            "access_key": "AKIA...",
+            "secret_key": "SECRET...",
+            "session_token": "TOKEN...",
+            "region_name": "us-east-1",
+        },
+    )
+    monkeypatch.setattr(pa_fs, "S3FileSystem", lambda **kwargs: pa_fs.LocalFileSystem())
+
+    stage = replay._stage_compact_s3_partition(
+        storage_ctx=SimpleNamespace(connection_type="EC2"),
+        storage_ctx_factory=None,
+        selected_partition=partition,
+        database_path=tmp_path / "mixed-units-stage.duckdb",
+        s3_read_batch_size=2,
+    )
+
+    assert stage.files_read == 4
+    assert stage.raw_rows == 4
+    assert stage.rows_after_drop_duplicates == 4
+    con = replay.duckdb.connect(str(stage.database_path))
+    try:
+        staged = con.execute(
+            """
+            SELECT row_id, epoch_ns(timestamp), epoch_ns(date), epoch_ns(run_ts)
+            FROM dedup_stage
+            ORDER BY row_id
+            """.strip()
+        ).fetchall()
+    finally:
+        con.close()
+    assert staged == [(index, value, value, value) for index, value in enumerate(expected_epoch_ns, start=1)]
 
 
 def test_staging_second_batch_failure_retains_sources_and_writes_no_replacements(monkeypatch, tmp_path):

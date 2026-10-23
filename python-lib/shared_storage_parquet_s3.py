@@ -11,6 +11,7 @@ from shared_storage_credentials import resolve_aws_access
 
 
 COMPACT_SILVER_S3_READ_BATCH_SIZE = 5_000
+_TIMESTAMP_UNIT_PRECISION = {"s": 0, "ms": 1, "us": 2, "ns": 3}
 
 
 class StorageContextLike(Protocol):
@@ -46,6 +47,40 @@ def _iter_path_batches(full_paths: Sequence[str], *, batch_size: int) -> Iterato
         yield full_paths[start : start + batch_size]
 
 
+def _reconcile_timestamp_units_for_schema_unification(schemas: Sequence[Any]) -> list[Any]:
+    import pyarrow as pa
+
+    timestamp_fields_by_name: dict[str, list[Any]] = {}
+    for schema in schemas:
+        for field in schema:
+            if pa.types.is_timestamp(field.type):
+                timestamp_fields_by_name.setdefault(field.name, []).append(field)
+
+    promoted_types_by_name: dict[str, Any] = {}
+    for field_name, fields in timestamp_fields_by_name.items():
+        timezones = {field.type.tz for field in fields}
+        if len(timezones) != 1:
+            continue
+        units = {field.type.unit for field in fields}
+        if len(units) <= 1:
+            continue
+        finest_unit = max(units, key=lambda unit: _TIMESTAMP_UNIT_PRECISION[unit])
+        promoted_types_by_name[field_name] = pa.timestamp(finest_unit, tz=next(iter(timezones)))
+
+    if not promoted_types_by_name:
+        return list(schemas)
+
+    reconciled_schemas = []
+    for schema in schemas:
+        reconciled_schema = schema
+        for index, field in enumerate(schema):
+            promoted_type = promoted_types_by_name.get(field.name)
+            if promoted_type is not None and pa.types.is_timestamp(field.type):
+                reconciled_schema = reconciled_schema.set(index, field.with_type(promoted_type))
+        reconciled_schemas.append(reconciled_schema)
+    return reconciled_schemas
+
+
 def read_s3_parquet_file_batch(storage_ctx: StorageContextLike, *, full_paths: Sequence[str]) -> pd.DataFrame:
     _validate_s3_read_request(storage_ctx, full_paths)
 
@@ -61,7 +96,11 @@ def read_s3_parquet_file_batch(storage_ctx: StorageContextLike, *, full_paths: S
         session_token=aws_access["session_token"],
         region=aws_access["region_name"],
     )
-    schema = pa.unify_schemas([pq.ParquetFile(path, filesystem=filesystem).schema_arrow for path in full_paths])
+    source_schemas = [pq.ParquetFile(path, filesystem=filesystem).schema_arrow for path in full_paths]
+    try:
+        schema = pa.unify_schemas(source_schemas)
+    except pa.ArrowTypeError:
+        schema = pa.unify_schemas(_reconcile_timestamp_units_for_schema_unification(source_schemas))
     dataset = pa_dataset.dataset(full_paths, filesystem=filesystem, format="parquet", schema=schema)
     return dataset.to_table().to_pandas()
 

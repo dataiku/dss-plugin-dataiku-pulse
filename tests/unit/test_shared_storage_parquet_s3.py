@@ -212,6 +212,36 @@ def _write_parquet(path, schema, rows):
     pq.write_table(pa.table(columns, schema=schema), path)
 
 
+def _timestamp_epoch_ns_values(df: pd.DataFrame, column: str) -> list[int | None]:
+    values = []
+    for value in df[column].tolist():
+        if pd.isna(value):
+            values.append(None)
+        else:
+            values.append(pd.Timestamp(value).value)
+    return values
+
+
+def _write_timestamp_unit_fixture(path, *, unit, row_id, timestamp, date, run_ts):
+    import pyarrow as pa
+
+    schema = pa.schema([
+        pa.field("row_id", pa.int64()),
+        pa.field("timestamp", pa.timestamp(unit, tz="UTC")),
+        pa.field("date", pa.timestamp(unit, tz="UTC")),
+        pa.field("run_ts", pa.timestamp(unit, tz="UTC")),
+        pa.field("label", pa.string()),
+    ])
+    row = {
+        "row_id": row_id,
+        "timestamp": timestamp,
+        "date": date,
+        "run_ts": run_ts,
+        "label": f"row-{row_id}",
+    }
+    _write_parquet(path, schema, [row])
+
+
 @pytest.mark.parametrize("conflicting_types", [("null", "string", "null"), ("null", "null", "string")])
 def test_read_s3_parquet_file_batch_reconciles_null_string_schema_order_independently(
     monkeypatch,
@@ -266,6 +296,146 @@ def test_read_s3_parquet_file_batch_reconciles_null_string_schema_order_independ
         expected_ordered = [expected_by_path[path] for path in ordered_paths]
         actual_rows = df.to_dict("records")
         assert actual_rows == expected_ordered
+
+
+def test_read_s3_parquet_file_batch_reconciles_same_timezone_timestamp_units_order_independently(monkeypatch, tmp_path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from pyarrow import dataset as pa_dataset
+
+    fixture_rows = [
+        {
+            "name": "ordinary-ns",
+            "unit": "ns",
+            "row_id": 1,
+            "timestamp": pd.Timestamp("1969-12-31T23:59:59.123456789Z"),
+            "date": pd.Timestamp("2026-10-20T00:00:00.000000123Z"),
+            "run_ts": pd.Timestamp("2026-10-20T01:02:03.000000456Z"),
+        },
+        {
+            "name": "compact-us",
+            "unit": "us",
+            "row_id": 2,
+            "timestamp": pd.Timestamp("2026-10-20T01:02:03.123456Z"),
+            "date": pd.Timestamp("2026-10-20T00:00:00Z"),
+            "run_ts": pd.Timestamp("2026-10-20T01:02:04.123456Z"),
+        },
+        {
+            "name": "compact-us-null",
+            "unit": "us",
+            "row_id": 3,
+            "timestamp": None,
+            "date": pd.Timestamp("2026-10-20T00:00:00.654321Z"),
+            "run_ts": pd.Timestamp("2026-10-20T01:02:05.654321Z"),
+        },
+    ]
+    paths = []
+    expected_epoch_ns_by_path = {}
+    for fixture in fixture_rows:
+        path = tmp_path / f"{fixture['name']}.parquet"
+        _write_timestamp_unit_fixture(path, unit=fixture["unit"], row_id=fixture["row_id"], timestamp=fixture["timestamp"], date=fixture["date"], run_ts=fixture["run_ts"])
+        paths.append(str(path))
+        expected_epoch_ns_by_path[str(path)] = {
+            column: None if fixture[column] is None else pd.Timestamp(fixture[column]).value
+            for column in ["timestamp", "date", "run_ts"]
+        }
+
+    with pytest.raises(pa.ArrowTypeError, match="timestamp"):
+        pa.unify_schemas([pq.ParquetFile(path).schema_arrow for path in paths[:2]])
+    with pytest.raises((pa.ArrowInvalid, pa.ArrowTypeError), match="timestamp|would lose data"):
+        pa_dataset.dataset([paths[1], paths[0]], format="parquet").to_table()
+
+    for ordered_paths in permutations(paths):
+        df = _read_local_parquet_files_with_s3_reader(monkeypatch, list(ordered_paths))
+
+        assert list(df.columns) == ["row_id", "timestamp", "date", "run_ts", "label"]
+        assert str(df["timestamp"].dtype) == "datetime64[ns, UTC]"
+        assert str(df["date"].dtype) == "datetime64[ns, UTC]"
+        assert str(df["run_ts"].dtype) == "datetime64[ns, UTC]"
+        assert df["label"].tolist() == [f"row-{fixture_rows[paths.index(path)]['row_id']}" for path in ordered_paths]
+        for column in ["timestamp", "date", "run_ts"]:
+            assert _timestamp_epoch_ns_values(df, column) == [expected_epoch_ns_by_path[path][column] for path in ordered_paths]
+
+
+def test_read_s3_parquet_file_batch_preserves_timestamp_null_and_later_only_union(monkeypatch, tmp_path):
+    import pyarrow as pa
+
+    first = tmp_path / "all-null-timestamp.parquet"
+    second = tmp_path / "later-ns-timestamp.parquet"
+    _write_parquet(
+        first,
+        pa.schema([pa.field("row_id", pa.int64()), pa.field("timestamp", pa.null())]),
+        [{"row_id": 1, "timestamp": None}],
+    )
+    _write_parquet(
+        second,
+        pa.schema([
+            pa.field("row_id", pa.int64()),
+            pa.field("timestamp", pa.timestamp("ns", tz="UTC")),
+            pa.field("later_only", pa.timestamp("us", tz="UTC")),
+        ]),
+        [{"row_id": 2, "timestamp": pd.Timestamp("2026-10-20T01:02:03.000000789Z"), "later_only": pd.Timestamp("2026-10-20T01:02:03.123456Z")}],
+    )
+
+    df = _read_local_parquet_files_with_s3_reader(monkeypatch, [str(first), str(second)])
+
+    assert list(df.columns) == ["row_id", "timestamp", "later_only"]
+    assert str(df["timestamp"].dtype) == "datetime64[ns, UTC]"
+    assert str(df["later_only"].dtype) == "datetime64[us, UTC]"
+    assert _timestamp_epoch_ns_values(df, "timestamp") == [None, pd.Timestamp("2026-10-20T01:02:03.000000789Z").value]
+    assert _timestamp_epoch_ns_values(df, "later_only") == [None, pd.Timestamp("2026-10-20T01:02:03.123456Z").value]
+
+
+def test_read_s3_parquet_file_batch_keeps_identical_and_finest_necessary_timestamp_units(monkeypatch, tmp_path):
+    first = tmp_path / "seconds.parquet"
+    second = tmp_path / "millis.parquet"
+    third = tmp_path / "micros.parquet"
+    _write_timestamp_unit_fixture(first, unit="s", row_id=1, timestamp=pd.Timestamp("2026-10-20T01:02:03Z"), date=pd.Timestamp("2026-10-20T00:00:00Z"), run_ts=pd.Timestamp("2026-10-20T01:02:03Z"))
+    _write_timestamp_unit_fixture(second, unit="ms", row_id=2, timestamp=pd.Timestamp("2026-10-20T01:02:03.123Z"), date=pd.Timestamp("2026-10-20T00:00:00.456Z"), run_ts=pd.Timestamp("2026-10-20T01:02:03.789Z"))
+    _write_timestamp_unit_fixture(third, unit="us", row_id=3, timestamp=pd.Timestamp("2026-10-20T01:02:03.123456Z"), date=pd.Timestamp("2026-10-20T00:00:00.456789Z"), run_ts=pd.Timestamp("2026-10-20T01:02:03.789123Z"))
+
+    single_df = _read_local_parquet_files_with_s3_reader(monkeypatch, [str(third)])
+    combined_df = _read_local_parquet_files_with_s3_reader(monkeypatch, [str(first), str(second), str(third)])
+
+    assert str(single_df["timestamp"].dtype) == "datetime64[us, UTC]"
+    assert str(combined_df["timestamp"].dtype) == "datetime64[us, UTC]"
+    assert str(combined_df["date"].dtype) == "datetime64[us, UTC]"
+    assert str(combined_df["run_ts"].dtype) == "datetime64[us, UTC]"
+    assert _timestamp_epoch_ns_values(combined_df, "timestamp") == [
+        pd.Timestamp("2026-10-20T01:02:03Z").value,
+        pd.Timestamp("2026-10-20T01:02:03.123Z").value,
+        pd.Timestamp("2026-10-20T01:02:03.123456Z").value,
+    ]
+
+
+@pytest.mark.parametrize("first_type,second_type", [("utc", "america"), ("utc", "naive")])
+def test_read_s3_parquet_file_batch_rejects_timestamp_timezone_mismatches(monkeypatch, tmp_path, first_type, second_type):
+    import pyarrow as pa
+
+    type_by_name = {
+        "utc": pa.timestamp("ns", tz="UTC"),
+        "america": pa.timestamp("us", tz="America/New_York"),
+        "naive": pa.timestamp("us"),
+    }
+    first = tmp_path / "timestamp-first.parquet"
+    second = tmp_path / "timestamp-second.parquet"
+    _write_parquet(first, pa.schema([pa.field("timestamp", type_by_name[first_type])]), [{"timestamp": pd.Timestamp("2026-10-20T01:02:03Z")}])
+    _write_parquet(second, pa.schema([pa.field("timestamp", type_by_name[second_type])]), [{"timestamp": pd.Timestamp("2026-10-20T01:02:04Z")}])
+
+    with pytest.raises(pa.ArrowTypeError, match="timestamp"):
+        _read_local_parquet_files_with_s3_reader(monkeypatch, [str(first), str(second)])
+
+
+def test_read_s3_parquet_file_batch_surfaces_timestamp_unit_overflow(monkeypatch, tmp_path):
+    import pyarrow as pa
+
+    seconds = tmp_path / "seconds.parquet"
+    nanos = tmp_path / "nanos.parquet"
+    _write_parquet(seconds, pa.schema([pa.field("timestamp", pa.timestamp("s", tz="UTC"))]), [{"timestamp": pd.Timestamp("2500-01-01T00:00:00Z")}])
+    _write_parquet(nanos, pa.schema([pa.field("timestamp", pa.timestamp("ns", tz="UTC"))]), [{"timestamp": pd.Timestamp("2026-10-20T01:02:03Z")}])
+
+    with pytest.raises((pa.ArrowInvalid, pa.ArrowTypeError, OverflowError), match="out of bounds|overflow|Casting|timestamp"):
+        _read_local_parquet_files_with_s3_reader(monkeypatch, [str(seconds), str(nanos)])
 
 
 def test_read_s3_parquet_file_batch_preserves_all_null_and_missing_fields(monkeypatch, tmp_path):
