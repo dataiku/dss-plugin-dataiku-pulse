@@ -71,5 +71,5 @@ SQLAlchemy==2.0.49
 rich==15.0.0
 ruff==0.15.14
 pytest==9.0.3
-black==26.5.1
+black==26.10.1
 nbformat==5.10.4
