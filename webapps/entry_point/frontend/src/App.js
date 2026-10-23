@@ -2930,6 +2930,15 @@ export function UsersActivityPage({ apiBase }) {
       }));
   }, [formalMauByInstance, adoptionCurrentPeriodStart]);
 
+  const observedCurrentPeriodAggregate = useMemo(() => {
+    return (monthlyActiveAggregate || []).find((r) => String(r.periodStart || r.month || r.label || '') === adoptionCurrentPeriodStart) || null;
+  }, [monthlyActiveAggregate, adoptionCurrentPeriodStart]);
+
+  const observedCurrentPeriodTotal = parseNonnegativeFiniteCount(
+    observedCurrentPeriodAggregate?.active_users ?? observedCurrentPeriodAggregate?.activeUsers
+  );
+  const formalCurrentPeriodTotal = parseNonnegativeFiniteCount(formalMauLatestMonth?.active_users ?? formalMauLatestMonth?.activeUsers);
+
   const formalMauByProfileRows = useMemo(() => {
     return (formalMauByProfile || []).map((r) => ({
       label: `${r.license_group || 'Other Licenses'} • ${r.userProfile || 'UNKNOWN'}`,
@@ -3256,29 +3265,37 @@ export function UsersActivityPage({ apiBase }) {
                 ariaLabel={`${adoptionPeriodConfig.label} observed users line chart`}
               />
               {showInstanceBreakdown ? (
-                <div className="PulseAdoptionBarsRow">
+                <div className="PulseAdoptionBreakdownRow">
                   <BarList
                     title={`By instance (${adoptionCurrentPeriodLabel || 'current period'})`}
                     rows={latestMonthByInstanceRows}
                     maxRows={12}
                   />
+                  <div className="PulseSummaryTile PulseSummaryTileStatic PulseAdoptionSummaryTile">
+                    <div className="PulseSummaryCount">{observedCurrentPeriodTotal === null ? 'Unavailable' : observedCurrentPeriodTotal.toLocaleString()}</div>
+                    <div className="PulseSummaryLabel">{adoptionPeriodConfig.observedLabel}</div>
+                    <div className="PulseSummaryDetail">
+                      {adoptionCurrentPeriodLabel ? `${aggregateSeriesLabel}; ${adoptionCurrentPeriodLabel}${adoptionCurrentPeriodNote ? ` — ${adoptionCurrentPeriodNote}` : ''} observed activity; users are counted per instance/login pair.` : `${aggregateSeriesLabel}; current period observed activity; users are counted per instance/login pair.`}
+                    </div>
+                  </div>
                 </div>
-              ) : null}
+              ) : (
+                <div className="PulseAdoptionSummaryRow">
+                  <div className="PulseSummaryTile PulseSummaryTileStatic PulseAdoptionSummaryTile">
+                    <div className="PulseSummaryCount">{observedCurrentPeriodTotal === null ? 'Unavailable' : observedCurrentPeriodTotal.toLocaleString()}</div>
+                    <div className="PulseSummaryLabel">{adoptionPeriodConfig.observedLabel}</div>
+                    <div className="PulseSummaryDetail">
+                      {adoptionCurrentPeriodLabel ? `${aggregateSeriesLabel}; ${adoptionCurrentPeriodLabel}${adoptionCurrentPeriodNote ? ` — ${adoptionCurrentPeriodNote}` : ''} observed activity; users are counted per instance/login pair.` : `${aggregateSeriesLabel}; current period observed activity; users are counted per instance/login pair.`}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="PulseMuted" style={{ marginTop: 14, marginBottom: 10 }}>
               Observed users are counted as distinct instance/login pairs; the same login on different instances may contribute more than once. Formal activity uses the same qualifying application-open and eligibility rules in every tab and is not affected by the activity-type filter.
             </div>
             {formalMauAvailable ? (
               <>
-                <div className="PulseSummaryGrid" style={{ marginBottom: 14 }}>
-                  <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact">
-                    <div className="PulseSummaryCount">{Number(formalMauLatestMonth?.active_users ?? 0).toLocaleString()}</div>
-                    <div className="PulseSummaryLabel">{adoptionPeriodConfig.formalLabel}</div>
-                    <div className="PulseSummaryDetail">
-                      {adoptionCurrentPeriodLabel ? `${adoptionCurrentPeriodLabel}${adoptionCurrentPeriodNote ? ` — ${adoptionCurrentPeriodNote}` : ''} based on qualifying application-open activity.` : 'Current period based on qualifying application-open activity.'}
-                    </div>
-                  </div>
-                </div>
                 <div className="PulseAdoptionTrendStack">
                   <MonthlyObservedActorsChart
                     title={adoptionPeriodConfig.formalLabel}
@@ -3292,14 +3309,31 @@ export function UsersActivityPage({ apiBase }) {
                     ariaLabel={`${adoptionPeriodConfig.label} qualifying formal users line chart`}
                   />
                   {showInstanceBreakdown ? (
-                    <div className="PulseAdoptionBarsRow">
+                    <div className="PulseAdoptionBreakdownRow">
                       <BarList
                         title={`${adoptionPeriodConfig.formalLabel} by instance (${adoptionCurrentPeriodLabel || 'current period'})`}
                         rows={formalMauLatestMonthByInstanceRows}
                         maxRows={12}
                       />
+                      <div className="PulseSummaryTile PulseSummaryTileStatic PulseAdoptionSummaryTile">
+                        <div className="PulseSummaryCount">{formalCurrentPeriodTotal === null ? 'Unavailable' : formalCurrentPeriodTotal.toLocaleString()}</div>
+                        <div className="PulseSummaryLabel">{adoptionPeriodConfig.formalLabel}</div>
+                        <div className="PulseSummaryDetail">
+                          {adoptionCurrentPeriodLabel ? `${aggregateSeriesLabel}; ${adoptionCurrentPeriodLabel}${adoptionCurrentPeriodNote ? ` — ${adoptionCurrentPeriodNote}` : ''} based on qualifying application-open activity.` : `${aggregateSeriesLabel}; current period based on qualifying application-open activity.`}
+                        </div>
+                      </div>
                     </div>
-                  ) : null}
+                  ) : (
+                    <div className="PulseAdoptionSummaryRow">
+                      <div className="PulseSummaryTile PulseSummaryTileStatic PulseAdoptionSummaryTile">
+                        <div className="PulseSummaryCount">{formalCurrentPeriodTotal === null ? 'Unavailable' : formalCurrentPeriodTotal.toLocaleString()}</div>
+                        <div className="PulseSummaryLabel">{adoptionPeriodConfig.formalLabel}</div>
+                        <div className="PulseSummaryDetail">
+                          {adoptionCurrentPeriodLabel ? `${aggregateSeriesLabel}; ${adoptionCurrentPeriodLabel}${adoptionCurrentPeriodNote ? ` — ${adoptionCurrentPeriodNote}` : ''} based on qualifying application-open activity.` : `${aggregateSeriesLabel}; current period based on qualifying application-open activity.`}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="PulseMuted" style={{ marginTop: 14, marginBottom: 10 }}>
                   Formal monthly active users (MAU) remains the monthly reporting measure. Weekly and quarterly tabs show distinct qualifying users for those calendar periods using the same rules.

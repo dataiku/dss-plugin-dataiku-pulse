@@ -1009,8 +1009,33 @@
   box-sizing: border-box;
 }
 
-.PulseAdoptionBarsRow {
-  max-width: 760px;
+.PulseAdoptionBreakdownRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.PulseAdoptionSummaryRow {
+  max-width: 420px;
+}
+
+.PulseAdoptionSummaryTile {
+  min-width: 0;
+}
+
+.PulseAdoptionSummaryTile .PulseSummaryCount {
+  font-size: 32px;
+}
+
+@media (max-width: 720px) {
+  .PulseAdoptionBreakdownRow {
+    grid-template-columns: 1fr;
+  }
+
+  .PulseAdoptionSummaryRow {
+    max-width: none;
+  }
 }
 
 .PulseChartLegend {

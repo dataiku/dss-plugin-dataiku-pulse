@@ -214,7 +214,7 @@ describe('MonthlyObservedActorsChart', () => {
 describe('UsersActivityPage adoption trends request state', () => {
   const originalFetch = global.fetch;
 
-  const adoptionPayload = ({ period = 'monthly', formalAvailable = true, activeUsers = 2, instances = ['inst-a', 'inst-b'], includeMalformedCounts = false } = {}) => ({
+  const adoptionPayload = ({ period = 'monthly', formalAvailable = true, activeUsers = 2, observedActiveUsers, formalActiveUsers, instances = ['inst-a', 'inst-b'], includeMalformedCounts = false } = {}) => ({
     ok: true,
     period,
     reportingDateConvention: 'Test reporting clock.',
@@ -227,10 +227,10 @@ describe('UsersActivityPage adoption trends request state', () => {
       aggregate: [
         { label: 'Aug 2026', periodStart: '2026-08-01', active_users: 1 },
         { label: 'Sep 2026', periodStart: '2026-09-01', active_users: includeMalformedCounts ? null : 0 },
-        { label: 'Oct 2026', periodStart: '2026-10-01', active_users: activeUsers, isCurrentPeriod: true, isPartialPeriod: true },
+        { label: 'Oct 2026', periodStart: '2026-10-01', active_users: observedActiveUsers ?? activeUsers, isCurrentPeriod: true, isPartialPeriod: true },
       ],
       byInstance: instances.flatMap((instanceName, index) => [
-        { label: 'Oct 2026', periodStart: '2026-10-01', instance_name: instanceName, active_users: index === 0 ? activeUsers : 0 },
+        { label: 'Oct 2026', periodStart: '2026-10-01', instance_name: instanceName, active_users: index === 0 ? (observedActiveUsers ?? activeUsers) : 0 },
         { label: 'Aug 2026', periodStart: '2026-08-01', instance_name: instanceName, active_users: index === 0 ? 1 : 0 },
         { label: 'Sep 2026', periodStart: '2026-09-01', instance_name: instanceName, active_users: includeMalformedCounts && index === 0 ? 'bad' : 0 },
       ]),
@@ -242,16 +242,16 @@ describe('UsersActivityPage adoption trends request state', () => {
           aggregate: [
             { label: 'Aug 2026', periodStart: '2026-08-01', active_users: includeMalformedCounts ? undefined : 0 },
             { label: 'Sep 2026', periodStart: '2026-09-01', active_users: 1 },
-            { label: 'Oct 2026', periodStart: '2026-10-01', active_users: activeUsers, isCurrentPeriod: true, isPartialPeriod: true },
+            { label: 'Oct 2026', periodStart: '2026-10-01', active_users: formalActiveUsers ?? activeUsers, isCurrentPeriod: true, isPartialPeriod: true },
           ],
           byInstance: instances.flatMap((instanceName, index) => [
             { label: 'Aug 2026', periodStart: '2026-08-01', instance_name: instanceName, active_users: 0 },
             { label: 'Sep 2026', periodStart: '2026-09-01', instance_name: instanceName, active_users: index === 0 ? 1 : 0 },
-            { label: 'Oct 2026', periodStart: '2026-10-01', instance_name: instanceName, active_users: index === 0 ? activeUsers : 0 },
+            { label: 'Oct 2026', periodStart: '2026-10-01', instance_name: instanceName, active_users: index === 0 ? (formalActiveUsers ?? activeUsers) : 0 },
           ]),
-          byProfile: [{ license_group: 'Creator Licenses', userProfile: 'DESIGNER', active_users: activeUsers }],
-          byInstanceProfile: [{ instance_name: 'inst-a', license_group: 'Creator Licenses', userProfile: 'DESIGNER', active_users: activeUsers }],
-          currentPeriod: { label: 'Oct 2026', periodStart: '2026-10-01', active_users: activeUsers, isCurrentPeriod: true },
+          byProfile: [{ license_group: 'Creator Licenses', userProfile: 'DESIGNER', active_users: formalActiveUsers ?? activeUsers }],
+          byInstanceProfile: [{ instance_name: 'inst-a', license_group: 'Creator Licenses', userProfile: 'DESIGNER', active_users: formalActiveUsers ?? activeUsers }],
+          currentPeriod: { label: 'Oct 2026', periodStart: '2026-10-01', active_users: formalActiveUsers ?? activeUsers, isCurrentPeriod: true },
         }
       : { available: false, reason: 'formal_mau_view_missing' },
   });
@@ -357,6 +357,29 @@ describe('UsersActivityPage adoption trends request state', () => {
     fireEvent.click(within(legendGroups[1]).getByRole('button', { name: 'All instances' }));
     expect(screen.getAllByLabelText('Monthly Calendar qualifying formal users line chart')[0].querySelectorAll('.PulseMonthlyChartLine')).toHaveLength(2);
     expect(global.fetch.mock.calls.filter(([url]) => String(url).includes('/api/build/users/adoption-trends'))).toHaveLength(adoptionCallsBeforeToggle);
+  });
+
+  test('shows current-period observed and formal totals beside matching breakdowns', async () => {
+    installFetch({ adoptionHandler: () => jsonResponse(adoptionPayload({ observedActiveUsers: 3, formalActiveUsers: 2 })) });
+
+    render(<UsersActivityPage apiBase="" />);
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+
+    const summaryTileFor = (label) => screen.getAllByText(label)
+      .map((node) => node.closest('.PulseAdoptionSummaryTile'))
+      .find(Boolean);
+    expect(summaryTileFor('Monthly active users')).toHaveTextContent('3');
+    expect(summaryTileFor('Monthly active users')).toHaveTextContent('Oct 2026 — In progress');
+    expect(summaryTileFor('Formal monthly active users (MAU)')).toHaveTextContent('2');
+    expect(summaryTileFor('Formal monthly active users (MAU)')).toHaveTextContent('Oct 2026 — In progress');
+
+    fireEvent.change(screen.getByLabelText('Show instance comparison'), { target: { value: 'hide' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(screen.queryByText('By instance (Oct 2026)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Formal monthly active users (MAU) by instance (Oct 2026)')).not.toBeInTheDocument();
+    expect(summaryTileFor('Monthly active users')).toHaveTextContent('3');
+    expect(summaryTileFor('Formal monthly active users (MAU)')).toHaveTextContent('2');
   });
 
   test('keeps instance colors stable across filtered response scopes', async () => {
