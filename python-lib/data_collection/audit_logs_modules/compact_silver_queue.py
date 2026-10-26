@@ -194,6 +194,38 @@ class CompactSilverQueue:
         excluded_recent_paths = 0
         eligible_paths = 0
         pending_rows: list[tuple[str, str, str, str, str, str, str, str, str]] = []
+        deferred_compact_rows: list[tuple[str, str, str, str, str, str, str, str, str]] = []
+        deferred_compact_table_created = False
+
+        def create_deferred_compact_table() -> None:
+            nonlocal deferred_compact_table_created
+            if deferred_compact_table_created:
+                return
+            self.conn.execute("""
+                CREATE TEMPORARY TABLE deferred_compact_outputs (
+                    category VARCHAR NOT NULL,
+                    module VARCHAR NOT NULL,
+                    instance_name VARCHAR NOT NULL,
+                    year VARCHAR NOT NULL,
+                    month VARCHAR NOT NULL,
+                    day VARCHAR NOT NULL,
+                    full_path VARCHAR NOT NULL,
+                    relative_path VARCHAR NOT NULL,
+                    status VARCHAR NOT NULL
+                )
+                """)
+            deferred_compact_table_created = True
+
+        def flush_deferred_compact_rows() -> None:
+            nonlocal deferred_compact_rows
+            if not deferred_compact_rows:
+                return
+            create_deferred_compact_table()
+            self.conn.executemany(
+                "INSERT INTO deferred_compact_outputs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                deferred_compact_rows,
+            )
+            deferred_compact_rows = []
 
         for relative_path in iter_managed_folder_paths(
             storage_ctx, relative_prefix=relative_prefix, suffix=suffix
@@ -205,11 +237,31 @@ class CompactSilverQueue:
                 for column_name, expected_value in partition_filters.items()
             ):
                 continue
-            if is_compact_output_record(record):
+            is_compact_output = is_compact_output_record(record)
+            if is_compact_output:
                 if include_compact_outputs:
                     included_compact_outputs += 1
                 else:
                     skipped_compact_outputs += 1
+                    if record.category == "event_mapping":
+                        continue
+
+                    if partition_date_from_record(record) < cutoff_date:
+                        deferred_compact_rows.append(
+                            (
+                                record.category,
+                                record.module,
+                                record.instance_name,
+                                record.year,
+                                record.month,
+                                record.day,
+                                record.full_path,
+                                record.relative_path,
+                                "pending",
+                            )
+                        )
+                        if len(deferred_compact_rows) >= insert_batch_size:
+                            flush_deferred_compact_rows()
                     continue
 
             filtered_matching_paths += 1
@@ -217,20 +269,20 @@ class CompactSilverQueue:
                 excluded_recent_paths += 1
                 continue
 
-            eligible_paths += 1
-            pending_rows.append(
-                (
-                    record.category,
-                    record.module,
-                    record.instance_name,
-                    record.year,
-                    record.month,
-                    record.day,
-                    record.full_path,
-                    record.relative_path,
-                    "pending",
-                )
+            row = (
+                record.category,
+                record.module,
+                record.instance_name,
+                record.year,
+                record.month,
+                record.day,
+                record.full_path,
+                record.relative_path,
+                "pending",
             )
+
+            eligible_paths += 1
+            pending_rows.append(row)
             if len(pending_rows) >= insert_batch_size:
                 self.conn.executemany(
                     "INSERT INTO queue VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", pending_rows
@@ -241,6 +293,47 @@ class CompactSilverQueue:
             self.conn.executemany(
                 "INSERT INTO queue VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", pending_rows
             )
+
+        flush_deferred_compact_rows()
+
+        if deferred_compact_table_created:
+            included_overlap_compact_outputs = int(self.conn.execute("""
+                SELECT COUNT(*)
+                FROM deferred_compact_outputs d
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM queue q
+                    WHERE q.status = 'pending'
+                      AND q.category = d.category
+                      AND q.module = d.module
+                      AND q.instance_name = d.instance_name
+                      AND q.year = d.year
+                      AND q.month = d.month
+                      AND q.day = d.day
+                )
+                """).fetchone()[0])
+            if included_overlap_compact_outputs:
+                self.conn.execute("""
+                    INSERT INTO queue
+                    SELECT d.*
+                    FROM deferred_compact_outputs d
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM queue q
+                        WHERE q.status = 'pending'
+                          AND q.category = d.category
+                          AND q.module = d.module
+                          AND q.instance_name = d.instance_name
+                          AND q.year = d.year
+                          AND q.month = d.month
+                          AND q.day = d.day
+                    )
+                    """)
+                included_compact_outputs += included_overlap_compact_outputs
+                eligible_paths += included_overlap_compact_outputs
+                filtered_matching_paths += included_overlap_compact_outputs
+                skipped_compact_outputs -= included_overlap_compact_outputs
+            self.conn.execute("DROP TABLE deferred_compact_outputs")
 
         if raise_on_empty and filtered_matching_paths > 0 and eligible_paths <= 0:
             raise ValueError(

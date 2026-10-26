@@ -13,6 +13,7 @@ import pytest
 
 from data_collection.audit_logs_modules import event_mapping_replay as replay
 import shared_storage_discovery as discovery
+import shared_storage_parquet_s3 as parquet_s3
 
 
 class _Ctx(SimpleNamespace):
@@ -59,6 +60,40 @@ def _selected_records() -> list[discovery.SelectedPathRecord]:
             day="23",
         ),
     ]
+
+
+def _selected_record_for_full_path(full_path: str, *, index: int) -> discovery.SelectedPathRecord:
+    return discovery.SelectedPathRecord(
+        relative_path=f"/silver/category=event_mapping/module=administration/instance_name=mazzei_pulse/year=2026/month=10/day=20/source-{index}.parquet",
+        full_path=full_path,
+        base_name=f"source-{index}.parquet",
+        layer="silver",
+        category="event_mapping",
+        module="administration",
+        instance_name="mazzei_pulse",
+        year="2026",
+        month="10",
+        day="20",
+    )
+
+
+def _write_timestamp_unit_stage_file(path: Path, *, unit: str, row_id: int, timestamp: pd.Timestamp) -> None:
+    schema = pa.schema([
+        pa.field("row_id", pa.int64()),
+        pa.field("timestamp", pa.timestamp(unit, tz="UTC")),
+        pa.field("date", pa.timestamp(unit, tz="UTC")),
+        pa.field("run_ts", pa.timestamp(unit, tz="UTC")),
+        pa.field("dataiku_category", pa.string()),
+    ])
+    row = {
+        "row_id": row_id,
+        "timestamp": timestamp,
+        "date": timestamp,
+        "run_ts": timestamp,
+        "dataiku_category": "administration",
+    }
+    table = pa.table({field.name: pa.array([row[field.name]], type=field.type) for field in schema}, schema=schema)
+    pq.write_table(table, path)
 
 
 def test_selected_source_records_preserve_aligned_relative_and_full_paths(monkeypatch):
@@ -821,6 +856,69 @@ def test_staging_batches_s3_reads_refreshes_context_and_dedupes_across_batches(m
     assert "s3_read_batch_size=2" in caplog.text
 
 
+def test_staging_real_reader_preserves_mixed_timestamp_units_across_batches(monkeypatch, tmp_path):
+    import pyarrow.fs as pa_fs
+
+    source_specs = [
+        ("ns", pd.Timestamp("1969-12-31T23:59:59.123456Z")),
+        ("us", pd.Timestamp("2026-10-20T01:02:03.123456Z")),
+        ("ns", pd.Timestamp("2026-10-20T01:02:03.000789Z")),
+        ("us", pd.Timestamp("2026-10-20T01:02:04.654321Z")),
+    ]
+    records = []
+    expected_epoch_ns = []
+    for index, (unit, timestamp) in enumerate(source_specs, start=1):
+        path = tmp_path / f"source-{index}.parquet"
+        _write_timestamp_unit_stage_file(path, unit=unit, row_id=index, timestamp=timestamp)
+        records.append(_selected_record_for_full_path(str(path), index=index))
+        expected_epoch_ns.append(timestamp.value)
+    partition = discovery.SelectedPartitionPaths(
+        category="event_mapping",
+        module="administration",
+        instance_name="mazzei_pulse",
+        year="2026",
+        month="10",
+        day="20",
+        selected_records=records,
+    )
+
+    monkeypatch.setattr(
+        parquet_s3,
+        "resolve_aws_access",
+        lambda ctx: {
+            "access_key": "AKIA...",
+            "secret_key": "SECRET...",
+            "session_token": "TOKEN...",
+            "region_name": "us-east-1",
+        },
+    )
+    monkeypatch.setattr(pa_fs, "S3FileSystem", lambda **kwargs: pa_fs.LocalFileSystem())
+
+    stage = replay._stage_compact_s3_partition(
+        storage_ctx=SimpleNamespace(connection_type="EC2"),
+        storage_ctx_factory=None,
+        selected_partition=partition,
+        database_path=tmp_path / "mixed-units-stage.duckdb",
+        s3_read_batch_size=2,
+    )
+
+    assert stage.files_read == 4
+    assert stage.raw_rows == 4
+    assert stage.rows_after_drop_duplicates == 4
+    con = replay.duckdb.connect(str(stage.database_path))
+    try:
+        staged = con.execute(
+            """
+            SELECT row_id, epoch_ns(timestamp), epoch_ns(date), epoch_ns(run_ts)
+            FROM dedup_stage
+            ORDER BY row_id
+            """.strip()
+        ).fetchall()
+    finally:
+        con.close()
+    assert staged == [(index, value, value, value) for index, value in enumerate(expected_epoch_ns, start=1)]
+
+
 def test_staging_second_batch_failure_retains_sources_and_writes_no_replacements(monkeypatch, tmp_path):
     partition = _partition_with_count(3)
     calls = []
@@ -842,6 +940,30 @@ def test_staging_second_batch_failure_retains_sources_and_writes_no_replacements
         )
 
     assert [len(call) for call in calls] == [2, 1]
+
+
+def test_schema_read_failure_retains_sources_and_writes_no_replacements(monkeypatch):
+    partition = _partition_with_count(2)
+    events = []
+
+    def fail_schema_read(storage_ctx, *, full_paths):
+        events.append(("read", tuple(full_paths)))
+        raise RuntimeError("parquet schema read failed")
+
+    monkeypatch.setattr(replay, "read_s3_parquet_file_batch", fail_schema_read)
+    monkeypatch.setattr(replay, "upload_event_mapping_replacements", lambda **kwargs: events.append(("upload",)))
+    monkeypatch.setattr(replay, "delete_managed_folder_file", lambda folder, path: events.append(("delete", path)))
+
+    with pytest.raises(RuntimeError, match="parquet schema read failed"):
+        replay.process_compact_selected_partition(
+            storage_ctx=SimpleNamespace(connection_type="EC2"),
+            target=object(),
+            selected_partition=partition,
+            normalize_silver_mode=False,
+            s3_read_batch_size=2,
+        )
+
+    assert events == [("read", tuple(partition.full_paths))]
 
 
 def test_staged_processing_writes_verifies_all_outputs_before_deleting_sources(monkeypatch, tmp_path):
@@ -1210,6 +1332,113 @@ def test_users_instance_metadata_module_contract_adds_missing_string_fields_and_
     ]:
         assert str(schema.field(column).type) == "string"
     assert schema.field("run_ts").type == pa.timestamp("ns", tz="UTC")
+
+
+def test_module_contract_plan_deduplicates_rows_after_normalization():
+    source_df = pd.DataFrame(
+        [
+            {
+                "instance_name": "alpha",
+                "run_ts": "2026-06-11T01:02:03Z",
+                "users_login": "duplicate",
+                "users_enabled": "true",
+                "legacy_field": "same",
+            },
+            {
+                "instance_name": "alpha",
+                "run_ts": "2026-06-11T01:02:03Z",
+                "users_login": "duplicate",
+                "users_enabled": "true",
+                "extras": '{"legacy_field":"same"}',
+            },
+            {
+                "instance_name": "alpha",
+                "run_ts": "2026-06-11T01:02:03Z",
+                "users_login": "different-extras",
+                "users_enabled": "true",
+                "extras": '{"legacy_field":"first"}',
+            },
+            {
+                "instance_name": "alpha",
+                "run_ts": "2026-06-11T01:02:03Z",
+                "users_login": "different-extras",
+                "users_enabled": "true",
+                "extras": '{"legacy_field":"second"}',
+            },
+            {
+                "instance_name": "alpha",
+                "run_ts": "2026-06-11T04:05:06Z",
+                "users_login": "duplicate",
+                "users_enabled": "true",
+                "legacy_field": "same",
+            },
+        ]
+    )
+
+    plans, summary = replay.plan_compact_selected_day(
+        selected_records=_users_selected_records(module="instance_metadata"),
+        selected_df=source_df,
+        normalize_silver_mode=True,
+        processing_mode="module_contract_normalization",
+        run_epoch_ms=1790966945713,
+    )
+
+    assert len(plans) == 1
+    assert summary.metrics[0].rows == 4
+    rows = plans[0].silver_df[["users_login", "run_ts", "extras"]].sort_values(
+        ["users_login", "run_ts", "extras"], ignore_index=True
+    )
+    assert rows.to_dict("records") == [
+        {
+            "users_login": "different-extras",
+            "run_ts": pd.Timestamp("2026-06-11T01:02:03Z"),
+            "extras": '{"legacy_field": "first"}',
+        },
+        {
+            "users_login": "different-extras",
+            "run_ts": pd.Timestamp("2026-06-11T01:02:03Z"),
+            "extras": '{"legacy_field": "second"}',
+        },
+        {
+            "users_login": "duplicate",
+            "run_ts": pd.Timestamp("2026-06-11T01:02:03Z"),
+            "extras": '{"legacy_field": "same"}',
+        },
+        {
+            "users_login": "duplicate",
+            "run_ts": pd.Timestamp("2026-06-11T04:05:06Z"),
+            "extras": '{"legacy_field": "same"}',
+        },
+    ]
+
+
+def test_generic_plan_deduplicates_exact_stored_rows_only():
+    source_df = pd.DataFrame(
+        [
+            {"login": "alice", "count": 1, "run_ts": "2026-06-11T01:02:03Z"},
+            {"login": "alice", "count": 1, "run_ts": "2026-06-11T01:02:03Z"},
+            {"login": "alice", "count": 2, "run_ts": "2026-06-11T01:02:03Z"},
+            {"login": "alice", "count": 1, "run_ts": "2026-06-11T04:05:06Z"},
+        ]
+    )
+
+    plans, summary = replay.plan_compact_selected_day(
+        selected_records=_users_selected_records(module="instance_metadata"),
+        selected_df=source_df,
+        normalize_silver_mode=False,
+        processing_mode=replay.COMPACT_PROCESSING_MODE_GENERIC,
+        run_epoch_ms=1790966945713,
+    )
+
+    assert len(plans) == 1
+    assert summary.mode == replay.COMPACT_PROCESSING_MODE_GENERIC
+    assert summary.input_rows == 4
+    assert summary.metrics[0].rows == 3
+    assert plans[0].silver_df.to_dict("records") == [
+        {"login": "alice", "count": 1, "run_ts": "2026-06-11T01:02:03Z"},
+        {"login": "alice", "count": 2, "run_ts": "2026-06-11T01:02:03Z"},
+        {"login": "alice", "count": 1, "run_ts": "2026-06-11T04:05:06Z"},
+    ]
 
 
 def test_users_user_activity_module_contract_preserves_activity_fields_and_dataiku_category():
@@ -1601,3 +1830,182 @@ def test_staged_users_instance_metadata_normalization_writes_verified_schema_and
         instance_name="alpha",
     ).sort_values("users_login")
     assert rows == list(zip(expected_df["users_login"], expected_df["run_ts"].astype("int64")))
+
+
+def test_staged_module_contract_deduplicates_normalized_rows_across_chunks(monkeypatch, tmp_path):
+    database_path = tmp_path / "users_partition.duckdb"
+    con = duckdb.connect(str(database_path))
+    con.execute(
+        """
+        CREATE TABLE dedup_stage AS
+        SELECT * FROM (VALUES
+            (0, 'alpha', '2026-06-11T01:02:03Z', 'duplicate', 'true', 'same', NULL),
+            (1, 'alpha', '2026-06-11T01:02:03Z', 'duplicate', 'true', NULL, '{"legacy_field":"same"}'),
+            (2, 'alpha', '2026-06-11T01:02:03Z', 'old-compact-only', 'true', 'old', NULL)
+        ) AS t(__compact_row_order, instance_name, run_ts, users_login, users_enabled, legacy_field, extras)
+        """.strip()
+    )
+    con.close()
+
+    folder = _MemoryFolder()
+    source_path = "/silver/category=users/module=instance_metadata/instance_name=alpha/year=2026/month=06/day=11/source.parquet"
+    compact_path = "/silver/category=users/module=instance_metadata/instance_name=alpha/year=2026/month=06/day=11/compact_silver-1-0001.parquet"
+    folder.files[source_path] = b"source"
+    folder.files[compact_path] = b"compact"
+
+    def fake_upload(**kwargs):
+        buf = io.BytesIO()
+        kwargs["df"].to_parquet(buf, index=False, engine="pyarrow", compression="snappy")
+        folder.files[f"/{str(kwargs['output_path']).lstrip('/')}"] = buf.getvalue()
+        return True
+
+    selected_records = _users_selected_records(module="instance_metadata") + _users_selected_records(
+        module="instance_metadata", source_name="compact_silver-1-0001.parquet"
+    )
+
+    monkeypatch.setattr(replay, "get_managed_folder_handle", lambda target: folder)
+    monkeypatch.setattr(replay, "upload_parquet", fake_upload)
+
+    result = replay.process_staged_compact_partition(
+        target=object(),
+        selected_records=selected_records,
+        source_relative_paths=[source_path, compact_path],
+        database_path=database_path,
+        normalize_silver_mode=True,
+        processing_mode="module_contract_normalization",
+        run_epoch_ms=1790966945713,
+        output_chunk_size=1,
+    )
+
+    assert result.apply_result.status == "succeeded"
+    assert result.plan_summary.metrics[0].rows == 2
+    assert result.apply_result.deleted_source_paths == (source_path, compact_path)
+    assert len(result.apply_result.written_paths) == 2
+    readback_paths = []
+    for index, output_path in enumerate(result.apply_result.written_paths, start=1):
+        readback_path = tmp_path / f"deduped-{index}.parquet"
+        readback_path.write_bytes(folder.files[output_path])
+        readback_paths.append(str(readback_path))
+    rows = duckdb.connect(":memory:").execute(
+        "SELECT users_login, extras FROM read_parquet(?) ORDER BY users_login",
+        [readback_paths],
+    ).fetchall()
+    assert rows == [
+        ("duplicate", '{"legacy_field": "same"}'),
+        ("old-compact-only", '{"legacy_field": "old"}'),
+    ]
+
+
+def test_restored_users_partition_recompacts_with_prior_compact_output(monkeypatch, tmp_path):
+    ordinary_path = "/silver/category=users/module=instance_metadata/instance_name=alpha/year=2026/month=06/day=11/source.parquet"
+    compact_path = "/silver/category=users/module=instance_metadata/instance_name=alpha/year=2026/month=06/day=11/compact_silver-1-0001.parquet"
+    selected_records = _users_selected_records(module="instance_metadata") + _users_selected_records(
+        module="instance_metadata", source_name="compact_silver-1-0001.parquet"
+    )
+    partition = discovery.SelectedPartitionPaths(
+        category="users",
+        module="instance_metadata",
+        instance_name="alpha",
+        year="2026",
+        month="06",
+        day="11",
+        selected_records=selected_records,
+    )
+    source_frames = {
+        "bucket/root" + ordinary_path: pd.DataFrame(
+            [
+                {
+                    "instance_name": "alpha",
+                    "run_ts": "2026-06-11T01:02:03Z",
+                    "users_login": "restored",
+                    "users_enabled": "true",
+                    "legacy_field": "same",
+                },
+                {
+                    "instance_name": "alpha",
+                    "run_ts": "2026-06-11T02:03:04Z",
+                    "users_login": "new",
+                    "users_enabled": "true",
+                },
+            ]
+        ),
+        "bucket/root" + compact_path: pd.DataFrame(
+            [
+                {
+                    "instance_name": "alpha",
+                    "run_ts": "2026-06-11T01:02:03Z",
+                    "users_login": "restored",
+                    "users_enabled": "true",
+                    "extras": '{"legacy_field":"same"}',
+                },
+                {
+                    "instance_name": "alpha",
+                    "run_ts": "2026-06-11T00:00:00Z",
+                    "users_login": "compact-only",
+                    "users_enabled": "true",
+                },
+            ]
+        ),
+    }
+    folder = _MemoryFolder()
+    folder.files[ordinary_path] = b"source"
+    folder.files[compact_path] = b"compact"
+    source_parquet_paths = {}
+    for index, (full_path, source_df) in enumerate(source_frames.items(), start=1):
+        source_parquet_path = tmp_path / f"source-{index}.parquet"
+        source_df.to_parquet(source_parquet_path, index=False, engine="pyarrow")
+        source_parquet_paths[full_path] = source_parquet_path
+
+    def fake_read(_storage_ctx, *, full_paths):
+        return pd.concat(
+            [pd.read_parquet(source_parquet_paths[path], engine="pyarrow") for path in full_paths],
+            ignore_index=True,
+        )
+
+    def fake_upload(**kwargs):
+        buf = io.BytesIO()
+        kwargs["df"].to_parquet(buf, index=False, engine="pyarrow", compression="snappy")
+        folder.files[f"/{str(kwargs['output_path']).lstrip('/')}"] = buf.getvalue()
+        return True
+
+    monkeypatch.setattr(replay, "read_s3_parquet_file_batch", fake_read)
+    monkeypatch.setattr(replay, "get_managed_folder_handle", lambda target: folder)
+    monkeypatch.setattr(replay, "upload_parquet", fake_upload)
+    monkeypatch.setattr(replay, "next_compact_save_epoch_ms", lambda: 1790966945713)
+    monkeypatch.setattr(replay, "check_silver_dq", lambda df: replay.DQResult(ok=True, errors=[]))
+
+    outcome = replay.process_compact_selected_partition(
+        storage_ctx=object(),
+        target=object(),
+        selected_partition=partition,
+        normalize_silver_mode=True,
+        processing_mode="module_contract_normalization",
+        s3_read_batch_size=1,
+        output_chunk_size=100,
+    )
+
+    assert outcome.status == "succeeded"
+    assert outcome.files_read == 2
+    assert outcome.raw_rows == 4
+    assert outcome.input_rows == 4
+    assert outcome.metrics[0].rows == 3
+    assert outcome.deleted_count == 2
+    assert set(folder.deleted) == {ordinary_path, compact_path}
+    assert len(outcome.metrics) == 1
+    assert outcome.written_count == 1
+
+    replacement_paths = [path for path in folder.files if "compact_silver-1790966945713" in path]
+    assert len(replacement_paths) == 1
+    readback_path = tmp_path / "restored-overlap.parquet"
+    readback_path.write_bytes(folder.files[replacement_paths[0]])
+    schema = pq.read_schema(readback_path)
+    assert schema.field("run_ts").type == pa.timestamp("ns", tz="UTC")
+    rows = duckdb.connect(":memory:").execute(
+        "SELECT users_login, extras FROM read_parquet(?) ORDER BY users_login",
+        [str(readback_path)],
+    ).fetchall()
+    assert rows == [
+        ("compact-only", None),
+        ("new", None),
+        ("restored", '{"legacy_field": "same"}'),
+    ]

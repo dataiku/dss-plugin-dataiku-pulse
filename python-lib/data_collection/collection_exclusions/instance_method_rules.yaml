@@ -10,6 +10,7 @@ methods:
     call_mode: auto
     cleanup_mode: python_hook
     notes: Drop secret-like columns and keep connection snapshots stable.
+    
   list_imported_bundles:
     enabled: true
     call_mode: auto
