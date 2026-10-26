@@ -2,6 +2,9 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App, {
   LicensePerformanceSection,
+  MonthlyObservedActorsChart,
+  UsersActivityPage,
+  UsersDirectoryPage,
   buildObservedActivityWindowDisplay,
   buildSecondaryActivityTiles,
   buildLicenseUtilizationTrendSeries,
@@ -10,6 +13,572 @@ import App, {
   checkPagePermission,
   validatePageRegistry,
 } from './App';
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
+function jsonResponse(payload) {
+  return Promise.resolve({ ok: true, json: async () => payload });
+}
+
+describe('MonthlyObservedActorsChart', () => {
+  const renderChart = (points) => render(
+    <MonthlyObservedActorsChart
+      title="Adoption trend"
+      points={points}
+      xAxisLabel="Week"
+      yAxisLabel="Users"
+      emptyLabel="No adoption data."
+      ariaLabel="Adoption trend chart"
+    />
+  );
+
+  test('renders twelve weekly points with bounded valid tick labels', () => {
+    const points = Array.from({ length: 12 }, (_, index) => ({
+      label: `Week ${index + 1}`,
+      value: 0,
+    }));
+
+    renderChart(points);
+
+    const chart = screen.getByLabelText('Adoption trend chart');
+    expect(chart.querySelectorAll('circle')).toHaveLength(12);
+    expect(chart.querySelectorAll('.PulseMonthlyChartTickLabel:not(.PulseMonthlyChartTickLabelY)')).toHaveLength(6);
+    expect(screen.getByText('Week 1')).toBeInTheDocument();
+    expect(screen.getByText('Week 12')).toBeInTheDocument();
+  });
+
+  test('renders short monthly, quarterly, one-point, and empty series safely', () => {
+    const { unmount } = renderChart([
+      { label: 'Aug 2026', value: 1 },
+      { label: 'Sep 2026', value: 2 },
+      { label: 'Oct 2026', value: 3 },
+    ]);
+    expect(screen.getByLabelText('Adoption trend chart').querySelectorAll('circle')).toHaveLength(3);
+    expect(screen.getByText('Aug 2026')).toBeInTheDocument();
+    expect(screen.getByText('Oct 2026')).toBeInTheDocument();
+    unmount();
+
+    const quarterly = renderChart([
+      { label: 'Q1 2026', value: 0 },
+      { label: 'Q2 2026', value: 0 },
+      { label: 'Q3 2026', value: 0 },
+      { label: 'Q4 2026', value: 0 },
+    ]);
+    expect(screen.getByLabelText('Adoption trend chart').querySelectorAll('circle')).toHaveLength(4);
+    quarterly.unmount();
+
+    const single = renderChart([{ label: 'Only week', value: 0 }]);
+    expect(screen.getByLabelText('Adoption trend chart').querySelectorAll('circle')).toHaveLength(1);
+    single.unmount();
+
+    renderChart([]);
+    expect(screen.getByText('No adoption data.')).toBeInTheDocument();
+  });
+
+  test('renders aligned multi-series lines and all-hidden state', () => {
+    const periods = [
+      { periodStart: '2026-10-05', label: 'Week 1' },
+      { periodStart: '2026-10-12', label: 'Week 2' },
+      { periodStart: '2026-10-19', label: 'Week 3', isPartialPeriod: true },
+    ];
+    const series = [
+      {
+        key: 'all',
+        label: 'All instances',
+        color: '#111827',
+        isAggregate: true,
+        visible: true,
+        points: [
+          { periodStart: '2026-10-19', value: 3 },
+          { periodStart: '2026-10-05', value: 1 },
+          { periodStart: '2026-10-12', value: 2 },
+        ],
+      },
+      {
+        key: 'instance:inst-a',
+        label: 'inst-a',
+        color: '#7c3aed',
+        visible: true,
+        points: [
+          { periodStart: '2026-10-05', value: 0 },
+          { periodStart: '2026-10-12', value: 2 },
+          { periodStart: '2026-10-19', value: 0 },
+        ],
+      },
+    ];
+
+    const { rerender } = render(
+      <MonthlyObservedActorsChart
+        title="Adoption trend"
+        periods={periods}
+        series={series}
+        showLegend
+        xAxisLabel="Week"
+        yAxisLabel="Users"
+        ariaLabel="Adoption trend chart"
+      />
+    );
+
+    const chart = screen.getByLabelText('Adoption trend chart');
+    expect(chart.querySelectorAll('.PulseMonthlyChartLine')).toHaveLength(2);
+    expect(chart.querySelectorAll('circle')).toHaveLength(6);
+    expect(screen.getByRole('button', { name: 'All instances' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('img', { name: /Week 3 \(in progress\).*All instances: 3.*inst-a: 0/ })).toBeInTheDocument();
+
+    rerender(
+      <MonthlyObservedActorsChart
+        title="Adoption trend"
+        periods={periods}
+        series={series.map((item) => ({ ...item, visible: false }))}
+        showLegend
+        xAxisLabel="Week"
+        yAxisLabel="Users"
+        ariaLabel="Adoption trend chart"
+      />
+    );
+    expect(screen.getByText('Select a series to display.')).toBeInTheDocument();
+  });
+
+  test('keeps valid zero distinct from unavailable observations', () => {
+    const periods = [
+      { periodStart: '2026-10-01', label: 'Oct' },
+      { periodStart: '2026-11-01', label: 'Nov' },
+      { periodStart: '2026-12-01', label: 'Dec' },
+      { periodStart: '2027-01-01', label: 'Jan' },
+      { periodStart: '2027-02-01', label: 'Feb' },
+      { periodStart: '2027-03-01', label: 'Mar' },
+      { periodStart: '2027-04-01', label: 'Apr' },
+      { periodStart: '2027-05-01', label: 'May' },
+      { periodStart: '2027-06-01', label: 'Jun' },
+      { periodStart: '2027-07-01', label: 'Jul' },
+      { periodStart: '2027-08-01', label: 'Aug' },
+      { periodStart: '2027-09-01', label: 'Sep' },
+    ];
+    const coercibleObject = { valueOf: () => 7 };
+    render(
+      <MonthlyObservedActorsChart
+        title="Adoption trend"
+        periods={periods}
+        series={[
+          {
+            key: 'all',
+            label: 'All instances',
+            color: '#111827',
+            visible: true,
+            points: [
+              { periodStart: '2026-10-01', value: 0 },
+              { periodStart: '2026-11-01', value: null },
+              { periodStart: '2026-12-01', value: '' },
+              { periodStart: '2027-01-01', value: 'bad' },
+              { periodStart: '2027-02-01', value: -1 },
+              { periodStart: '2027-03-01', value: '5' },
+              { periodStart: '2027-04-01', value: '0' },
+              { periodStart: '2027-05-01', value: false },
+              { periodStart: '2027-06-01', value: true },
+              { periodStart: '2027-07-01', value: [] },
+              { periodStart: '2027-08-01', value: [5] },
+              { periodStart: '2027-09-01', value: coercibleObject },
+            ],
+          },
+        ]}
+        showLegend
+        xAxisLabel="Month"
+        yAxisLabel="Users"
+        ariaLabel="Adoption trend chart"
+      />
+    );
+
+    const chart = screen.getByLabelText('Adoption trend chart');
+    expect(chart.querySelectorAll('circle')).toHaveLength(3);
+    expect(chart.querySelector('.PulseMonthlyChartLine').getAttribute('d')).toMatch(/^M [^ ]+ [^ ]+ M /);
+    expect(screen.getByRole('img', { name: /Oct\. All instances: 0/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Nov\. All instances: Unavailable/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Feb\. All instances: Unavailable/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Mar\. All instances: 5/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Apr\. All instances: 0/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /May\. All instances: Unavailable/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Jun\. All instances: Unavailable/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Jul\. All instances: Unavailable/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Aug\. All instances: Unavailable/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Sep\. All instances: Unavailable/ })).toBeInTheDocument();
+  });
+});
+
+describe('UsersActivityPage adoption trends request state', () => {
+  const originalFetch = global.fetch;
+
+  const adoptionPayload = ({ period = 'monthly', formalAvailable = true, activeUsers = 2, observedActiveUsers, formalActiveUsers, instances = ['inst-a', 'inst-b'], includeMalformedCounts = false } = {}) => ({
+    ok: true,
+    period,
+    reportingDateConvention: 'Test reporting clock.',
+    periods: [
+      { periodStart: '2026-08-01', periodEnd: '2026-09-01', label: period === 'weekly' ? 'Week 1' : period === 'quarterly' ? 'Q2 2026' : 'Aug 2026', isCurrentPeriod: false, isPartialPeriod: false },
+      { periodStart: '2026-09-01', periodEnd: '2026-10-01', label: period === 'weekly' ? 'Week 2' : period === 'quarterly' ? 'Q3 2026' : 'Sep 2026', isCurrentPeriod: false, isPartialPeriod: false },
+      { periodStart: '2026-10-01', periodEnd: '2026-11-01', label: period === 'weekly' ? 'Oct 19–25, 2026' : period === 'quarterly' ? 'Q4 2026' : 'Oct 2026', isCurrentPeriod: true, isPartialPeriod: true },
+    ],
+    observed: {
+      aggregate: [
+        { label: 'Aug 2026', periodStart: '2026-08-01', active_users: 1 },
+        { label: 'Sep 2026', periodStart: '2026-09-01', active_users: includeMalformedCounts ? null : 0 },
+        { label: 'Oct 2026', periodStart: '2026-10-01', active_users: observedActiveUsers ?? activeUsers, isCurrentPeriod: true, isPartialPeriod: true },
+      ],
+      byInstance: instances.flatMap((instanceName, index) => [
+        { label: 'Oct 2026', periodStart: '2026-10-01', instance_name: instanceName, active_users: index === 0 ? (observedActiveUsers ?? activeUsers) : 0 },
+        { label: 'Aug 2026', periodStart: '2026-08-01', instance_name: instanceName, active_users: index === 0 ? 1 : 0 },
+        { label: 'Sep 2026', periodStart: '2026-09-01', instance_name: instanceName, active_users: includeMalformedCounts && index === 0 ? 'bad' : 0 },
+      ]),
+      history: { firstObservation: '2026-10-01 00:00:00', lastObservation: '2026-10-21 00:00:00' },
+    },
+    formal: formalAvailable
+      ? {
+          available: true,
+          aggregate: [
+            { label: 'Aug 2026', periodStart: '2026-08-01', active_users: includeMalformedCounts ? undefined : 0 },
+            { label: 'Sep 2026', periodStart: '2026-09-01', active_users: 1 },
+            { label: 'Oct 2026', periodStart: '2026-10-01', active_users: formalActiveUsers ?? activeUsers, isCurrentPeriod: true, isPartialPeriod: true },
+          ],
+          byInstance: instances.flatMap((instanceName, index) => [
+            { label: 'Aug 2026', periodStart: '2026-08-01', instance_name: instanceName, active_users: 0 },
+            { label: 'Sep 2026', periodStart: '2026-09-01', instance_name: instanceName, active_users: index === 0 ? 1 : 0 },
+            { label: 'Oct 2026', periodStart: '2026-10-01', instance_name: instanceName, active_users: index === 0 ? (formalActiveUsers ?? activeUsers) : 0 },
+          ]),
+          byProfile: [{ license_group: 'Creator Licenses', userProfile: 'DESIGNER', active_users: formalActiveUsers ?? activeUsers }],
+          byInstanceProfile: [{ instance_name: 'inst-a', license_group: 'Creator Licenses', userProfile: 'DESIGNER', active_users: formalActiveUsers ?? activeUsers }],
+          currentPeriod: { label: 'Oct 2026', periodStart: '2026-10-01', active_users: formalActiveUsers ?? activeUsers, isCurrentPeriod: true },
+        }
+      : { available: false, reason: 'formal_mau_view_missing' },
+  });
+
+  const installFetch = ({ adoptionHandler }) => {
+    global.fetch = jest.fn((url, options = {}) => {
+      const target = String(url);
+      if (target.includes('/api/build/users/adoption-trends')) return adoptionHandler(url, options);
+      if (target.includes('/api/build/users/facets')) return jsonResponse({ ok: true, instances: ['aardvark', 'alpha', 'mazzei_pulse', 'zulu'] });
+      if (target.includes('/api/build/users/kpis')) return jsonResponse({ ok: true, kpis: {}, byInstance: [] });
+      if (target.includes('/api/build/users/segments')) return jsonResponse({ ok: true, rows: [], totals: {} });
+      if (target.includes('/api/build/users/stickiness')) return jsonResponse({ ok: true, series: [], latest: null });
+      if (target.includes('/api/build/users/leaderboard')) return jsonResponse({ ok: true, viewing: [], developing: [] });
+      return jsonResponse({ ok: true });
+    });
+  };
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  test('shows local loading, success zero, formal unavailable, and failure states', async () => {
+    const first = deferred();
+    let responseMode = 'pending';
+    installFetch({
+      adoptionHandler: () => {
+        if (responseMode === 'pending') return first.promise;
+        if (responseMode === 'formalUnavailable') return jsonResponse(adoptionPayload({ formalAvailable: false, activeUsers: 0 }));
+        return Promise.resolve({ ok: true, json: async () => ({ ok: false, error: 'adoption failed' }) });
+      },
+    });
+
+    render(<UsersActivityPage apiBase="" />);
+    await waitFor(() => expect(global.fetch.mock.calls.some(([url]) => String(url).includes('/api/build/users/adoption-trends'))).toBe(true));
+    expect(await screen.findByRole('status')).toHaveTextContent('Loading adoption trends');
+    expect(screen.queryByText('Formal monthly active users (MAU)')).not.toBeInTheDocument();
+
+    await act(async () => {
+      first.resolve({ ok: true, json: async () => adoptionPayload({ activeUsers: 0 }) });
+    });
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(screen.getAllByText('Formal monthly active users (MAU)').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Oct 2026 — In progress/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('0').length).toBeGreaterThan(0);
+
+    responseMode = 'formalUnavailable';
+    fireEvent.click(screen.getByRole('tab', { name: 'Weekly' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Loading adoption trends');
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(screen.getByText('Formal active user data is not available in this environment.')).toBeInTheDocument();
+
+    responseMode = 'failure';
+    fireEvent.click(screen.getByRole('tab', { name: 'Quarterly' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('adoption failed');
+    expect(screen.queryByText('Qualifying quarterly active users')).not.toBeInTheDocument();
+  });
+
+  test('ignores stale adoption responses during rapid tab changes', async () => {
+    const requests = [];
+    installFetch({
+      adoptionHandler: (url) => {
+        const pending = deferred();
+        requests.push({ url: String(url), ...pending });
+        return pending.promise;
+      },
+    });
+
+    render(<UsersActivityPage apiBase="" />);
+    await waitFor(() => expect(requests).toHaveLength(1));
+    fireEvent.click(screen.getByRole('tab', { name: 'Weekly' }));
+    await waitFor(() => expect(requests).toHaveLength(2));
+
+    await act(async () => {
+      requests[0].resolve({ ok: true, json: async () => adoptionPayload({ period: 'monthly', activeUsers: 9 }) });
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('Loading adoption trends for weekly');
+    expect(screen.queryByText('Formal monthly active users (MAU)')).not.toBeInTheDocument();
+
+    await act(async () => {
+      requests[1].resolve({ ok: true, json: async () => adoptionPayload({ period: 'weekly', activeUsers: 3 }) });
+    });
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(screen.getAllByText('Qualifying weekly active users').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  test('toggles observed and formal instance lines independently without refetching', async () => {
+    installFetch({ adoptionHandler: () => jsonResponse(adoptionPayload({ activeUsers: 4 })) });
+
+    render(<UsersActivityPage apiBase="" />);
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    const adoptionCallsBeforeToggle = global.fetch.mock.calls.filter(([url]) => String(url).includes('/api/build/users/adoption-trends')).length;
+    const charts = screen.getAllByLabelText('Monthly Calendar observed users line chart');
+    const formalCharts = screen.getAllByLabelText('Monthly Calendar qualifying formal users line chart');
+    expect(charts[0].querySelectorAll('.PulseMonthlyChartLine')).toHaveLength(3);
+    expect(formalCharts[0].querySelectorAll('.PulseMonthlyChartLine')).toHaveLength(3);
+
+    const legendGroups = screen.getAllByLabelText(/series controls/);
+    fireEvent.click(within(legendGroups[0]).getByRole('button', { name: 'inst-a' }));
+    expect(screen.getAllByLabelText('Monthly Calendar observed users line chart')[0].querySelectorAll('.PulseMonthlyChartLine')).toHaveLength(2);
+    expect(screen.getAllByLabelText('Monthly Calendar qualifying formal users line chart')[0].querySelectorAll('.PulseMonthlyChartLine')).toHaveLength(3);
+
+    fireEvent.click(within(legendGroups[1]).getByRole('button', { name: 'All instances' }));
+    expect(screen.getAllByLabelText('Monthly Calendar qualifying formal users line chart')[0].querySelectorAll('.PulseMonthlyChartLine')).toHaveLength(2);
+    expect(global.fetch.mock.calls.filter(([url]) => String(url).includes('/api/build/users/adoption-trends'))).toHaveLength(adoptionCallsBeforeToggle);
+  });
+
+  test('shows current-period observed and formal totals beside matching breakdowns', async () => {
+    installFetch({ adoptionHandler: () => jsonResponse(adoptionPayload({ observedActiveUsers: 3, formalActiveUsers: 2 })) });
+
+    render(<UsersActivityPage apiBase="" />);
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+
+    const summaryTileFor = (label) => screen.getAllByText(label)
+      .map((node) => node.closest('.PulseAdoptionSummaryTile'))
+      .find(Boolean);
+    expect(summaryTileFor('Monthly active users')).toHaveTextContent('3');
+    expect(summaryTileFor('Monthly active users')).toHaveTextContent('Oct 2026 — In progress');
+    expect(summaryTileFor('Formal monthly active users (MAU)')).toHaveTextContent('2');
+    expect(summaryTileFor('Formal monthly active users (MAU)')).toHaveTextContent('Oct 2026 — In progress');
+
+    fireEvent.change(screen.getByLabelText('Show instance comparison'), { target: { value: 'hide' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(screen.queryByText('By instance (Oct 2026)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Formal monthly active users (MAU) by instance (Oct 2026)')).not.toBeInTheDocument();
+    expect(summaryTileFor('Monthly active users')).toHaveTextContent('3');
+    expect(summaryTileFor('Formal monthly active users (MAU)')).toHaveTextContent('2');
+  });
+
+  test('keeps instance colors stable across filtered response scopes', async () => {
+    const responses = [
+      adoptionPayload({ instances: ['alpha', 'mazzei_pulse', 'zulu'] }),
+      adoptionPayload({ instances: ['mazzei_pulse'] }),
+      adoptionPayload({ instances: ['aardvark', 'alpha', 'mazzei_pulse', 'zulu'] }),
+    ];
+    installFetch({ adoptionHandler: () => jsonResponse(responses.shift() || adoptionPayload()) });
+
+    render(<UsersActivityPage apiBase="" />);
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    const legendGroups = () => screen.getAllByLabelText(/series controls/);
+    const swatchColor = (legendGroup, name) => within(legendGroup).getByRole('button', { name }).querySelector('.PulseChartLegendSwatch').style.backgroundColor;
+    const initialObservedColor = swatchColor(legendGroups()[0], 'mazzei_pulse');
+    const initialFormalColor = swatchColor(legendGroups()[1], 'mazzei_pulse');
+    expect(initialObservedColor).toBe(initialFormalColor);
+
+    fireEvent.change(screen.getByLabelText('Instance'), { target: { value: 'mazzei_pulse' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(swatchColor(legendGroups()[0], 'mazzei_pulse')).toBe(initialObservedColor);
+    expect(swatchColor(legendGroups()[1], 'mazzei_pulse')).toBe(initialObservedColor);
+
+    fireEvent.change(screen.getByLabelText('Instance'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(swatchColor(legendGroups()[0], 'mazzei_pulse')).toBe(initialObservedColor);
+    expect(swatchColor(legendGroups()[0], 'aardvark')).toBeTruthy();
+  });
+
+  test('does not turn missing or invalid API counts into zeros before charting', async () => {
+    installFetch({ adoptionHandler: () => jsonResponse(adoptionPayload({ includeMalformedCounts: true, activeUsers: 4 })) });
+
+    render(<UsersActivityPage apiBase="" />);
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+
+    expect(screen.getByRole('img', { name: /Sep 2026\. All instances: Unavailable/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Sep 2026\. All instances: 1/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Sep 2026\..*inst-a: Unavailable/ })).toBeInTheDocument();
+    expect(screen.getAllByRole('img', { name: /Sep 2026\..*inst-b: 0/ }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('img', { name: /Oct 2026 \(in progress\)\. All instances: 4/ }).length).toBeGreaterThan(0);
+  });
+});
+
+describe('UsersDirectoryPage', () => {
+  const originalFetch = global.fetch;
+
+  const makeDirectoryRow = (index, overrides = {}) => ({
+    login: `user-${index}`,
+    representativeLogin: `user-${index}`,
+    displayName: `User ${index}`,
+    email: `user-${index}@example.com`,
+    instances: 'inst-a',
+    licenseProfiles: 'DESIGNER',
+    accountStatus: 'Enabled',
+    latestActivityAt: '2026-10-07 00:00:00',
+    ...overrides,
+  });
+
+  const installDirectoryFetch = ({ total = 27, rowsForOffset, extraHandler } = {}) => {
+    global.fetch = jest.fn((url) => {
+      const target = String(url);
+      if (extraHandler) {
+        const response = extraHandler(target);
+        if (response) return response;
+      }
+      if (target.includes('/api/build/users/directory/facets')) {
+        return jsonResponse({
+          ok: true,
+          licenseGroups: [{ value: 'Creator Licenses', label: 'Creator Licenses' }, { value: 'Consumer Licenses', label: 'Consumer Licenses' }],
+          licenseProfiles: [{ value: 'DESIGNER', label: 'DESIGNER' }, { value: 'READER', label: 'READER' }],
+        });
+      }
+      if (target.includes('/api/build/users/directory')) {
+        const parsed = new URL(target, 'http://test.local');
+        const limit = Number(parsed.searchParams.get('limit') || 25);
+        const offset = Number(parsed.searchParams.get('offset') || 0);
+        const rows = rowsForOffset
+          ? rowsForOffset(offset, limit)
+          : Array.from({ length: Math.max(0, Math.min(limit, total - offset)) }, (_, index) => makeDirectoryRow(offset + index + 1));
+        return jsonResponse({ ok: true, rows, total, limit, offset });
+      }
+      if (target.includes('/api/build/users/facets')) return jsonResponse({ ok: true, instances: ['inst-a', 'inst-b'] });
+      return jsonResponse({ ok: true });
+    });
+  };
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  test('lists collected users, applies filters, pages, and opens organization user card', async () => {
+    installDirectoryFetch({
+      rowsForOffset: (offset) => offset === 0
+        ? [
+            makeDirectoryRow(1, { login: 'alice', representativeLogin: 'Alice', displayName: 'Alice A', email: 'alice@example.com', instances: 'inst-a, inst-b', licenseProfiles: 'DESIGNER, READER', accountStatus: 'Mixed' }),
+            makeDirectoryRow(2, { login: 'bob', representativeLogin: 'bob', displayName: 'Bob Builder', email: 'bob@example.com', licenseProfiles: 'READER', accountStatus: 'Disabled', latestActivityAt: null }),
+          ]
+        : [makeDirectoryRow(26), makeDirectoryRow(27)],
+      extraHandler: (target) => {
+        if (target.includes('/api/build/users/alice/top-projects')) return jsonResponse({ ok: true, rows: [] });
+        if (target.includes('/api/build/users/alice')) return jsonResponse({ ok: true, user: { login: 'alice', display_name: 'Alice A' }, instances: [], summary: null, activityDaily: [], activityMonthly: [] });
+        return null;
+      },
+    });
+
+    render(<UsersDirectoryPage apiBase="" />);
+    await waitFor(() => expect(screen.getByText('Alice A')).toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: 'User Directory' })).toBeInTheDocument();
+    expect(screen.getByText('Bob Builder')).toBeInTheDocument();
+    expect(screen.getByText('No recorded activity')).toBeInTheDocument();
+    expect(screen.getByText('Showing 1–25 of 27 matching users')).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Action' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'View details' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('columnheader')).toHaveLength(6);
+
+    fireEvent.change(screen.getByLabelText('Search'), { target: { value: 'alice@example.com' } });
+    fireEvent.change(screen.getByLabelText('Instance'), { target: { value: 'inst-a' } });
+    fireEvent.change(screen.getByLabelText('Account status'), { target: { value: 'enabled' } });
+    fireEvent.change(screen.getByLabelText('License group'), { target: { value: 'Creator Licenses' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }));
+    await waitFor(() => {
+      const directoryCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('/api/build/users/directory?'));
+      expect(String(directoryCalls[directoryCalls.length - 1][0])).toContain('q=alice%40example.com');
+      expect(String(directoryCalls[directoryCalls.length - 1][0])).toContain('instance_name=inst-a');
+      expect(String(directoryCalls[directoryCalls.length - 1][0])).toContain('account_status=enabled');
+      expect(String(directoryCalls[directoryCalls.length - 1][0])).toContain('license_group=Creator+Licenses');
+    });
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Next' })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => {
+      const directoryCalls = global.fetch.mock.calls.filter(([url]) => String(url).includes('/api/build/users/directory?'));
+      expect(String(directoryCalls[directoryCalls.length - 1][0])).toContain('offset=25');
+    });
+    expect(await screen.findByText('User 26')).toBeInTheDocument();
+    expect(screen.getByText('User 27')).toBeInTheDocument();
+    expect(screen.queryByText('Alice A')).not.toBeInTheDocument();
+
+    const userButton = screen.getByRole('button', { name: 'User 26' });
+    userButton.focus();
+    fireEvent.keyDown(userButton, { key: 'Enter', code: 'Enter' });
+    fireEvent.click(userButton);
+    expect(await screen.findByText('user-26 user card')).toBeInTheDocument();
+    await waitFor(() => expect(global.fetch.mock.calls.some(([url]) => String(url).includes('/api/build/users/user-26?window=last_3_months&instance_name=inst-a'))).toBe(true));
+    expect(screen.getByText('Showing 26–27 of 27 matching users')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByText('user-26 user card')).not.toBeInTheDocument());
+    await waitFor(() => expect(userButton).toHaveFocus());
+    expect(screen.getByText('Showing 26–27 of 27 matching users')).toBeInTheDocument();
+  });
+
+  test('empty directory keeps the six-column table structure', async () => {
+    installDirectoryFetch({ total: 0 });
+
+    const { container } = render(<UsersDirectoryPage apiBase="" />);
+
+    expect(await screen.findByText('No collected users match the current filters.')).toBeInTheDocument();
+    expect(screen.getAllByRole('columnheader')).toHaveLength(6);
+    expect(screen.queryByRole('columnheader', { name: 'Action' })).not.toBeInTheDocument();
+    expect(container.querySelector('td[colspan="6"]')).toHaveTextContent('No collected users match the current filters.');
+  });
+
+  test.each([
+    { total: 27, ranges: ['Showing 1–25 of 27 matching users', 'Showing 26–27 of 27 matching users'] },
+    { total: 60, ranges: ['Showing 1–25 of 60 matching users', 'Showing 26–50 of 60 matching users', 'Showing 51–60 of 60 matching users'] },
+    { total: 50, ranges: ['Showing 1–25 of 50 matching users', 'Showing 26–50 of 50 matching users'] },
+    { total: 1, ranges: ['Showing 1–1 of 1 matching users'] },
+    { total: 0, ranges: ['Showing 0–0 of 0 matching users'] },
+  ])('traverses non-overlapping directory pages for total=$total', async ({ total, ranges }) => {
+    installDirectoryFetch({ total });
+
+    render(<UsersDirectoryPage apiBase="" />);
+    expect(await screen.findByText(ranges[0])).toBeInTheDocument();
+    const seenDisplayNames = new Set(screen.queryAllByText(/^User \d+$/).map((node) => node.textContent));
+
+    for (let pageIndex = 1; pageIndex < ranges.length; pageIndex += 1) {
+      expect(screen.getByRole('button', { name: 'Next' })).not.toBeDisabled();
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+      expect(await screen.findByText(ranges[pageIndex])).toBeInTheDocument();
+      const expectedFirstRow = (pageIndex * 25) + 1;
+      expect(await screen.findByText(`User ${expectedFirstRow}`)).toBeInTheDocument();
+      screen.queryAllByText(/^User \d+$/).forEach((node) => {
+        expect(seenDisplayNames.has(node.textContent)).toBe(false);
+        seenDisplayNames.add(node.textContent);
+      });
+    }
+
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+    if (ranges.length > 1) {
+      fireEvent.click(screen.getByRole('button', { name: 'Prev' }));
+      expect(await screen.findByText(ranges[ranges.length - 2])).toBeInTheDocument();
+    } else {
+      expect(screen.getByRole('button', { name: 'Prev' })).toBeDisabled();
+    }
+  });
+});
 
 describe('user activity observed windows', () => {
   const formatNumber = (value) => Number(value ?? 0).toLocaleString();
@@ -664,6 +1233,19 @@ describe('Pulse page registry', () => {
     const pages = build({ userActivityEnabled: false });
     expect(pages.some((page) => page.key === 'org-users')).toBe(false);
     expect(pages.some((page) => page.key === 'org-users-licenses')).toBe(false);
+    expect(pages.some((page) => page.key === 'org-users-directory')).toBe(false);
+  });
+
+  test('organization user pages live under Users group including directory', () => {
+    const pages = build();
+    const userPages = pages
+      .filter((page) => page.workspace === 'organization' && page.group === 'Users')
+      .map((page) => ({ key: page.key, label: page.label, route: page.route }));
+    expect(userPages).toEqual([
+      { key: 'org-users', label: 'Activity Performance', route: 'users' },
+      { key: 'org-users-licenses', label: 'License Performance', route: 'users/licenses' },
+      { key: 'org-users-directory', label: 'User Directory', route: 'users/directory' },
+    ]);
   });
 
   test('all visible pages pass capability checks in authorized context', () => {
@@ -766,6 +1348,7 @@ describe('Pulse page registry', () => {
     const pages = build();
     expect(pages.find((page) => page.key === 'my-overview')?.group).toBe('My Information');
     expect(pages.find((page) => page.key === 'org-users')?.route).toBe('users');
+    expect(pages.find((page) => page.key === 'org-users')?.group).toBe('Users');
     expect(pages.find((page) => page.key === 'admin-overview')?.group).toBe('Administration');
   });
 
