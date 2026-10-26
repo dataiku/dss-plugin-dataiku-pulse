@@ -49,7 +49,7 @@ weasyprint==70.0
 # # Misc / Core Utilities
 # =========================
 cryptography==50.0.0
-filelock==3.29.0
+filelock==4.2.1
 fsspec==2026.9.0
 joblib==1.5.3
 tqdm==4.67.3
