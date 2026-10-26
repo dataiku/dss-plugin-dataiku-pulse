@@ -174,6 +174,36 @@ def _has_administration_access() -> bool:
     return any(str(group).strip().lower() == administration_group for group in groups)
 
 
+def _has_organization_access() -> bool:
+    from pulse_dashboard.webapp_backend.full_backend import is_local_dev
+    from pulse_dashboard.webapp_backend.services.users import _read_standard_project_variables
+
+    if is_local_dev():
+        return True
+
+    if _has_administration_access():
+        return True
+
+    standard = _read_standard_project_variables() or {}
+    organization_owner = standard.get("organization_owner")
+    if isinstance(organization_owner, dict):
+        organization_group = str(organization_owner.get("value") or "").strip().lower()
+    else:
+        organization_group = str(organization_owner or "").strip().lower()
+    if not organization_group:
+        return False
+
+    auth_info = _current_user_auth_info() or {}
+    groups = _parse_group_names(auth_info.get("groups") or auth_info.get("userGroups") or auth_info.get("groupNames"))
+    normalized_groups = {str(group).strip().lower() for group in groups}
+    return organization_group in normalized_groups or _has_administration_access()
+
+
+def _require_organization_access() -> None:
+    if not _has_organization_access():
+        raise PermissionError("Organization access is required.")
+
+
 def _require_debug_access() -> None:
     from pulse_dashboard.webapp_backend.full_backend import is_local_dev
 

@@ -128,6 +128,131 @@ def test_queue_can_include_compact_outputs_only_when_explicit(monkeypatch):
         queue.close()
 
 
+def test_queue_includes_overlapping_non_event_mapping_compact_outputs_by_default(
+    monkeypatch,
+):
+    import data_collection.audit_logs_modules.compact_silver_queue as queue_module
+
+    ordinary_path = "/silver/category=users/module=instance_metadata/instance_name=alpha/year=2026/month=06/day=11/source.parquet"
+    compact_path = "/silver/category=users/module=instance_metadata/instance_name=alpha/year=2026/month=06/day=11/compact_silver-1790966945713-0001.parquet"
+    second_compact_path = "/silver/category=users/module=instance_metadata/instance_name=alpha/year=2026/month=06/day=11/compact_silver-1790966945714-0001.parquet"
+    other_day_compact_path = "/silver/category=users/module=instance_metadata/instance_name=alpha/year=2026/month=06/day=10/compact_silver-1790966945713-0001.parquet"
+    other_instance_compact_path = "/silver/category=users/module=instance_metadata/instance_name=beta/year=2026/month=06/day=11/compact_silver-1790966945713-0001.parquet"
+
+    monkeypatch.setattr(
+        queue_module,
+        "iter_managed_folder_paths",
+        lambda *args, **kwargs: iter(
+            [
+                compact_path,
+                other_day_compact_path,
+                other_instance_compact_path,
+                second_compact_path,
+                ordinary_path,
+            ]
+        ),
+    )
+    queue = CompactSilverQueue.create()
+    try:
+        summary = queue.populate_from_discovery(
+            storage_ctx=_Ctx(
+                connection_type="EC2", folder_root="root", bucket_or_container="bucket"
+            ),
+            relative_prefix="silver/category=users/module=instance_metadata/",
+            suffix=".parquet",
+            partition_filters={"category": "users", "module": "instance_metadata"},
+            minimum_age_days=1,
+            utc_today=date(2026, 6, 20),
+            insert_batch_size=1,
+        )
+
+        assert summary.filtered_matching_paths == 3
+        assert summary.skipped_compact_outputs == 2
+        assert summary.included_compact_outputs == 2
+        assert summary.eligible_paths == 3
+        assert summary.eligible_partition_count == 1
+        batch = queue.next_partition_batch(batch_size=1)
+        assert batch.selected_partitions[0].relative_paths == [
+            compact_path,
+            second_compact_path,
+            ordinary_path,
+        ]
+    finally:
+        queue.close()
+
+
+def test_queue_preserves_event_mapping_default_compact_skip_for_overlaps(monkeypatch):
+    import data_collection.audit_logs_modules.compact_silver_queue as queue_module
+
+    ordinary_path = "/silver/category=event_mapping/module=administration/instance_name=alpha/year=2026/month=06/day=11/source.parquet"
+    compact_path = "/silver/category=event_mapping/module=administration/instance_name=alpha/year=2026/month=06/day=11/compact_silver-1790966945713-0001.parquet"
+    monkeypatch.setattr(
+        queue_module,
+        "iter_managed_folder_paths",
+        lambda *args, **kwargs: iter([compact_path, ordinary_path]),
+    )
+    queue = CompactSilverQueue.create()
+    try:
+        summary = queue.populate_from_discovery(
+            storage_ctx=_Ctx(
+                connection_type="EC2", folder_root="root", bucket_or_container="bucket"
+            ),
+            relative_prefix="silver/category=event_mapping/module=administration/",
+            suffix=".parquet",
+            partition_filters={"category": "event_mapping", "module": "administration"},
+            minimum_age_days=1,
+            utc_today=date(2026, 6, 20),
+        )
+
+        assert summary.filtered_matching_paths == 1
+        assert summary.skipped_compact_outputs == 1
+        assert summary.included_compact_outputs == 0
+        assert summary.eligible_paths == 1
+        batch = queue.next_partition_batch(batch_size=1)
+        assert batch.selected_partitions[0].relative_paths == [ordinary_path]
+    finally:
+        queue.close()
+
+
+def test_queue_leaves_non_event_mapping_compact_only_partitions_untouched_by_default(
+    monkeypatch,
+):
+    import data_collection.audit_logs_modules.compact_silver_queue as queue_module
+
+    monkeypatch.setattr(
+        queue_module,
+        "iter_managed_folder_paths",
+        lambda *args, **kwargs: iter(
+            [
+                "/silver/category=users/module=instance_metadata/instance_name=alpha/year=2026/month=06/day=11/compact_silver-1790966945713-0001.parquet",
+                "/silver/category=users/module=instance_metadata/instance_name=alpha/year=2026/month=06/day=11/compact_silver-1790966945713-0002.parquet",
+            ]
+        ),
+    )
+    queue = CompactSilverQueue.create()
+    try:
+        summary = queue.populate_from_discovery(
+            storage_ctx=_Ctx(
+                connection_type="EC2", folder_root="root", bucket_or_container="bucket"
+            ),
+            relative_prefix="silver/category=users/module=instance_metadata/",
+            suffix=".parquet",
+            partition_filters={"category": "users", "module": "instance_metadata"},
+            minimum_age_days=1,
+            utc_today=date(2026, 6, 20),
+            raise_on_empty=False,
+        )
+
+        assert summary.filtered_matching_paths == 0
+        assert summary.skipped_compact_outputs == 2
+        assert summary.included_compact_outputs == 0
+        assert summary.eligible_paths == 0
+        assert summary.eligible_partition_count == 0
+        assert queue.queued_path_count() == 0
+    finally:
+        queue.close()
+
+
 def test_queue_returns_worker_sized_distinct_partitions_newest_first_with_stable_ties(
     monkeypatch,
 ):

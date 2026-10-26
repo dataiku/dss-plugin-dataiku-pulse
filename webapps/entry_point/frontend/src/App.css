@@ -994,6 +994,89 @@
   margin-bottom: 10px;
 }
 
+.PulseAdoptionTrendStack {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.PulseAdoptionTrendStack + .PulseAdoptionTrendStack {
+  margin-top: 14px;
+}
+
+.PulseAdoptionTrendStack .PulseChartCard {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.PulseAdoptionBreakdownRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.PulseAdoptionSummaryRow {
+  max-width: 420px;
+}
+
+.PulseAdoptionSummaryTile {
+  min-width: 0;
+}
+
+.PulseAdoptionSummaryTile .PulseSummaryCount {
+  font-size: 32px;
+}
+
+@media (max-width: 720px) {
+  .PulseAdoptionBreakdownRow {
+    grid-template-columns: 1fr;
+  }
+
+  .PulseAdoptionSummaryRow {
+    max-width: none;
+  }
+}
+
+.PulseChartLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.PulseChartLegendButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--pulse-border);
+  border-radius: 999px;
+  background: var(--pulse-bg-surface);
+  color: var(--pulse-text-muted);
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.PulseChartLegendButton:hover,
+.PulseChartLegendButton:focus-visible {
+  border-color: var(--pulse-accent);
+  color: var(--pulse-text);
+}
+
+.PulseChartLegendButtonActive {
+  color: var(--pulse-text);
+  background: var(--pulse-accent-soft);
+}
+
+.PulseChartLegendSwatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
 .PulseBarList {
   display: flex;
   flex-direction: column;
@@ -1186,6 +1269,22 @@
   fill: rgba(30, 136, 229, 1);
   stroke: var(--pulse-bg-surface);
   stroke-width: 2;
+}
+
+.PulseMonthlyChartUnavailableMark {
+  fill: var(--pulse-text-muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.PulseMonthlyChartFocusBand {
+  fill: transparent;
+  outline: none;
+}
+
+.PulseMonthlyChartFocusBand:hover,
+.PulseMonthlyChartFocusBand:focus-visible {
+  fill: rgba(30, 136, 229, 0.08);
 }
 
 .PulseMonthlyChartTickLabel {

@@ -833,6 +833,37 @@ def _duckdb_column_type_map(
     }
 
 
+def _deduplicate_staged_table_exact(
+    con: duckdb.DuckDBPyConnection, table_name: str, *, exclude_columns: set[str] | None = None
+) -> int:
+    exclude_columns = exclude_columns or set()
+    data_columns = [column for column in _duckdb_columns(con, table_name) if column not in exclude_columns]
+    if not data_columns:
+        return int(con.execute(f"SELECT COUNT(*) FROM {_quote_duckdb_identifier(table_name)}").fetchone()[0])
+
+    quoted_table = _quote_duckdb_identifier(table_name)
+    partition_sql = ", ".join(_quote_duckdb_identifier(column) for column in data_columns)
+    order_sql = _quote_duckdb_identifier(_STAGE_ORDER_COLUMN)
+    con.execute(
+        f"""
+        CREATE OR REPLACE TABLE {quoted_table} AS
+        SELECT *
+        FROM (
+            SELECT *, ROW_NUMBER() OVER (PARTITION BY {partition_sql} ORDER BY {order_sql}) AS _compact_exact_rank
+            FROM {quoted_table}
+        )
+        WHERE _compact_exact_rank = 1
+        ORDER BY {order_sql}
+        """.strip()
+    )
+    con.execute(f"ALTER TABLE {quoted_table} DROP COLUMN _compact_exact_rank")
+    return int(con.execute(f"SELECT COUNT(*) FROM {quoted_table}").fetchone()[0])
+
+
+def _deduplicate_dataframe_exact(df: pd.DataFrame) -> pd.DataFrame:
+    return df.drop_duplicates(ignore_index=True)
+
+
 def _restore_dataframe_types_from_duckdb_schema(
     df: pd.DataFrame, expected_duckdb_types: dict[str, str] | None
 ) -> pd.DataFrame:
@@ -1142,6 +1173,19 @@ def _stage_normalized_module_contract_chunks(
         raise ReplaySkipError(
             f"Module contract normalization produced no rows for category={category!r} module={module_name!r}"
         )
+
+    normalized_rows_before_exact_dedup = output_rows
+    output_rows = _deduplicate_staged_table_exact(
+        con, table_name, exclude_columns={_STAGE_ORDER_COLUMN}
+    )
+    logger.info(
+        "Compact SILVER module-contract normalization staged category=%s module=%s input_rows=%s normalized_rows=%s final_unique_rows=%s",
+        category,
+        module_name,
+        total_rows,
+        normalized_rows_before_exact_dedup,
+        output_rows,
+    )
 
     expected_duckdb_types = _duckdb_column_type_map(
         con, table_name, exclude_columns={_STAGE_ORDER_COLUMN}
@@ -1595,6 +1639,7 @@ def plan_compact_selected_day(
     )
 
     if effective_processing_mode == COMPACT_PROCESSING_MODE_GENERIC:
+        silver_df = _deduplicate_dataframe_exact(selected_df)
         output_path = build_compact_output_path(
             category=category,
             module_name=module_name,
@@ -1605,8 +1650,8 @@ def plan_compact_selected_day(
         )
         plan = ReplayWritePlan(
             output_path=output_path,
-            silver_df=selected_df.copy(),
-            dq=check_silver_dq(selected_df),
+            silver_df=silver_df,
+            dq=check_silver_dq(silver_df),
             module_name=module_name,
             event_date=selected_event_date,
         )
@@ -1635,6 +1680,7 @@ def plan_compact_selected_day(
             module_name=module_name,
             instance_name=instance_name,
         )
+        silver_df = _deduplicate_dataframe_exact(silver_df)
         dq = check_silver_dq(silver_df)
         output_path = build_compact_output_path(
             category=category,

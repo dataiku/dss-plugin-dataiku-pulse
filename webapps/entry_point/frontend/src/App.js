@@ -41,6 +41,15 @@ function appendScopeParams(path, extraParams) {
   return hashPart == null ? scopedPath : `${scopedPath}#${hashPart}`;
 }
 
+function parseNonnegativeFiniteCount(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+  const numericValue = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numericValue) || numericValue < 0) return null;
+  return numericValue;
+}
+
 function resolveSelfScopedRequestParams(requestParams, authState) {
   if (!requestParams || requestParams.scope !== 'self') return requestParams;
   const login = authState?.data?.user?.login || '';
@@ -2502,8 +2511,14 @@ function LlmMeshPlaceholderPage({ title, description }) {
   );
 }
 
-function UsersActivityPage({ apiBase }) {
+export function UsersActivityPage({ apiBase }) {
+  const ADOPTION_PERIOD_TABS = [
+    { key: 'weekly', label: 'Weekly', observedLabel: 'Weekly active users', formalLabel: 'Qualifying weekly active users', axisLabel: 'Week' },
+    { key: 'monthly', label: 'Monthly Calendar', observedLabel: 'Monthly active users', formalLabel: 'Formal monthly active users (MAU)', axisLabel: 'Month' },
+    { key: 'quarterly', label: 'Quarterly', observedLabel: 'Quarterly active users', formalLabel: 'Qualifying quarterly active users', axisLabel: 'Quarter' },
+  ];
   const [windowKind, setWindowKind] = useState('last_3_months');
+  const [adoptionPeriod, setAdoptionPeriod] = useState('monthly');
   const [selectedInstance, setSelectedInstance] = useState('');
   const [activityFilter, setActivityFilter] = useState('license_creator');
   const [showInstanceBreakdown, setShowInstanceBreakdown] = useState(true);
@@ -2534,6 +2549,14 @@ function UsersActivityPage({ apiBase }) {
   const [formalMauByInstanceProfile, setFormalMauByInstanceProfile] = useState([]);
   const [formalMauLatestMonth, setFormalMauLatestMonth] = useState(null);
   const [formalMauAvailable, setFormalMauAvailable] = useState(true);
+  const [adoptionPeriods, setAdoptionPeriods] = useState([]);
+  const [adoptionReportingConvention, setAdoptionReportingConvention] = useState('');
+  const [adoptionObservedHistory, setAdoptionObservedHistory] = useState({});
+  const [adoptionRequestState, setAdoptionRequestState] = useState({ status: 'idle', error: '' });
+  const adoptionRequestIdRef = useRef(0);
+  const [observedSeriesVisibility, setObservedSeriesVisibility] = useState({});
+  const [formalSeriesVisibility, setFormalSeriesVisibility] = useState({});
+  const instanceColorRegistryRef = useRef({});
   const [userSegments, setUserSegments] = useState([]);
   const [userSegmentTotals, setUserSegmentTotals] = useState(null);
   const [stickinessSeries, setStickinessSeries] = useState([]);
@@ -2671,52 +2694,42 @@ function UsersActivityPage({ apiBase }) {
 
   useEffect(() => {
     const controller = new AbortController();
+    const requestId = adoptionRequestIdRef.current + 1;
+    adoptionRequestIdRef.current = requestId;
     const params = new URLSearchParams();
-    params.set('window', windowParam.window);
-    if (selectedInstance) params.set('instance_name', selectedInstance);
-
-    clearRequestError();
-    beginLoad('formalMauMonthly');
-
-    fetchJson('/api/build/users/formal-mau-monthly', { params, signal: controller.signal })
-      .then((data) => {
-        setFormalMauAggregate(data.aggregate || []);
-        setFormalMauByInstance(data.byInstance || []);
-        setFormalMauByProfile(data.byProfile || []);
-        setFormalMauByInstanceProfile(data.byInstanceProfile || []);
-        setFormalMauLatestMonth(data.latestMonth || null);
-        setFormalMauAvailable(data.available !== false);
-      })
-      .catch((e) => {
-        if (!isAbortError(e)) setRequestError(e.message);
-      })
-      .finally(() => endLoad('formalMauMonthly'));
-
-    return () => controller.abort();
-  }, [beginLoad, clearRequestError, endLoad, fetchJson, selectedInstance, setRequestError, windowParam]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const params = new URLSearchParams();
-    params.set('window', windowParam.window);
+    params.set('period', adoptionPeriod);
     params.set('activityFilter', activityFilter);
     if (selectedInstance) params.set('instance_name', selectedInstance);
 
-    clearRequestError();
-    beginLoad('activeMonthly');
+    beginLoad('adoptionTrends');
+    setAdoptionRequestState({ status: 'loading', error: '' });
 
-    fetchJson('/api/build/users/active-monthly', { params, signal: controller.signal })
+    fetchJson('/api/build/users/adoption-trends', { params, signal: controller.signal })
       .then((data) => {
-        setMonthlyActiveAggregate(data.aggregate || []);
-        setMonthlyActiveByInstance(data.byInstance || []);
+        if (adoptionRequestIdRef.current !== requestId) return;
+        setAdoptionPeriods(data.periods || []);
+        setAdoptionReportingConvention(data.reportingDateConvention || '');
+        setAdoptionObservedHistory(data.observed?.history || {});
+        setMonthlyActiveAggregate(data.observed?.aggregate || []);
+        setMonthlyActiveByInstance(data.observed?.byInstance || []);
+        setFormalMauAggregate(data.formal?.aggregate || []);
+        setFormalMauByInstance(data.formal?.byInstance || []);
+        setFormalMauByProfile(data.formal?.byProfile || []);
+        setFormalMauByInstanceProfile(data.formal?.byInstanceProfile || []);
+        setFormalMauLatestMonth(data.formal?.currentPeriod || null);
+        setFormalMauAvailable(data.formal?.available !== false);
+        setAdoptionRequestState({ status: 'success', error: '' });
       })
       .catch((e) => {
-        if (!isAbortError(e)) setRequestError(e.message);
+        if (isAbortError(e) || adoptionRequestIdRef.current !== requestId) return;
+        setAdoptionRequestState({ status: 'error', error: e.message || 'Failed loading adoption trends' });
       })
-      .finally(() => endLoad('activeMonthly'));
+      .finally(() => {
+        if (adoptionRequestIdRef.current === requestId) endLoad('adoptionTrends');
+      });
 
     return () => controller.abort();
-  }, [activityFilter, beginLoad, clearRequestError, endLoad, fetchJson, selectedInstance, setRequestError, windowParam]);
+  }, [activityFilter, adoptionPeriod, beginLoad, endLoad, fetchJson, selectedInstance]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -2800,64 +2813,131 @@ function UsersActivityPage({ apiBase }) {
     setSelectedLogin(login);
   };
 
-  const toMonthlyPoints = (rows) => {
+  const adoptionPeriodConfig = ADOPTION_PERIOD_TABS.find((tab) => tab.key === adoptionPeriod) || ADOPTION_PERIOD_TABS[1];
+  const adoptionReady = adoptionRequestState.status === 'success';
+  const adoptionLoading = adoptionRequestState.status === 'loading';
+  const adoptionFailed = adoptionRequestState.status === 'error';
+  const adoptionCurrentPeriod = useMemo(() => {
+    return (adoptionPeriods || []).find((period) => period.isCurrentPeriod) || (adoptionPeriods || [])[Math.max(0, (adoptionPeriods || []).length - 1)] || null;
+  }, [adoptionPeriods]);
+  const adoptionCurrentPeriodStart = adoptionCurrentPeriod?.periodStart || '';
+  const adoptionCurrentPeriodLabel = adoptionCurrentPeriod?.label || '';
+  const lastMonthLabel = adoptionCurrentPeriodLabel;
+  const adoptionCurrentPeriodNote = adoptionCurrentPeriod?.isPartialPeriod ? 'In progress' : '';
+
+  const toPeriodPoints = (rows) => {
     return (rows || []).map((r) => ({
-      label: String(r.month || '').slice(0, 7),
-      value: Number(r.active_users ?? r.activeUsers ?? 0),
+      periodStart: String(r.periodStart || r.month || r.label || ''),
+      periodEnd: r.periodEnd || '',
+      label: r.label || String(r.periodStart || r.month || '').slice(0, 10),
+      value: parseNonnegativeFiniteCount(r.active_users ?? r.activeUsers),
+      isPartialPeriod: Boolean(r.isPartialPeriod),
     }));
   };
 
-  const lastMonthLabel = useMemo(() => {
-    const latestWithActivity = (monthlyActiveByInstance || [])
-      .map((r) => ({
-        label: String(r.month || '').slice(0, 7),
-        value: Number(r.active_users ?? 0),
-      }))
-      .filter((r) => r.label && r.value > 0)
-      .map((r) => r.label)
-      .sort()
-      .pop();
+  const visibleAdoptionPeriods = useMemo(() => {
+    return (adoptionPeriods || []).map((period) => ({
+      periodStart: String(period.periodStart || period.label || ''),
+      periodEnd: period.periodEnd || '',
+      label: period.label || String(period.periodStart || '').slice(0, 10),
+      isPartialPeriod: Boolean(period.isPartialPeriod),
+    }));
+  }, [adoptionPeriods]);
 
-    if (latestWithActivity) return latestWithActivity;
+  const instanceColorMap = useMemo(() => {
+    const palette = ['#7c3aed', '#059669', '#dc2626', '#ca8a04', '#0891b2', '#db2777', '#4f46e5', '#65a30d', '#ea580c', '#0f766e'];
+    const registry = instanceColorRegistryRef.current;
+    const names = Array.from(new Set([
+      ...((monthlyActiveByInstance || []).map((row) => row.instance_name || row.instanceName).filter(Boolean)),
+      ...((formalMauByInstance || []).map((row) => row.instance_name || row.instanceName).filter(Boolean)),
+    ])).sort((left, right) => String(left).localeCompare(String(right)));
+    names.forEach((name) => {
+      if (!registry[name]) {
+        const assignedCount = Object.keys(registry).length;
+        registry[name] = palette[assignedCount % palette.length];
+      }
+    });
+    return { ...registry };
+  }, [formalMauByInstance, monthlyActiveByInstance]);
 
-    const pts = toMonthlyPoints(monthlyActiveAggregate);
-    return pts.length ? pts[pts.length - 1].label : '';
-  }, [monthlyActiveAggregate, monthlyActiveByInstance]);
+  const buildAdoptionSeries = useCallback((aggregateRows, byInstanceRows, visibility, aggregateLabel) => {
+    const periodKeys = new Set(visibleAdoptionPeriods.map((period) => period.periodStart));
+    const instances = Array.from(new Set(
+      (byInstanceRows || [])
+        .map((row) => row.instance_name || row.instanceName)
+        .filter(Boolean)
+    )).sort((left, right) => String(left).localeCompare(String(right)));
+
+    const allSeries = {
+      key: 'all',
+      label: aggregateLabel,
+      color: '#0f172a',
+      isAggregate: true,
+      visible: showInstanceBreakdown ? visibility.all !== false : true,
+      points: toPeriodPoints(aggregateRows).filter((point) => periodKeys.has(point.periodStart)),
+    };
+
+    if (!showInstanceBreakdown) return [allSeries];
+
+    return [
+      allSeries,
+      ...instances.map((instanceName) => ({
+        key: `instance:${instanceName}`,
+        label: String(instanceName),
+        color: instanceColorMap[instanceName] || '#64748b',
+        visible: visibility[`instance:${instanceName}`] !== false,
+        points: toPeriodPoints((byInstanceRows || []).filter((row) => (row.instance_name || row.instanceName) === instanceName))
+          .filter((point) => periodKeys.has(point.periodStart)),
+      })),
+    ];
+  }, [instanceColorMap, showInstanceBreakdown, visibleAdoptionPeriods]);
+
+  const aggregateSeriesLabel = selectedInstance ? `Selected instance total — ${selectedInstance}` : 'All instances';
+  const observedTrendSeries = useMemo(
+    () => buildAdoptionSeries(monthlyActiveAggregate, monthlyActiveByInstance, observedSeriesVisibility, aggregateSeriesLabel),
+    [aggregateSeriesLabel, buildAdoptionSeries, monthlyActiveAggregate, monthlyActiveByInstance, observedSeriesVisibility]
+  );
+  const formalTrendSeries = useMemo(
+    () => buildAdoptionSeries(formalMauAggregate, formalMauByInstance, formalSeriesVisibility, aggregateSeriesLabel),
+    [aggregateSeriesLabel, buildAdoptionSeries, formalMauAggregate, formalMauByInstance, formalSeriesVisibility]
+  );
+
+  const toggleObservedSeries = useCallback((key) => {
+    if (!showInstanceBreakdown) return;
+    setObservedSeriesVisibility((prev) => ({ ...prev, [key]: prev[key] === false }));
+  }, [showInstanceBreakdown]);
+
+  const toggleFormalSeries = useCallback((key) => {
+    if (!showInstanceBreakdown) return;
+    setFormalSeriesVisibility((prev) => ({ ...prev, [key]: prev[key] === false }));
+  }, [showInstanceBreakdown]);
 
   const latestMonthByInstanceRows = useMemo(() => {
     return (monthlyActiveByInstance || [])
-      .filter((r) => String(r.month || '').slice(0, 7) === lastMonthLabel)
+      .filter((r) => String(r.periodStart || '') === adoptionCurrentPeriodStart)
       .map((r) => ({
         label: r.instance_name || r.instanceName,
         value: Number(r.active_users ?? 0),
       }));
-  }, [monthlyActiveByInstance, lastMonthLabel]);
-
-  const formalMauLastMonthLabel = useMemo(() => {
-    const latestWithActivity = (formalMauByInstance || [])
-      .map((r) => ({
-        label: String(r.month || '').slice(0, 7),
-        value: Number(r.active_users ?? 0),
-      }))
-      .filter((r) => r.label && r.value > 0)
-      .map((r) => r.label)
-      .sort()
-      .pop();
-
-    if (latestWithActivity) return latestWithActivity;
-
-    const pts = toMonthlyPoints(formalMauAggregate);
-    return pts.length ? pts[pts.length - 1].label : '';
-  }, [formalMauAggregate, formalMauByInstance]);
+  }, [monthlyActiveByInstance, adoptionCurrentPeriodStart]);
 
   const formalMauLatestMonthByInstanceRows = useMemo(() => {
     return (formalMauByInstance || [])
-      .filter((r) => String(r.month || '').slice(0, 7) === formalMauLastMonthLabel)
+      .filter((r) => String(r.periodStart || '') === adoptionCurrentPeriodStart)
       .map((r) => ({
         label: r.instance_name || r.instanceName,
         value: Number(r.active_users ?? 0),
       }));
-  }, [formalMauByInstance, formalMauLastMonthLabel]);
+  }, [formalMauByInstance, adoptionCurrentPeriodStart]);
+
+  const observedCurrentPeriodAggregate = useMemo(() => {
+    return (monthlyActiveAggregate || []).find((r) => String(r.periodStart || r.month || r.label || '') === adoptionCurrentPeriodStart) || null;
+  }, [monthlyActiveAggregate, adoptionCurrentPeriodStart]);
+
+  const observedCurrentPeriodTotal = parseNonnegativeFiniteCount(
+    observedCurrentPeriodAggregate?.active_users ?? observedCurrentPeriodAggregate?.activeUsers
+  );
+  const formalCurrentPeriodTotal = parseNonnegativeFiniteCount(formalMauLatestMonth?.active_users ?? formalMauLatestMonth?.activeUsers);
 
   const formalMauByProfileRows = useMemo(() => {
     return (formalMauByProfile || []).map((r) => ({
@@ -3131,70 +3211,158 @@ function UsersActivityPage({ apiBase }) {
       </div>
 
       <div className="PulseCard">
-        <h2>Monthly Adoption Trends</h2>
+        <h2>Adoption Trends</h2>
         <div className="PulseMuted" style={{ marginBottom: 10 }}>
-          Compare two monthly user measures over time: active users based on recorded activity, and formal monthly active users (MAU) used for reporting.
+          Compare observed activity and qualifying formal activity in fixed calendar periods. This container uses its own tabbed range and does not change the page reporting window.
+          {adoptionReady && adoptionReportingConvention ? ` ${adoptionReportingConvention}` : ''}
         </div>
-        <div className="PulseVizGrid">
-          <MonthlyObservedActorsChart title="All instances (users counted once)" points={toMonthlyPoints(monthlyActiveAggregate)} />
-          {showInstanceBreakdown ? (
-            <BarList
-              title={`By instance (${lastMonthLabel || 'latest month'})`}
-              rows={latestMonthByInstanceRows}
-              maxRows={12}
-            />
-          ) : null}
+        <div className="PulseTabs" role="tablist" aria-label="Adoption trend period" style={{ margin: '0 0 16px' }}>
+          {ADOPTION_PERIOD_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              aria-selected={adoptionPeriod === tab.key}
+              className={adoptionPeriod === tab.key ? 'PulseTab PulseTabActive' : 'PulseTab'}
+              onClick={() => setAdoptionPeriod(tab.key)}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
-        <div className="PulseMuted" style={{ marginTop: 14, marginBottom: 10 }}>
-          Formal MAU is a stricter measure than active users. It counts users with qualifying sign-in activity and applies reporting eligibility rules.
-        </div>
-        {formalMauAvailable ? (
+        {adoptionLoading ? (
+          <div className="PulseMuted" role="status" style={{ marginBottom: 12 }}>
+            Loading adoption trends for {adoptionPeriodConfig.label.toLowerCase()}…
+          </div>
+        ) : null}
+        {adoptionFailed ? (
+          <div className="PulseError" role="alert" style={{ marginBottom: 12 }}>
+            {adoptionRequestState.error || 'Failed loading adoption trends.'}
+          </div>
+        ) : null}
+        {adoptionReady && adoptionCurrentPeriodLabel ? (
+          <div className="PulseMuted" style={{ marginBottom: 12 }}>
+            Current {adoptionPeriodConfig.axisLabel.toLowerCase()}: {adoptionCurrentPeriodLabel}{adoptionCurrentPeriodNote ? ` — ${adoptionCurrentPeriodNote}` : ''}. Summary tiles and breakdowns use this current period, even when counts are zero.
+          </div>
+        ) : null}
+        {adoptionReady && adoptionObservedHistory?.firstObservation ? (
+          <div className="PulseMuted" style={{ marginBottom: 12 }}>
+            Observed activity history starts {String(adoptionObservedHistory.firstObservation).slice(0, 10)}; earlier zero buckets may reflect limited loaded history rather than confirmed inactivity.
+          </div>
+        ) : null}
+        {adoptionReady ? (
           <>
-            <div className="PulseSummaryGrid" style={{ marginBottom: 14 }}>
-              <div className="PulseSummaryTile PulseSummaryTileStatic PulseSummaryTileCompact">
-                <div className="PulseSummaryCount">{Number(formalMauLatestMonth?.active_users ?? 0).toLocaleString()}</div>
-                <div className="PulseSummaryLabel">Formal monthly active users</div>
-                <div className="PulseSummaryDetail">
-                  {formalMauLatestMonth?.month ? `Latest month (${String(formalMauLatestMonth.month).slice(0, 7)}) based on qualifying sign-in activity.` : 'Latest month based on qualifying sign-in activity.'}
-                </div>
-              </div>
-            </div>
-            <div className="PulseVizGrid">
-              <MonthlyObservedActorsChart title="Formal monthly active users" points={toMonthlyPoints(formalMauAggregate)} />
-              {showInstanceBreakdown ? (
-                <BarList
-                  title={`Formal monthly active users by instance (${formalMauLastMonthLabel || 'latest month'})`}
-                  rows={formalMauLatestMonthByInstanceRows}
-                  maxRows={12}
-                />
-              ) : null}
-            </div>
-            <div className="PulseMuted" style={{ marginTop: 14, marginBottom: 10 }}>
-              Formal MAU is also grouped by license type so you can compare creator, viewer, admin, and other user groups. In the all-instance view, each user is counted once. In the instance view, a user can appear once per active instance.
-            </div>
-            <div className="PulseVizGrid">
-              <BarList
-                title={`Formal monthly active users by license type (${formalMauLastMonthLabel || 'latest month'})`}
-                rows={formalMauByProfileRows}
-                maxRows={12}
+            <div className="PulseAdoptionTrendStack">
+              <MonthlyObservedActorsChart
+                title={`${aggregateSeriesLabel} — users counted per instance`}
+                periods={visibleAdoptionPeriods}
+                series={observedTrendSeries}
+                showLegend={showInstanceBreakdown}
+                onToggleSeries={toggleObservedSeries}
+                xAxisLabel={adoptionPeriodConfig.axisLabel}
+                yAxisLabel="Observed users"
+                emptyLabel={`No observed activity data available for this ${adoptionPeriodConfig.axisLabel.toLowerCase()} view.`}
+                ariaLabel={`${adoptionPeriodConfig.label} observed users line chart`}
               />
               {showInstanceBreakdown ? (
-                <BarList
-                  title={`Formal monthly active users by instance and license type (${formalMauLastMonthLabel || 'latest month'})`}
-                  rows={formalMauByInstanceProfileRows}
-                  maxRows={12}
-                />
-              ) : null}
+                <div className="PulseAdoptionBreakdownRow">
+                  <BarList
+                    title={`By instance (${adoptionCurrentPeriodLabel || 'current period'})`}
+                    rows={latestMonthByInstanceRows}
+                    maxRows={12}
+                  />
+                  <div className="PulseSummaryTile PulseSummaryTileStatic PulseAdoptionSummaryTile">
+                    <div className="PulseSummaryCount">{observedCurrentPeriodTotal === null ? 'Unavailable' : observedCurrentPeriodTotal.toLocaleString()}</div>
+                    <div className="PulseSummaryLabel">{adoptionPeriodConfig.observedLabel}</div>
+                    <div className="PulseSummaryDetail">
+                      {adoptionCurrentPeriodLabel ? `${aggregateSeriesLabel}; ${adoptionCurrentPeriodLabel}${adoptionCurrentPeriodNote ? ` — ${adoptionCurrentPeriodNote}` : ''} observed activity; users are counted per instance/login pair.` : `${aggregateSeriesLabel}; current period observed activity; users are counted per instance/login pair.`}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="PulseAdoptionSummaryRow">
+                  <div className="PulseSummaryTile PulseSummaryTileStatic PulseAdoptionSummaryTile">
+                    <div className="PulseSummaryCount">{observedCurrentPeriodTotal === null ? 'Unavailable' : observedCurrentPeriodTotal.toLocaleString()}</div>
+                    <div className="PulseSummaryLabel">{adoptionPeriodConfig.observedLabel}</div>
+                    <div className="PulseSummaryDetail">
+                      {adoptionCurrentPeriodLabel ? `${aggregateSeriesLabel}; ${adoptionCurrentPeriodLabel}${adoptionCurrentPeriodNote ? ` — ${adoptionCurrentPeriodNote}` : ''} observed activity; users are counted per instance/login pair.` : `${aggregateSeriesLabel}; current period observed activity; users are counted per instance/login pair.`}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
+            <div className="PulseMuted" style={{ marginTop: 14, marginBottom: 10 }}>
+              Observed users are counted as distinct instance/login pairs; the same login on different instances may contribute more than once. Formal activity uses the same qualifying application-open and eligibility rules in every tab and is not affected by the activity-type filter.
+            </div>
+            {formalMauAvailable ? (
+              <>
+                <div className="PulseAdoptionTrendStack">
+                  <MonthlyObservedActorsChart
+                    title={adoptionPeriodConfig.formalLabel}
+                    periods={visibleAdoptionPeriods}
+                    series={formalTrendSeries}
+                    showLegend={showInstanceBreakdown}
+                    onToggleSeries={toggleFormalSeries}
+                    xAxisLabel={adoptionPeriodConfig.axisLabel}
+                    yAxisLabel="Qualifying users"
+                    emptyLabel={`No qualifying formal activity data available for this ${adoptionPeriodConfig.axisLabel.toLowerCase()} view.`}
+                    ariaLabel={`${adoptionPeriodConfig.label} qualifying formal users line chart`}
+                  />
+                  {showInstanceBreakdown ? (
+                    <div className="PulseAdoptionBreakdownRow">
+                      <BarList
+                        title={`${adoptionPeriodConfig.formalLabel} by instance (${adoptionCurrentPeriodLabel || 'current period'})`}
+                        rows={formalMauLatestMonthByInstanceRows}
+                        maxRows={12}
+                      />
+                      <div className="PulseSummaryTile PulseSummaryTileStatic PulseAdoptionSummaryTile">
+                        <div className="PulseSummaryCount">{formalCurrentPeriodTotal === null ? 'Unavailable' : formalCurrentPeriodTotal.toLocaleString()}</div>
+                        <div className="PulseSummaryLabel">{adoptionPeriodConfig.formalLabel}</div>
+                        <div className="PulseSummaryDetail">
+                          {adoptionCurrentPeriodLabel ? `${aggregateSeriesLabel}; ${adoptionCurrentPeriodLabel}${adoptionCurrentPeriodNote ? ` — ${adoptionCurrentPeriodNote}` : ''} based on qualifying application-open activity.` : `${aggregateSeriesLabel}; current period based on qualifying application-open activity.`}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="PulseAdoptionSummaryRow">
+                      <div className="PulseSummaryTile PulseSummaryTileStatic PulseAdoptionSummaryTile">
+                        <div className="PulseSummaryCount">{formalCurrentPeriodTotal === null ? 'Unavailable' : formalCurrentPeriodTotal.toLocaleString()}</div>
+                        <div className="PulseSummaryLabel">{adoptionPeriodConfig.formalLabel}</div>
+                        <div className="PulseSummaryDetail">
+                          {adoptionCurrentPeriodLabel ? `${aggregateSeriesLabel}; ${adoptionCurrentPeriodLabel}${adoptionCurrentPeriodNote ? ` — ${adoptionCurrentPeriodNote}` : ''} based on qualifying application-open activity.` : `${aggregateSeriesLabel}; current period based on qualifying application-open activity.`}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="PulseMuted" style={{ marginTop: 14, marginBottom: 10 }}>
+                  Formal monthly active users (MAU) remains the monthly reporting measure. Weekly and quarterly tabs show distinct qualifying users for those calendar periods using the same rules.
+                </div>
+                <div className="PulseVizGrid">
+                  <BarList
+                    title={`${adoptionPeriodConfig.formalLabel} by license type (${adoptionCurrentPeriodLabel || 'current period'})`}
+                    rows={formalMauByProfileRows}
+                    maxRows={12}
+                  />
+                  {showInstanceBreakdown ? (
+                    <BarList
+                      title={`${adoptionPeriodConfig.formalLabel} by instance and license type (${adoptionCurrentPeriodLabel || 'current period'})`}
+                      rows={formalMauByInstanceProfileRows}
+                      maxRows={12}
+                    />
+                  ) : null}
+                </div>
+              </>
+            ) : (
+              <div className="PulseSummaryTile PulseSummaryTileStatic" style={{ marginTop: 4 }}>
+                <div className="PulseSummaryLabel">Qualifying formal activity</div>
+                <div className="PulseSummaryDetail" style={{ marginTop: 8 }}>
+                  Formal active user data is not available in this environment.
+                </div>
+              </div>
+            )}
           </>
-        ) : (
-          <div className="PulseSummaryTile PulseSummaryTileStatic" style={{ marginTop: 4 }}>
-            <div className="PulseSummaryLabel">Formal Admin MAU</div>
-            <div className="PulseSummaryDetail" style={{ marginTop: 8 }}>
-              Formal monthly active user data is not available in this environment.
-            </div>
-          </div>
-        )}
+        ) : null}
       </div>
 
       <div className="PulseCard">
@@ -3268,7 +3436,10 @@ function UsersActivityPage({ apiBase }) {
       <div className="PulseCard">
         <h2>Most Active Users</h2>
         <div className="PulseMuted" style={{ marginBottom: 10 }}>
-          Click a user to see their full activity details, including creation and viewing activity.
+          Click a user to see their full activity details, including creation and viewing activity. Use User Directory to find collected users who do not appear in these activity leaderboards.
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <a className="PulseButton" href="#users/directory">Open User Directory</a>
         </div>
         <div className="PulseVizGrid">
           <BarList
@@ -5391,7 +5562,7 @@ function getNavGroupIcon(label) {
   switch (label) {
     case 'Pulse':
       return '🏠';
-    case 'User Insights':
+    case 'Users':
       return '👥';
     case 'Product Lifecycle':
       return '🧩';
@@ -6534,20 +6705,66 @@ function LineChart({ title, points }) {
   );
 }
 
-function MonthlyObservedActorsChart({ title, points }) {
+export function MonthlyObservedActorsChart({
+  title,
+  points,
+  periods,
+  series,
+  showLegend = false,
+  onToggleSeries,
+  xAxisLabel = 'Month',
+  yAxisLabel = 'Observed actors',
+  emptyLabel = 'No monthly data available.',
+  ariaLabel,
+}) {
   const chart = useMemo(() => {
-    const safePoints = (points || []).filter((point) => point && point.label);
+    const sourcePeriods = (periods && periods.length ? periods : points || [])
+      .filter((period) => period && (period.periodStart || period.label))
+      .map((period, index) => ({
+        periodStart: String(period.periodStart || period.label || index),
+        periodEnd: period.periodEnd || '',
+        label: period.label || String(period.periodStart || '').slice(0, 10),
+        isPartialPeriod: Boolean(period.isPartialPeriod),
+      }));
 
-    if (!safePoints.length) {
+    const rawSeries = (series && series.length)
+      ? series
+      : [{ key: '__single__', label: title, color: 'rgba(30, 136, 229, 1)', isAggregate: true, visible: true, points: points || [] }];
+
+    const safeSeries = rawSeries
+      .filter((item) => item && item.key && item.label)
+      .map((item) => {
+        const pointsByPeriod = new Map(
+          (item.points || []).map((point) => [String(point?.periodStart || point?.label || ''), point])
+        );
+        return {
+          ...item,
+          visible: item.visible !== false,
+          points: sourcePeriods.map((period) => {
+            const hasPoint = pointsByPeriod.has(period.periodStart) || pointsByPeriod.has(period.label);
+            const point = pointsByPeriod.get(period.periodStart) || pointsByPeriod.get(period.label) || {};
+            const parsedValue = parseNonnegativeFiniteCount(point.value ?? point.active_users ?? point.activeUsers);
+            return {
+              ...period,
+              value: parsedValue,
+              available: hasPoint && parsedValue !== null,
+            };
+          }),
+        };
+      });
+
+    const visibleSeries = safeSeries.filter((item) => item.visible);
+
+    if (!sourcePeriods.length || !safeSeries.length || !visibleSeries.length) {
       return {
-        coords: [],
-        linePath: '',
+        series: safeSeries,
         xTicks: [],
         yTicks: [0, 1],
+        periodReadouts: [],
         innerHeight: 0,
         xAxisY: 0,
         yAxisX: 0,
-        width: 760,
+        width: 920,
         height: 280,
         marginLeft: 56,
         marginRight: 20,
@@ -6556,62 +6773,105 @@ function MonthlyObservedActorsChart({ title, points }) {
       };
     }
 
-    const width = 760;
+    const width = 920;
     const height = 280;
     const marginTop = 16;
-    const marginRight = 20;
+    const marginRight = 28;
     const marginBottom = 52;
     const marginLeft = 56;
     const innerWidth = width - marginLeft - marginRight;
     const innerHeight = height - marginTop - marginBottom;
     const yAxisX = marginLeft;
     const xAxisY = marginTop + innerHeight;
-    const maxY = Math.max(1, ...safePoints.map((point) => Number(point.value) || 0));
+    const validVisibleValues = visibleSeries.flatMap((item) => item.points.filter((point) => point.available).map((point) => point.value));
+    const maxY = Math.max(1, ...validVisibleValues);
     const yTickCount = maxY <= 4 ? maxY : 4;
     const yStep = Math.max(1, Math.ceil(maxY / Math.max(1, yTickCount)));
     const yMax = Math.max(yStep, Math.ceil(maxY / yStep) * yStep);
     const yTicks = Array.from({ length: Math.floor(yMax / yStep) + 1 }, (_, index) => index * yStep);
 
     const xForIndex = (index) => {
-      if (safePoints.length === 1) {
+      if (sourcePeriods.length === 1) {
         return marginLeft + innerWidth / 2;
       }
-      return marginLeft + (innerWidth * index) / (safePoints.length - 1);
+      return marginLeft + (innerWidth * index) / (sourcePeriods.length - 1);
     };
 
     const yForValue = (value) => marginTop + innerHeight - (innerHeight * value) / yMax;
 
-    const coords = safePoints.map((point, index) => ({
-      ...point,
-      value: Number(point.value) || 0,
-      cx: xForIndex(index),
-      cy: yForValue(Number(point.value) || 0),
-    }));
+    const linePathForCoords = (coords) => {
+      let segmentOpen = false;
+      return coords.reduce((path, point) => {
+        if (!point.available) {
+          segmentOpen = false;
+          return path;
+        }
+        const command = segmentOpen ? 'L' : 'M';
+        segmentOpen = true;
+        return `${path}${path ? ' ' : ''}${command} ${point.cx} ${point.cy}`;
+      }, '');
+    };
 
-    const linePath = coords.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.cx} ${point.cy}`).join(' ');
+    const chartSeries = visibleSeries.map((item) => {
+      const coords = item.points.map((point, index) => ({
+        ...point,
+        seriesKey: item.key,
+        seriesLabel: item.label,
+        color: item.color,
+        cx: xForIndex(index),
+        cy: point.available ? yForValue(point.value) : null,
+      }));
+      return {
+        ...item,
+        coords,
+        linePath: linePathForCoords(coords),
+      };
+    });
 
     const maxTickCount = 6;
+    const tickCount = Math.min(sourcePeriods.length, maxTickCount);
     const tickIndexes = Array.from(
       new Set(
-        safePoints.map((_, index) => {
-          if (safePoints.length <= maxTickCount) {
+        Array.from({ length: tickCount }, (_, index) => {
+          if (sourcePeriods.length <= maxTickCount) {
             return index;
           }
-          return Math.round((index * (safePoints.length - 1)) / (maxTickCount - 1));
+          return Math.round((index * (sourcePeriods.length - 1)) / (tickCount - 1));
         })
       )
     );
     const xTicks = tickIndexes.map((index) => ({
       index,
-      label: safePoints[index].label,
+      label: sourcePeriods[index].label,
       x: xForIndex(index),
     }));
+    const periodReadouts = sourcePeriods.map((period, index) => {
+      const x = xForIndex(index);
+      const previousX = index === 0 ? marginLeft : xForIndex(index - 1);
+      const nextX = index === sourcePeriods.length - 1 ? marginLeft + innerWidth : xForIndex(index + 1);
+      const bandLeft = index === 0 ? marginLeft : (previousX + x) / 2;
+      const bandRight = index === sourcePeriods.length - 1 ? marginLeft + innerWidth : (x + nextX) / 2;
+      const values = chartSeries.map((item) => {
+        const point = item.coords[index];
+        if (!point?.available) return `${item.label}: Unavailable`;
+        return `${item.label}: ${Number(point.value).toLocaleString()}`;
+      });
+      const periodLabel = `${period.label}${period.isPartialPeriod ? ' (in progress)' : ''}`;
+      return {
+        ...period,
+        x: bandLeft,
+        width: Math.max(1, bandRight - bandLeft),
+        label: periodLabel,
+        ariaLabel: `${periodLabel}. ${values.join('. ')}`,
+      };
+    });
 
     return {
-      coords,
-      linePath,
+      series: safeSeries,
+      chartSeries,
       xTicks,
       yTicks,
+      periodReadouts,
       innerHeight,
       xAxisY,
       yAxisX,
@@ -6622,13 +6882,34 @@ function MonthlyObservedActorsChart({ title, points }) {
       marginTop,
       marginBottom,
     };
-  }, [points]);
+  }, [periods, points, series, title]);
+
+  const hasSourceData = (periods && periods.length ? periods : points || []).length > 0;
+  const hasVisibleSeries = (chart.chartSeries || []).length > 0;
 
   return (
     <div className="PulseChartCard">
       <div className="PulseChartTitle">{title}</div>
-      {!points.length ? (
-        <div className="PulseMuted">No monthly data available.</div>
+      {showLegend && chart.series.length ? (
+        <div className="PulseChartLegend" aria-label={`${title} series controls`}>
+          {chart.series.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={item.visible ? 'PulseChartLegendButton PulseChartLegendButtonActive' : 'PulseChartLegendButton'}
+              aria-pressed={item.visible}
+              onClick={() => onToggleSeries?.(item.key)}
+            >
+              <span className="PulseChartLegendSwatch" style={{ backgroundColor: item.color || 'rgba(30, 136, 229, 1)' }} />
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {!hasSourceData ? (
+        <div className="PulseMuted">{emptyLabel}</div>
+      ) : !hasVisibleSeries ? (
+        <div className="PulseMuted">Select a series to display.</div>
       ) : (
         <div className="PulseMonthlyChartWrap">
           <svg
@@ -6636,7 +6917,7 @@ function MonthlyObservedActorsChart({ title, points }) {
             viewBox={`0 0 ${chart.width} ${chart.height}`}
             preserveAspectRatio="xMidYMid meet"
             role="img"
-            aria-label={`${title} monthly observed actors line chart`}
+            aria-label={ariaLabel || `${title} line chart`}
           >
             {chart.yTicks.map((tick) => {
               const y = chart.marginTop + chart.innerHeight - (chart.innerHeight * tick) / Math.max(...chart.yTicks, 1);
@@ -6665,13 +6946,57 @@ function MonthlyObservedActorsChart({ title, points }) {
               y2={chart.xAxisY}
             />
 
-            <path className="PulseMonthlyChartLine" d={chart.linePath} />
-
-            {chart.coords.map((point) => (
-              <g key={point.label}>
-                <title>{`${point.label}: ${point.value}`}</title>
-                <circle className="PulseMonthlyChartPoint" cx={point.cx} cy={point.cy} r="4" />
+            {chart.chartSeries.map((item) => (
+              <g key={item.key}>
+                {item.linePath ? (
+                  <path
+                    className="PulseMonthlyChartLine"
+                    d={item.linePath}
+                    style={{ stroke: item.color, strokeWidth: item.isAggregate ? 3.6 : 2.2 }}
+                  />
+                ) : null}
+                {item.coords.filter((point) => point.available).map((point) => (
+                  <g key={`${item.key}-${point.periodStart}`}>
+                    <title>{`${point.seriesLabel} — ${point.label}${point.isPartialPeriod ? ' (in progress)' : ''}: ${point.value.toLocaleString()}`}</title>
+                    <circle
+                      className="PulseMonthlyChartPoint"
+                      cx={point.cx}
+                      cy={point.cy}
+                      r={item.isAggregate ? 4.4 : 3.6}
+                      style={{ fill: item.color }}
+                    />
+                  </g>
+                ))}
               </g>
+            ))}
+
+            {chart.chartSeries.flatMap((item) => item.coords.filter((point) => !point.available).map((point) => (
+              <text
+                key={`missing-${item.key}-${point.periodStart}`}
+                className="PulseMonthlyChartUnavailableMark"
+                x={point.cx}
+                y={chart.marginTop + 12}
+                textAnchor="middle"
+              >
+                ×
+                <title>{`${point.seriesLabel} — ${point.label}${point.isPartialPeriod ? ' (in progress)' : ''}: Unavailable`}</title>
+              </text>
+            )))}
+
+            {chart.periodReadouts.map((period) => (
+              <rect
+                key={`period-${period.periodStart}`}
+                className="PulseMonthlyChartFocusBand"
+                x={period.x}
+                y={chart.marginTop}
+                width={period.width}
+                height={chart.innerHeight}
+                tabIndex="0"
+                role="img"
+                aria-label={period.ariaLabel}
+              >
+                <title>{period.ariaLabel}</title>
+              </rect>
             ))}
 
             {chart.xTicks.map((tick) => (
@@ -6689,7 +7014,7 @@ function MonthlyObservedActorsChart({ title, points }) {
               y={chart.height - 10}
               textAnchor="middle"
             >
-              Month
+              {xAxisLabel}
             </text>
             <text
               className="PulseMonthlyChartAxisLabel"
@@ -6698,7 +7023,7 @@ function MonthlyObservedActorsChart({ title, points }) {
               textAnchor="middle"
               transform={`rotate(-90 18 ${chart.marginTop + chart.innerHeight / 2})`}
             >
-              Observed actors
+              {yAxisLabel}
             </text>
           </svg>
         </div>
@@ -6909,6 +7234,272 @@ function ProductInventoryTab({ apiBase, authState, requestParams = null }) {
 }
 
 
+
+export function UsersDirectoryPage({ apiBase }) {
+  const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [facets, setFacets] = useState({ instances: [], licenseGroups: [], licenseProfiles: [] });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const [q, setQ] = useState('');
+  const [selectedInstance, setSelectedInstance] = useState('');
+  const [accountStatus, setAccountStatus] = useState('all');
+  const [licenseGroup, setLicenseGroup] = useState('');
+  const [licenseProfile, setLicenseProfile] = useState('');
+  const [draftQ, setDraftQ] = useState('');
+  const [draftSelectedInstance, setDraftSelectedInstance] = useState('');
+  const [draftAccountStatus, setDraftAccountStatus] = useState('all');
+  const [draftLicenseGroup, setDraftLicenseGroup] = useState('');
+  const [draftLicenseProfile, setDraftLicenseProfile] = useState('');
+  const [sort, setSort] = useState('display_name_asc');
+  const [limit, setLimit] = useState(25);
+  const [offset, setOffset] = useState(0);
+  const [selectedLogin, setSelectedLogin] = useState(null);
+  const lastDetailsButtonRef = useRef(null);
+  const requestIdRef = useRef(0);
+
+  const fetchJson = useCallback(async (path, { params, signal } = {}) => {
+    const suffix = params ? `?${params.toString()}` : '';
+    const response = await fetch(apiUrl(apiBase, `${path}${suffix}`), { signal });
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.error || `Failed loading ${path}`);
+    return data;
+  }, [apiBase]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const params = new URLSearchParams();
+    if (selectedInstance) params.set('instance_name', selectedInstance);
+    fetchJson('/api/build/users/facets', { params, signal: controller.signal })
+      .then((data) => setFacets((prev) => ({ ...prev, instances: data.instances || [] })))
+      .catch(() => setFacets((prev) => ({ ...prev, instances: [] })));
+    return () => controller.abort();
+  }, [fetchJson, selectedInstance]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const params = new URLSearchParams();
+    if (selectedInstance) params.set('instance_name', selectedInstance);
+    fetchJson('/api/build/users/directory/facets', { params, signal: controller.signal })
+      .then((data) => setFacets((prev) => ({
+        ...prev,
+        licenseGroups: data.licenseGroups || [],
+        licenseProfiles: data.licenseProfiles || [],
+      })))
+      .catch(() => setFacets((prev) => ({ ...prev, licenseGroups: [], licenseProfiles: [] })));
+    return () => controller.abort();
+  }, [fetchJson, selectedInstance]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (selectedInstance) params.set('instance_name', selectedInstance);
+    if (accountStatus && accountStatus !== 'all') params.set('account_status', accountStatus);
+    if (licenseGroup) params.set('license_group', licenseGroup);
+    if (licenseProfile) params.set('license_profile', licenseProfile);
+    params.set('sort', sort);
+    params.set('limit', String(limit));
+    params.set('offset', String(offset));
+    setLoading(true);
+    setError('');
+    fetchJson('/api/build/users/directory', { params, signal: controller.signal })
+      .then((data) => {
+        if (requestIdRef.current !== requestId) return;
+        setRows(data.rows || []);
+        setTotal(Number(data.total || 0));
+      })
+      .catch((e) => {
+        if (e?.name === 'AbortError' || requestIdRef.current !== requestId) return;
+        setRows([]);
+        setTotal(0);
+        setError(e.message || 'Failed loading user directory');
+      })
+      .finally(() => {
+        if (requestIdRef.current === requestId) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [accountStatus, fetchJson, licenseGroup, licenseProfile, limit, offset, q, selectedInstance, sort]);
+
+  const applyFilters = () => {
+    setQ(draftQ.trim());
+    setSelectedInstance(draftSelectedInstance);
+    setAccountStatus(draftAccountStatus);
+    setLicenseGroup(draftLicenseGroup);
+    setLicenseProfile(draftLicenseProfile);
+    setOffset(0);
+  };
+
+  const resetFilters = () => {
+    setDraftQ('');
+    setDraftSelectedInstance('');
+    setDraftAccountStatus('all');
+    setDraftLicenseGroup('');
+    setDraftLicenseProfile('');
+    setQ('');
+    setSelectedInstance('');
+    setAccountStatus('all');
+    setLicenseGroup('');
+    setLicenseProfile('');
+    setOffset(0);
+  };
+
+  const openUser = (login, event) => {
+    lastDetailsButtonRef.current = event?.currentTarget || null;
+    setSelectedLogin(login);
+  };
+
+  const closeUser = () => {
+    setSelectedLogin(null);
+    setTimeout(() => lastDetailsButtonRef.current?.focus?.(), 0);
+  };
+
+  const startRow = total ? offset + 1 : 0;
+  const endRow = Math.min(offset + limit, total);
+
+  return (
+    <div className="PulseWide">
+      <div className="PulseHero">
+        <h1>User Directory</h1>
+        <p>
+          Browse collected DSS user accounts, including users without recorded activity, and open the existing organization user activity card.
+        </p>
+        <div className="PulseMuted">
+          Rows are grouped by normalized login within the selected instance scope. Directory rows reflect collected metadata, not live account status.
+        </div>
+      </div>
+      <FilterPageLayout
+        filtersExpanded={filtersExpanded}
+        onOpenFilters={() => setFiltersExpanded(true)}
+        onCloseFilters={() => setFiltersExpanded(false)}
+        filterContent={(
+          <>
+            <div className="PulseMuted" style={{ marginTop: 8 }}>
+              Search collected user metadata, then click Apply filters to refresh the directory.
+            </div>
+            <div className="PulseFilterGrid">
+              <label className="PulseLabel">
+                Search
+                <input className="PulseInput" value={draftQ} onChange={(e) => setDraftQ(e.target.value)} placeholder="Name, login, or email" />
+              </label>
+              <label className="PulseLabel">
+                Instance
+                <select className="PulseSelect" value={draftSelectedInstance} onChange={(e) => setDraftSelectedInstance(e.target.value)}>
+                  <option value="">All instances</option>
+                  {facets.instances.map((instanceName) => <option key={instanceName} value={instanceName}>{instanceName}</option>)}
+                </select>
+              </label>
+              <label className="PulseLabel">
+                Account status
+                <select className="PulseSelect" value={draftAccountStatus} onChange={(e) => setDraftAccountStatus(e.target.value)}>
+                  <option value="all">All</option>
+                  <option value="enabled">Enabled</option>
+                  <option value="disabled">Disabled</option>
+                </select>
+              </label>
+              <label className="PulseLabel">
+                License group
+                <select className="PulseSelect" value={draftLicenseGroup} onChange={(e) => setDraftLicenseGroup(e.target.value)}>
+                  <option value="">All</option>
+                  {facets.licenseGroups.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select>
+              </label>
+              <label className="PulseLabel">
+                License profile
+                <select className="PulseSelect" value={draftLicenseProfile} onChange={(e) => setDraftLicenseProfile(e.target.value)}>
+                  <option value="">All</option>
+                  {facets.licenseProfiles.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select>
+              </label>
+              <label className="PulseLabel">
+                Sort
+                <select className="PulseSelect" value={sort} onChange={(e) => { setSort(e.target.value); setOffset(0); }}>
+                  <option value="display_name_asc">Display name (A→Z)</option>
+                  <option value="display_name_desc">Display name (Z→A)</option>
+                  <option value="login_asc">Login (A→Z)</option>
+                  <option value="login_desc">Login (Z→A)</option>
+                  <option value="activity_desc">Last observed activity (newest)</option>
+                  <option value="activity_asc">Last observed activity (oldest)</option>
+                </select>
+              </label>
+              <label className="PulseLabel">
+                Page size
+                <select className="PulseSelect" value={limit} onChange={(e) => { setLimit(Number(e.target.value)); setOffset(0); }}>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </label>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button className="PulseButton PulseButtonPrimary" type="button" onClick={applyFilters}>Apply filters</button>
+                <button className="PulseButton" type="button" onClick={resetFilters}>Reset</button>
+              </div>
+            </div>
+          </>
+        )}
+      >
+        <div className="PulseCard">
+          <div className="PulseResultsHeader">
+            <div>
+              <h2 style={{ marginBottom: 4 }}>Users</h2>
+              <div className="PulseMuted">Showing {startRow}–{endRow} of {total} matching users</div>
+              {loading ? <div className="PulseMuted">Loading…</div> : null}
+              {error ? <div className="PulseError">{error}</div> : null}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="PulseButton" type="button" onClick={() => setOffset(Math.max(0, offset - limit))} disabled={offset === 0}>Prev</button>
+              <button className="PulseButton" type="button" onClick={() => setOffset(offset + limit)} disabled={offset + limit >= total}>Next</button>
+            </div>
+          </div>
+          <div className="PulseTableWrap">
+            <table className="PulseTable">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Login</th>
+                  <th>Instances</th>
+                  <th>License profiles</th>
+                  <th>Account status</th>
+                  <th>Last observed activity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.login}>
+                    <td>
+                      <button type="button" className="PulseLinkButton" onClick={(event) => openUser(row.login, event)}>
+                        {row.displayName || row.representativeLogin || row.login}
+                      </button>
+                      {row.email ? <div className="PulseMuted">{row.email}</div> : null}
+                    </td>
+                    <td><Badge>{row.login}</Badge></td>
+                    <td>{row.instances || '-'}</td>
+                    <td>{row.licenseProfiles || 'UNKNOWN'}</td>
+                    <td><Badge>{row.accountStatus || 'Unknown'}</Badge></td>
+                    <td>{row.latestActivityAt ? formatDateTime(row.latestActivityAt) : 'No recorded activity'}</td>
+                  </tr>
+                ))}
+                {!rows.length && !loading ? (
+                  <tr>
+                    <td colSpan="6" className="PulseMuted">No collected users match the current filters.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </FilterPageLayout>
+      {selectedLogin ? (
+        <Modal title={`${selectedLogin} user card`} onClose={closeUser}>
+          <UserDashboard apiBase={apiBase} login={selectedLogin} mode="organization" selectedInstance={selectedInstance} windowValue="last_3_months" showContextBadges={true} />
+        </Modal>
+      ) : null}
+    </div>
+  );
+}
 
 function UsersLicensePage({ apiBase }) {
   const [selectedInstance, setSelectedInstance] = useState('');
@@ -7921,16 +8512,22 @@ export function buildPageRegistry({ homeHref, userActivityEnabled, llmMeshEnable
       active: ({ workspace, myPage }) => workspace === 'me' && myPage === 'my-llm-overview',
     },
     {
-      key: 'org-users', workspace: 'organization', group: 'User Insights', label: 'Activity Performance', route: 'users', permission: 'organization', capability: 'userActivity',
+      key: 'org-users', workspace: 'organization', group: 'Users', label: 'Activity Performance', route: 'users', permission: 'organization', capability: 'userActivity',
       status: 'implemented', component: UsersActivityPage, isDefault: true,
       description: 'Explore observed activity, engagement, and behavior trends across DSS instances',
       active: ({ route, workspace }) => workspace === 'organization' && route === 'users',
     },
     {
-      key: 'org-users-licenses', workspace: 'organization', group: 'User Insights', label: 'License Performance', route: 'users/licenses', permission: 'organization', capability: 'userActivity',
+      key: 'org-users-licenses', workspace: 'organization', group: 'Users', label: 'License Performance', route: 'users/licenses', permission: 'organization', capability: 'userActivity',
       status: 'implemented', component: UsersLicensePage, isDefault: false,
       description: 'Review enabled users, license profiles, and entitlement coverage across DSS instances',
       active: ({ route, workspace }) => workspace === 'organization' && route === 'users/licenses',
+    },
+    {
+      key: 'org-users-directory', workspace: 'organization', group: 'Users', label: 'User Directory', route: 'users/directory', permission: 'organization', capability: 'userActivity',
+      status: 'implemented', component: UsersDirectoryPage, isDefault: false,
+      description: 'Browse collected user accounts and open individual activity cards',
+      active: ({ route, workspace }) => workspace === 'organization' && route === 'users/directory',
     },
     {
       key: 'org-assets', workspace: 'organization', group: 'Product Lifecycle', label: 'Assets', route: 'product-lifecycle/assets', permission: 'organization', capability: null,
@@ -8292,7 +8889,7 @@ function App() {
 
     const defaults = {
       me: { workspace: 'me', pageKey: 'my-overview', route: null, myPage: 'my-overview', adminPage: 'administration-overview', activeRailGroup: 'My Information' },
-      organization: { workspace: 'organization', pageKey: 'org-users', route: 'users', myPage: 'my-overview', adminPage: 'administration-overview', activeRailGroup: 'User Insights' },
+      organization: { workspace: 'organization', pageKey: 'org-users', route: 'users', myPage: 'my-overview', adminPage: 'administration-overview', activeRailGroup: 'Users' },
       administration: { workspace: 'administration', pageKey: 'admin-overview', route: null, myPage: 'my-overview', adminPage: 'administration-overview', activeRailGroup: 'Administration' },
     };
     const target = defaults[requestedWorkspace];
