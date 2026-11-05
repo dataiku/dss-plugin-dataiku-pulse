@@ -33,6 +33,7 @@ def normalize_silver(
     flatten_base: tuple[str, str] | None = None,
     flatten_variant: str | None = None,
     include_instance_column: bool = True,
+    parse_mixed_epoch_strings: bool = False,
 ) -> pd.DataFrame:
     """Apply silver-layer normalization rules.
 
@@ -136,13 +137,17 @@ def normalize_silver(
     upper_str_cols = load_casting_columns(name="upper_str").columns
 
     # Global cast: run_ts should always be a datetime
-    packed = cast_datetime_columns(packed, ["run_ts"])
+    packed = cast_datetime_columns(packed, ["run_ts"], parse_mixed_epoch_strings=parse_mixed_epoch_strings)
 
     # Only cast non-extras columns. Once a value is in `extras`, it is a JSON
     # string and further casting is intentionally not applied.
     non_extras_cols = [c for c in packed.columns if c != "extras"]
 
-    packed = cast_datetime_columns(packed, [c for c in datetime_cols if c in non_extras_cols])
+    packed = cast_datetime_columns(
+        packed,
+        [c for c in datetime_cols if c in non_extras_cols],
+        parse_mixed_epoch_strings=parse_mixed_epoch_strings,
+    )
     packed = cast_numeric_columns(packed, [c for c in numeric_cols if c in non_extras_cols])
     packed = cast_boolean_columns(packed, [c for c in boolean_cols if c in non_extras_cols])
     packed = cast_string_columns(packed, [c for c in upper_str_cols if c in non_extras_cols], uppercase=True)

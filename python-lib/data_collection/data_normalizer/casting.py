@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Iterable, Sequence
 
 import numpy as np
@@ -24,6 +23,8 @@ def _detect_epoch_unit(values: pd.Series) -> str:
 def cast_datetime_columns(
     df: pd.DataFrame,
     columns: Sequence[str],
+    *,
+    parse_mixed_epoch_strings: bool = False,
 ) -> pd.DataFrame:
     out = df
     for col in columns:
@@ -45,6 +46,9 @@ def cast_datetime_columns(
             out[col] = dt.dt.floor("s")
             continue
 
+        numeric_values = pd.to_numeric(series, errors="coerce")
+        numeric_mask = numeric_values.notna() & series.notna()
+
         # Try string parse first.
         dt = pd.to_datetime(series, utc=True, errors="coerce")
 
@@ -52,7 +56,11 @@ def cast_datetime_columns(
         # retry as epoch.
         if dt.notna().sum() == 0 and series.notna().sum() > 0:
             unit = _detect_epoch_unit(series)
-            dt = pd.to_datetime(pd.to_numeric(series, errors="coerce"), unit=unit, utc=True, errors="coerce")
+            dt = pd.to_datetime(numeric_values, unit=unit, utc=True, errors="coerce")
+        elif parse_mixed_epoch_strings and numeric_mask.any():
+            unit = _detect_epoch_unit(series[numeric_mask])
+            numeric_dt = pd.to_datetime(numeric_values[numeric_mask], unit=unit, utc=True, errors="coerce")
+            dt.loc[numeric_mask] = numeric_dt
 
         out[col] = dt.dt.floor("s")
 
