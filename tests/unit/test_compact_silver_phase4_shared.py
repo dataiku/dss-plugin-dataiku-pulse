@@ -4,6 +4,8 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 import io
+import resource
+import time
 
 import duckdb
 import pandas as pd
@@ -2030,9 +2032,23 @@ def _write_agent_tools_table(path: Path, columns: dict[str, pa.Array]) -> None:
     pq.write_table(pa.table(columns), path)
 
 
-def test_module_contract_compact_ingests_mixed_physical_types_before_typed_staging(monkeypatch, tmp_path):
+def _patch_local_s3(monkeypatch):
     import pyarrow.fs as pa_fs
 
+    monkeypatch.setattr(
+        replay,
+        "resolve_aws_access",
+        lambda ctx: {
+            "access_key": "AKIA...",
+            "secret_key": "SECRET...",
+            "session_token": "TOKEN...",
+            "region_name": "us-east-1",
+        },
+    )
+    monkeypatch.setattr(pa_fs, "S3FileSystem", lambda **kwargs: pa_fs.LocalFileSystem())
+
+
+def test_module_contract_compact_ingests_mixed_physical_types_before_typed_staging(monkeypatch, tmp_path):
     ns_epoch = 1790053323123456789
     source_paths = [tmp_path / f"agent-tools-{index}.parquet" for index in range(1, 4)]
     _write_agent_tools_table(
@@ -2087,17 +2103,7 @@ def test_module_contract_compact_ingests_mixed_physical_types_before_typed_stagi
         selected_records=records,
     )
 
-    monkeypatch.setattr(
-        replay,
-        "resolve_aws_access",
-        lambda ctx: {
-            "access_key": "AKIA...",
-            "secret_key": "SECRET...",
-            "session_token": "TOKEN...",
-            "region_name": "us-east-1",
-        },
-    )
-    monkeypatch.setattr(pa_fs, "S3FileSystem", lambda **kwargs: pa_fs.LocalFileSystem())
+    _patch_local_s3(monkeypatch)
 
     stage = replay._stage_compact_s3_partition(
         storage_ctx=SimpleNamespace(connection_type="EC2"),
@@ -2187,8 +2193,6 @@ def test_module_contract_tolerant_ingestion_does_not_replace_strict_shared_reade
 
 
 def test_module_contract_tolerant_ingestion_rejects_populated_unparseable_timestamp(monkeypatch, tmp_path):
-    import pyarrow.fs as pa_fs
-
     source_path = tmp_path / "bad-run-ts.parquet"
     _write_agent_tools_table(
         source_path,
@@ -2209,17 +2213,7 @@ def test_module_contract_tolerant_ingestion_rejects_populated_unparseable_timest
         day="22",
         selected_records=[_agent_tools_record_for_path(str(source_path), index=1)],
     )
-    monkeypatch.setattr(
-        replay,
-        "resolve_aws_access",
-        lambda ctx: {
-            "access_key": "AKIA...",
-            "secret_key": "SECRET...",
-            "session_token": "TOKEN...",
-            "region_name": "us-east-1",
-        },
-    )
-    monkeypatch.setattr(pa_fs, "S3FileSystem", lambda **kwargs: pa_fs.LocalFileSystem())
+    _patch_local_s3(monkeypatch)
 
     with pytest.raises(replay.ReplaySkipError, match="column='run_ts'"):
         replay._stage_compact_s3_partition(
@@ -2230,3 +2224,310 @@ def test_module_contract_tolerant_ingestion_rejects_populated_unparseable_timest
             s3_read_batch_size=1,
             processing_mode="module_contract_normalization",
         )
+
+
+def test_module_contract_exact_epoch_strings_are_order_independent_and_unit_aware(monkeypatch, tmp_path):
+    source_paths = [tmp_path / f"epoch-{index}.parquet" for index in range(1, 5)]
+    epoch_ns = "1790096411999999999"
+    epoch_ms = "1790096411000"
+    rows = [
+        ("2026-09-22T13:51:22Z", "date-first"),
+        (epoch_ns, "epoch-ns"),
+        (None, "null-run-ts"),
+        (epoch_ms, "epoch-ms"),
+    ]
+    for path, (run_ts, name) in zip(source_paths, rows, strict=True):
+        _write_agent_tools_table(
+            path,
+            {
+                "run_ts": pa.array([run_ts], type=pa.string()),
+                "project_key": pa.array(["PRJ"]),
+                "agent_tools_id": pa.array([name]),
+                "agent_tools_type": pa.array(["macro"]),
+                "agent_tools_name": pa.array([name]),
+            },
+        )
+    records = [_agent_tools_record_for_path(str(path), index=index) for index, path in enumerate(reversed(source_paths), start=1)]
+    partition = discovery.SelectedPartitionPaths(
+        category="agent_tools",
+        module="project_metadata",
+        instance_name="design",
+        year="2026",
+        month="09",
+        day="22",
+        selected_records=records,
+    )
+    _patch_local_s3(monkeypatch)
+
+    stage = replay._stage_compact_s3_partition(
+        storage_ctx=SimpleNamespace(connection_type="EC2"),
+        storage_ctx_factory=None,
+        selected_partition=partition,
+        database_path=tmp_path / "exact-epochs.duckdb",
+        s3_read_batch_size=2,
+        processing_mode="module_contract_normalization",
+    )
+
+    assert stage.raw_rows == 4
+    con = replay.duckdb.connect(str(stage.database_path))
+    try:
+        values = dict(
+            con.execute(
+                """
+                SELECT agent_tools_id, epoch_ns(run_ts)
+                FROM dedup_stage
+                ORDER BY agent_tools_id
+                """.strip()
+            ).fetchall()
+        )
+    finally:
+        con.close()
+    assert values == {
+        "date-first": pd.Timestamp("2026-09-22T13:51:22Z").value,
+        "epoch-ms": pd.Timestamp("2026-09-22T17:00:11Z").value,
+        "epoch-ns": pd.Timestamp("2026-09-22T17:00:11Z").value,
+        "null-run-ts": None,
+    }
+
+def test_module_contract_rejects_ambiguous_epoch_string_lengths(monkeypatch, tmp_path):
+    source_path = tmp_path / "ambiguous.parquet"
+    _write_agent_tools_table(
+        source_path,
+        {
+            "run_ts": pa.array(["17900964110"]),
+            "project_key": pa.array(["PRJ"]),
+            "agent_tools_id": pa.array(["bad-unit"]),
+            "agent_tools_type": pa.array(["macro"]),
+            "agent_tools_name": pa.array(["bad-unit"]),
+        },
+    )
+    partition = discovery.SelectedPartitionPaths(
+        category="agent_tools",
+        module="project_metadata",
+        instance_name="design",
+        year="2026",
+        month="09",
+        day="22",
+        selected_records=[_agent_tools_record_for_path(str(source_path), index=1)],
+    )
+    _patch_local_s3(monkeypatch)
+
+    with pytest.raises(ValueError, match="Unsupported epoch timestamp value length"):
+        replay._stage_compact_s3_partition(
+            storage_ctx=SimpleNamespace(connection_type="EC2"),
+            storage_ctx_factory=None,
+            selected_partition=partition,
+            database_path=tmp_path / "ambiguous.duckdb",
+            s3_read_batch_size=1,
+            processing_mode="module_contract_normalization",
+        )
+
+def test_module_contract_partitioned_reader_preserves_file_instance_and_extras(monkeypatch, tmp_path):
+    root = tmp_path / "silver/category=agent_tools/module=project_metadata/instance_name=design/year=2026/month=09/day=22"
+    root.mkdir(parents=True)
+    source_path = root / "source.parquet"
+    large_int = 9007199254740993
+    _write_agent_tools_table(
+        source_path,
+        {
+            "instance_name": pa.array(["design"]),
+            "run_ts": pa.array(["2026-09-22T13:51:22Z"]),
+            "project_key": pa.array(["PRJ"]),
+            "agent_tools_id": pa.array(["tool"]),
+            "agent_tools_type": pa.array(["macro"]),
+            "agent_tools_name": pa.array(["Tool"]),
+            "large_int": pa.array([large_int], type=pa.int64()),
+            "payload": pa.array([[{"nested": large_int}]]),
+            "enabled": pa.array([True], type=pa.bool_()),
+        },
+    )
+    records = [_agent_tools_record_for_path(str(source_path), index=1)]
+    partition = discovery.SelectedPartitionPaths(
+        category="agent_tools",
+        module="project_metadata",
+        instance_name="design",
+        year="2026",
+        month="09",
+        day="22",
+        selected_records=records,
+    )
+    _patch_local_s3(monkeypatch)
+
+    stage = replay._stage_compact_s3_partition(
+        storage_ctx=SimpleNamespace(connection_type="EC2"),
+        storage_ctx_factory=None,
+        selected_partition=partition,
+        database_path=tmp_path / "partitioned.duckdb",
+        s3_read_batch_size=1,
+        processing_mode="module_contract_normalization",
+    )
+
+    assert stage.raw_rows == 1
+    con = replay.duckdb.connect(str(stage.database_path))
+    try:
+        instance_name, extras = con.execute("SELECT instance_name, extras FROM dedup_stage").fetchone()
+    finally:
+        con.close()
+    extras_payload = replay.json.loads(extras)
+    assert instance_name == "design"
+    assert extras_payload["large_int"] == large_int
+    assert extras_payload["payload"] == [{"nested": large_int}]
+    assert extras_payload["enabled"] is True
+
+def test_module_contract_noncontract_large_int_survives_missing_neighbor_and_upload(monkeypatch, tmp_path):
+    large_int = 9007199254740993
+    source_paths = [tmp_path / "large.parquet", tmp_path / "missing.parquet"]
+    _write_agent_tools_table(
+        source_paths[0],
+        {
+            "run_ts": pa.array(["2026-09-22T13:51:22Z"]),
+            "project_key": pa.array(["PRJ"]),
+            "agent_tools_id": pa.array(["large"]),
+            "agent_tools_type": pa.array(["macro"]),
+            "agent_tools_name": pa.array(["Large"]),
+            "large_int": pa.array([large_int], type=pa.int64()),
+        },
+    )
+    _write_agent_tools_table(
+        source_paths[1],
+        {
+            "run_ts": pa.array(["2026-09-22T13:51:23Z"]),
+            "project_key": pa.array(["PRJ"]),
+            "agent_tools_id": pa.array(["missing"]),
+            "agent_tools_type": pa.array(["macro"]),
+            "agent_tools_name": pa.array(["Missing"]),
+            "other": pa.array(["x"]),
+        },
+    )
+    records = [_agent_tools_record_for_path(str(path), index=index) for index, path in enumerate(source_paths, start=1)]
+    partition = discovery.SelectedPartitionPaths(
+        category="agent_tools",
+        module="project_metadata",
+        instance_name="design",
+        year="2026",
+        month="09",
+        day="22",
+        selected_records=records,
+    )
+    folder = _MemoryFolder()
+    for record in records:
+        folder.files[record.relative_path] = b"source"
+
+    def fake_upload(**kwargs):
+        buf = io.BytesIO()
+        kwargs["df"].to_parquet(buf, index=False, engine="pyarrow", compression="snappy")
+        folder.files[f"/{str(kwargs['output_path']).lstrip('/')}"] = buf.getvalue()
+        return True
+
+    _patch_local_s3(monkeypatch)
+    monkeypatch.setattr(replay, "get_managed_folder_handle", lambda target: folder)
+    monkeypatch.setattr(replay, "upload_parquet", fake_upload)
+    monkeypatch.setattr(replay, "next_compact_save_epoch_ms", lambda: 1790096411000)
+
+    outcome = replay.process_compact_selected_partition(
+        storage_ctx=SimpleNamespace(connection_type="EC2"),
+        target=object(),
+        selected_partition=partition,
+        normalize_silver_mode=True,
+        processing_mode="module_contract_normalization",
+        s3_read_batch_size=1,
+        output_chunk_size=100,
+    )
+
+    assert outcome.status == "succeeded"
+    replacement_paths = [path for path in folder.files if "compact_silver-1790096411000" in path]
+    assert len(replacement_paths) == 1
+    readback_path = tmp_path / "large-int-output.parquet"
+    readback_path.write_bytes(folder.files[replacement_paths[0]])
+    schema = pq.read_schema(readback_path)
+    assert schema.field("run_ts").type == pa.timestamp("ns", tz="UTC")
+    rows = duckdb.connect(":memory:").execute(
+        "SELECT agent_tools_id, extras FROM read_parquet(?) ORDER BY agent_tools_id",
+        [str(readback_path)],
+    ).fetchall()
+    payloads = {row_id: None if extras is None else replay.json.loads(extras) for row_id, extras in rows}
+    assert payloads["large"]["large_int"] == large_int
+    assert payloads["missing"]["other"] == "x"
+
+def test_module_contract_numeric_staging_is_stable_across_batch_order_and_nulls(tmp_path):
+    database_path = tmp_path / "recipes.duckdb"
+    con = duckdb.connect(str(database_path))
+    con.execute(
+        """
+        CREATE TABLE dedup_stage AS
+        SELECT * FROM (VALUES
+            (0, 'design', '2026-09-22T13:51:20Z', 'PRJ', 'all-null', 'python', NULL),
+            (1, 'design', '2026-09-22T13:51:21Z', 'PRJ', 'integer', 'python', '7'),
+            (2, 'design', '2026-09-22T13:51:22Z', 'PRJ', 'fractional', 'python', '7.5')
+        ) AS t(__compact_row_order, instance_name, run_ts, project_key, recipes_name, recipes_type, recipes_maxrunningactivities)
+        """.strip()
+    )
+    con.close()
+
+    selected_records = [
+        discovery.SelectedPathRecord(
+            relative_path="/silver/category=recipes/module=project_metadata/instance_name=design/year=2026/month=09/day=22/source.parquet",
+            full_path="bucket/source.parquet",
+            base_name="source.parquet",
+            layer="silver",
+            category="recipes",
+            module="project_metadata",
+            instance_name="design",
+            year="2026",
+            month="09",
+            day="22",
+        )
+    ]
+    con = duckdb.connect(str(database_path))
+    try:
+        plan_iterator, summary = replay._chunked_plan_iterator(
+            con=con,
+            selected_records=selected_records,
+            normalize_silver_mode=True,
+            processing_mode="module_contract_normalization",
+            run_epoch_ms=1790096411000,
+            output_chunk_size=1,
+        )
+        plans = list(plan_iterator)
+    finally:
+        con.close()
+
+    assert summary.mode == "module_contract_normalization"
+    assert summary.metrics[0].rows == 3
+    assert [plan.silver_df["recipes_maxrunningactivities"].iloc[0] for plan in plans] == [pd.NA, 7.0, 7.5]
+
+def test_module_contract_reader_performance_smoke(monkeypatch, tmp_path):
+    file_count = 8
+    rows_per_file = 25
+    paths = []
+    for file_index in range(file_count):
+        path = tmp_path / f"perf-{file_index}.parquet"
+        paths.append(str(path))
+        pq.write_table(
+            pa.table(
+                {
+                    "run_ts": pa.array(["2026-09-22T13:51:22Z"] * rows_per_file),
+                    "project_key": pa.array([f"PRJ-{file_index}"] * rows_per_file),
+                    "agent_tools_id": pa.array([f"tool-{file_index}-{row}" for row in range(rows_per_file)]),
+                    "agent_tools_type": pa.array(["macro"] * rows_per_file),
+                    "agent_tools_name": pa.array([f"Tool {file_index}-{row}" for row in range(rows_per_file)]),
+                    "metric": pa.array(list(range(rows_per_file)), type=pa.int64()),
+                }
+            ),
+            path,
+        )
+    _patch_local_s3(monkeypatch)
+
+    start_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    started = time.perf_counter()
+    df = replay._read_module_contract_parquet_batch(
+        SimpleNamespace(connection_type="EC2"),
+        full_paths=paths,
+        contract_columns={"instance_name", "run_ts", "project_key", "agent_tools_id", "agent_tools_type", "agent_tools_name"},
+    )
+    elapsed = time.perf_counter() - started
+    peak_rss_delta_kb = max(0, resource.getrusage(resource.RUSAGE_SELF).ru_maxrss - start_rss)
+
+    assert df.shape == (file_count * rows_per_file, 6)
+    assert elapsed < 5.0
+    assert peak_rss_delta_kb < 256 * 1024

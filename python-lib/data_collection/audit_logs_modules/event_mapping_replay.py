@@ -787,7 +787,7 @@ def _read_module_contract_parquet_file(path: str, *, contract_columns: set[str],
     import pyarrow.compute as pc
     import pyarrow.parquet as local_pq
 
-    table = local_pq.read_table(path, filesystem=filesystem)
+    table = local_pq.read_table(path, filesystem=filesystem, partitioning=None)
     for column_name in table.column_names:
         if column_name.lower() not in contract_columns:
             continue
@@ -827,7 +827,8 @@ def _read_module_contract_parquet_batch(storage_ctx: Any, *, full_paths: list[st
         _read_module_contract_parquet_file(path, contract_columns=contract_columns, filesystem=filesystem)
         for path in full_paths
     ]
-    return pd.concat(frames, ignore_index=True, sort=False) if frames else pd.DataFrame()
+    rows = [row for frame in frames for row in frame.to_dict(orient="records")]
+    return pd.DataFrame(rows, dtype=object) if rows else pd.DataFrame()
 
 
 def _stage_compact_s3_partition(
