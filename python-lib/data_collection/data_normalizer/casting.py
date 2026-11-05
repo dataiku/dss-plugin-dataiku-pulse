@@ -80,8 +80,14 @@ def cast_datetime_columns(
         string_values = series.astype("string").str.strip()
         numeric_mask = string_values.str.fullmatch(r"[+-]?\d+").fillna(False)
 
-        # Try string parse first.
-        dt = pd.to_datetime(series, utc=True, errors="coerce")
+        # Try string parse first. The compact opt-in path accepts mixed
+        # readable timestamp strings produced by Arrow casts and prior writers.
+        dt = pd.to_datetime(
+            series,
+            utc=True,
+            errors="coerce",
+            format="mixed" if parse_mixed_epoch_strings else None,
+        )
 
         # If string parse failed for most rows but values are numeric-like strings,
         # retry as epoch.

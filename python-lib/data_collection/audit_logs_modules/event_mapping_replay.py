@@ -507,7 +507,7 @@ def _merge_existing_extras_into_source(df: pd.DataFrame, *, required_columns: li
                 )
         merged.pop("extras", None)
         merged_rows.append(merged)
-    return pd.DataFrame(merged_rows)
+    return pd.DataFrame(merged_rows, dtype=object)
 
 
 def _normalized_contract_input(df: pd.DataFrame) -> pd.DataFrame:
@@ -803,7 +803,7 @@ def _read_module_contract_parquet_file(path: str, *, contract_columns: set[str],
                 f"from parquet file {Path(path).name!r} to text before normalization"
             ) from exc
         table = table.set_column(column_index, column_name, converted_column)
-    return table.to_pandas()
+    return pd.DataFrame(table.to_pylist(), dtype=object)
 
 
 def _read_module_contract_parquet_batch(storage_ctx: Any, *, full_paths: list[str], contract_columns: set[str]) -> pd.DataFrame:

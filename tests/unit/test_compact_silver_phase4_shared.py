@@ -2082,7 +2082,7 @@ def test_module_contract_compact_ingests_mixed_physical_types_before_typed_stagi
     _write_agent_tools_table(
         source_paths[2],
         {
-            "run_ts": pa.array(["2026-09-22T01:02:04+02:00"]),
+            "run_ts": pa.array(["2026-09-22 01:02:04.000000000Z"]),
             "project_key": pa.array([None], type=pa.string()),
             "agent_tools_id": pa.array([None], type=pa.string()),
             "agent_tools_type": pa.array(["visual"]),
@@ -2133,7 +2133,7 @@ def test_module_contract_compact_ingests_mixed_physical_types_before_typed_stagi
     assert columns == ["instance_name", "project_key", "agent_tools_id", "agent_tools_type", "agent_tools_name", "run_ts", "extras"]
     assert staged[0][:4] == ("00123", "0007", "Alpha", ns_epoch - (ns_epoch % 1_000_000_000))
     assert staged[1][:4] == ("123", "7", "Alpha", pd.Timestamp("2026-09-22T01:02:03Z").value)
-    assert staged[2][:4] == (None, None, "Beta", pd.Timestamp("2026-09-21T23:02:04Z").value)
+    assert staged[2][:4] == (None, None, "Beta", pd.Timestamp("2026-09-22T01:02:04Z").value)
     extras_payloads = [None if row[4] is None else replay.json.loads(row[4]) for row in staged]
     assert extras_payloads[0]["metric"] == 43.5
     assert extras_payloads[0]["enabled"] is False
@@ -2226,16 +2226,111 @@ def test_module_contract_tolerant_ingestion_rejects_populated_unparseable_timest
         )
 
 
+def test_module_contract_ingestion_conflicting_extras_rejects_before_upload_or_delete(monkeypatch, tmp_path):
+    source_path = tmp_path / "conflict.parquet"
+    _write_agent_tools_table(
+        source_path,
+        {
+            "run_ts": pa.array(["2026-09-22T13:51:22Z"]),
+            "project_key": pa.array(["top"]),
+            "agent_tools_id": pa.array(["tool"]),
+            "agent_tools_type": pa.array(["macro"]),
+            "agent_tools_name": pa.array(["Tool"]),
+            "extras": pa.array([replay.json.dumps({"project_key": "extra"})]),
+        },
+    )
+    record = _agent_tools_record_for_path(str(source_path), index=1)
+    partition = discovery.SelectedPartitionPaths(
+        category="agent_tools",
+        module="project_metadata",
+        instance_name="design",
+        year="2026",
+        month="09",
+        day="22",
+        selected_records=[record],
+    )
+    folder = _MemoryFolder()
+    folder.files[record.relative_path] = b"source"
+    uploads: list[dict[str, object]] = []
+
+    _patch_local_s3(monkeypatch)
+    monkeypatch.setattr(replay, "get_managed_folder_handle", lambda target: folder)
+    monkeypatch.setattr(replay, "upload_parquet", lambda **kwargs: uploads.append(kwargs))
+
+    with pytest.raises(replay.ReplaySkipError, match="contract column 'project_key'"):
+        replay.process_compact_selected_partition(
+            storage_ctx=SimpleNamespace(connection_type="EC2"),
+            target=object(),
+            selected_partition=partition,
+            normalize_silver_mode=True,
+            processing_mode="module_contract_normalization",
+            s3_read_batch_size=1,
+            output_chunk_size=100,
+        )
+
+    assert uploads == []
+    assert folder.deleted == []
+    assert record.relative_path in folder.files
+
+
+def test_module_contract_ingestion_malformed_timestamp_rejects_before_upload_or_delete(monkeypatch, tmp_path):
+    source_path = tmp_path / "bad-run-ts-process.parquet"
+    _write_agent_tools_table(
+        source_path,
+        {
+            "run_ts": pa.array(["not-a-timestamp"]),
+            "project_key": pa.array(["PRJ"]),
+            "agent_tools_id": pa.array(["tool"]),
+            "agent_tools_type": pa.array(["macro"]),
+            "agent_tools_name": pa.array(["Tool"]),
+        },
+    )
+    record = _agent_tools_record_for_path(str(source_path), index=1)
+    partition = discovery.SelectedPartitionPaths(
+        category="agent_tools",
+        module="project_metadata",
+        instance_name="design",
+        year="2026",
+        month="09",
+        day="22",
+        selected_records=[record],
+    )
+    folder = _MemoryFolder()
+    folder.files[record.relative_path] = b"source"
+    uploads: list[dict[str, object]] = []
+
+    _patch_local_s3(monkeypatch)
+    monkeypatch.setattr(replay, "get_managed_folder_handle", lambda target: folder)
+    monkeypatch.setattr(replay, "upload_parquet", lambda **kwargs: uploads.append(kwargs))
+
+    with pytest.raises(replay.ReplaySkipError, match="column='run_ts'"):
+        replay.process_compact_selected_partition(
+            storage_ctx=SimpleNamespace(connection_type="EC2"),
+            target=object(),
+            selected_partition=partition,
+            normalize_silver_mode=True,
+            processing_mode="module_contract_normalization",
+            s3_read_batch_size=1,
+            output_chunk_size=100,
+        )
+
+    assert uploads == []
+    assert folder.deleted == []
+    assert record.relative_path in folder.files
+
+
 def test_module_contract_exact_epoch_strings_are_order_independent_and_unit_aware(monkeypatch, tmp_path):
-    source_paths = [tmp_path / f"epoch-{index}.parquet" for index in range(1, 5)]
     epoch_ns = "1790096411999999999"
     epoch_ms = "1790096411000"
     rows = [
         ("2026-09-22T13:51:22Z", "date-first"),
+        ("2026-09-22 13:51:22.000000000Z", "arrow-text"),
+        ("2026-09-22T15:51:22+02:00", "offset-text"),
         (epoch_ns, "epoch-ns"),
         (None, "null-run-ts"),
         (epoch_ms, "epoch-ms"),
     ]
+    source_paths = [tmp_path / f"epoch-{index}.parquet" for index in range(1, len(rows) + 1)]
     for path, (run_ts, name) in zip(source_paths, rows, strict=True):
         _write_agent_tools_table(
             path,
@@ -2268,7 +2363,7 @@ def test_module_contract_exact_epoch_strings_are_order_independent_and_unit_awar
         processing_mode="module_contract_normalization",
     )
 
-    assert stage.raw_rows == 4
+    assert stage.raw_rows == 6
     con = replay.duckdb.connect(str(stage.database_path))
     try:
         values = dict(
@@ -2283,10 +2378,12 @@ def test_module_contract_exact_epoch_strings_are_order_independent_and_unit_awar
     finally:
         con.close()
     assert values == {
+        "arrow-text": pd.Timestamp("2026-09-22T13:51:22Z").value,
         "date-first": pd.Timestamp("2026-09-22T13:51:22Z").value,
         "epoch-ms": pd.Timestamp("2026-09-22T17:00:11Z").value,
         "epoch-ns": pd.Timestamp("2026-09-22T17:00:11Z").value,
         "null-run-ts": None,
+        "offset-text": pd.Timestamp("2026-09-22T13:51:22Z").value,
     }
 
 def test_module_contract_rejects_ambiguous_epoch_string_lengths(monkeypatch, tmp_path):
@@ -2396,6 +2493,7 @@ def test_module_contract_noncontract_large_int_survives_missing_neighbor_and_upl
             "agent_tools_id": pa.array(["missing"]),
             "agent_tools_type": pa.array(["macro"]),
             "agent_tools_name": pa.array(["Missing"]),
+            "extras": pa.array([replay.json.dumps({"recovered_large": large_int})]),
             "other": pa.array(["x"]),
         },
     )
@@ -2448,6 +2546,7 @@ def test_module_contract_noncontract_large_int_survives_missing_neighbor_and_upl
     payloads = {row_id: None if extras is None else replay.json.loads(extras) for row_id, extras in rows}
     assert payloads["large"]["large_int"] == large_int
     assert payloads["missing"]["other"] == "x"
+    assert payloads["missing"]["recovered_large"] == large_int
 
 def test_module_contract_numeric_staging_is_stable_across_batch_order_and_nulls(tmp_path):
     database_path = tmp_path / "recipes.duckdb"
