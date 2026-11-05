@@ -21,11 +21,13 @@ import pyarrow.parquet as pq
 from data_collection.audit_logs_modules.compact_silver_queue import _compact_queue_memory_limit_bytes
 from data_collection.audit_logs_modules import event_mapping
 from data_collection.data_normalizer import DQResult, check_silver_dq, normalize_silver
+from data_collection.data_normalizer.column_sanitize import sanitize_columns
 from data_collection.data_normalizer.extras import extras_to_json
 from data_collection.data_normalizer.flatten_config import load_flatten_config
-from data_collection.data_normalizer.schema_config import flatten_columns_search_dirs, normalize_column_names
+from data_collection.data_normalizer.schema_config import flatten_columns_search_dirs, load_casting_columns, normalize_column_names
 from data_collection.helper import DSSFolderTarget, get_managed_folder_handle, upload_parquet
 from shared_duckdb.create_conn import _duckdb_memory_limit_setting, _effective_memory_limit_bytes
+from shared_storage_credentials import resolve_aws_access
 from shared_storage_discovery import SelectedPartitionPaths, SelectedPathRecord
 from shared_storage_parquet_s3 import COMPACT_SILVER_S3_READ_BATCH_SIZE, read_s3_parquet_file_batch
 
@@ -40,6 +42,7 @@ _COMPACT_SAVE_EPOCH_LOCK = threading.Lock()
 COMPACT_SILVER_OUTPUT_ROW_CHUNK_SIZE = 100_000
 REPLACEMENT_EVIDENCE_SAMPLE_SIZE = 5
 _STAGE_ORDER_COLUMN = "__compact_row_order"
+_STAGE_METADATA_TABLE = "__compact_stage_metadata"
 COMPACT_PROCESSING_MODE_GENERIC = "generic_compaction"
 COMPACT_PROCESSING_MODE_EVENT_MAPPING = "event_mapping_replay"
 COMPACT_PROCESSING_MODE_MODULE_CONTRACT = "module_contract_normalization"
@@ -407,6 +410,35 @@ def _output_columns_for_module_contract(*, category: str, module_name: str) -> l
     return ["instance_name", *required_without_globals, "run_ts", "extras"]
 
 
+def _module_contract_ingest_columns(*, category: str, module_name: str) -> set[str]:
+    return set(_required_columns_for_module_contract(category=category, module_name=module_name))
+
+
+def _typed_module_contract_columns(required_columns: list[str]) -> set[str]:
+    typed_columns = {"run_ts"}
+    typed_columns.update(load_casting_columns(name="datetime").columns)
+    typed_columns.update(load_casting_columns(name="numeric").columns)
+    typed_columns.update(load_casting_columns(name="boolean").columns)
+    return typed_columns.intersection(required_columns)
+
+
+def _is_module_contract_staged(
+    con: duckdb.DuckDBPyConnection,
+    *,
+    category: str,
+    module_name: str,
+) -> bool:
+    tables = {row[0] for row in con.execute("SHOW TABLES").fetchall()}
+    if _STAGE_METADATA_TABLE not in tables or "dedup_stage" not in tables:
+        return False
+    quoted_metadata = _quote_duckdb_identifier(_STAGE_METADATA_TABLE)
+    marked_mode = con.execute(f"SELECT value FROM {quoted_metadata} WHERE key = 'processing_mode'").fetchone()
+    if marked_mode is None or marked_mode[0] != COMPACT_PROCESSING_MODE_MODULE_CONTRACT:
+        return False
+    actual_columns = [column for column in _duckdb_columns(con, "dedup_stage") if column != _STAGE_ORDER_COLUMN]
+    return actual_columns == _output_columns_for_module_contract(category=category, module_name=module_name)
+
+
 def _canonical_arrow_types_for_module_contract(*, category: str, module_name: str) -> dict[str, Any]:
     empty_source = pd.DataFrame(columns=_output_columns_for_module_contract(category=category, module_name=module_name))
     normalized = normalize_module_contract_silver(
@@ -475,11 +507,53 @@ def _merge_existing_extras_into_source(df: pd.DataFrame, *, required_columns: li
                 )
         merged.pop("extras", None)
         merged_rows.append(merged)
-    return pd.DataFrame(merged_rows)
+    return pd.DataFrame(merged_rows, dtype=object)
+
+
+def _normalized_contract_input(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out.columns = [column.lower() for column in sanitize_columns(out.columns)]
+    return out
+
+
+def _populated_mask(series: pd.Series) -> pd.Series:
+    mask = series.notna()
+    string_values = series.astype("string")
+    return mask & string_values.notna() & string_values.str.strip().ne("")
+
+
+def _validate_typed_contract_values_survived(
+    *,
+    source_df: pd.DataFrame,
+    silver_df: pd.DataFrame,
+    required_columns: list[str],
+    category: str,
+    module_name: str,
+) -> None:
+    normalized_source = _normalized_contract_input(source_df)
+    typed_columns = _typed_module_contract_columns(required_columns)
+    for column_name in sorted(typed_columns):
+        if column_name not in normalized_source.columns or column_name not in silver_df.columns:
+            continue
+        populated = _populated_mask(normalized_source[column_name]).reset_index(drop=True)
+        if not populated.any():
+            continue
+        became_null = silver_df[column_name].isna().reset_index(drop=True) & populated
+        if became_null.any():
+            row_numbers = [int(index) for index in became_null[became_null].index[:REPLACEMENT_EVIDENCE_SAMPLE_SIZE]]
+            raise ReplaySkipError(
+                "Compact SILVER module-contract normalization produced nulls from populated typed values "
+                f"for category={category!r} module={module_name!r} column={column_name!r} sample_rows={row_numbers!r}"
+            )
 
 
 def normalize_module_contract_silver(
-    *, df: pd.DataFrame, category: str, module_name: str, instance_name: str
+    *,
+    df: pd.DataFrame,
+    category: str,
+    module_name: str,
+    instance_name: str,
+    parse_mixed_epoch_strings: bool = False,
 ) -> pd.DataFrame:
     required_columns = _required_columns_for_module_contract(
         category=category, module_name=module_name
@@ -496,6 +570,7 @@ def normalize_module_contract_silver(
         category=category,
         module=module_name,
         todo_section=_todo_section_for_compact_contract(category=category, module_name=module_name),
+        parse_mixed_epoch_strings=parse_mixed_epoch_strings,
     )
     if category == "users" and module_name == "user_activity" and "dataiku_category" in source_df.columns:
         silver_df = silver_df.copy()
@@ -503,6 +578,14 @@ def normalize_module_contract_silver(
     if "extras" in silver_df.columns:
         silver_df = silver_df.copy()
         silver_df["extras"] = silver_df["extras"].map(extras_to_json)
+    if parse_mixed_epoch_strings:
+        _validate_typed_contract_values_survived(
+            source_df=source_df,
+            silver_df=silver_df,
+            required_columns=required_columns,
+            category=category,
+            module_name=module_name,
+        )
     return silver_df
 
 
@@ -691,6 +774,63 @@ def _process_rss_mb() -> int | None:
     return None
 
 
+def _is_structured_arrow_type(arrow_type: Any) -> bool:
+    return (
+        pa.types.is_struct(arrow_type)
+        or pa.types.is_list(arrow_type)
+        or pa.types.is_large_list(arrow_type)
+        or pa.types.is_map(arrow_type)
+    )
+
+
+def _read_module_contract_parquet_file(path: str, *, contract_columns: set[str], filesystem: Any) -> pd.DataFrame:
+    import pyarrow.compute as pc
+    import pyarrow.parquet as local_pq
+
+    table = local_pq.read_table(path, filesystem=filesystem, partitioning=None)
+    for column_name in table.column_names:
+        if column_name.lower() not in contract_columns:
+            continue
+        column_index = table.column_names.index(column_name)
+        field = table.schema.field(column_name)
+        if _is_structured_arrow_type(field.type):
+            continue
+        try:
+            converted_column = pc.cast(table[column_name], pa.string())
+        except (pa.ArrowInvalid, pa.ArrowNotImplementedError, pa.ArrowTypeError) as exc:
+            raise ReplaySkipError(
+                f"Compact SILVER module-contract ingestion could not convert contract column {column_name!r} "
+                f"from parquet file {Path(path).name!r} to text before normalization"
+            ) from exc
+        table = table.set_column(column_index, column_name, converted_column)
+    return pd.DataFrame(table.to_pylist(), dtype=object)
+
+
+def _read_module_contract_parquet_batch(storage_ctx: Any, *, full_paths: list[str], contract_columns: set[str]) -> pd.DataFrame:
+    import pyarrow.fs as pa_fs
+
+    if storage_ctx.connection_type != "EC2":
+        raise RuntimeError(
+            f"S3 parquet reader only supports EC2 managed-folder connections in Compact SILVER module-contract mode: {storage_ctx.connection_type}"
+        )
+    if not full_paths:
+        raise ValueError("S3 parquet reader requires at least one selected source path")
+
+    aws_access = resolve_aws_access(storage_ctx)
+    filesystem = pa_fs.S3FileSystem(
+        access_key=aws_access["access_key"],
+        secret_key=aws_access["secret_key"],
+        session_token=aws_access["session_token"],
+        region=aws_access["region_name"],
+    )
+    frames = [
+        _read_module_contract_parquet_file(path, contract_columns=contract_columns, filesystem=filesystem)
+        for path in full_paths
+    ]
+    rows = [row for frame in frames for row in frame.to_dict(orient="records")]
+    return pd.DataFrame(rows, dtype=object) if rows else pd.DataFrame()
+
+
 def _stage_compact_s3_partition(
     *,
     storage_ctx: Any,
@@ -698,6 +838,7 @@ def _stage_compact_s3_partition(
     selected_partition: SelectedPartitionPaths,
     database_path: Path,
     s3_read_batch_size: int,
+    processing_mode: str = COMPACT_PROCESSING_MODE_GENERIC,
 ) -> CompactStageResult:
     total_files = len(selected_partition.selected_records)
     started = time.monotonic()
@@ -719,6 +860,14 @@ def _stage_compact_s3_partition(
     raw_rows = 0
     files_read = 0
     row_order_start = 0
+    normalize_batches = processing_mode == COMPACT_PROCESSING_MODE_MODULE_CONTRACT
+    contract_columns = (
+        _module_contract_ingest_columns(category=selected_partition.category, module_name=selected_partition.module)
+        if normalize_batches
+        else set()
+    )
+    input_columns = 0
+    normalized_rows_before_exact_dedup = 0
     try:
         total_batches = (total_files + s3_read_batch_size - 1) // s3_read_batch_size
         for batch_number, record_batch in enumerate(
@@ -728,7 +877,25 @@ def _stage_compact_s3_partition(
             batch_started = time.monotonic()
             batch_storage_ctx = storage_ctx_factory() if storage_ctx_factory is not None else storage_ctx
             batch_full_paths = [record.full_path for record in record_batch]
-            batch_df = read_s3_parquet_file_batch(batch_storage_ctx, full_paths=batch_full_paths)
+            if normalize_batches:
+                batch_df = _read_module_contract_parquet_batch(
+                    batch_storage_ctx,
+                    full_paths=batch_full_paths,
+                    contract_columns=contract_columns,
+                )
+            else:
+                batch_df = read_s3_parquet_file_batch(batch_storage_ctx, full_paths=batch_full_paths)
+            input_columns = max(input_columns, int(batch_df.shape[1]))
+            raw_rows += int(len(batch_df))
+            if normalize_batches:
+                batch_df = normalize_module_contract_silver(
+                    df=batch_df,
+                    category=selected_partition.category,
+                    module_name=selected_partition.module,
+                    instance_name=selected_partition.instance_name,
+                    parse_mixed_epoch_strings=True,
+                )
+                normalized_rows_before_exact_dedup += int(len(batch_df))
             batch_df = batch_df.copy()
             batch_df[_STAGE_ORDER_COLUMN] = range(row_order_start, row_order_start + len(batch_df))
             row_order_start += len(batch_df)
@@ -736,7 +903,6 @@ def _stage_compact_s3_partition(
             raw_created = True
 
             batch_file_count = len(record_batch)
-            raw_rows += int(len(batch_df))
             files_read += batch_file_count
             logger.info(
                 "Compact SILVER S3 read batch completed partition=%s batch_number=%s total_batches=%s batch_file_count=%s cumulative_files=%s cumulative_rows=%s elapsed_seconds=%.3f rss_mb=%s",
@@ -768,6 +934,30 @@ def _stage_compact_s3_partition(
             """.strip()
         )
         rows_after_drop_duplicates = int(con.execute("SELECT COUNT(*) FROM dedup_stage").fetchone()[0])
+        if normalize_batches:
+            quoted_metadata = _quote_duckdb_identifier(_STAGE_METADATA_TABLE)
+            con.execute(f"CREATE TABLE {quoted_metadata} (key VARCHAR, value VARCHAR)")
+            con.execute(
+                f"INSERT INTO {quoted_metadata} VALUES ('processing_mode', ?)",
+                [COMPACT_PROCESSING_MODE_MODULE_CONTRACT],
+            )
+            actual_columns = [column for column in _duckdb_columns(con, "dedup_stage") if column != _STAGE_ORDER_COLUMN]
+            expected_order = _output_columns_for_module_contract(
+                category=selected_partition.category,
+                module_name=selected_partition.module,
+            )
+            if actual_columns != expected_order:
+                raise ReplaySkipError(
+                    "Module contract normalization produced unexpected schema for "
+                    f"category={selected_partition.category!r} module={selected_partition.module!r}: {actual_columns!r}"
+                )
+            logger.info(
+                "Compact SILVER module-contract normalized ingestion staged partition=%s input_rows=%s normalized_rows=%s final_unique_rows=%s",
+                selected_partition.partition_scope,
+                raw_rows,
+                normalized_rows_before_exact_dedup,
+                rows_after_drop_duplicates,
+            )
         logger.info(
             "Compact SILVER partition staging completed partition=%s source_file_count=%s raw_rows=%s rows_after_drop_duplicates=%s elapsed_seconds=%.3f rss_mb=%s",
             selected_partition.partition_scope,
@@ -782,7 +972,7 @@ def _stage_compact_s3_partition(
             files_read=files_read,
             raw_rows=raw_rows,
             rows_after_drop_duplicates=rows_after_drop_duplicates,
-            output_column_count=len(raw_columns),
+            output_column_count=input_columns if normalize_batches else len(raw_columns),
         )
     finally:
         con.close()
@@ -1137,6 +1327,7 @@ def _stage_normalized_module_contract_chunks(
     instance_name: str,
     run_epoch_ms: int,
     output_chunk_size: int,
+    already_normalized: bool = False,
 ) -> tuple[str, CompactPlanSummary]:
     _required_columns_for_module_contract(category=category, module_name=module_name)
     table_name = "silver_stage_1"
@@ -1152,12 +1343,15 @@ def _stage_normalized_module_contract_chunks(
         chunk_size=output_chunk_size,
         exclude_columns={_STAGE_ORDER_COLUMN},
     ):
-        silver_df = normalize_module_contract_silver(
-            df=chunk_df,
-            category=category,
-            module_name=module_name,
-            instance_name=instance_name,
-        )
+        if already_normalized:
+            silver_df = chunk_df.copy()
+        else:
+            silver_df = normalize_module_contract_silver(
+                df=chunk_df,
+                category=category,
+                module_name=module_name,
+                instance_name=instance_name,
+            )
         if silver_df.empty:
             continue
         silver_df = silver_df.copy()
@@ -1187,9 +1381,6 @@ def _stage_normalized_module_contract_chunks(
         output_rows,
     )
 
-    expected_duckdb_types = _duckdb_column_type_map(
-        con, table_name, exclude_columns={_STAGE_ORDER_COLUMN}
-    )
     actual_columns = [column for column in _duckdb_columns(con, table_name) if column != _STAGE_ORDER_COLUMN]
     expected_order = _output_columns_for_module_contract(
         category=category, module_name=module_name
@@ -1300,6 +1491,11 @@ def _chunked_plan_iterator(
             instance_name=instance_name,
             run_epoch_ms=run_epoch_ms,
             output_chunk_size=output_chunk_size,
+            already_normalized=_is_module_contract_staged(
+                con,
+                category=category,
+                module_name=module_name,
+            ),
         )
         expected_duckdb_types = _duckdb_column_type_map(
             con, table_name, exclude_columns={_STAGE_ORDER_COLUMN}
@@ -1943,6 +2139,7 @@ def process_compact_selected_partition(
             selected_partition=selected_partition,
             database_path=Path(stage_dir) / "partition.duckdb",
             s3_read_batch_size=s3_read_batch_size,
+            processing_mode=replay_mode,
         )
         processing_result = process_staged_compact_partition(
             target=target,
